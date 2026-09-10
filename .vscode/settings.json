@@ -1,0 +1,5 @@
+{
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "gradle.autoDetect": "off",
+    "java.gradle.buildServer.enabled": "off"
+}
