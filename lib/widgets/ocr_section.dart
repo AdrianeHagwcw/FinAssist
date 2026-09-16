@@ -76,10 +76,10 @@ class _OcrSectionState extends State<OcrSection> {
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.document_scanner_outlined,
-            color: Color(0xFF1976D2),
-            size: 28,
+          Image.asset(
+            'assets/icons/icons8-camera-96.png',
+            width: 28,
+            height: 28,
           ),
           const SizedBox(width: 12),
           const Expanded(

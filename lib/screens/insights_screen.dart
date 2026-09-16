@@ -6,6 +6,7 @@ import '../utils/categories.dart';
 import '../utils/money_format.dart';
 import '../widgets/money_text.dart';
 import '../theme/app_colors.dart';
+import '../widgets/category_icon.dart';
 
 class InsightsScreen extends StatefulWidget {
   const InsightsScreen({super.key});
@@ -535,7 +536,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       children: [
         Expanded(
           child: _summaryCard(
-            icon: Icons.payments_outlined,
+            iconAsset: 'assets/icons/icons8-banknotes-96.png',
             title: 'Total Spending',
             value: formatPeso(total),
           ),
@@ -545,7 +546,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
         Expanded(
           child: _summaryCard(
-            icon: Icons.receipt_long_outlined,
+            iconAsset: 'assets/icons/icons8-receipt-96.png',
             title: 'Transactions',
             value: '$count',
           ),
@@ -555,7 +556,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
         Expanded(
           child: _summaryCard(
-            icon: Icons.analytics_outlined,
+            iconAsset: 'assets/icons/icons8-coin-96.png',
             title: 'Average',
             value: formatPeso(average),
           ),
@@ -569,7 +570,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   // ============================================================
 
   Widget _summaryCard({
-    required IconData icon,
+    required String iconAsset,
     required String title,
     required String value,
   }) {
@@ -598,7 +599,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
 
         children: [
-          Icon(icon, color: _primaryBlue, size: 27),
+          Image.asset(iconAsset, width: 27, height: 27),
 
           const SizedBox(height: 8),
 
@@ -841,13 +842,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               borderRadius: BorderRadius.circular(15),
             ),
 
-            child: Icon(
-              categoryIcon(category),
-
-              color: categoryColor(category),
-
-              size: 28,
-            ),
+            child: CategoryIcon(category, size: 30),
           ),
 
           const SizedBox(width: 14),
@@ -945,13 +940,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                         borderRadius: BorderRadius.circular(10),
                       ),
 
-                      child: Icon(
-                        categoryIcon(entry.key),
-
-                        size: 18,
-
-                        color: categoryColor(entry.key),
-                      ),
+                      child: CategoryIcon(entry.key, size: 20),
                     ),
 
                     const SizedBox(width: 10),
@@ -1099,11 +1088,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   shape: BoxShape.circle,
                 ),
 
-                child: const Icon(
-                  Icons.auto_awesome,
-                  color: _primaryBlue,
-                  size: 18,
-                ),
+                padding: const EdgeInsets.all(7),
+                child: Image.asset('assets/icons/icons8-idea-96.png'),
               ),
 
               const SizedBox(width: 12),
@@ -1187,13 +1173,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 shape: BoxShape.circle,
               ),
 
-              child: const Icon(
-                Icons.insights_outlined,
+              padding: const EdgeInsets.all(26),
 
-                color: _primaryBlue,
-
-                size: 50,
-              ),
+              child: Image.asset('assets/icons/icons8-combo-chart-100.png'),
             ),
 
             const SizedBox(height: 20),

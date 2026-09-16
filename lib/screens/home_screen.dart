@@ -117,17 +117,19 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             tooltip: 'AI Assistant',
-            icon: Icon(
-              Icons.smart_toy_outlined,
-              color: context.appColors.textBody,
+            icon: Image.asset(
+              'assets/icons/icons8-robot-48.png',
+              width: 26,
+              height: 26,
             ),
             onPressed: _openChatbot,
           ),
           IconButton(
             tooltip: 'Settings',
-            icon: Icon(
-              Icons.settings_outlined,
-              color: context.appColors.textBody,
+            icon: Image.asset(
+              'assets/icons/icons8-settings-96.png',
+              width: 24,
+              height: 24,
             ),
             onPressed: _openProfile,
           ),
@@ -276,7 +278,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         Expanded(
                           child: QuickActionTile(
                             icon: Image.asset(
-                              'assets/icons/icons8-camera-intelligence-94.png',
+                              'assets/icons/icons8-camera-96.png',
                               width: 24,
                               height: 24,
                             ),
@@ -298,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         Expanded(
                           child: QuickActionTile(
                             icon: Image.asset(
-                              'assets/icons/icons8-mic-94.png',
+                              'assets/icons/icons8-microphone-96.png',
                               width: 24,
                               height: 24,
                             ),
@@ -357,10 +359,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                   mainAxisAlignment: MainAxisAlignment.center,
 
                                   children: [
-                                    Icon(
-                                      Icons.pie_chart_outline,
-                                      size: 60,
-                                      color: Colors.grey,
+                                    Image(
+                                      image: AssetImage(
+                                        'assets/icons/icons8-pie-chart-96.png',
+                                      ),
+                                      width: 56,
+                                      height: 56,
                                     ),
 
                                     SizedBox(height: 12),
@@ -668,12 +672,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       shape: BoxShape.circle,
                                     ),
-                                    child: Icon(
+                                    padding: const EdgeInsets.all(9),
+                                    child: Image.asset(
                                       isIncome
-                                          ? Icons.arrow_downward
-                                          : Icons.arrow_upward,
-                                      color: transactionColor,
-                                      size: 20,
+                                          ? 'assets/icons/icons8-money-transfer-96.png'
+                                          : 'assets/icons/icons8-expenses-64.png',
                                     ),
                                   ),
                                   title: Text(
@@ -760,9 +763,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               shape: BoxShape.circle,
                             ),
 
-                            child: const Icon(
-                              Icons.auto_awesome,
-                              color: primaryBlue,
+                            padding: const EdgeInsets.all(10),
+                            child: Image.asset(
+                              'assets/icons/icons8-idea-96.png',
                             ),
                           ),
 
@@ -981,19 +984,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       'Income',
                       income,
                       color: Colors.green,
-                      icon: Icons.arrow_downward,
+                      iconAsset: 'assets/icons/icons8-money-transfer-96.png',
                     ),
                     _overviewAmount(
                       'Daily Limit',
                       dailyBudget,
-                      color: context.appColors.primaryText,
-                      icon: Icons.account_balance_wallet_outlined,
+                      color: primaryBlue,
+                      iconAsset: 'assets/icons/icons8-calendar-96.png',
                     ),
                     _overviewAmount(
                       'Today',
                       dailyExpenses,
                       color: Colors.red,
-                      icon: Icons.arrow_upward,
+                      iconAsset: 'assets/icons/icons8-expenses-64.png',
                     ),
                   ],
                 ),
@@ -1043,29 +1046,31 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: ElevatedButton.icon(
                         onPressed: () async {
                           final saved = await showAddIncomeDialog(context);
                           if (saved && mounted) setState(() {});
                         },
-                        icon: const Icon(Icons.add, size: 16),
-                        label: const Text('Add Income'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.green,
-                          side: const BorderSide(color: Colors.green),
+                        icon: Image.asset(
+                          'assets/icons/icons8-money-transfer-96.png',
+                          width: 18,
+                          height: 18,
                         ),
+                        label: const Text('Add Income'),
+                        style: _overviewButtonStyle,
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: ElevatedButton.icon(
                         onPressed: () => _showAddBudgetDialog(dailyBudget),
-                        icon: const Icon(Icons.add, size: 16),
-                        label: const Text('Add Budget'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: primaryBlue,
-                          side: const BorderSide(color: primaryBlue),
+                        icon: Image.asset(
+                          'assets/icons/icons8-calendar-96.png',
+                          width: 18,
+                          height: 18,
                         ),
+                        label: const Text('Add Budget'),
+                        style: _overviewButtonStyle,
                       ),
                     ),
                   ],
@@ -1073,14 +1078,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
-                  child: OutlinedButton.icon(
+                  child: ElevatedButton.icon(
                     onPressed: _openBudgets,
-                    icon: const Icon(Icons.category_outlined, size: 16),
-                    label: const Text('Manage Category Budgets'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: primaryBlue,
-                      side: const BorderSide(color: primaryBlue),
+                    icon: Image.asset(
+                      'assets/icons/icons8-money-box-96.png',
+                      width: 18,
+                      height: 18,
                     ),
+                    label: const Text('Manage Category Budgets'),
+                    style: _overviewButtonStyle,
                   ),
                 ),
               ],
@@ -1197,11 +1203,22 @@ class _HomeScreenState extends State<HomeScreen> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// Same blue as the + button in both light and dark mode, so these
+  /// buttons keep one look across themes.
+  static final ButtonStyle _overviewButtonStyle = ElevatedButton.styleFrom(
+    backgroundColor: primaryBlue,
+    foregroundColor: Colors.white,
+    elevation: 0,
+    minimumSize: const Size(0, 46),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    textStyle: const TextStyle(fontWeight: FontWeight.w600),
+  );
+
   Widget _overviewAmount(
     String label,
     double amount, {
     required Color color,
-    required IconData icon,
+    required String iconAsset,
   }) {
     return Expanded(
       child: Padding(
@@ -1209,7 +1226,10 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            SizedBox(height: 16, child: Icon(icon, size: 14, color: color)),
+            SizedBox(
+              height: 18,
+              child: Image.asset(iconAsset, width: 18, height: 18),
+            ),
             SizedBox(
               height: 28,
               width: double.infinity,

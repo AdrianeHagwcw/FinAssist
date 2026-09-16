@@ -100,15 +100,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   child: Container(
                     width: 76,
                     height: 76,
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: primaryBlue,
+                      color: context.appColors.primaryTint,
                       borderRadius: BorderRadius.circular(22),
                     ),
-                    child: const Icon(
-                      Icons.lock_reset_outlined,
-                      color: Colors.white,
-                      size: 42,
-                    ),
+                    child: Image.asset('assets/icons/icons8-lock-96.png'),
                   ),
                 ),
                 const SizedBox(height: 25),
@@ -259,10 +256,10 @@ class _SuccessMessage extends StatelessWidget {
       ),
       child: Column(
         children: [
-          const Icon(
-            Icons.mark_email_read_outlined,
-            color: Colors.green,
-            size: 42,
+          Image.asset(
+            'assets/icons/icons8-verified-96.png',
+            width: 42,
+            height: 42,
           ),
           const SizedBox(height: 12),
           const Text(

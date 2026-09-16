@@ -1,17 +1,17 @@
-import 'package:flutter/material.dart';
-
 /// Kind of money holder. Decides the wallet's icon and default name.
 enum WalletType {
-  cash('Cash', Icons.payments_outlined),
-  gcash('GCash', Icons.phone_android),
-  maya('Maya', Icons.account_balance_wallet_outlined),
-  bank('Bank', Icons.account_balance_outlined),
-  other('Other', Icons.savings_outlined);
+  cash('Cash', 'assets/icons/icons8-banknotes-96.png'),
+  gcash('GCash', 'assets/icons/icons8-mobile-payment-96.png'),
+  maya('Maya', 'assets/icons/icons8-wallet-96.png'),
+  bank('Bank', 'assets/icons/icons8-bank-96.png'),
+  other('Other', 'assets/icons/icons8-money-box-96.png');
 
-  const WalletType(this.label, this.icon);
+  const WalletType(this.label, this.iconAsset);
 
   final String label;
-  final IconData icon;
+
+  /// Colored icon file for this wallet type.
+  final String iconAsset;
 
   /// Reads a stored type name, falling back to [other] for unknown values.
   static WalletType fromName(String? name) {

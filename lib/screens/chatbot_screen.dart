@@ -227,10 +227,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(
-                Icons.smart_toy_outlined,
-                color: primaryBlue,
-                size: 25,
+              padding: const EdgeInsets.all(6),
+              child: Image.asset(
+                'assets/icons/icons8-robot-48.png',
+                width: 28,
+                height: 28,
               ),
             ),
 
@@ -368,10 +369,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!isUser) ...[
-              const Icon(
-                Icons.smart_toy_outlined,
-                color: primaryBlue,
-                size: 20,
+              Image.asset(
+                'assets/icons/icons8-robot-48.png',
+                width: 20,
+                height: 20,
               ),
 
               const SizedBox(width: 8),
@@ -607,9 +608,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     context: context,
                     applicationName: 'FinAssist',
                     applicationVersion: '1.0.0',
-                    applicationIcon: const Icon(
-                      Icons.smart_toy,
-                      color: primaryBlue,
+                    applicationIcon: Image.asset(
+                      'assets/icons/icons8-robot-48.png',
+                      width: 40,
+                      height: 40,
                     ),
                     children: const [
                       Text(

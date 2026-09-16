@@ -41,26 +41,28 @@ Color categoryColor(String category) {
   }
 }
 
-IconData categoryIcon(String category) {
+/// Colored icon file for a category, matching the app's icons8 icon style.
+/// Matching is case-insensitive and accepts older spellings.
+String categoryIconAsset(String category) {
   switch (category.toLowerCase()) {
     case 'food':
-      return Icons.restaurant;
+      return 'assets/icons/icons8-cat-food-96.png';
     case 'transportation':
     case 'transport':
-      return Icons.directions_car;
+      return 'assets/icons/icons8-cat-transportation-96.png';
     case 'shopping':
-      return Icons.shopping_bag;
+      return 'assets/icons/icons8-cat-shopping-96.png';
     case 'bills':
     case 'utilities':
-      return Icons.receipt_long;
+      return 'assets/icons/icons8-cat-bills-96.png';
     case 'entertainment':
-      return Icons.movie;
+      return 'assets/icons/icons8-cat-entertainment-96.png';
     case 'healthcare':
     case 'health':
-      return Icons.health_and_safety;
+      return 'assets/icons/icons8-cat-healthcare-96.png';
     case 'education':
-      return Icons.school;
+      return 'assets/icons/icons8-cat-education-96.png';
     default:
-      return Icons.category;
+      return 'assets/icons/icons8-cat-others-96.png';
   }
 }

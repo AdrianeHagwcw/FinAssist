@@ -5,13 +5,13 @@ import '../theme/app_colors.dart';
 /// Centered icon, title and message for screens with nothing to show yet.
 class EmptyStateView extends StatelessWidget {
   const EmptyStateView({
-    required this.icon,
+    required this.iconAsset,
     required this.title,
     required this.message,
     super.key,
   });
 
-  final IconData icon;
+  final String iconAsset;
   final String title;
   final String message;
 
@@ -26,11 +26,12 @@ class EmptyStateView extends StatelessWidget {
             Container(
               width: 96,
               height: 96,
+              padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 color: context.appColors.primaryTint,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 46, color: context.appColors.primaryText),
+              child: Image.asset(iconAsset),
             ),
             const SizedBox(height: 20),
             Text(

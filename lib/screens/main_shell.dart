@@ -50,7 +50,7 @@ class _MainShellState extends State<MainShell> {
           const ExpensesScreen(),
           const _ComingSoonTab(
             title: 'Goals',
-            icon: Icons.savings_outlined,
+            iconAsset: 'assets/icons/icons8-goal-96.png',
             emptyTitle: 'Savings goals are coming soon',
             emptyMessage:
                 'Soon you can set savings goals here and track your progress '
@@ -58,7 +58,7 @@ class _MainShellState extends State<MainShell> {
           ),
           const _ComingSoonTab(
             title: 'Wallet',
-            icon: Icons.account_balance_wallet_outlined,
+            iconAsset: 'assets/icons/icons8-wallet-96.png',
             emptyTitle: 'Wallets are coming soon',
             emptyMessage:
                 'Soon you can add your Cash, GCash, Maya and bank wallets here, '
@@ -73,6 +73,7 @@ class _MainShellState extends State<MainShell> {
         [
           QuickAddAction(
             icon: Icons.arrow_upward,
+            iconAsset: 'assets/icons/icons8-expenses-64.png',
             label: 'Expense',
             color: Colors.red,
             onSelected: () => Navigator.push(
@@ -82,6 +83,7 @@ class _MainShellState extends State<MainShell> {
           ),
           QuickAddAction(
             icon: Icons.arrow_downward,
+            iconAsset: 'assets/icons/icons8-money-transfer-96.png',
             label: 'Income',
             color: Colors.green,
             onSelected: () async {
@@ -91,6 +93,7 @@ class _MainShellState extends State<MainShell> {
           ),
           QuickAddAction(
             icon: Icons.smart_toy_outlined,
+            iconAsset: 'assets/icons/icons8-robot-48.png',
             label: 'AI Chat',
             color: appPrimaryBlue,
             onSelected: () => Navigator.push(
@@ -132,15 +135,13 @@ class _MainShellState extends State<MainShell> {
           child: Row(
             children: [
               _NavItem(
-                icon: Icons.home_outlined,
-                selectedIcon: Icons.home,
+                iconAsset: 'assets/icons/icons8-home-96.png',
                 label: 'Home',
                 selected: _currentIndex == 0,
                 onTap: () => _selectTab(0),
               ),
               _NavItem(
-                icon: Icons.receipt_long_outlined,
-                selectedIcon: Icons.receipt_long,
+                iconAsset: 'assets/icons/icons8-transactions-96.png',
                 label: 'Transactions',
                 selected: _currentIndex == 1,
                 onTap: () => _selectTab(1),
@@ -148,15 +149,13 @@ class _MainShellState extends State<MainShell> {
               // Space for the "+" button docked in the middle.
               const SizedBox(width: 72),
               _NavItem(
-                icon: Icons.savings_outlined,
-                selectedIcon: Icons.savings,
+                iconAsset: 'assets/icons/icons8-goal-96.png',
                 label: 'Goals',
                 selected: _currentIndex == 2,
                 onTap: () => _selectTab(2),
               ),
               _NavItem(
-                icon: Icons.account_balance_wallet_outlined,
-                selectedIcon: Icons.account_balance_wallet,
+                iconAsset: 'assets/icons/icons8-wallet-96.png',
                 label: 'Wallet',
                 selected: _currentIndex == 3,
                 onTap: () => _selectTab(3),
@@ -171,15 +170,13 @@ class _MainShellState extends State<MainShell> {
 
 class _NavItem extends StatelessWidget {
   const _NavItem({
-    required this.icon,
-    required this.selectedIcon,
+    required this.iconAsset,
     required this.label,
     required this.selected,
     required this.onTap,
   });
 
-  final IconData icon;
-  final IconData selectedIcon;
+  final String iconAsset;
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -201,7 +198,24 @@ class _NavItem extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(selected ? selectedIcon : icon, color: color, size: 26),
+              // Colored icons can't be tinted, so the selected tab is shown
+              // with a highlight pill and a bold blue label instead.
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? context.appColors.primaryTint
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Opacity(
+                  opacity: selected ? 1 : 0.55,
+                  child: Image.asset(iconAsset, width: 24, height: 24),
+                ),
+              ),
               const SizedBox(height: 3),
               Text(
                 label,
@@ -224,13 +238,13 @@ class _NavItem extends StatelessWidget {
 class _ComingSoonTab extends StatelessWidget {
   const _ComingSoonTab({
     required this.title,
-    required this.icon,
+    required this.iconAsset,
     required this.emptyTitle,
     required this.emptyMessage,
   });
 
   final String title;
-  final IconData icon;
+  final String iconAsset;
   final String emptyTitle;
   final String emptyMessage;
 
@@ -250,7 +264,7 @@ class _ComingSoonTab extends StatelessWidget {
         automaticallyImplyLeading: false,
       ),
       body: EmptyStateView(
-        icon: icon,
+        iconAsset: iconAsset,
         title: emptyTitle,
         message: emptyMessage,
       ),

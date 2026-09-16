@@ -10,9 +10,14 @@ class QuickAddAction {
     required this.label,
     required this.color,
     required this.onSelected,
+    this.iconAsset,
   });
 
+  /// Material icon shown in the grid, unless [iconAsset] is given.
   final IconData icon;
+
+  /// Optional image icon from the assets folder, used instead of [icon].
+  final String? iconAsset;
   final String label;
   final Color color;
   final VoidCallback onSelected;
@@ -86,7 +91,9 @@ class QuickAddSheet extends StatelessWidget {
               children: [
                 for (final action in actions)
                   QuickActionTile(
-                    icon: Icon(action.icon),
+                    icon: action.iconAsset == null
+                        ? Icon(action.icon)
+                        : Image.asset(action.iconAsset!, width: 27, height: 27),
                     title: action.label,
                     iconColor: action.color,
                     onTap: () => onSelected(action),

@@ -566,6 +566,14 @@ void main() {
   test('category helpers accept saved and older spellings', () {
     expect(categoryColor('Healthcare'), categoryColor('health'));
     expect(categoryColor('Others'), categoryColor('other'));
-    expect(categoryIcon('Healthcare'), Icons.health_and_safety);
+    expect(
+      categoryIconAsset('Healthcare'),
+      'assets/icons/icons8-cat-healthcare-96.png',
+    );
+    expect(categoryIconAsset('health'), categoryIconAsset('Healthcare'));
+    expect(
+      categoryIconAsset('Anything else'),
+      'assets/icons/icons8-cat-others-96.png',
+    );
   });
 }

@@ -5,6 +5,7 @@ import '../services/user_profile_service.dart';
 import 'financial_setup_screen.dart';
 import 'login_screen.dart';
 import '../theme/app_colors.dart';
+import '../widgets/app_logo.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -242,23 +243,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 Center(
                   child: Column(
                     children: [
-                      Container(
-                        width: 75,
-                        height: 75,
-
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1976D2),
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-
-                        child: const Icon(
-                          Icons.trending_up,
-                          color: Colors.white,
-                          size: 42,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: const AppLogo(
+                          width: 180,
+                          height: 120,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.topCenter,
                         ),
                       ),
 
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 10),
 
                       const Text(
                         'FinAssist',

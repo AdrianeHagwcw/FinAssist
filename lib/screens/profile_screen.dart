@@ -26,6 +26,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // LOGOUT
   // =========================================================
 
+  /// Asks before signing out, since unsent changes need a connection.
+  Future<bool> _confirmSignOut({
+    required String title,
+    required String message,
+    required String confirmLabel,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+
+    return confirmed ?? false;
+  }
+
+  Future<void> _confirmSwitchAccount() async {
+    final email = _getUserEmail();
+    final confirmed = await _confirmSignOut(
+      title: 'Switch account?',
+      message:
+          "You'll be signed out of $email and taken to the login screen, "
+          'where you can sign in with another account. Connect to the '
+          'internet first so your latest changes are saved.',
+      confirmLabel: 'Switch',
+    );
+
+    if (confirmed) await _logout();
+  }
+
+  Future<void> _confirmLogOut() async {
+    final confirmed = await _confirmSignOut(
+      title: 'Log out?',
+      message:
+          'You can log back in anytime. Connect to the internet first so '
+          'your latest changes are saved.',
+      confirmLabel: 'Log Out',
+    );
+
+    if (confirmed) await _logout();
+  }
+
   Future<void> _logout() async {
     try {
       await _auth.signOut();
@@ -244,7 +297,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Column(
                       children: [
                         _buildInfoTile(
-                          icon: Icons.person_outline,
+                          iconAsset: 'assets/icons/icons8-user-96.png',
                           title: 'Full Name',
                           value: _getUserName(),
                         ),
@@ -252,7 +305,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Divider(height: 1, indent: 65),
 
                         _buildInfoTile(
-                          icon: Icons.email_outlined,
+                          iconAsset: 'assets/icons/icons8-email-96.png',
                           title: 'Email',
                           value: _getUserEmail(),
                         ),
@@ -260,7 +313,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Divider(height: 1, indent: 65),
 
                         _buildInfoTile(
-                          icon: Icons.verified_user_outlined,
+                          iconAsset: 'assets/icons/icons8-verified-96.png',
                           title: 'Account Status',
                           value: 'Active',
                         ),
@@ -306,7 +359,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Column(
                       children: [
                         _buildActionTile(
-                          icon: Icons.account_balance_wallet_outlined,
+                          iconAsset: 'assets/icons/icons8-money-box-96.png',
                           title: 'Category Budgets',
                           onTap: () {
                             Navigator.push(
@@ -321,7 +374,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Divider(height: 1, indent: 65),
 
                         _buildActionTile(
-                          icon: Icons.lock_outline,
+                          iconAsset: 'assets/icons/icons8-lock-96.png',
 
                           title: 'Security',
 
@@ -337,7 +390,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Divider(height: 1, indent: 65),
 
                         _buildActionTile(
-                          icon: Icons.help_outline,
+                          iconAsset: 'assets/icons/icons8-help-96.png',
 
                           title: 'Help & Support',
 
@@ -363,9 +416,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     height: 52,
 
                     child: OutlinedButton.icon(
-                      onPressed: _logout,
+                      onPressed: _confirmSwitchAccount,
 
-                      icon: const Icon(Icons.logout, color: Colors.red),
+                      icon: Image.asset(
+                        'assets/icons/icons8-user-96.png',
+                        width: 22,
+                        height: 22,
+                      ),
+
+                      label: const Text(
+                        'Switch Account',
+
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF1976D2),
+
+                        side: const BorderSide(color: Color(0xFF1976D2)),
+
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+
+                    child: OutlinedButton.icon(
+                      onPressed: _confirmLogOut,
+
+                      icon: Image.asset(
+                        'assets/icons/icons8-logout-96.png',
+                        width: 22,
+                        height: 22,
+                      ),
 
                       label: const Text(
                         'Log Out',
@@ -419,7 +512,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // =========================================================
 
   Widget _buildInfoTile({
-    required IconData icon,
+    required String iconAsset,
     required String title,
     required String value,
   }) {
@@ -436,7 +529,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           borderRadius: BorderRadius.circular(10),
         ),
 
-        child: Icon(icon, color: context.appColors.primaryText),
+        padding: const EdgeInsets.all(9),
+
+        child: Image.asset(iconAsset),
       ),
 
       title: Text(
@@ -466,7 +561,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // =========================================================
 
   Widget _buildActionTile({
-    required IconData icon,
+    required String iconAsset,
     required String title,
     required VoidCallback onTap,
   }) {
@@ -483,7 +578,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           borderRadius: BorderRadius.circular(10),
         ),
 
-        child: Icon(icon, color: context.appColors.primaryText),
+        padding: const EdgeInsets.all(9),
+
+        child: Image.asset(iconAsset),
       ),
 
       title: Text(

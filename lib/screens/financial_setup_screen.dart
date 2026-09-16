@@ -377,11 +377,17 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         ),
         const SizedBox(height: 28),
         _featureRow(
-          Icons.account_balance_wallet_outlined,
+          'assets/icons/icons8-wallet-96.png',
           'Keep track of your wallets and balances',
         ),
-        _featureRow(Icons.receipt_long_outlined, 'Record what you spend'),
-        _featureRow(Icons.savings_outlined, 'Plan for bills and savings'),
+        _featureRow(
+          'assets/icons/icons8-expenses-64.png',
+          'Record what you spend',
+        ),
+        _featureRow(
+          'assets/icons/icons8-money-box-96.png',
+          'Plan for bills and savings',
+        ),
       ],
     );
   }
@@ -448,15 +454,12 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
               Container(
                 width: 40,
                 height: 40,
-                decoration: const BoxDecoration(
-                  color: appPrimaryBlue,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: colors.primaryTint,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.notifications_active_outlined,
-                  color: Colors.white,
-                  size: 22,
-                ),
+                child: Image.asset('assets/icons/icons8-bell-96.png'),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -749,7 +752,11 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.shield_outlined, color: colors.primaryText, size: 20),
+              Image.asset(
+                'assets/icons/icons8-shield-96.png',
+                width: 20,
+                height: 20,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -777,10 +784,10 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             ),
             child: Column(
               children: [
-                Icon(
-                  Icons.account_balance_wallet_outlined,
-                  size: 40,
-                  color: colors.primaryText,
+                Image.asset(
+                  'assets/icons/icons8-wallet-96.png',
+                  width: 40,
+                  height: 40,
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -866,7 +873,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             color: colors.successTint,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.check_rounded, color: Colors.green, size: 52),
+          padding: const EdgeInsets.all(18),
+          child: Image.asset('assets/icons/icons8-verified-96.png'),
         ),
         const SizedBox(height: 20),
         _title("You're ready, $name!", center: true),
@@ -884,23 +892,23 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           child: Column(
             children: [
               _summaryRow(
-                Icons.payments_outlined,
+                'assets/icons/icons8-banknotes-96.png',
                 'Income',
                 '$incomeText · $frequencyLabel\n$_incomeSource',
               ),
               _summaryRow(
-                Icons.account_balance_wallet_outlined,
+                'assets/icons/icons8-wallet-96.png',
                 'Wallets',
                 '${_wallets.length} wallet${_wallets.length == 1 ? '' : 's'}'
                     ' · ${formatPeso(walletTotal)} total',
               ),
               _summaryRow(
-                Icons.flag_outlined,
+                'assets/icons/icons8-goal-96.png',
                 'Top priority',
                 _priorities.first.label,
               ),
               _summaryRow(
-                Icons.today_outlined,
+                'assets/icons/icons8-calendar-96.png',
                 'Daily limit',
                 dailyBudget == null ? 'Not set yet' : formatPeso(dailyBudget),
                 showDivider: false,
@@ -910,11 +918,11 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         ),
         const SizedBox(height: 20),
         _featureRow(
-          Icons.add_circle_outline,
+          'assets/icons/icons8-money-transfer-96.png',
           'Tap + anytime to add an expense or income',
         ),
         _featureRow(
-          Icons.bar_chart_outlined,
+          'assets/icons/icons8-combo-chart-100.png',
           'See where your money goes in Reports',
         ),
       ],
@@ -994,7 +1002,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
     );
   }
 
-  Widget _featureRow(IconData icon, String text) {
+  Widget _featureRow(String iconAsset, String text) {
     final colors = context.appColors;
 
     return Padding(
@@ -1004,11 +1012,12 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           Container(
             width: 40,
             height: 40,
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: colors.primaryTint,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: colors.primaryText, size: 22),
+            child: Image.asset(iconAsset),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -1046,7 +1055,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   }
 
   Widget _summaryRow(
-    IconData icon,
+    String iconAsset,
     String label,
     String value, {
     bool showDivider = true,
@@ -1058,7 +1067,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 20, color: colors.primaryText),
+            Image.asset(iconAsset, width: 20, height: 20),
             const SizedBox(width: 12),
             SizedBox(
               width: 92,
@@ -1142,7 +1151,8 @@ class _WalletDraftCard extends StatelessWidget {
                   color: colors.primaryTint,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(wallet.type.icon, color: colors.primaryText),
+                padding: const EdgeInsets.all(9),
+                child: Image.asset(wallet.type.iconAsset),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1313,12 +1323,10 @@ class _AddWalletSheetState extends State<_AddWalletSheet> {
                   children: [
                     for (final type in WalletType.values)
                       ChoiceChip(
-                        avatar: Icon(
-                          type.icon,
-                          size: 18,
-                          color: type == _type
-                              ? Colors.white
-                              : colors.primaryText,
+                        avatar: Image.asset(
+                          type.iconAsset,
+                          width: 18,
+                          height: 18,
                         ),
                         label: Text(type.label),
                         selected: type == _type,

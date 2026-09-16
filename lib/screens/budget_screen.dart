@@ -6,6 +6,7 @@ import '../services/user_profile_service.dart';
 import '../utils/categories.dart';
 import '../utils/money_format.dart';
 import '../theme/app_colors.dart';
+import '../widgets/category_icon.dart';
 
 const Color _budgetPrimaryBlue = Color(0xFF1976D2);
 
@@ -258,7 +259,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
               contentPadding: EdgeInsets.zero,
               leading: CircleAvatar(
                 backgroundColor: _budgetPrimaryBlue.withValues(alpha: 0.1),
-                child: Icon(categoryIcon(category), color: _budgetPrimaryBlue),
+                child: CategoryIcon(category, size: 24),
               ),
               title: Text(
                 category,

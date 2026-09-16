@@ -116,7 +116,11 @@ class _FeatureSection extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon, color: const Color(0xFF1976D2), size: 28),
+          Image.asset(
+            'assets/icons/icons8-microphone-96.png',
+            width: 28,
+            height: 28,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

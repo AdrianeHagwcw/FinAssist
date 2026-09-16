@@ -7,6 +7,7 @@ import '../utils/categories.dart';
 import '../widgets/money_text.dart';
 import 'add_expense_screen.dart';
 import '../theme/app_colors.dart';
+import '../widgets/category_icon.dart';
 
 class ExpensesScreen extends StatefulWidget {
   const ExpensesScreen({super.key});
@@ -356,11 +357,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
 
-                      child: const Icon(
-                        Icons.account_balance_wallet_outlined,
-                        color: Colors.white,
-                        size: 28,
-                      ),
+                      padding: const EdgeInsets.all(9),
+                      child: Image.asset('assets/icons/icons8-wallet-96.png'),
                     ),
 
                     const SizedBox(width: 15),
@@ -488,10 +486,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
 
                           children: [
-                            Icon(
-                              Icons.receipt_long_outlined,
-                              size: 60,
-                              color: Colors.grey,
+                            Image(
+                              image: AssetImage(
+                                'assets/icons/icons8-receipt-96.png',
+                              ),
+                              width: 56,
+                              height: 56,
                             ),
 
                             SizedBox(height: 15),
@@ -590,7 +590,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               borderRadius: BorderRadius.circular(12),
             ),
 
-            child: Icon(categoryIcon(category), color: primaryBlue, size: 24),
+            child: CategoryIcon(category, size: 26),
           ),
 
           const SizedBox(width: 13),
