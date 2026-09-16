@@ -3,10 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../services/user_profile_service.dart';
-import '../utils/categories.dart';
 import '../utils/money_format.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/category_icon.dart';
+import '../widgets/category_budget_dialog.dart';
+import '../widgets/empty_state_view.dart';
 
 const Color _budgetPrimaryBlue = Color(0xFF1976D2);
 
@@ -18,8 +20,6 @@ class BudgetScreen extends StatefulWidget {
 }
 
 class _BudgetScreenState extends State<BudgetScreen> {
-  static const _categories = expenseCategories;
-
   final User? _user = FirebaseAuth.instance.currentUser;
 
   Stream<QuerySnapshot<Map<String, dynamic>>> get _budgetStream {
@@ -104,119 +104,13 @@ class _BudgetScreenState extends State<BudgetScreen> {
     DocumentSnapshot<Map<String, dynamic>>? existing,
   }) async {
     final data = existing?.data();
-    final amountController = TextEditingController(
-      text: data?['amount'] is num
-          ? (data!['amount'] as num).toStringAsFixed(2)
-          : '',
-    );
-    var category = data?['category']?.toString() ?? _categories.first;
-    var period = data?['period']?.toString() ?? 'daily';
-    var isSaving = false;
 
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(
-            existing == null ? 'Add Category Budget' : 'Edit Category Budget',
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                initialValue: category,
-                decoration: const InputDecoration(labelText: 'Category'),
-                items: _categories
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: isSaving
-                    ? null
-                    : (value) => setDialogState(() => category = value!),
-              ),
-              TextField(
-                controller: amountController,
-                enabled: !isSaving,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Budget amount',
-                  prefixText: '₱',
-                ),
-              ),
-              DropdownButtonFormField<String>(
-                initialValue: period,
-                decoration: const InputDecoration(labelText: 'Budget period'),
-                items: const [
-                  DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                  DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
-                  DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
-                ],
-                onChanged: isSaving
-                    ? null
-                    : (value) => setDialogState(() => period = value!),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSaving ? null : () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: isSaving
-                  ? null
-                  : () async {
-                      final amount = double.tryParse(
-                        amountController.text.trim().replaceAll(',', ''),
-                      );
-                      if (amount == null || amount <= 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Enter a valid positive amount.'),
-                          ),
-                        );
-                        return;
-                      }
-
-                      setDialogState(() => isSaving = true);
-                      try {
-                        await UserProfileService.saveCategoryBudget(
-                          category: category,
-                          amount: amount,
-                          period: period,
-                        );
-                        if (mounted && dialogContext.mounted) {
-                          Navigator.pop(dialogContext);
-                        }
-                      } catch (_) {
-                        if (!context.mounted) return;
-                        setDialogState(() => isSaving = false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Category budget could not be saved.',
-                            ),
-                          ),
-                        );
-                      }
-                    },
-              child: isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Save'),
-            ),
-          ],
-        ),
-      ),
+    await showCategoryBudgetDialog(
+      context,
+      category: data?['category']?.toString(),
+      amount: (data?['amount'] as num?)?.toDouble(),
+      period: data?['period']?.toString(),
     );
-    amountController.dispose();
   }
 
   Future<void> _deleteBudget(String category) async {
@@ -273,9 +167,19 @@ class _BudgetScreenState extends State<BudgetScreen> {
                   if (value == 'edit') _showBudgetDialog(existing: document);
                   if (value == 'delete') _deleteBudget(category);
                 },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: 'edit', child: Text('Edit')),
-                  PopupMenuItem(value: 'delete', child: Text('Delete')),
+                itemBuilder: (context) => [
+                  menuItem(
+                    value: 'edit',
+                    label: 'Edit',
+                    icon: Icons.edit,
+                    color: _budgetPrimaryBlue,
+                  ),
+                  menuItem(
+                    value: 'delete',
+                    label: 'Delete',
+                    icon: Icons.delete_outline,
+                    color: dangerColorOn(context),
+                  ),
                 ],
               ),
             ),
@@ -325,9 +229,14 @@ class _BudgetScreenState extends State<BudgetScreen> {
     return Scaffold(
       backgroundColor: context.appColors.pageBackground,
       appBar: AppBar(
-        title: const Text('Category Budgets'),
+        title: const Text(
+          'Category Budgets',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
         backgroundColor: _budgetPrimaryBlue,
         foregroundColor: Colors.white,
+        elevation: 0,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _budgetStream,
@@ -353,20 +262,17 @@ class _BudgetScreenState extends State<BudgetScreen> {
               final expenses = expenseSnapshot.data?.docs ?? [];
 
               if (budgets.isEmpty) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Text(
-                      'No category budgets yet. Add one to track spending by category.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  ),
+                return const EmptyStateView(
+                  iconAsset: 'assets/icons/icons8-pie-chart-96.png',
+                  title: 'No category budgets yet',
+                  message:
+                      'Set a limit for a category like Food or Transportation, '
+                      'and this screen will show how much of it you have left.',
                 );
               }
 
               return ListView.builder(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 96),
                 itemCount: budgets.length,
                 itemBuilder: (context, index) =>
                     _budgetCard(budgets[index], expenses),

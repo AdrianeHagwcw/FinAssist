@@ -6,6 +6,7 @@ import '../services/firestore_write.dart';
 import '../utils/categories.dart';
 import '../widgets/money_text.dart';
 import 'add_expense_screen.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/category_icon.dart';
 
@@ -102,6 +103,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               onPressed: () {
                 Navigator.pop(dialogContext);
               },
+              style: cancelTextStyle(context),
               child: const Text('Cancel'),
             ),
             TextButton(
@@ -109,7 +111,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                 Navigator.pop(dialogContext);
                 _deleteExpense(documentId);
               },
-              child: const Text('Delete', style: TextStyle(color: Colors.red)),
+              style: dangerTextStyle(context),
+              child: const Text('Delete'),
             ),
           ],
         );

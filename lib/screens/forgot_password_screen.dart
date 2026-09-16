@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 
 Future<void> _sendFirebaseResetEmail(String email) {
@@ -211,13 +212,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       label: Text(
                         _isSubmitting ? 'Sending...' : 'Send Reset Link',
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryBlue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
+                      style: confirmButtonStyle(),
                     ),
                   ),
                 ],

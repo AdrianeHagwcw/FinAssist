@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_profile_service.dart';
 import 'financial_setup_screen.dart';
 import 'login_screen.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_logo.dart';
 
@@ -550,19 +551,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _register,
 
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1976D2),
-
-                      foregroundColor: Colors.white,
-
-                      disabledBackgroundColor: Colors.grey.shade400,
-
-                      elevation: 0,
-
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                    style: confirmButtonStyle(),
 
                     child: _isLoading
                         ? const SizedBox(

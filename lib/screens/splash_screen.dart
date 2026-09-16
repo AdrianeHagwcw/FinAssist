@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../services/user_profile_service.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
@@ -242,12 +243,7 @@ class _ErrorActions extends StatelessWidget {
         Expanded(
           child: OutlinedButton(
             onPressed: onLogOut,
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(0, 52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
+            style: dangerOutlineStyle(context, height: 52),
             child: const Text('Log Out'),
           ),
         ),

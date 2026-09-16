@@ -1,26 +1,41 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:testapp/main.dart';
+import 'package:testapp/models/app_transaction.dart';
+import 'package:testapp/models/bill.dart';
 import 'package:testapp/models/onboarding_data.dart';
 import 'package:testapp/models/wallet.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
+import 'package:testapp/screens/bill_calendar_screen.dart';
+import 'package:testapp/screens/bill_detail_screen.dart';
 import 'package:testapp/screens/chatbot_screen.dart';
 import 'package:testapp/screens/financial_setup_screen.dart';
 import 'package:testapp/screens/forgot_password_screen.dart';
 import 'package:testapp/screens/main_shell.dart';
 import 'package:testapp/widgets/quick_add_sheet.dart';
 import 'package:testapp/screens/splash_screen.dart';
+import 'package:testapp/screens/wallet_detail_screen.dart';
+import 'package:testapp/screens/wallets_screen.dart';
+import 'package:testapp/services/legacy_migration.dart';
+import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
 import 'package:testapp/theme/app_theme.dart';
+import 'package:testapp/widgets/add_income_dialog.dart';
+import 'package:testapp/widgets/bill_payment_sheet.dart';
+import 'package:testapp/widgets/legacy_import_card.dart';
 import 'package:testapp/widgets/light_dark_toggle.dart';
+import 'package:testapp/utils/date_format.dart';
 import 'package:testapp/utils/categories.dart';
 import 'package:testapp/utils/money_format.dart';
 import 'package:testapp/widgets/money_text.dart';
+import 'package:testapp/widgets/transfer_sheet.dart';
+import 'package:testapp/widgets/wallet_picker.dart';
 
 void main() {
   testWidgets('signed-out users see splash, then login after Get Started', (
@@ -575,5 +590,1757 @@ void main() {
       categoryIconAsset('Anything else'),
       'assets/icons/icons8-cat-others-96.png',
     );
+  });
+
+  group('wallets', () {
+    Wallet wallet({
+      required String id,
+      String? name,
+      double balance = 0,
+      bool receivesIncome = false,
+      bool archived = false,
+      int sortOrder = 0,
+    }) {
+      return Wallet(
+        id: id,
+        name: name ?? id,
+        type: WalletType.cash,
+        balance: balance,
+        startingBalance: balance,
+        receivesIncome: receivesIncome,
+        archived: archived,
+        sortOrder: sortOrder,
+      );
+    }
+
+    test('a stored wallet is read back with its saved values', () {
+      final saved = Wallet.fromMap('w1', {
+        'name': 'BPI Savings',
+        'type': 'bank',
+        'balance': 1250,
+        'startingBalance': 1000,
+        'receivesIncome': true,
+        'archived': false,
+        'sortOrder': 2,
+      });
+
+      expect(saved.name, 'BPI Savings');
+      expect(saved.type, WalletType.bank);
+      expect(saved.balance, 1250.0);
+      expect(saved.receivesIncome, isTrue);
+      expect(saved.sortOrder, 2);
+      expect(saved.iconAsset, WalletType.bank.iconAsset);
+    });
+
+    test('a damaged wallet record falls back instead of crashing', () {
+      final broken = Wallet.fromMap('w2', {
+        'name': '   ',
+        'type': 'crypto',
+        'balance': 'not a number',
+      });
+
+      expect(broken.type, WalletType.other);
+      expect(broken.name, WalletType.other.label, reason: 'blank name');
+      expect(broken.balance, 0);
+      expect(broken.archived, isFalse);
+      expect(Wallet.fromMap('w3', null).name, WalletType.other.label);
+    });
+
+    test('wallets are ordered by position, then by name', () {
+      final wallets = [
+        wallet(id: 'c', name: 'GCash', sortOrder: 1),
+        wallet(id: 'b', name: 'Bank', sortOrder: 0),
+        wallet(id: 'a', name: 'Allowance', sortOrder: 0),
+      ];
+
+      sortWallets(wallets);
+
+      expect(wallets.map((w) => w.name), ['Allowance', 'Bank', 'GCash']);
+    });
+
+    test('the total balance leaves out archived wallets', () {
+      final wallets = [
+        wallet(id: 'a', balance: 500),
+        wallet(id: 'b', balance: 250.50),
+        wallet(id: 'c', balance: 9999, archived: true),
+      ];
+
+      expect(totalWalletBalance(wallets), 750.50);
+      expect(totalWalletBalance(const []), 0);
+    });
+
+    test('a new wallet is placed after the existing ones', () {
+      expect(nextWalletSortOrder(const []), 0);
+      expect(
+        nextWalletSortOrder([
+          wallet(id: 'a', sortOrder: 0),
+          wallet(id: 'b', sortOrder: 3),
+        ]),
+        4,
+      );
+    });
+
+    test('only one wallet can receive the income', () {
+      final wallets = [
+        wallet(id: 'a', receivesIncome: true),
+        wallet(id: 'b'),
+        wallet(id: 'c', receivesIncome: true),
+      ];
+
+      expect(incomeWalletUpdates(wallets, 'b'), {
+        'a': false,
+        'b': true,
+        'c': false,
+      });
+      expect(incomeWallet(wallets)?.id, 'a');
+    });
+
+    test('choosing the wallet that already receives income writes nothing', () {
+      final wallets = [wallet(id: 'a', receivesIncome: true), wallet(id: 'b')];
+
+      expect(incomeWalletUpdates(wallets, 'a'), isEmpty);
+    });
+
+    test('an archived wallet is not treated as the income wallet', () {
+      final wallets = [wallet(id: 'a', receivesIncome: true, archived: true)];
+
+      expect(incomeWallet(wallets), isNull);
+    });
+  });
+
+  group('transactions', () {
+    AppTransaction transaction({
+      required TransactionType type,
+      double amount = 100,
+      String? walletId = 'a',
+      String? toWalletId,
+      DateTime? date,
+      bool isLegacy = false,
+    }) {
+      return AppTransaction(
+        id: 't',
+        type: type,
+        amount: amount,
+        label: type.label,
+        date: date ?? DateTime(2026, 1, 1),
+        walletId: walletId,
+        toWalletId: toWalletId,
+        isLegacy: isLegacy,
+      );
+    }
+
+    test('an expense takes money out and an income puts money in', () {
+      expect(
+        transaction(
+          type: TransactionType.expense,
+          amount: 250,
+        ).balanceDeltaFor('a'),
+        -250,
+      );
+      expect(
+        transaction(
+          type: TransactionType.income,
+          amount: 250,
+        ).balanceDeltaFor('a'),
+        250,
+      );
+    });
+
+    test('a transfer moves the same amount between two wallets', () {
+      final transfer = transaction(
+        type: TransactionType.transfer,
+        amount: 500,
+        toWalletId: 'b',
+      );
+
+      expect(transfer.balanceDeltaFor('a'), -500);
+      expect(transfer.balanceDeltaFor('b'), 500);
+      expect(transfer.balanceDeltaFor('c'), 0, reason: 'untouched wallet');
+      expect(
+        transfer.balanceDeltaFor('a') + transfer.balanceDeltaFor('b'),
+        0,
+        reason: 'a transfer must not change the combined total',
+      );
+    });
+
+    test('a migrated record without a wallet changes no balance', () {
+      final legacy = transaction(
+        type: TransactionType.expense,
+        walletId: null,
+        isLegacy: true,
+      );
+
+      expect(legacy.sourceDelta, 0);
+      expect(legacy.balanceDeltaFor('a'), 0);
+      expect(legacy.involvesWallet('a'), isFalse);
+    });
+
+    test('a wallet shows its own transactions, newest first', () {
+      final transactions = [
+        transaction(
+          type: TransactionType.expense,
+          walletId: 'a',
+          date: DateTime(2026, 1, 1),
+        ),
+        transaction(
+          type: TransactionType.expense,
+          walletId: 'b',
+          date: DateTime(2026, 1, 2),
+        ),
+        transaction(
+          type: TransactionType.transfer,
+          walletId: 'b',
+          toWalletId: 'a',
+          date: DateTime(2026, 1, 3),
+        ),
+      ];
+
+      final forA = transactionsForWallet(transactions, 'a');
+
+      expect(forA.length, 2, reason: 'its own expense plus the transfer in');
+      expect(forA.first.type, TransactionType.transfer);
+      expect(forA.last.date, DateTime(2026, 1, 1));
+    });
+
+    test('records copied from the old collections are still readable', () {
+      final fromExpenses = AppTransaction.fromMap('old1', {
+        'type': 'expense',
+        'amount': 120,
+        'category': 'Food',
+        'date': Timestamp.fromDate(DateTime(2025, 12, 25)),
+        'legacy': true,
+      });
+
+      expect(fromExpenses.label, 'Food');
+      expect(fromExpenses.amount, 120);
+      expect(fromExpenses.date, DateTime(2025, 12, 25));
+      expect(fromExpenses.isLegacy, isTrue);
+      expect(fromExpenses.walletId, isNull);
+
+      final fromDailyIncome = AppTransaction.fromMap('old2', {
+        'type': 'income',
+        'amount': -50,
+        'source': 'Allowance',
+      });
+
+      expect(fromDailyIncome.label, 'Allowance');
+      expect(fromDailyIncome.amount, 50, reason: 'amounts are stored positive');
+      expect(fromDailyIncome.sourceDelta, 0, reason: 'no wallet to credit');
+    });
+  });
+
+  group('Wallets screen', () {
+    Wallet wallet({
+      required String id,
+      required String name,
+      WalletType type = WalletType.cash,
+      double balance = 0,
+      bool receivesIncome = false,
+      int sortOrder = 0,
+    }) {
+      return Wallet(
+        id: id,
+        name: name,
+        type: type,
+        balance: balance,
+        startingBalance: balance,
+        receivesIncome: receivesIncome,
+        archived: false,
+        sortOrder: sortOrder,
+      );
+    }
+
+    Future<void> pumpWallets(
+      WidgetTester tester, {
+      required List<Wallet> wallets,
+      String? incomeSource,
+    }) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: WalletsScreen(
+              wallets: Stream.value(wallets),
+              incomeSource: Stream.value(incomeSource),
+            ),
+          ),
+        ),
+      );
+      // Two frames: one for the wallet list, one for the income source.
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('offers to add a wallet when there are none', (tester) async {
+      await pumpWallets(tester, wallets: const []);
+
+      expect(find.text('No wallets yet'), findsOneWidget);
+      expect(find.text('Add Wallet'), findsOneWidget);
+      expect(find.text('Total Balance'), findsNothing);
+    });
+
+    testWidgets('lists each wallet with its balance and the total', (
+      tester,
+    ) async {
+      await pumpWallets(
+        tester,
+        wallets: [
+          wallet(id: 'a', name: 'Allowance', balance: 1200),
+          wallet(
+            id: 'b',
+            name: 'My GCash',
+            type: WalletType.gcash,
+            balance: 300.50,
+            sortOrder: 1,
+          ),
+        ],
+      );
+
+      expect(find.text('Allowance'), findsOneWidget);
+      expect(find.text('My GCash'), findsOneWidget);
+      expect(find.text('GCash'), findsOneWidget, reason: 'the type label');
+      expect(find.text('₱1,200.00'), findsOneWidget);
+      expect(find.text('₱300.50'), findsOneWidget);
+      expect(find.text('₱1,500.50'), findsOneWidget, reason: 'the total');
+      expect(find.text('Across 2 wallets'), findsOneWidget);
+    });
+
+    testWidgets('marks the income wallet using the saved income source', (
+      tester,
+    ) async {
+      await pumpWallets(
+        tester,
+        incomeSource: 'Allowance',
+        wallets: [
+          wallet(id: 'a', name: 'Cash', receivesIncome: true),
+          wallet(id: 'b', name: 'GCash', sortOrder: 1),
+        ],
+      );
+
+      expect(find.text('Receives my Allowance'), findsOneWidget);
+    });
+
+    testWidgets('falls back to a plain badge with no saved income source', (
+      tester,
+    ) async {
+      await pumpWallets(
+        tester,
+        wallets: [wallet(id: 'a', name: 'Cash', receivesIncome: true)],
+      );
+
+      expect(find.text('Receives my income'), findsOneWidget);
+    });
+
+    testWidgets('asks before removing a wallet and says history is kept', (
+      tester,
+    ) async {
+      await pumpWallets(
+        tester,
+        wallets: [wallet(id: 'a', name: 'GCash', balance: 500)],
+      );
+
+      await tester.tap(find.byTooltip('Wallet options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove wallet'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Remove GCash?'), findsOneWidget);
+      expect(find.textContaining('past transactions are kept'), findsOneWidget);
+
+      // Backing out must leave the wallet alone.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('GCash'), findsOneWidget);
+    });
+  });
+
+  group('Wallet detail', () {
+    final cash = Wallet(
+      id: 'a',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 1200,
+      startingBalance: 1000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    final gcash = Wallet(
+      id: 'b',
+      name: 'My GCash',
+      type: WalletType.gcash,
+      balance: 500,
+      startingBalance: 500,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+    );
+
+    AppTransaction transfer({DateTime? date}) {
+      return AppTransaction(
+        id: 't1',
+        type: TransactionType.transfer,
+        amount: 200,
+        label: 'Transfer',
+        date: date ?? DateTime.now(),
+        walletId: 'a',
+        toWalletId: 'b',
+      );
+    }
+
+    Future<void> pumpDetail(
+      WidgetTester tester, {
+      required Wallet wallet,
+      List<AppTransaction> transactions = const [],
+      String? incomeSource,
+    }) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: WalletDetailScreen(
+              wallet: wallet,
+              wallets: Stream.value([cash, gcash]),
+              transactions: Stream.value(transactions),
+              incomeSource: Stream.value(incomeSource),
+            ),
+          ),
+        ),
+      );
+      // Two frames: one for the wallet list, one for the transactions.
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('shows the balance and who pays into this wallet', (
+      tester,
+    ) async {
+      await pumpDetail(tester, wallet: cash, incomeSource: 'Allowance');
+
+      expect(find.text('Cash'), findsWidgets);
+      expect(find.text('₱1,200.00'), findsOneWidget);
+      expect(
+        find.text('Your Allowance is paid into this wallet'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('says there is nothing in a wallet with no transactions', (
+      tester,
+    ) async {
+      await pumpDetail(tester, wallet: gcash);
+
+      expect(find.text('No transactions yet'), findsOneWidget);
+    });
+
+    testWidgets('a transfer reads as money out of the wallet it left', (
+      tester,
+    ) async {
+      await pumpDetail(tester, wallet: cash, transactions: [transfer()]);
+
+      expect(find.text('To My GCash'), findsOneWidget);
+      expect(find.text('-₱200.00'), findsOneWidget);
+      expect(find.text('Today'), findsOneWidget);
+    });
+
+    testWidgets('the same transfer reads as money into the wallet it reached', (
+      tester,
+    ) async {
+      await pumpDetail(tester, wallet: gcash, transactions: [transfer()]);
+
+      expect(find.text('From Cash'), findsOneWidget);
+      expect(find.text('+₱200.00'), findsOneWidget);
+    });
+
+    testWidgets('groups older transactions under their date', (tester) async {
+      await pumpDetail(
+        tester,
+        wallet: cash,
+        transactions: [
+          transfer(date: DateTime.now().subtract(const Duration(days: 1))),
+        ],
+      );
+
+      expect(find.text('Yesterday'), findsOneWidget);
+      expect(find.text('Today'), findsNothing);
+    });
+
+    testWidgets('asks before deleting and promises the money comes back', (
+      tester,
+    ) async {
+      await pumpDetail(tester, wallet: cash, transactions: [transfer()]);
+
+      await tester.longPress(find.text('To My GCash'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete this transaction?'), findsOneWidget);
+      expect(find.textContaining('put back'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('To My GCash'), findsOneWidget);
+    });
+  });
+
+  group('date labels', () {
+    final now = DateTime(2026, 9, 16, 14, 30);
+
+    test('recent days read as Today and Yesterday', () {
+      expect(transactionDateLabel(DateTime(2026, 9, 16, 1), now: now), 'Today');
+      expect(
+        transactionDateLabel(DateTime(2026, 9, 15, 23), now: now),
+        'Yesterday',
+      );
+    });
+
+    test('older days read as a plain date', () {
+      expect(
+        transactionDateLabel(DateTime(2026, 9, 14), now: now),
+        'Sep 14, 2026',
+      );
+      expect(formatShortDate(DateTime(2025, 12, 1)), 'Dec 1, 2025');
+    });
+  });
+
+  group('choosing a wallet', () {
+    Wallet wallet(
+      String id, {
+      bool receivesIncome = false,
+      double balance = 0,
+    }) {
+      return Wallet(
+        id: id,
+        name: id,
+        type: WalletType.cash,
+        balance: balance,
+        startingBalance: balance,
+        receivesIncome: receivesIncome,
+        archived: false,
+        sortOrder: 0,
+      );
+    }
+
+    test('a new entry starts on the wallet that receives income', () {
+      expect(
+        defaultWalletId([wallet('a'), wallet('b', receivesIncome: true)]),
+        'b',
+      );
+    });
+
+    test('with no income wallet it starts on the first one', () {
+      expect(defaultWalletId([wallet('a'), wallet('b')]), 'a');
+      expect(defaultWalletId(const []), isNull);
+    });
+
+    testWidgets('the picker can leave a wallet out', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: WalletPicker(
+              wallets: [wallet('Cash'), wallet('GCash')],
+              selectedId: null,
+              excludeId: 'Cash',
+              onChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+
+      expect(find.text('GCash'), findsWidgets);
+      expect(find.text('Cash'), findsNothing);
+    });
+  });
+
+  group('Transfer', () {
+    final cash = Wallet(
+      id: 'a',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 500,
+      startingBalance: 500,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    final gcash = Wallet(
+      id: 'b',
+      name: 'My GCash',
+      type: WalletType.gcash,
+      balance: 0,
+      startingBalance: 0,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+    );
+
+    Future<void> pumpTransfer(
+      WidgetTester tester, {
+      required List<Wallet> wallets,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(body: TransferSheet(wallets: Stream.value(wallets))),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('explains that a transfer needs a second wallet', (
+      tester,
+    ) async {
+      await pumpTransfer(tester, wallets: [cash]);
+
+      expect(find.textContaining('need a second wallet'), findsOneWidget);
+      expect(
+        find.widgetWithText(ElevatedButton, 'Transfer'),
+        findsNothing,
+        reason: 'nothing to transfer to',
+      );
+    });
+
+    testWidgets('shows what the source wallet holds', (tester) async {
+      await pumpTransfer(tester, wallets: [cash, gcash]);
+
+      expect(find.text('Cash holds ₱500.00'), findsOneWidget);
+      expect(find.textContaining('Your total stays the same'), findsOneWidget);
+    });
+
+    testWidgets('refuses to move more money than the wallet holds', (
+      tester,
+    ) async {
+      await pumpTransfer(tester, wallets: [cash, gcash]);
+
+      await tester.enterText(find.byType(TextFormField).first, '800');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Transfer'));
+      await tester.pump();
+
+      expect(find.text('Cash only holds ₱500.00.'), findsOneWidget);
+    });
+
+    testWidgets('asks for an amount before transferring', (tester) async {
+      await pumpTransfer(tester, wallets: [cash, gcash]);
+
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Transfer'));
+      await tester.pump();
+
+      expect(find.text('Enter an amount to transfer.'), findsOneWidget);
+      expect(find.text('Choose a wallet.'), findsOneWidget);
+    });
+  });
+
+  group('importing older records', () {
+    test('an old expense becomes a history entry that moves no money', () {
+      final entry = LegacyMigration.expenseToTransaction({
+        'amount': 250,
+        'category': 'Food',
+        'description': 'Lunch at school',
+        'date': Timestamp.fromDate(DateTime(2025, 11, 4)),
+        'paymentMethod': 'Cash',
+      });
+
+      final transaction = AppTransaction.fromMap('e1', entry);
+
+      expect(transaction.type, TransactionType.expense);
+      expect(transaction.amount, 250);
+      expect(transaction.label, 'Food');
+      expect(transaction.note, 'Lunch at school');
+      expect(transaction.date, DateTime(2025, 11, 4));
+      expect(transaction.isLegacy, isTrue);
+      expect(transaction.walletId, isNull);
+      expect(
+        transaction.sourceDelta,
+        0,
+        reason: 'the money is already inside the starting balances',
+      );
+    });
+
+    test('an old income record becomes a history entry', () {
+      final entry = LegacyMigration.incomeToTransaction({
+        'amount': 500,
+        'source': 'Allowance',
+        'type': 'income',
+        'date': Timestamp.fromDate(DateTime(2025, 11, 5)),
+      });
+
+      final transaction = AppTransaction.fromMap('i1', entry);
+
+      expect(transaction.type, TransactionType.income);
+      expect(transaction.label, 'Allowance');
+      expect(transaction.amount, 500);
+      expect(transaction.isLegacy, isTrue);
+      expect(transaction.balanceDeltaFor('any wallet'), 0);
+    });
+
+    test('a record missing its fields still imports safely', () {
+      final expense = AppTransaction.fromMap(
+        'e2',
+        LegacyMigration.expenseToTransaction({'amount': -75}),
+      );
+
+      expect(expense.label, 'Others');
+      expect(expense.amount, 75, reason: 'amounts are stored positive');
+      expect(expense.note, isNull);
+
+      final income = AppTransaction.fromMap(
+        'i2',
+        LegacyMigration.incomeToTransaction(const {}),
+      );
+
+      expect(income.label, 'Income');
+      expect(income.amount, 0);
+    });
+  });
+
+  group('older records card', () {
+    Future<void> pumpCard(
+      WidgetTester tester, {
+      required int pending,
+      Future<int> Function()? runImport,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: LegacyImportCard(
+              countPending: () async => pending,
+              runImport: runImport ?? () async => pending,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('stays out of the way when there is nothing to import', (
+      tester,
+    ) async {
+      await pumpCard(tester, pending: 0);
+
+      expect(find.byType(ElevatedButton), findsNothing);
+    });
+
+    testWidgets('says how many records are waiting', (tester) async {
+      await pumpCard(tester, pending: 12);
+
+      expect(find.text('You have 12 older records'), findsOneWidget);
+      expect(find.text('Add to my history'), findsOneWidget);
+    });
+
+    testWidgets('promises that balances do not change before importing', (
+      tester,
+    ) async {
+      await pumpCard(tester, pending: 3);
+
+      await tester.tap(find.text('Add to my history'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add older records?'), findsOneWidget);
+      expect(
+        find.textContaining('No wallet balance will change'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Nothing is deleted'), findsOneWidget);
+    });
+
+    testWidgets('backing out imports nothing', (tester) async {
+      var ran = false;
+      await pumpCard(
+        tester,
+        pending: 3,
+        runImport: () async {
+          ran = true;
+          return 3;
+        },
+      );
+
+      await tester.tap(find.text('Add to my history'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+
+      expect(ran, isFalse);
+      expect(find.text('Add to my history'), findsOneWidget);
+    });
+
+    testWidgets('importing reports the count and hides the card', (
+      tester,
+    ) async {
+      await pumpCard(tester, pending: 3);
+
+      await tester.tap(find.text('Add to my history'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add them'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Added 3 older records to your history.'),
+        findsOneWidget,
+      );
+      expect(find.text('Add to my history'), findsNothing);
+    });
+  });
+
+  group('Add income', () {
+    Future<void> pumpDialog(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: AddIncomeDialog(wallets: Stream.value(const [])),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('asks where the money came from only after picking Other', (
+      tester,
+    ) async {
+      await pumpDialog(tester);
+
+      expect(find.text('Where did it come from?'), findsNothing);
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Other').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Where did it come from?'), findsOneWidget);
+      expect(find.text('Optional. Blank just calls it Other.'), findsOneWidget);
+    });
+
+    testWidgets('offers the sources a student actually has', (tester) async {
+      await pumpDialog(tester);
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+
+      for (final source in [
+        'Allowance',
+        'Scholarship',
+        'Gift',
+        'Sold Something',
+        'Refund',
+      ]) {
+        expect(find.text(source), findsWidgets, reason: source);
+      }
+
+      expect(
+        find.text('Borrowed Money'),
+        findsNothing,
+        reason: 'borrowed money is a debt, not income',
+      );
+    });
+  });
+
+  group('bill schedules', () {
+    Bill bill({
+      required DateTime firstDueDate,
+      BillRecurrence recurrence = BillRecurrence.monthly,
+      double amount = 1000,
+    }) {
+      return Bill(
+        id: 'b1',
+        name: 'Rent',
+        amount: amount,
+        category: 'Bills',
+        firstDueDate: firstDueDate,
+        recurrence: recurrence,
+      );
+    }
+
+    test('a monthly bill falls due once a month, from its first date on', () {
+      final rent = bill(firstDueDate: DateTime(2026, 3, 5));
+
+      expect(rent.occurrencesIn(2026, 3), [DateTime(2026, 3, 5)]);
+      expect(rent.occurrencesIn(2026, 4), [DateTime(2026, 4, 5)]);
+      expect(rent.occurrencesIn(2027, 1), [DateTime(2027, 1, 5)]);
+      expect(rent.occurrencesIn(2026, 2), isEmpty, reason: 'before it starts');
+    });
+
+    test('a bill due on the 31st still falls due in February', () {
+      final due31 = bill(firstDueDate: DateTime(2026, 1, 31));
+
+      expect(due31.occurrencesIn(2026, 2), [DateTime(2026, 2, 28)]);
+      expect(due31.occurrencesIn(2028, 2), [DateTime(2028, 2, 29)]);
+      expect(due31.occurrencesIn(2026, 4), [DateTime(2026, 4, 30)]);
+      expect(due31.occurrencesIn(2026, 3), [DateTime(2026, 3, 31)]);
+    });
+
+    test('a weekly bill falls due several times a month', () {
+      final load = bill(
+        firstDueDate: DateTime(2026, 1, 5),
+        recurrence: BillRecurrence.weekly,
+      );
+
+      expect(load.occurrencesIn(2026, 1), [
+        DateTime(2026, 1, 5),
+        DateTime(2026, 1, 12),
+        DateTime(2026, 1, 19),
+        DateTime(2026, 1, 26),
+      ]);
+      // Keeps the weekday even months later, without walking week by week.
+      expect(
+        load.occurrencesIn(2026, 6).every((date) => date.weekday == 1),
+        isTrue,
+      );
+      expect(load.occurrencesIn(2025, 12), isEmpty);
+    });
+
+    test('quarterly and yearly skip the months in between', () {
+      final tuition = bill(
+        firstDueDate: DateTime(2026, 1, 15),
+        recurrence: BillRecurrence.quarterly,
+      );
+      final insurance = bill(
+        firstDueDate: DateTime(2026, 1, 15),
+        recurrence: BillRecurrence.yearly,
+      );
+
+      expect(tuition.occurrencesIn(2026, 4), [DateTime(2026, 4, 15)]);
+      expect(tuition.occurrencesIn(2026, 5), isEmpty);
+      expect(insurance.occurrencesIn(2027, 1), [DateTime(2027, 1, 15)]);
+      expect(insurance.occurrencesIn(2026, 7), isEmpty);
+    });
+
+    test('a one-time bill only ever falls due once', () {
+      final once = bill(
+        firstDueDate: DateTime(2026, 3, 9),
+        recurrence: BillRecurrence.once,
+      );
+
+      expect(once.occurrencesIn(2026, 3), [DateTime(2026, 3, 9)]);
+      expect(once.occurrencesIn(2026, 4), isEmpty);
+    });
+
+    test('the same bill and date always produce the same record id', () {
+      expect(
+        billInstanceId('abc', DateTime(2026, 3, 5, 23, 59)),
+        billInstanceId('abc', DateTime(2026, 3, 5)),
+      );
+      expect(billInstanceId('abc', DateTime(2026, 3, 5)), 'abc_20260305');
+      expect(
+        billInstanceId('abc', DateTime(2026, 3, 5)),
+        isNot(billInstanceId('abc', DateTime(2026, 4, 5))),
+      );
+    });
+  });
+
+  group('bill occurrences', () {
+    final today = DateTime(2026, 3, 10);
+
+    BillInstance instance({
+      required DateTime dueDate,
+      BillStatus status = BillStatus.unpaid,
+      double amount = 1000,
+      double amountPaid = 0,
+    }) {
+      return BillInstance(
+        id: 'b1_x',
+        billId: 'b1',
+        name: 'Rent',
+        amount: amount,
+        category: 'Bills',
+        dueDate: dueDate,
+        status: status,
+        amountPaid: amountPaid,
+      );
+    }
+
+    test('a bill reads as overdue, due soon or upcoming', () {
+      expect(
+        instance(dueDate: DateTime(2026, 3, 9)).urgency(now: today),
+        BillUrgency.overdue,
+      );
+      expect(
+        instance(dueDate: DateTime(2026, 3, 10)).urgency(now: today),
+        BillUrgency.dueSoon,
+        reason: 'due today',
+      );
+      expect(
+        instance(dueDate: DateTime(2026, 3, 13)).urgency(now: today),
+        BillUrgency.dueSoon,
+      );
+      expect(
+        instance(dueDate: DateTime(2026, 3, 14)).urgency(now: today),
+        BillUrgency.upcoming,
+      );
+    });
+
+    test('a settled bill is never shown as overdue', () {
+      final longPast = DateTime(2026, 1, 1);
+
+      expect(
+        instance(
+          dueDate: longPast,
+          status: BillStatus.paid,
+        ).urgency(now: today),
+        BillUrgency.paid,
+      );
+      expect(
+        instance(
+          dueDate: longPast,
+          status: BillStatus.skipped,
+        ).urgency(now: today),
+        BillUrgency.skipped,
+      );
+    });
+
+    test('paying part of a bill leaves the rest owing', () {
+      final partly = instance(
+        dueDate: DateTime(2026, 3, 5),
+        amount: 1000,
+        amountPaid: 400,
+      );
+
+      expect(partly.remaining, 600);
+      expect(BillInstance.statusForPayment(400, 1000), BillStatus.partial);
+      expect(BillInstance.statusForPayment(1000, 1000), BillStatus.paid);
+      expect(BillInstance.statusForPayment(0, 1000), BillStatus.unpaid);
+    });
+
+    test('overpaying does not show as money still owed', () {
+      final overpaid = instance(
+        dueDate: DateTime(2026, 3, 5),
+        amount: 1000,
+        amountPaid: 1200,
+      );
+
+      expect(overpaid.remaining, 0);
+    });
+
+    test('what is left unpaid rolls into the next cycle', () {
+      final unpaid = instance(
+        dueDate: DateTime(2026, 2, 5),
+        amount: 1000,
+        amountPaid: 300,
+      );
+
+      expect(carryOverFrom(unpaid, now: today), 700);
+      expect(carryOverFrom(null, now: today), 0);
+    });
+
+    test('a bill not due yet rolls nothing over', () {
+      final notYetDue = instance(dueDate: DateTime(2026, 3, 25), amount: 1000);
+
+      expect(carryOverFrom(notYetDue, now: today), 0);
+    });
+
+    test('skipping a bill rolls nothing over', () {
+      final skipped = instance(
+        dueDate: DateTime(2026, 2, 5),
+        amount: 1000,
+        status: BillStatus.skipped,
+      );
+
+      expect(
+        carryOverFrom(skipped, now: today),
+        0,
+        reason: 'skipping is deciding not to pay it at all',
+      );
+    });
+
+    test('a damaged bill record falls back instead of crashing', () {
+      final broken = BillInstance.fromMap('x', {
+        'amount': 'lots',
+        'status': 'exploded',
+      });
+
+      expect(broken.name, 'Bill');
+      expect(broken.amount, 0);
+      expect(broken.status, BillStatus.unpaid);
+      expect(broken.paymentIds, isEmpty);
+      expect(Bill.fromMap('y', null).recurrence, BillRecurrence.monthly);
+    });
+  });
+
+  group('Bill calendar', () {
+    final today = DateTime(2026, 3, 10);
+
+    Bill bill({String id = 'b1', String name = 'Rent'}) {
+      return Bill(
+        id: id,
+        name: name,
+        amount: 3000,
+        category: 'Bills',
+        firstDueDate: DateTime(2026, 3, 5),
+        recurrence: BillRecurrence.monthly,
+      );
+    }
+
+    BillInstance instance({
+      String id = 'b1_20260305',
+      String name = 'Rent',
+      double amount = 3000,
+      double amountPaid = 0,
+      BillStatus status = BillStatus.unpaid,
+      DateTime? dueDate,
+    }) {
+      return BillInstance(
+        id: id,
+        billId: 'b1',
+        name: name,
+        amount: amount,
+        category: 'Bills',
+        dueDate: dueDate ?? DateTime(2026, 3, 5),
+        status: status,
+        amountPaid: amountPaid,
+      );
+    }
+
+    Future<void> pumpCalendar(
+      WidgetTester tester, {
+      List<Bill> bills = const [],
+      List<BillInstance> instances = const [],
+      void Function(int year, int month)? onFill,
+    }) async {
+      // A calendar grid plus the day's bills needs more height than the
+      // default test window, which would otherwise leave the list unbuilt.
+      tester.view.physicalSize = const Size(600, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: BillCalendarScreen(
+              today: today,
+              bills: Stream.value(bills),
+              instancesFor: (year, month) => Stream.value(
+                year == 2026 && month == 3 ? instances : const [],
+              ),
+              ensureInstances: (bills, year, month) async {
+                onFill?.call(year, month);
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('invites the user to add their first bill', (tester) async {
+      await pumpCalendar(tester);
+
+      expect(find.text('No bills yet'), findsOneWidget);
+      expect(find.text('Add Bill'), findsOneWidget);
+    });
+
+    testWidgets('shows the month, its total and what is still owing', (
+      tester,
+    ) async {
+      await pumpCalendar(
+        tester,
+        bills: [bill()],
+        instances: [
+          instance(),
+          instance(
+            id: 'b2_20260320',
+            name: 'Internet',
+            amount: 1500,
+            amountPaid: 1500,
+            status: BillStatus.paid,
+            dueDate: DateTime(2026, 3, 20),
+          ),
+        ],
+      );
+
+      expect(find.text('March 2026'), findsOneWidget);
+      expect(find.text('₱4,500.00'), findsOneWidget, reason: 'due this month');
+      expect(find.text('₱3,000.00'), findsWidgets, reason: 'still owing');
+      expect(find.textContaining('1 overdue'), findsOneWidget);
+    });
+
+    testWidgets('a day shows only the bills due on it', (tester) async {
+      await pumpCalendar(
+        tester,
+        bills: [bill()],
+        instances: [
+          instance(),
+          instance(
+            id: 'b2_20260320',
+            name: 'Internet',
+            dueDate: DateTime(2026, 3, 20),
+          ),
+        ],
+      );
+
+      // Opens on today, the 10th, where nothing is due.
+      expect(find.text('Nothing due on this day.'), findsOneWidget);
+
+      await tester.tap(find.text('5'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rent'), findsOneWidget);
+      expect(find.text('Internet'), findsNothing);
+
+      await tester.tap(find.text('Show all'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rent'), findsOneWidget);
+      expect(find.text('Internet'), findsOneWidget);
+    });
+
+    testWidgets('an overdue bill is called overdue, a paid one is not', (
+      tester,
+    ) async {
+      await pumpCalendar(
+        tester,
+        bills: [bill()],
+        instances: [
+          instance(),
+          instance(
+            id: 'b2_20260301',
+            name: 'Water',
+            amountPaid: 3000,
+            status: BillStatus.paid,
+            dueDate: DateTime(2026, 3, 1),
+          ),
+        ],
+      );
+
+      await tester.tap(find.text('Show all'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Overdue'), findsOneWidget);
+      expect(find.text('Paid'), findsOneWidget);
+    });
+
+    testWidgets('a part-paid bill says so and shows what is left', (
+      tester,
+    ) async {
+      await pumpCalendar(
+        tester,
+        bills: [bill()],
+        instances: [instance(amountPaid: 1000, status: BillStatus.partial)],
+      );
+
+      await tester.tap(find.text('Show all'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Partly paid'), findsOneWidget);
+      expect(find.text('₱2,000.00'), findsWidgets, reason: 'still owed');
+    });
+
+    testWidgets('the list view shows every bill without picking a day', (
+      tester,
+    ) async {
+      await pumpCalendar(
+        tester,
+        bills: [bill()],
+        instances: [
+          instance(),
+          instance(
+            id: 'b2_20260320',
+            name: 'Internet',
+            dueDate: DateTime(2026, 3, 20),
+          ),
+        ],
+      );
+
+      await tester.tap(find.byTooltip('Show list'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rent'), findsOneWidget);
+      expect(find.text('Internet'), findsOneWidget);
+    });
+
+    testWidgets('moving months asks for that month to be filled in', (
+      tester,
+    ) async {
+      final filled = <String>[];
+
+      await pumpCalendar(
+        tester,
+        bills: [bill()],
+        instances: [instance()],
+        onFill: (year, month) => filled.add('$year-$month'),
+      );
+
+      expect(filled, ['2026-3']);
+
+      await tester.tap(find.byTooltip('Next month'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('April 2026'), findsOneWidget);
+      expect(filled, ['2026-3', '2026-4']);
+
+      // Going back to a month already done must not repeat the work.
+      await tester.tap(find.byTooltip('Previous month'));
+      await tester.pumpAndSettle();
+
+      expect(filled, ['2026-3', '2026-4']);
+    });
+  });
+
+  group('Bill detail', () {
+    final today = DateTime(2026, 3, 10);
+
+    final rent = Bill(
+      id: 'b1',
+      name: 'Rent',
+      amount: 3000,
+      category: 'Bills',
+      firstDueDate: DateTime(2026, 3, 5),
+      recurrence: BillRecurrence.monthly,
+    );
+
+    BillInstance instance({
+      String id = 'b1_20260305',
+      double amount = 3000,
+      double amountPaid = 0,
+      double carriedOver = 0,
+      BillStatus status = BillStatus.unpaid,
+      DateTime? dueDate,
+    }) {
+      return BillInstance(
+        id: id,
+        billId: 'b1',
+        name: 'Rent',
+        amount: amount,
+        category: 'Bills',
+        dueDate: dueDate ?? DateTime(2026, 3, 5),
+        status: status,
+        amountPaid: amountPaid,
+        carriedOver: carriedOver,
+      );
+    }
+
+    Future<void> pumpDetail(
+      WidgetTester tester, {
+      required BillInstance current,
+      List<BillInstance> history = const [],
+    }) async {
+      tester.view.physicalSize = const Size(600, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: BillDetailScreen(
+              instance: current,
+              today: today,
+              liveInstance: Stream.value(current),
+              history: Stream.value(history),
+              bills: Stream.value([rent]),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('shows what is owed, when, and how it repeats', (tester) async {
+      await pumpDetail(tester, current: instance());
+
+      expect(find.text('Rent'), findsWidgets);
+      expect(find.text('₱3,000.00'), findsOneWidget);
+      expect(find.text('Due Mar 5, 2026'), findsOneWidget);
+      expect(
+        find.text('Falls due on the same date each month.'),
+        findsOneWidget,
+      );
+      expect(find.text('Overdue'), findsOneWidget);
+      expect(find.text('Mark as Paid'), findsOneWidget);
+    });
+
+    testWidgets('a part payment shows progress and what is left', (
+      tester,
+    ) async {
+      await pumpDetail(
+        tester,
+        current: instance(amountPaid: 1200, status: BillStatus.partial),
+      );
+
+      expect(find.text('Paid ₱1200.00'), findsOneWidget);
+      expect(find.text('₱1800.00 to go'), findsOneWidget);
+      expect(find.text('Partly paid'), findsOneWidget);
+      expect(find.text('Undo payment'), findsOneWidget);
+    });
+
+    testWidgets('a fully paid bill offers no way to pay it again', (
+      tester,
+    ) async {
+      await pumpDetail(
+        tester,
+        current: instance(amountPaid: 3000, status: BillStatus.paid),
+      );
+
+      expect(find.text('Mark as Paid'), findsNothing);
+      expect(find.text('Pay part of it'), findsNothing);
+      expect(find.text('Fully paid'), findsOneWidget);
+      expect(find.text('Undo payment'), findsOneWidget);
+    });
+
+    testWidgets('a skipped bill can be put back', (tester) async {
+      await pumpDetail(tester, current: instance(status: BillStatus.skipped));
+
+      expect(find.text('Put this bill back'), findsOneWidget);
+      expect(find.text('Mark as Paid'), findsNothing);
+    });
+
+    testWidgets('says when an amount includes an unpaid remainder', (
+      tester,
+    ) async {
+      await pumpDetail(
+        tester,
+        current: instance(amount: 4200, carriedOver: 1200),
+      );
+
+      expect(
+        find.textContaining('left unpaid from the cycle before'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('undoing a payment warns the money goes back', (tester) async {
+      await pumpDetail(
+        tester,
+        current: instance(amountPaid: 3000, status: BillStatus.paid),
+      );
+
+      await tester.tap(find.text('Undo payment'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Undo this payment?'), findsOneWidget);
+      expect(find.textContaining('returns to your wallet'), findsOneWidget);
+    });
+
+    testWidgets('past cycles list the other months', (tester) async {
+      await pumpDetail(
+        tester,
+        current: instance(),
+        history: [
+          instance(),
+          instance(
+            id: 'b1_20260205',
+            amountPaid: 3000,
+            status: BillStatus.paid,
+            dueDate: DateTime(2026, 2, 5),
+          ),
+        ],
+      );
+
+      expect(find.text('Feb 5, 2026'), findsOneWidget);
+      expect(find.text('This is the only cycle so far.'), findsNothing);
+    });
+
+    testWidgets('a single cycle says so instead of showing an empty list', (
+      tester,
+    ) async {
+      await pumpDetail(tester, current: instance(), history: [instance()]);
+
+      expect(find.text('This is the only cycle so far.'), findsOneWidget);
+    });
+  });
+
+  group('Bill payment', () {
+    final wallet = Wallet(
+      id: 'w1',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 5000,
+      startingBalance: 5000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+
+    final instance = BillInstance(
+      id: 'b1_20260305',
+      billId: 'b1',
+      name: 'Rent',
+      amount: 3000,
+      category: 'Bills',
+      dueDate: DateTime(2026, 3, 5),
+      status: BillStatus.unpaid,
+    );
+
+    Future<double?> pumpSheet(
+      WidgetTester tester, {
+      bool payInFull = true,
+    }) async {
+      double? paid;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: BillPaymentSheet(
+              instance: instance,
+              payInFull: payInFull,
+              wallets: Stream.value([wallet]),
+              onPay: ({required String walletId, required double amount}) {
+                paid = amount;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      return paid;
+    }
+
+    testWidgets('starts on the full amount owing', (tester) async {
+      await pumpSheet(tester);
+
+      expect(find.text('3000.00'), findsOneWidget);
+      expect(find.text('₱3,000.00 still owing'), findsOneWidget);
+    });
+
+    testWidgets('starts empty when paying only part of it', (tester) async {
+      await pumpSheet(tester, payInFull: false);
+
+      expect(find.text('3000.00'), findsNothing);
+    });
+
+    testWidgets('refuses to pay more than the bill needs', (tester) async {
+      await pumpSheet(tester, payInFull: false);
+
+      await tester.enterText(find.byType(TextFormField), '5000');
+      await tester.tap(find.text('Record Payment'));
+      await tester.pump();
+
+      expect(find.text('This bill only needs ₱3,000.00.'), findsOneWidget);
+    });
+
+    testWidgets('is honest that no real payment is made', (tester) async {
+      await pumpSheet(tester);
+
+      expect(
+        find.textContaining('does not pay anyone for real'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('Bill payments from more than one wallet', () {
+    final today = DateTime(2026, 3, 10);
+
+    final cash = Wallet(
+      id: 'w1',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 1000,
+      startingBalance: 1000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    final gcash = Wallet(
+      id: 'w2',
+      name: 'My GCash',
+      type: WalletType.gcash,
+      balance: 2000,
+      startingBalance: 2000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+    );
+
+    final partlyPaid = BillInstance(
+      id: 'b1_20260305',
+      billId: 'b1',
+      name: 'Rent',
+      amount: 3000,
+      category: 'Bills',
+      dueDate: DateTime(2026, 3, 5),
+      status: BillStatus.partial,
+      amountPaid: 1800,
+      paymentIds: const ['t1', 't2'],
+    );
+
+    AppTransaction payment({
+      required String id,
+      required double amount,
+      required String walletId,
+      required DateTime date,
+    }) {
+      return AppTransaction(
+        id: id,
+        type: TransactionType.expense,
+        amount: amount,
+        label: 'Bills',
+        date: date,
+        walletId: walletId,
+        note: 'Rent',
+      );
+    }
+
+    Future<void> pumpDetail(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(600, 1900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: BillDetailScreen(
+              instance: partlyPaid,
+              today: today,
+              liveInstance: Stream.value(partlyPaid),
+              history: Stream.value([partlyPaid]),
+              bills: Stream.value(const []),
+              wallets: Stream.value([cash, gcash]),
+              loadPayments: (instance) async => [
+                payment(
+                  id: 't1',
+                  amount: 1000,
+                  walletId: 'w1',
+                  date: DateTime(2026, 3, 5),
+                ),
+                payment(
+                  id: 't2',
+                  amount: 800,
+                  walletId: 'w2',
+                  date: DateTime(2026, 3, 6),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('each payment says which wallet it came out of', (
+      tester,
+    ) async {
+      await pumpDetail(tester);
+
+      expect(find.text('From Cash'), findsOneWidget);
+      expect(find.text('From My GCash'), findsOneWidget);
+      expect(find.text('₱1,000.00'), findsOneWidget);
+      expect(find.text('₱800.00'), findsOneWidget);
+      expect(find.text('Mar 5, 2026'), findsOneWidget);
+      expect(find.text('Mar 6, 2026'), findsOneWidget);
+    });
+
+    testWidgets('the bill still shows what is left after both payments', (
+      tester,
+    ) async {
+      await pumpDetail(tester);
+
+      expect(find.text('Paid ₱1800.00'), findsOneWidget);
+      expect(find.text('₱1200.00 to go'), findsOneWidget);
+    });
+
+    testWidgets('one payment can be undone without touching the other', (
+      tester,
+    ) async {
+      await pumpDetail(tester);
+
+      await tester.tap(find.byTooltip('Undo this payment').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Undo this payment?'), findsOneWidget);
+      expect(
+        find.textContaining('goes back to Cash'),
+        findsOneWidget,
+        reason: 'names the wallet that particular payment came from',
+      );
+    });
+  });
+
+  group('button colour rule', () {
+    Color? fillOf(ButtonStyle style) =>
+        style.backgroundColor?.resolve(const <WidgetState>{});
+
+    test('green commits, red destroys, blue only opens', () {
+      expect(fillOf(confirmButtonStyle()), appConfirmGreen);
+      expect(fillOf(dangerButtonStyle()), appDangerRed);
+      expect(fillOf(openButtonStyle()), appPrimaryBlue);
+    });
+
+    test('the three meanings never share a colour', () {
+      final colors = {appConfirmGreen, appDangerRed, appPrimaryBlue};
+
+      expect(colors.length, 3);
+    });
+
+    Future<List<Color>> colorsUnder(
+      WidgetTester tester,
+      ThemeData theme,
+    ) async {
+      late Color confirm;
+      late Color danger;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Builder(
+            builder: (context) {
+              confirm = confirmColorOn(context);
+              danger = dangerColorOn(context);
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+
+      return [confirm, danger];
+    }
+
+    testWidgets('cancel is red too, like the other ways of backing out', (
+      tester,
+    ) async {
+      late Color cancel;
+      late Color danger;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Builder(
+            builder: (context) {
+              cancel = cancelTextStyle(
+                context,
+              ).foregroundColor!.resolve(const <WidgetState>{})!;
+              danger = dangerTextStyle(
+                context,
+              ).foregroundColor!.resolve(const <WidgetState>{})!;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+
+      expect(cancel, danger);
+    });
+
+    testWidgets('light mode uses the solid green and red', (tester) async {
+      final colors = await colorsUnder(tester, AppTheme.light);
+
+      expect(colors, [appConfirmGreen, appDangerRed]);
+    });
+
+    testWidgets('dark mode lightens them so they stay readable', (
+      tester,
+    ) async {
+      final colors = await colorsUnder(tester, AppTheme.dark);
+
+      expect(colors[0], isNot(appConfirmGreen));
+      expect(colors[1], isNot(appDangerRed));
+    });
   });
 }

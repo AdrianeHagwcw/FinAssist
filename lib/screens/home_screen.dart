@@ -7,12 +7,16 @@ import 'chatbot_screen.dart';
 import 'profile_screen.dart';
 import 'ocr_screen.dart';
 import 'voice_recognition_screen.dart';
+import 'bill_calendar_screen.dart';
 import 'budget_screen.dart';
+import '../models/wallet.dart';
 import '../services/user_profile_service.dart';
+import '../services/wallet_service.dart';
 import '../utils/categories.dart';
 import '../utils/money_format.dart';
 import '../widgets/money_text.dart';
 import '../theme/app_colors.dart';
+import '../widgets/add_budget_dialog.dart';
 import '../widgets/add_income_dialog.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/quick_action_tile.dart';
@@ -31,6 +35,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final User? user = FirebaseAuth.instance.currentUser;
+
+  // Held here so a rebuild doesn't start a second listener.
+  late final Stream<List<Wallet>> _wallets = WalletService.watchWallets();
 
   // =================================================
   // SECTION TITLE
@@ -221,7 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       children: [
                         Text(
-                          'Hello, ${user!.displayName ?? 'User'}! 👋',
+                          'Hello, ${user!.displayName ?? 'User'}!',
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -259,64 +266,88 @@ class _HomeScreenState extends State<HomeScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
 
-                    child: Row(
+                    // Two rows of two: a single row of four squeezes the
+                    // labels until they wrap on a narrow phone.
+                    child: Column(
                       children: [
-                        Expanded(
-                          child: QuickActionTile(
-                            icon: Image.asset(
-                              'assets/icons/icons8-combo-chart-100.png',
-                              width: 24,
-                              height: 24,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: QuickActionTile(
+                                icon: Image.asset(
+                                  'assets/icons/icons8-calendar-96.png',
+                                  width: 24,
+                                  height: 24,
+                                ),
+                                title: 'Bill Planner',
+                                onTap: _openBillPlanner,
+                              ),
                             ),
-                            title: 'Reports',
-                            onTap: _openInsights,
-                          ),
+
+                            const SizedBox(width: 12),
+
+                            Expanded(
+                              child: QuickActionTile(
+                                icon: Image.asset(
+                                  'assets/icons/icons8-combo-chart-100.png',
+                                  width: 24,
+                                  height: 24,
+                                ),
+                                title: 'Reports',
+                                onTap: _openInsights,
+                              ),
+                            ),
+                          ],
                         ),
 
-                        const SizedBox(width: 12),
+                        const SizedBox(height: 12),
 
-                        Expanded(
-                          child: QuickActionTile(
-                            icon: Image.asset(
-                              'assets/icons/icons8-camera-96.png',
-                              width: 24,
-                              height: 24,
-                            ),
-                            title: 'OCR Receipt',
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const OcrScreen(autoStart: true),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: QuickActionTile(
+                                icon: Image.asset(
+                                  'assets/icons/icons8-camera-96.png',
+                                  width: 24,
+                                  height: 24,
                                 ),
-                              );
-                            },
-                          ),
-                        ),
-
-                        const SizedBox(width: 12),
-
-                        Expanded(
-                          child: QuickActionTile(
-                            icon: Image.asset(
-                              'assets/icons/icons8-microphone-96.png',
-                              width: 24,
-                              height: 24,
+                                title: 'OCR Receipt',
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const OcrScreen(autoStart: true),
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
-                            title: 'Voice Input',
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const VoiceRecognitionScreen(
-                                        autoStart: true,
-                                      ),
+
+                            const SizedBox(width: 12),
+
+                            Expanded(
+                              child: QuickActionTile(
+                                icon: Image.asset(
+                                  'assets/icons/icons8-microphone-96.png',
+                                  width: 24,
+                                  height: 24,
                                 ),
-                              );
-                            },
-                          ),
+                                title: 'Voice Input',
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const VoiceRecognitionScreen(
+                                            autoStart: true,
+                                          ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -834,78 +865,112 @@ class _HomeScreenState extends State<HomeScreen> {
   // =================================================
 
   Widget _buildTotalBalanceCard(double totalExpenses, int transactionCount) {
-    final profileFuture = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user!.uid)
-        .get();
+    return StreamBuilder<List<Wallet>>(
+      stream: _wallets,
+      builder: (context, walletSnapshot) {
+        final wallets = walletSnapshot.data ?? const <Wallet>[];
 
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: profileFuture,
-      builder: (context, snapshot) {
-        final profile = snapshot.data?.data();
-        final fixedIncome = (profile?['income'] as num?)?.toDouble() ?? 0;
-        final dailyIncome =
-            (profile?['dailyIncome'] as num?)?.toDouble() ??
-            (profile?['otherIncome'] as num?)?.toDouble() ??
-            0;
-        final totalAccumulatedIncome = fixedIncome + dailyIncome;
-        final totalBalance = totalAccumulatedIncome - totalExpenses;
+        // Once there are wallets, the balance is simply what they hold. It is
+        // the same number the Wallet tab shows, so the two can't disagree.
+        if (wallets.isNotEmpty) {
+          final count = wallets.length;
 
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            profile == null) {
-          return const SizedBox(
-            height: 132,
-            child: Center(child: CircularProgressIndicator()),
+          return _totalBalanceCardView(
+            balance: totalWalletBalance(wallets),
+            captions: [
+              'Across $count wallet${count == 1 ? '' : 's'}',
+              '$transactionCount transaction'
+                  '${transactionCount == 1 ? '' : 's'} recorded',
+            ],
           );
         }
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: primaryBlue,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
+        // No wallets yet: fall back to income less expenses, so the card is
+        // never blank for someone who has not added one.
+        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          future: FirebaseFirestore.instance
+              .collection('users')
+              .doc(user!.uid)
+              .get(),
+          builder: (context, snapshot) {
+            final profile = snapshot.data?.data();
+            final fixedIncome = (profile?['income'] as num?)?.toDouble() ?? 0;
+            final dailyIncome =
+                (profile?['dailyIncome'] as num?)?.toDouble() ??
+                (profile?['otherIncome'] as num?)?.toDouble() ??
+                0;
+            final totalAccumulatedIncome = fixedIncome + dailyIncome;
+
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                profile == null) {
+              return const SizedBox(
+                height: 132,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            return _totalBalanceCardView(
+              balance: totalAccumulatedIncome - totalExpenses,
+              captions: [
+                '${formatPeso(totalAccumulatedIncome)} income less '
+                    '${formatPeso(totalExpenses)} in expenses',
+                '$transactionCount transaction'
+                    '${transactionCount == 1 ? '' : 's'} recorded',
               ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Total Balance',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                const SizedBox(height: 14),
-                MoneyText(
-                  totalBalance,
-                  style: TextStyle(
-                    color: totalBalance < 0 ? Colors.redAccent : Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '${formatPeso(totalAccumulatedIncome)} income less ${formatPeso(totalExpenses)} in expenses',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '$transactionCount transaction${transactionCount == 1 ? '' : 's'} recorded',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _totalBalanceCardView({
+    required double balance,
+    required List<String> captions,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: primaryBlue,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Total Balance',
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            const SizedBox(height: 14),
+            MoneyText(
+              balance,
+              style: TextStyle(
+                color: balance < 0 ? Colors.redAccent : Colors.white,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 5),
+            for (final caption in captions) ...[
+              Text(
+                caption,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 3),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -1097,110 +1162,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _showAddBudgetDialog(double currentBudget) async {
-    final amountController = TextEditingController();
-    var isSaving = false;
-    var budgetUpdateMode = 'Replace daily limit';
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Add Budget'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Current daily limit: ${formatPeso(currentBudget)}',
-                style: const TextStyle(color: Colors.grey),
-              ),
-              TextField(
-                controller: amountController,
-                enabled: !isSaving,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Daily limit amount',
-                  prefixText: '₱',
-                ),
-              ),
-              DropdownButtonFormField<String>(
-                initialValue: budgetUpdateMode,
-                decoration: const InputDecoration(
-                  labelText: 'Daily limit action',
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: 'Replace daily limit',
-                    child: Text('Replace daily limit'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'Add to daily limit',
-                    child: Text('Add to daily limit'),
-                  ),
-                ],
-                onChanged: isSaving
-                    ? null
-                    : (value) => setDialogState(
-                        () => budgetUpdateMode = value ?? budgetUpdateMode,
-                      ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSaving ? null : () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: isSaving
-                  ? null
-                  : () async {
-                      final amount = double.tryParse(
-                        amountController.text.trim().replaceAll(',', ''),
-                      );
-                      if (amount == null || amount <= 0) {
-                        _showMessage('Enter a valid positive budget amount.');
-                        return;
-                      }
-
-                      setDialogState(() => isSaving = true);
-                      try {
-                        final updatedBudget =
-                            budgetUpdateMode == 'Add to daily limit'
-                            ? currentBudget + amount
-                            : amount;
-                        await UserProfileService.updateBudget(updatedBudget);
-                        if (!mounted || !dialogContext.mounted) return;
-                        Navigator.pop(dialogContext);
-                        setState(() {});
-                      } catch (_) {
-                        setDialogState(() => isSaving = false);
-                        _showMessage('Budget could not be saved.');
-                      }
-                    },
-              child: isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Save'),
-            ),
-          ],
-        ),
-      ),
+  void _openBillPlanner() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const BillCalendarScreen()),
     );
-    amountController.dispose();
   }
 
-  void _showMessage(String message) {
-    if (!mounted) return;
+  Future<void> _showAddBudgetDialog(double currentBudget) async {
+    final saved = await showAddBudgetDialog(
+      context,
+      currentBudget: currentBudget,
+    );
 
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    if (saved && mounted) setState(() {});
   }
 
   /// Same blue as the + button in both light and dark mode, so these

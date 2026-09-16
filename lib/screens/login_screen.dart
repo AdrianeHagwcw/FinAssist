@@ -8,6 +8,7 @@ import 'financial_setup_screen.dart';
 import 'main_shell.dart';
 import 'forgot_password_screen.dart';
 import 'register_screen.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_logo.dart';
 
@@ -495,19 +496,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _login,
 
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1976D2),
-
-                      foregroundColor: Colors.white,
-
-                      disabledBackgroundColor: Colors.grey.shade400,
-
-                      elevation: 0,
-
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                    style: confirmButtonStyle(),
 
                     child: _isLoading
                         ? const SizedBox(

@@ -25,6 +25,18 @@ class UserProfileService {
     return snapshot.data()?['setupCompleted'] == true;
   }
 
+  /// The signed-in user's profile document, updating live. Used by screens
+  /// that show a saved answer, such as which income source a wallet receives.
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> watchProfile() {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      throw StateError('No authenticated user.');
+    }
+
+    return _profileReference(user.uid).snapshots();
+  }
+
   static Future<void> createInitialProfile(User user) async {
     await _profileReference(user.uid).set({
       'email': user.email,
@@ -108,7 +120,10 @@ class UserProfileService {
     await _updateProfile({'income': income, 'incomeSource': incomeSource});
   }
 
-  static Future<void> addOtherIncome({
+  /// Records income against the running daily total and returns the id of
+  /// the stored record, so the caller can file the matching wallet entry
+  /// under the same id.
+  static Future<String> addOtherIncome({
     required double amount,
     required String incomeSource,
   }) async {
@@ -130,10 +145,12 @@ class UserProfileService {
       'lastDailyIncomeSource': incomeSource,
     });
 
+    final reference = _profileReference(
+      user.uid,
+    ).collection('dailyIncomeTransactions').doc();
+
     commitFirestoreWrite(
-      _profileReference(
-        user.uid,
-      ).collection('dailyIncomeTransactions').doc().set({
+      reference.set({
         'amount': amount,
         'source': incomeSource,
         'type': 'income',
@@ -142,6 +159,8 @@ class UserProfileService {
       }),
       'add income transaction',
     );
+
+    return reference.id;
   }
 
   static Future<void> updateBudget(double budget) async {

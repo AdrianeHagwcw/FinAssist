@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 
 import '../models/onboarding_data.dart';
 import '../models/wallet.dart';
+import '../widgets/wallet_form_sheet.dart';
 import '../services/user_profile_service.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/money_format.dart';
@@ -182,15 +184,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   // =========================================================
 
   Future<void> _addWallet() async {
-    final wallet = await showModalBottomSheet<WalletDraft>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: context.appColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => const _AddWalletSheet(),
-    );
+    final wallet = await showWalletFormSheet(context);
 
     if (wallet == null || !mounted) return;
 
@@ -345,7 +339,12 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           ],
         );
       case _readyStep:
-        return _primaryButton('Go to Dashboard', _finish, isLoading: _isSaving);
+        return _primaryButton(
+          'Go to Dashboard',
+          _finish,
+          isLoading: _isSaving,
+          confirm: true,
+        );
       default:
         return _primaryButton('Next', _next);
     }
@@ -369,7 +368,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           ),
         ),
         const SizedBox(height: 20),
-        _title('Welcome to FinAssist! 👋', center: true),
+        _title('Welcome to FinAssist!', center: true),
         const SizedBox(height: 8),
         _subtitle(
           "Let's set up your personal budget. It only takes a minute.",
@@ -933,25 +932,20 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   // SMALL BUILDING BLOCKS
   // =========================================================
 
+  /// [confirm] marks the button that finishes setup. The steps before it
+  /// only move forward, so they stay blue.
   Widget _primaryButton(
     String label,
     VoidCallback onPressed, {
     bool isLoading = false,
+    bool confirm = false,
   }) {
     return SizedBox(
       width: double.infinity,
       height: 52,
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: appPrimaryBlue,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: appPrimaryBlue.withValues(alpha: 0.6),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
+        style: confirm ? confirmButtonStyle() : openButtonStyle(),
         child: isLoading
             ? const SizedBox(
                 width: 22,
@@ -1239,184 +1233,3 @@ class _WalletDraftCard extends StatelessWidget {
 // =========================================================
 // ADD WALLET SHEET
 // =========================================================
-
-class _AddWalletSheet extends StatefulWidget {
-  const _AddWalletSheet();
-
-  @override
-  State<_AddWalletSheet> createState() => _AddWalletSheetState();
-}
-
-class _AddWalletSheetState extends State<_AddWalletSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _balanceController = TextEditingController();
-  WalletType _type = WalletType.cash;
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _balanceController.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    if (!_formKey.currentState!.validate()) return;
-
-    final name = _nameController.text.trim();
-    Navigator.pop(
-      context,
-      WalletDraft(
-        type: _type,
-        name: name.isEmpty ? _type.label : name,
-        startingBalance: double.parse(
-          _balanceController.text.trim().replaceAll(',', ''),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Padding(
-      // Keeps the form above the on-screen keyboard.
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: colors.border,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'New Wallet',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Type',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final type in WalletType.values)
-                      ChoiceChip(
-                        avatar: Image.asset(
-                          type.iconAsset,
-                          width: 18,
-                          height: 18,
-                        ),
-                        label: Text(type.label),
-                        selected: type == _type,
-                        showCheckmark: false,
-                        selectedColor: appPrimaryBlue,
-                        labelStyle: TextStyle(
-                          color: type == _type ? Colors.white : colors.textBody,
-                          fontWeight: type == _type
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                        onSelected: (_) => setState(() => _type = type),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Name (optional)',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _nameController,
-                  textCapitalization: TextCapitalization.words,
-                  maxLength: 30,
-                  decoration: InputDecoration(
-                    hintText: 'e.g. ${_type.label} or "BPI Savings"',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Current balance',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _balanceController,
-                  autofocus: true,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: '0.00',
-                    prefixText: '₱ ',
-                    helperText: 'Enter 0 if this wallet is empty.',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  validator: (value) {
-                    final amount = double.tryParse(
-                      (value ?? '').trim().replaceAll(',', ''),
-                    );
-                    return amount == null || amount < 0
-                        ? 'Enter the balance, or 0 if empty.'
-                        : null;
-                  },
-                  onFieldSubmitted: (_) => _save(),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _save,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: appPrimaryBlue,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: const Text(
-                      'Add Wallet',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

@@ -5,10 +5,12 @@ import '../theme/app_theme.dart';
 import '../widgets/add_income_dialog.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/quick_add_sheet.dart';
+import '../widgets/transfer_sheet.dart';
 import 'add_expense_screen.dart';
 import 'chatbot_screen.dart';
 import 'expenses_screen.dart';
 import 'home_screen.dart';
+import 'wallets_screen.dart';
 
 /// The signed-in app: four bottom tabs (Home / Transactions / Goals / Wallet)
 /// with a center "+" button that opens the quick-add grid.
@@ -56,18 +58,11 @@ class _MainShellState extends State<MainShell> {
                 'Soon you can set savings goals here and track your progress '
                 'toward each one.',
           ),
-          const _ComingSoonTab(
-            title: 'Wallet',
-            iconAsset: 'assets/icons/icons8-wallet-96.png',
-            emptyTitle: 'Wallets are coming soon',
-            emptyMessage:
-                'Soon you can add your Cash, GCash, Maya and bank wallets here, '
-                'each with its own balance.',
-          ),
+          const WalletsScreen(),
         ];
   }
 
-  // Transfer, Bills and Goal shortcuts are added when those features exist.
+  // Bills and Goal shortcuts are added when those features exist.
   List<QuickAddAction> _quickAddActions() {
     return widget.quickAddActions ??
         [
@@ -88,6 +83,16 @@ class _MainShellState extends State<MainShell> {
             color: Colors.green,
             onSelected: () async {
               final saved = await showAddIncomeDialog(context);
+              if (saved && mounted) setState(() => _homeRefreshKey++);
+            },
+          ),
+          QuickAddAction(
+            icon: Icons.swap_horiz,
+            iconAsset: 'assets/icons/icons8-transactions-96.png',
+            label: 'Transfer',
+            color: appPrimaryBlue,
+            onSelected: () async {
+              final saved = await showTransferSheet(context);
               if (saved && mounted) setState(() => _homeRefreshKey++);
             },
           ),

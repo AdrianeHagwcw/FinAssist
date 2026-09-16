@@ -129,7 +129,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     }
 
     if (text.contains('hello') || text.contains('hi')) {
-      return 'Hello! 👋 What would you like to know about your finances?';
+      return 'Hello! What would you like to know about your finances?';
     }
 
     return 'I understand. Once FinAssist is connected to the AI service, '

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/light_dark_toggle.dart';
 import 'budget_screen.dart';
@@ -27,10 +28,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // =========================================================
 
   /// Asks before signing out, since unsent changes need a connection.
+  /// [isDestructive] paints the confirm button red. Logging out ends the
+  /// session; switching accounts only swaps it, so that one stays neutral.
   Future<bool> _confirmSignOut({
     required String title,
     required String message,
     required String confirmLabel,
+    bool isDestructive = false,
   }) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -40,10 +44,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
+            style: cancelTextStyle(context),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
+            style: isDestructive
+                ? dangerTextStyle(context)
+                : confirmTextStyle(context),
             child: Text(confirmLabel),
           ),
         ],
@@ -74,6 +82,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           'You can log back in anytime. Connect to the internet first so '
           'your latest changes are saved.',
       confirmLabel: 'Log Out',
+      isDestructive: true,
     );
 
     if (confirmed) await _logout();

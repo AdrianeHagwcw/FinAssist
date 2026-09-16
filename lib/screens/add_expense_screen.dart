@@ -1,10 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../models/app_transaction.dart';
+import '../models/wallet.dart';
 import '../services/firestore_write.dart';
+import '../services/wallet_service.dart';
 import '../utils/categories.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../widgets/wallet_picker.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   // =========================================================
@@ -19,8 +26,13 @@ class AddExpenseScreen extends StatefulWidget {
   final String? initialPaymentMethod;
   final String? initialNotes;
 
+  /// Replaces the live wallet list. Used by tests, which can't load Firebase.
+  final Stream<List<Wallet>>? wallets;
+
   const AddExpenseScreen({
     super.key,
+
+    this.wallets,
 
     this.documentId,
     this.initialAmount,
@@ -53,7 +65,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   // =========================================================
 
   String? _selectedCategory;
-  String? _selectedPaymentMethod;
+
+  /// Which wallet this expense is paid from. Null only while the wallets are
+  /// still loading, or for a user who has none yet.
+  String? _walletId;
+  List<Wallet> _wallets = const [];
+  StreamSubscription<List<Wallet>>? _walletsSubscription;
 
   DateTime _selectedDate = DateTime.now();
 
@@ -70,19 +87,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   // =========================================================
 
   final List<String> _categories = expenseCategories;
-
-  // =========================================================
-  // PAYMENT METHODS
-  // =========================================================
-
-  final List<String> _paymentMethods = [
-    'Cash',
-    'GCash',
-    'Bank Transfer',
-    'Debit Card',
-    'Credit Card',
-    'Other',
-  ];
 
   // =========================================================
   // INIT
@@ -105,14 +109,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
       _descriptionController.text = widget.initialDescription ?? '';
 
-      _selectedPaymentMethod = widget.initialPaymentMethod;
-
       _notesController.text = widget.initialNotes ?? '';
 
       if (widget.initialDate != null) {
         _selectedDate = widget.initialDate!.toDate();
       }
     }
+
+    // The wallet list is held here rather than read from a builder, because
+    // saving needs to know which wallet was picked.
+    _walletsSubscription = (widget.wallets ?? WalletService.watchWallets())
+        .listen((wallets) {
+          if (!mounted) return;
+
+          setState(() {
+            _wallets = wallets;
+            _walletId ??= defaultWalletId(wallets);
+          });
+        });
   }
 
   // =========================================================
@@ -121,11 +135,20 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   @override
   void dispose() {
+    _walletsSubscription?.cancel();
     _amountController.dispose();
     _descriptionController.dispose();
     _notesController.dispose();
 
     super.dispose();
+  }
+
+  /// The wallet this expense is paid from, or null when there is none.
+  Wallet? get _selectedWallet {
+    for (final wallet in _wallets) {
+      if (wallet.id == _walletId) return wallet;
+    }
+    return null;
   }
 
   // =========================================================
@@ -192,11 +215,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
 
     // ---------------------------------------------------------
-    // PAYMENT METHOD
+    // WALLET
     // ---------------------------------------------------------
 
-    if (_selectedPaymentMethod == null) {
-      _showError('Please select a payment method.');
+    // Users who have not added a wallet yet can still record the expense; it
+    // is kept as history and no balance moves.
+    if (_wallets.isNotEmpty && _walletId == null) {
+      _showError('Please choose which wallet this was paid from.');
       return;
     }
 
@@ -227,12 +252,17 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     // COMMON DATA
     // =======================================================
 
+    final wallet = _selectedWallet;
+    final description = _descriptionController.text.trim();
+
     final Map<String, dynamic> expenseData = {
       'amount': amount,
       'category': _selectedCategory,
-      'description': _descriptionController.text.trim(),
+      'description': description,
       'date': Timestamp.fromDate(_selectedDate),
-      'paymentMethod': _selectedPaymentMethod,
+      // Kept so the older expense screens keep showing something sensible.
+      'paymentMethod': wallet?.type.label ?? widget.initialPaymentMethod,
+      'walletId': wallet?.id,
       'notes': _notesController.text.trim(),
     };
 
@@ -253,6 +283,18 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         expensesCollection.doc(widget.documentId).update(expenseData),
         'update expense',
       );
+
+      // Rewrites the matching wallet entry, putting back what the old version
+      // took out before applying the new amount.
+      WalletService.replaceTransaction(
+        id: widget.documentId!,
+        type: TransactionType.expense,
+        amount: amount,
+        label: _selectedCategory!,
+        walletId: wallet?.id,
+        note: description,
+        date: _selectedDate,
+      );
     }
     // =======================================================
     // ADD NEW EXPENSE
@@ -262,9 +304,19 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       expenseData['email'] = user.email;
       expenseData['createdAt'] = FieldValue.serverTimestamp();
 
-      commitFirestoreWrite(
-        expensesCollection.doc().set(expenseData),
-        'add expense',
+      final reference = expensesCollection.doc();
+      commitFirestoreWrite(reference.set(expenseData), 'add expense');
+
+      // The wallet entry reuses the expense's id, so the one-time migration
+      // of old expenses can never turn this into two records.
+      WalletService.recordTransaction(
+        id: reference.id,
+        type: TransactionType.expense,
+        amount: amount,
+        label: _selectedCategory!,
+        walletId: wallet?.id,
+        note: description,
+        date: _selectedDate,
       );
     }
 
@@ -520,52 +572,28 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             const SizedBox(height: 20),
 
             // =================================================
-            // PAYMENT METHOD
+            // WALLET
             // =================================================
             const Text(
-              'Payment Method',
+              'Paid From',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
 
             const SizedBox(height: 8),
 
-            Container(
-              decoration: BoxDecoration(
-                color: colors.card,
-                borderRadius: BorderRadius.circular(12),
+            if (_wallets.isEmpty)
+              Text(
+                'You have no wallets yet. This expense will be saved to your '
+                'history, but no wallet balance will change.',
+                style: TextStyle(fontSize: 13, color: colors.textBody),
+              )
+            else
+              WalletPicker(
+                wallets: _wallets,
+                selectedId: _walletId,
+                label: 'Wallet',
+                onChanged: (value) => setState(() => _walletId = value),
               ),
-
-              child: DropdownButtonFormField<String>(
-                initialValue: _selectedPaymentMethod,
-
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(
-                    Icons.payment_outlined,
-                    color: primaryBlue,
-                  ),
-
-                  hintText: 'Select payment method',
-
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-
-                items: _paymentMethods.map((method) {
-                  return DropdownMenuItem<String>(
-                    value: method,
-                    child: Text(method),
-                  );
-                }).toList(),
-
-                onChanged: (value) {
-                  setState(() {
-                    _selectedPaymentMethod = value;
-                  });
-                },
-              ),
-            ),
 
             const SizedBox(height: 20),
 
@@ -612,19 +640,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               child: ElevatedButton(
                 onPressed: _isSaving ? null : _saveExpense,
 
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryBlue,
-
-                  foregroundColor: Colors.white,
-
-                  disabledBackgroundColor: primaryBlue.withValues(alpha: 0.6),
-
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-
-                  elevation: 0,
-                ),
+                style: confirmButtonStyle(height: 55),
 
                 child: _isSaving
                     ? const SizedBox(
@@ -663,13 +679,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                         Navigator.pop(context);
                       },
 
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: primaryBlue,
-
-                  side: const BorderSide(color: primaryBlue),
-
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+                style: dangerOutlineStyle(context, height: 50).copyWith(
+                  shape: WidgetStatePropertyAll(
+                    RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                 ),
 

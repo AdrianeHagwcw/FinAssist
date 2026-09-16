@@ -55,6 +55,19 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  # Generates the Android/iOS launcher icons from the FinAssist logo.
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icons/app_icon.png
+  # Android 8+ masks icons into circles and squircles, so the logo is supplied
+  # separately on a white background it can crop safely.
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/icons/app_icon_foreground.png
+  # App Store icons must be fully opaque.
+  remove_alpha_ios: true
 
 dependency_overrides:
   path_provider_android: 2.2.18
