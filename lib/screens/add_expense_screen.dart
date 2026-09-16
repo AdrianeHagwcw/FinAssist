@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../services/firestore_write.dart';
+import '../utils/categories.dart';
+import '../theme/app_colors.dart';
+
 class AddExpenseScreen extends StatefulWidget {
   // =========================================================
   // EDIT MODE DATA
@@ -65,16 +69,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   // CATEGORIES
   // =========================================================
 
-  final List<String> _categories = [
-    'Food',
-    'Transportation',
-    'Shopping',
-    'Bills',
-    'Entertainment',
-    'Healthcare',
-    'Education',
-    'Others',
-  ];
+  final List<String> _categories = expenseCategories;
 
   // =========================================================
   // PAYMENT METHODS
@@ -228,100 +223,67 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       _isSaving = true;
     });
 
-    try {
-      // =======================================================
-      // COMMON DATA
-      // =======================================================
+    // =======================================================
+    // COMMON DATA
+    // =======================================================
 
-      final Map<String, dynamic> expenseData = {
-        'amount': amount,
-        'category': _selectedCategory,
-        'description': _descriptionController.text.trim(),
-        'date': Timestamp.fromDate(_selectedDate),
-        'paymentMethod': _selectedPaymentMethod,
-        'notes': _notesController.text.trim(),
-      };
+    final Map<String, dynamic> expenseData = {
+      'amount': amount,
+      'category': _selectedCategory,
+      'description': _descriptionController.text.trim(),
+      'date': Timestamp.fromDate(_selectedDate),
+      'paymentMethod': _selectedPaymentMethod,
+      'notes': _notesController.text.trim(),
+    };
 
-      // =======================================================
-      // EDIT EXISTING EXPENSE
-      // =======================================================
+    final expensesCollection = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('expenses');
 
-      if (_isEditMode) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('expenses')
-            .doc(widget.documentId)
-            .update(expenseData);
-      }
-      // =======================================================
-      // ADD NEW EXPENSE
-      // =======================================================
-      else {
-        expenseData['userId'] = user.uid;
-        expenseData['email'] = user.email;
-        expenseData['createdAt'] = FieldValue.serverTimestamp();
+    // Writes are not awaited: Firestore saves them locally right away and
+    // syncs when online, so saving also works without a connection.
 
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('expenses')
-            .add(expenseData);
-      }
+    // =======================================================
+    // EDIT EXISTING EXPENSE
+    // =======================================================
 
-      // =======================================================
-      // SUCCESS
-      // =======================================================
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _isEditMode
-                ? 'Expense updated successfully!'
-                : 'Expense added successfully!',
-          ),
-          backgroundColor: Colors.green,
-        ),
+    if (_isEditMode) {
+      commitFirestoreWrite(
+        expensesCollection.doc(widget.documentId).update(expenseData),
+        'update expense',
       );
-
-      Navigator.pop(context);
     }
-    // =========================================================
-    // FIREBASE ERROR
-    // =========================================================
-    on FirebaseException catch (e) {
-      if (!mounted) return;
+    // =======================================================
+    // ADD NEW EXPENSE
+    // =======================================================
+    else {
+      expenseData['userId'] = user.uid;
+      expenseData['email'] = user.email;
+      expenseData['createdAt'] = FieldValue.serverTimestamp();
 
-      String message = 'Unable to save expense.';
-
-      if (e.code == 'permission-denied') {
-        message = 'Permission denied. Please check your Firestore rules.';
-      } else if (e.code == 'network-request-failed') {
-        message = 'Network error. Please check your internet connection.';
-      } else if (e.code == 'not-found') {
-        message = 'The expense no longer exists.';
-      }
-
-      _showError(message);
-
-      setState(() {
-        _isSaving = false;
-      });
+      commitFirestoreWrite(
+        expensesCollection.doc().set(expenseData),
+        'add expense',
+      );
     }
-    // =========================================================
-    // OTHER ERROR
-    // =========================================================
-    catch (e) {
-      if (!mounted) return;
 
-      _showError('Something went wrong while saving the expense.');
+    // =======================================================
+    // SUCCESS
+    // =======================================================
 
-      setState(() {
-        _isSaving = false;
-      });
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _isEditMode
+              ? 'Expense updated successfully!'
+              : 'Expense added successfully!',
+        ),
+        backgroundColor: Colors.green,
+      ),
+    );
+
+    Navigator.pop(context);
   }
 
   // =========================================================
@@ -340,8 +302,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F8FC),
+      backgroundColor: colors.pageBackground,
 
       // =====================================================
       // APP BAR
@@ -399,7 +363,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
                 filled: true,
 
-                fillColor: Colors.white,
+                fillColor: colors.card,
 
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -427,7 +391,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: colors.card,
                 borderRadius: BorderRadius.circular(12),
               ),
 
@@ -488,7 +452,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
                 filled: true,
 
-                fillColor: Colors.white,
+                fillColor: colors.card,
 
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -523,7 +487,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 ),
 
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: colors.card,
 
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -567,7 +531,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: colors.card,
                 borderRadius: BorderRadius.circular(12),
               ),
 
@@ -625,7 +589,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
                 filled: true,
 
-                fillColor: Colors.white,
+                fillColor: colors.card,
 
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../theme/app_colors.dart';
+import '../widgets/light_dark_toggle.dart';
 import 'budget_screen.dart';
 import 'login_screen.dart';
-import 'notifications_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -102,9 +103,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = currentUser;
+    final colors = context.appColors;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F8FC),
+      backgroundColor: colors.pageBackground,
 
       // =====================================================
       // APP BAR
@@ -126,7 +128,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
 
         title: const Text(
-          'Profile',
+          'Profile & Settings',
 
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
@@ -157,7 +159,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     padding: const EdgeInsets.all(24),
 
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: colors.card,
 
                       borderRadius: BorderRadius.circular(16),
 
@@ -199,10 +201,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                           textAlign: TextAlign.center,
 
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 23,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF151515),
+                            color: colors.textPrimary,
                           ),
                         ),
 
@@ -232,14 +234,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   const SizedBox(height: 10),
 
-                  Container(
-                    width: double.infinity,
+                  Material(
+                    color: colors.card,
 
-                    decoration: BoxDecoration(
-                      color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
 
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                    clipBehavior: Clip.antiAlias,
 
                     child: Column(
                       children: [
@@ -271,20 +271,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 25),
 
                   // =================================================
+                  // APPEARANCE
+                  // =================================================
+                  _buildSectionTitle('Appearance'),
+
+                  const SizedBox(height: 10),
+
+                  Material(
+                    color: colors.card,
+
+                    borderRadius: BorderRadius.circular(16),
+
+                    clipBehavior: Clip.antiAlias,
+
+                    child: const LightDarkToggle(),
+                  ),
+
+                  const SizedBox(height: 25),
+
+                  // =================================================
                   // SETTINGS
                   // =================================================
                   _buildSectionTitle('Settings'),
 
                   const SizedBox(height: 10),
 
-                  Container(
-                    width: double.infinity,
+                  Material(
+                    color: colors.card,
 
-                    decoration: BoxDecoration(
-                      color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
 
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                    clipBehavior: Clip.antiAlias,
 
                     child: Column(
                       children: [
@@ -296,24 +313,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               context,
                               MaterialPageRoute(
                                 builder: (context) => const BudgetScreen(),
-                              ),
-                            );
-                          },
-                        ),
-
-                        const Divider(height: 1, indent: 65),
-
-                        _buildActionTile(
-                          icon: Icons.notifications_outlined,
-
-                          title: 'Notifications',
-
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    const NotificationsScreen(),
                               ),
                             );
                           },
@@ -406,10 +405,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Text(
         title,
 
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 17,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF151515),
+          color: context.appColors.textPrimary,
         ),
       ),
     );
@@ -432,12 +431,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         height: 42,
 
         decoration: BoxDecoration(
-          color: const Color(0xFFEAF3FB),
+          color: context.appColors.primaryTint,
 
           borderRadius: BorderRadius.circular(10),
         ),
 
-        child: Icon(icon, color: const Color(0xFF1976D2)),
+        child: Icon(icon, color: context.appColors.primaryText),
       ),
 
       title: Text(
@@ -452,10 +451,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Text(
           value,
 
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF151515),
+            color: context.appColors.textPrimary,
           ),
         ),
       ),
@@ -479,12 +478,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         height: 42,
 
         decoration: BoxDecoration(
-          color: const Color(0xFFEAF3FB),
+          color: context.appColors.primaryTint,
 
           borderRadius: BorderRadius.circular(10),
         ),
 
-        child: Icon(icon, color: const Color(0xFF1976D2)),
+        child: Icon(icon, color: context.appColors.primaryText),
       ),
 
       title: Text(

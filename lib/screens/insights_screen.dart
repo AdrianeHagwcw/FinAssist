@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../utils/categories.dart';
+import '../utils/money_format.dart';
+import '../widgets/money_text.dart';
+import '../theme/app_colors.dart';
+
 class InsightsScreen extends StatefulWidget {
   const InsightsScreen({super.key});
 
@@ -13,81 +18,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
   final User? _user = FirebaseAuth.instance.currentUser;
 
   static const _primaryBlue = Color(0xFF1976D2);
-  static const _pageBackground = Color(0xFFF6F8FC);
-
-  // ------------------------------------------------------------
-  // CATEGORY COLORS
-  // ------------------------------------------------------------
-
-  Color _categoryColor(String category) {
-    switch (category.toLowerCase()) {
-      case 'food':
-        return Colors.orange;
-
-      case 'transportation':
-      case 'transport':
-        return Colors.blue;
-
-      case 'shopping':
-        return Colors.purple;
-
-      case 'bills':
-      case 'utilities':
-        return Colors.red;
-
-      case 'entertainment':
-        return Colors.pink;
-
-      case 'health':
-        return Colors.green;
-
-      case 'education':
-        return Colors.indigo;
-
-      case 'other':
-        return Colors.grey;
-
-      default:
-        return Colors.teal;
-    }
-  }
-
-  // ------------------------------------------------------------
-  // CATEGORY ICONS
-  // ------------------------------------------------------------
-
-  IconData _categoryIcon(String category) {
-    switch (category.toLowerCase()) {
-      case 'food':
-        return Icons.restaurant;
-
-      case 'transportation':
-      case 'transport':
-        return Icons.directions_car;
-
-      case 'shopping':
-        return Icons.shopping_bag;
-
-      case 'bills':
-      case 'utilities':
-        return Icons.receipt_long;
-
-      case 'entertainment':
-        return Icons.movie;
-
-      case 'health':
-        return Icons.health_and_safety;
-
-      case 'education':
-        return Icons.school;
-
-      case 'other':
-        return Icons.category;
-
-      default:
-        return Icons.attach_money;
-    }
-  }
 
   // ------------------------------------------------------------
   // FIRESTORE STREAM
@@ -113,7 +43,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _pageBackground,
+      backgroundColor: context.appColors.pageBackground,
 
       appBar: AppBar(
         title: const Text(
@@ -607,7 +537,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           child: _summaryCard(
             icon: Icons.payments_outlined,
             title: 'Total Spending',
-            value: '₱${total.toStringAsFixed(2)}',
+            value: formatPeso(total),
           ),
         ),
 
@@ -627,7 +557,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           child: _summaryCard(
             icon: Icons.analytics_outlined,
             title: 'Average',
-            value: '₱${average.toStringAsFixed(0)}',
+            value: formatPeso(average),
           ),
         ),
       ],
@@ -649,7 +579,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       padding: const EdgeInsets.all(12),
 
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appColors.card,
 
         borderRadius: BorderRadius.circular(16),
 
@@ -691,8 +621,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
             overflow: TextOverflow.ellipsis,
 
-            style: const TextStyle(
-              color: _primaryBlue,
+            style: TextStyle(
+              color: context.appColors.primaryText,
               fontSize: 14,
               fontWeight: FontWeight.bold,
             ),
@@ -776,7 +706,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       padding: const EdgeInsets.all(18),
 
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appColors.card,
 
         borderRadius: BorderRadius.circular(18),
 
@@ -799,7 +729,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             children: [
               Expanded(child: _trendAmount('This Week', thisWeek)),
 
-              Container(width: 1, height: 45, color: Colors.grey.shade300),
+              Container(width: 1, height: 45, color: context.appColors.border),
 
               Expanded(child: _trendAmount('Last Week', lastWeek)),
             ],
@@ -850,13 +780,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
         const SizedBox(height: 5),
 
-        Text(
-          '₱${amount.toStringAsFixed(2)}',
+        MoneyText(
+          amount,
 
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.bold,
-            color: _primaryBlue,
+            color: context.appColors.primaryText,
           ),
         ),
       ],
@@ -884,7 +814,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       padding: const EdgeInsets.all(18),
 
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appColors.card,
 
         borderRadius: BorderRadius.circular(18),
 
@@ -906,15 +836,15 @@ class _InsightsScreenState extends State<InsightsScreen> {
             height: 55,
 
             decoration: BoxDecoration(
-              color: _categoryColor(category).withValues(alpha: 0.12),
+              color: categoryColor(category).withValues(alpha: 0.12),
 
               borderRadius: BorderRadius.circular(15),
             ),
 
             child: Icon(
-              _categoryIcon(category),
+              categoryIcon(category),
 
-              color: _categoryColor(category),
+              color: categoryColor(category),
 
               size: 28,
             ),
@@ -947,7 +877,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 const SizedBox(height: 4),
 
                 Text(
-                  '₱${amount.toStringAsFixed(2)} • ${percentage.toStringAsFixed(1)}% of total spending',
+                  '${formatPeso(amount)} • ${percentage.toStringAsFixed(1)}% of total spending',
 
                   style: const TextStyle(color: Colors.grey, fontSize: 12),
                 ),
@@ -979,7 +909,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       padding: const EdgeInsets.all(18),
 
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appColors.card,
 
         borderRadius: BorderRadius.circular(18),
 
@@ -1010,19 +940,17 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       height: 35,
 
                       decoration: BoxDecoration(
-                        color: _categoryColor(
-                          entry.key,
-                        ).withValues(alpha: 0.12),
+                        color: categoryColor(entry.key).withValues(alpha: 0.12),
 
                         borderRadius: BorderRadius.circular(10),
                       ),
 
                       child: Icon(
-                        _categoryIcon(entry.key),
+                        categoryIcon(entry.key),
 
                         size: 18,
 
-                        color: _categoryColor(entry.key),
+                        color: categoryColor(entry.key),
                       ),
                     ),
 
@@ -1039,8 +967,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       ),
                     ),
 
-                    Text(
-                      '₱${entry.value.toStringAsFixed(2)}',
+                    MoneyText(
+                      entry.value,
 
                       style: const TextStyle(
                         fontSize: 12,
@@ -1068,9 +996,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
                     minHeight: 7,
 
-                    backgroundColor: Colors.grey.shade200,
+                    backgroundColor: context.appColors.track,
 
-                    color: _categoryColor(entry.key),
+                    color: categoryColor(entry.key),
                   ),
                 ),
               ],
@@ -1119,9 +1047,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (count > 0) {
       final average = total / count;
 
-      insights.add(
-        'Your average recorded expense is ₱${average.toStringAsFixed(2)}.',
-      );
+      insights.add('Your average recorded expense is ${formatPeso(average)}.');
     }
 
     // ------------------------------------------------------------
@@ -1152,7 +1078,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           padding: const EdgeInsets.all(16),
 
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: context.appColors.card,
 
             borderRadius: BorderRadius.circular(16),
 
@@ -1204,10 +1130,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return Text(
       title,
 
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 18,
         fontWeight: FontWeight.bold,
-        color: Color(0xFF222222),
+        color: context.appColors.textPrimary,
       ),
     );
   }
@@ -1223,7 +1149,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       padding: const EdgeInsets.all(20),
 
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appColors.card,
 
         borderRadius: BorderRadius.circular(16),
       ),

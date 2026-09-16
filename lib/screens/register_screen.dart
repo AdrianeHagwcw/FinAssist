@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_profile_service.dart';
 import 'financial_setup_screen.dart';
 import 'login_screen.dart';
+import '../theme/app_colors.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -221,8 +222,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.card,
 
       body: SafeArea(
         child: Center(
@@ -285,13 +288,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 // =================================================
                 // CREATE ACCOUNT
                 // =================================================
-                const Text(
+                Text(
                   'Create Account',
 
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF151515),
+                    color: colors.textPrimary,
                   ),
                 ),
 
@@ -334,13 +337,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -385,13 +388,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -452,13 +455,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -520,13 +523,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -614,11 +617,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     );
                                   },
 
-                            child: const Text(
+                            child: Text(
                               'Log In',
 
                               style: TextStyle(
-                                color: Color(0xFF1976D2),
+                                color: colors.primaryText,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
                               ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as speech;
+import '../theme/app_colors.dart';
 
 class VoiceRecognitionSection extends StatefulWidget {
   const VoiceRecognitionSection({
@@ -109,9 +110,9 @@ class _FeatureSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appColors.card,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: context.appColors.border),
       ),
       child: Row(
         children: [

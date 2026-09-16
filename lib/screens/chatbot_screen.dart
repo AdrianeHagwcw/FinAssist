@@ -1,7 +1,24 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
+
+/// Reports whether the phone has a network connection, now and on change.
+Stream<bool> _deviceOnlineStatus() async* {
+  final connectivity = Connectivity();
+  bool isOnline(List<ConnectivityResult> results) =>
+      results.any((result) => result != ConnectivityResult.none);
+
+  yield isOnline(await connectivity.checkConnectivity());
+  yield* connectivity.onConnectivityChanged.map(isOnline);
+}
 
 class ChatbotScreen extends StatefulWidget {
-  const ChatbotScreen({super.key});
+  const ChatbotScreen({this.onlineStatus, super.key});
+
+  /// Online/offline updates. Tests pass their own stream.
+  final Stream<bool>? onlineStatus;
 
   @override
   State<ChatbotScreen> createState() => _ChatbotScreenState();
@@ -14,6 +31,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   final ScrollController _scrollController = ScrollController();
 
+  bool _isOnline = true;
+  StreamSubscription<bool>? _onlineSubscription;
+
   final List<Map<String, dynamic>> _messages = [
     {
       'message':
@@ -23,7 +43,19 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _onlineSubscription = (widget.onlineStatus ?? _deviceOnlineStatus()).listen(
+      (isOnline) {
+        if (mounted) setState(() => _isOnline = isOnline);
+      },
+      onError: (Object _) {},
+    );
+  }
+
+  @override
   void dispose() {
+    _onlineSubscription?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -67,6 +99,18 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   String _generateResponse(String message) {
     final text = message.toLowerCase();
+    final isGreeting = text.contains('hello') || text.contains('hi');
+
+    if (!isGreeting && !_looksFinancial(text)) {
+      return 'Sorry, I can only help with money questions, like budgeting, '
+          'expenses, bills and savings. What would you like to know about '
+          'your finances?';
+    }
+
+    if (!isGreeting && !_isOnline) {
+      return "You're offline right now, so I can only share general tips. "
+          'Reconnect for answers based on your own records.';
+    }
 
     if (text.contains('budget')) {
       return 'A good starting point is to create a monthly budget based on your income and regular expenses. I can help you organize your spending into categories.';
@@ -88,7 +132,57 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       return 'Hello! 👋 What would you like to know about your finances?';
     }
 
-    return 'I understand. Once FinAssist is connected to the AI service, I\'ll be able to analyze your financial data and provide more personalized insights.';
+    return 'I understand. Once FinAssist is connected to the AI service, '
+        "I'll be able to analyze your financial data and give you more "
+        'personalized insights.';
+  }
+
+  // Keeps the assistant on finance topics until the real model is wired in.
+  static const _financeWords = [
+    'money',
+    'peso',
+    'budget',
+    'save',
+    'saving',
+    'savings',
+    'spend',
+    'spending',
+    'expense',
+    'expenses',
+    'income',
+    'salary',
+    'allowance',
+    'bill',
+    'bills',
+    'pay',
+    'payment',
+    'debt',
+    'loan',
+    'goal',
+    'wallet',
+    'cash',
+    'gcash',
+    'maya',
+    'bank',
+    'transfer',
+    'balance',
+    'afford',
+    'invest',
+    'price',
+    'cost',
+    'financial',
+    'finance',
+    'baon',
+    'gastos',
+    'ipon',
+    'utang',
+    'sahod',
+    'bayad',
+    'pera',
+  ];
+
+  bool _looksFinancial(String text) {
+    return _financeWords.any((word) => text.contains(word));
   }
 
   // =========================================================
@@ -114,7 +208,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F8FC),
+      backgroundColor: context.appColors.pageBackground,
 
       // =====================================================
       // APP BAR
@@ -142,17 +236,35 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
             const SizedBox(width: 12),
 
-            const Column(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'FinAssist AI',
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                 ),
 
-                Text(
-                  'Your financial assistant',
-                  style: TextStyle(fontSize: 11, color: Colors.white70),
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _isOnline
+                            ? Colors.greenAccent
+                            : Colors.orangeAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _isOnline ? 'Online' : 'Offline',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -225,7 +337,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
 
         decoration: BoxDecoration(
-          color: isUser ? primaryBlue : Colors.white,
+          color: isUser ? primaryBlue : context.appColors.card,
 
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
@@ -271,7 +383,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 style: TextStyle(
                   fontSize: 14,
                   height: 1.4,
-                  color: isUser ? Colors.white : Colors.black87,
+                  color: isUser ? Colors.white : context.appColors.textBody,
                 ),
               ),
             ),
@@ -321,12 +433,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   child: ActionChip(
                     label: Text(questions[index]),
 
-                    backgroundColor: const Color(0xFFEAF3FB),
+                    backgroundColor: context.appColors.primaryTint,
 
                     side: BorderSide.none,
 
-                    labelStyle: const TextStyle(
-                      color: primaryBlue,
+                    labelStyle: TextStyle(
+                      color: context.appColors.primaryText,
                       fontSize: 11,
                     ),
 
@@ -352,71 +464,100 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   Widget _messageInput() {
     return SafeArea(
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        decoration: const BoxDecoration(color: Colors.white),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        decoration: BoxDecoration(color: context.appColors.card),
 
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Attachment button
-            IconButton(
-              onPressed: () {
-                // Attachment functionality later
-              },
-              icon: const Icon(Icons.attach_file, color: Colors.grey),
-            ),
+            _inputNotice(),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                // Text field
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
 
-            // Text field
-            Expanded(
-              child: TextField(
-                controller: _messageController,
+                    textInputAction: TextInputAction.send,
 
-                textInputAction: TextInputAction.send,
+                    onSubmitted: (_) {
+                      _sendMessage();
+                    },
 
-                onSubmitted: (_) {
-                  _sendMessage();
-                },
+                    decoration: InputDecoration(
+                      hintText: 'Ask FinAssist something...',
 
-                decoration: InputDecoration(
-                  hintText: 'Ask FinAssist something...',
+                      hintStyle: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey,
+                      ),
 
-                  hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
+                      filled: true,
 
-                  filled: true,
+                      fillColor: context.appColors.inputFill,
 
-                  fillColor: const Color(0xFFF2F4F7),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(25),
 
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(25),
+                        borderSide: BorderSide.none,
+                      ),
 
-                    borderSide: BorderSide.none,
-                  ),
-
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
 
-            const SizedBox(width: 8),
+                const SizedBox(width: 8),
 
-            // Send button
-            Container(
-              width: 45,
-              height: 45,
-              decoration: const BoxDecoration(
-                color: primaryBlue,
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                onPressed: _sendMessage,
-                icon: const Icon(Icons.send, color: Colors.white, size: 20),
-              ),
+                // Send button
+                Container(
+                  width: 45,
+                  height: 45,
+                  decoration: const BoxDecoration(
+                    color: primaryBlue,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    onPressed: _sendMessage,
+                    icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Small line above the input: what the assistant can answer, and a
+  /// heads-up when the phone has no connection.
+  Widget _inputNotice() {
+    final offline = !_isOnline;
+
+    return Row(
+      children: [
+        Icon(
+          offline ? Icons.cloud_off_outlined : Icons.info_outline,
+          size: 14,
+          color: Colors.grey,
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            offline
+                ? "You're offline. FinAssist AI can only share general tips "
+                      'until you reconnect.'
+                : 'Finance questions only, like budgeting, expenses, bills '
+                      'and savings.',
+            style: const TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+        ),
+      ],
     );
   }
 

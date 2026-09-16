@@ -1,27 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
-import 'screens/login_screen.dart';
+import 'providers/app_settings_provider.dart';
+import 'screens/splash_screen.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  final settings = await AppSettingsProvider.load();
 
-  runApp(const MyApp());
+  runApp(ChangeNotifierProvider.value(value: settings, child: const MyApp()));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({this.home = const SplashScreen(), super.key});
+
+  /// First screen shown. Tests pass a splash with a fake session check.
+  final Widget home;
 
   @override
   Widget build(BuildContext context) {
+    final themeMode = context.select<AppSettingsProvider, ThemeMode>(
+      (settings) => settings.themeMode,
+    );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'FinAssist',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: const LoginScreen(),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: themeMode,
+      home: home,
     );
   }
 }

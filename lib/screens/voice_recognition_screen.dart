@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_colors.dart';
+
 import '../widgets/voice_recognition_section.dart';
 
 class VoiceRecognitionScreen extends StatefulWidget {
@@ -22,7 +24,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen> {
         backgroundColor: const Color(0xFF1976D2),
         foregroundColor: Colors.white,
       ),
-      backgroundColor: const Color(0xFFF6F8FC),
+      backgroundColor: context.appColors.pageBackground,
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -45,9 +47,9 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: context.appColors.card,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  border: Border.all(color: context.appColors.border),
                 ),
                 child: Text(
                   _recognizedText.isEmpty
@@ -56,7 +58,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen> {
                   style: TextStyle(
                     color: _recognizedText.isEmpty
                         ? Colors.grey
-                        : Colors.black87,
+                        : context.appColors.textBody,
                   ),
                 ),
               ),

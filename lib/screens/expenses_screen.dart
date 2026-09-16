@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../services/firestore_write.dart';
+import '../utils/categories.dart';
+import '../widgets/money_text.dart';
 import 'add_expense_screen.dart';
+import '../theme/app_colors.dart';
 
 class ExpensesScreen extends StatefulWidget {
   const ExpensesScreen({super.key});
@@ -16,17 +20,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
   String selectedCategory = 'All';
 
-  final List<String> categories = [
-    'All',
-    'Food',
-    'Transportation',
-    'Shopping',
-    'Bills',
-    'Entertainment',
-    'Healthcare',
-    'Education',
-    'Others',
-  ];
+  final List<String> categories = ['All', ...expenseCategories];
 
   // =========================================================
   // GET CURRENT USER'S EXPENSES
@@ -48,38 +42,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   }
 
   // =========================================================
-  // CATEGORY ICON
-  // =========================================================
-
-  IconData _getCategoryIcon(String category) {
-    switch (category) {
-      case 'Food':
-        return Icons.restaurant;
-
-      case 'Transportation':
-        return Icons.directions_car;
-
-      case 'Shopping':
-        return Icons.shopping_bag;
-
-      case 'Bills':
-        return Icons.receipt_long;
-
-      case 'Entertainment':
-        return Icons.movie;
-
-      case 'Healthcare':
-        return Icons.health_and_safety;
-
-      case 'Education':
-        return Icons.school;
-
-      default:
-        return Icons.category;
-    }
-  }
-
-  // =========================================================
   // FORMAT DATE
   // =========================================================
 
@@ -97,7 +59,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   // DELETE EXPENSE
   // =========================================================
 
-  Future<void> _deleteExpense(String documentId) async {
+  void _deleteExpense(String documentId) {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
@@ -105,27 +67,22 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       return;
     }
 
-    try {
-      await FirebaseFirestore.instance
+    commitFirestoreWrite(
+      FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('expenses')
           .doc(documentId)
-          .delete();
+          .delete(),
+      'delete expense',
+    );
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Expense deleted successfully.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      _showError('Failed to delete expense.');
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Expense deleted successfully.'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   // =========================================================
@@ -206,7 +163,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
     if (user == null) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF6F8FC),
+        backgroundColor: context.appColors.pageBackground,
 
         appBar: AppBar(
           backgroundColor: primaryBlue,
@@ -214,15 +171,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           elevation: 0,
           centerTitle: true,
 
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              Navigator.pop(context);
-            },
-          ),
+          automaticallyImplyLeading: false,
 
           title: const Text(
-            'Expenses',
+            'Transactions',
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
         ),
@@ -237,7 +189,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F8FC),
+      backgroundColor: context.appColors.pageBackground,
 
       // =====================================================
       // APP BAR
@@ -248,16 +200,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         elevation: 0,
         centerTitle: true,
 
-        // BACK TO HOME
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
+        // Shown as a bottom tab, so there is no back button.
+        automaticallyImplyLeading: false,
 
         title: const Text(
-          'Expenses',
+          'Transactions',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
       ),
@@ -433,8 +380,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
                           const SizedBox(height: 4),
 
-                          Text(
-                            '₱${totalExpenses.toStringAsFixed(2)}',
+                          MoneyText(
+                            totalExpenses,
 
                             style: const TextStyle(
                               color: Colors.white,
@@ -500,10 +447,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
                         selectedColor: primaryBlue,
 
-                        backgroundColor: Colors.white,
+                        backgroundColor: context.appColors.card,
 
                         labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black87,
+                          color: isSelected
+                              ? Colors.white
+                              : context.appColors.textBody,
 
                           fontWeight: isSelected
                               ? FontWeight.bold
@@ -513,7 +462,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         side: BorderSide(
                           color: isSelected
                               ? primaryBlue
-                              : const Color(0xFFE0E0E0),
+                              : context.appColors.border,
                         ),
 
                         onSelected: (selected) {
@@ -559,7 +508,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                             SizedBox(height: 5),
 
                             Text(
-                              'Tap "Add Expense" to create one.',
+                              'Tap the + button to add an expense.',
                               style: TextStyle(
                                 color: Colors.grey,
                                 fontSize: 13,
@@ -600,28 +549,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           );
         },
       ),
-
-      // =====================================================
-      // ADD EXPENSE BUTTON
-      // =====================================================
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const AddExpenseScreen()),
-          );
-        },
-
-        backgroundColor: primaryBlue,
-        foregroundColor: Colors.white,
-
-        icon: const Icon(Icons.add),
-
-        label: const Text(
-          'Add Expense',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-      ),
     );
   }
 
@@ -645,7 +572,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       padding: const EdgeInsets.all(15),
 
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appColors.card,
         borderRadius: BorderRadius.circular(14),
       ),
 
@@ -659,15 +586,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             height: 48,
 
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF3FB),
+              color: context.appColors.primaryTint,
               borderRadius: BorderRadius.circular(12),
             ),
 
-            child: Icon(
-              _getCategoryIcon(category),
-              color: primaryBlue,
-              size: 24,
-            ),
+            child: Icon(categoryIcon(category), color: primaryBlue, size: 24),
           ),
 
           const SizedBox(width: 13),
@@ -694,8 +617,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                 Text(
                   category,
 
-                  style: const TextStyle(
-                    color: primaryBlue,
+                  style: TextStyle(
+                    color: context.appColors.primaryText,
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
@@ -719,8 +642,9 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
 
             children: [
-              Text(
-                '-₱${amount.toStringAsFixed(2)}',
+              MoneyText(
+                amount,
+                sign: '-',
 
                 style: const TextStyle(
                   color: Colors.red,

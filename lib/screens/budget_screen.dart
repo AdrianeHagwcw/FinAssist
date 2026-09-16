@@ -3,9 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../services/user_profile_service.dart';
+import '../utils/categories.dart';
+import '../utils/money_format.dart';
+import '../theme/app_colors.dart';
 
 const Color _budgetPrimaryBlue = Color(0xFF1976D2);
-const Color _budgetPageBackground = Color(0xFFF6F8FC);
 
 class BudgetScreen extends StatefulWidget {
   const BudgetScreen({super.key});
@@ -15,39 +17,9 @@ class BudgetScreen extends StatefulWidget {
 }
 
 class _BudgetScreenState extends State<BudgetScreen> {
-  static const _categories = [
-    'Food',
-    'Transportation',
-    'Shopping',
-    'Bills',
-    'Entertainment',
-    'Healthcare',
-    'Education',
-    'Others',
-  ];
+  static const _categories = expenseCategories;
 
   final User? _user = FirebaseAuth.instance.currentUser;
-
-  IconData _getCategoryIcon(String category) {
-    switch (category) {
-      case 'Food':
-        return Icons.restaurant;
-      case 'Transportation':
-        return Icons.directions_car;
-      case 'Shopping':
-        return Icons.shopping_bag;
-      case 'Bills':
-        return Icons.receipt_long;
-      case 'Entertainment':
-        return Icons.movie;
-      case 'Healthcare':
-        return Icons.health_and_safety;
-      case 'Education':
-        return Icons.school;
-      default:
-        return Icons.category;
-    }
-  }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> get _budgetStream {
     if (_user == null) return const Stream.empty();
@@ -125,7 +97,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     }
   }
 
-  String _formatMoney(double amount) => '₱${amount.toStringAsFixed(2)}';
+  String _formatMoney(double amount) => formatPeso(amount);
 
   Future<void> _showBudgetDialog({
     DocumentSnapshot<Map<String, dynamic>>? existing,
@@ -286,10 +258,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
               contentPadding: EdgeInsets.zero,
               leading: CircleAvatar(
                 backgroundColor: _budgetPrimaryBlue.withValues(alpha: 0.1),
-                child: Icon(
-                  _getCategoryIcon(category),
-                  color: _budgetPrimaryBlue,
-                ),
+                child: Icon(categoryIcon(category), color: _budgetPrimaryBlue),
               ),
               title: Text(
                 category,
@@ -334,7 +303,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
               child: LinearProgressIndicator(
                 value: progress,
                 minHeight: 8,
-                backgroundColor: const Color(0xFFE4EAF3),
+                backgroundColor: context.appColors.track,
                 color: color,
               ),
             ),
@@ -353,7 +322,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     }
 
     return Scaffold(
-      backgroundColor: _budgetPageBackground,
+      backgroundColor: context.appColors.pageBackground,
       appBar: AppBar(
         title: const Text('Category Budgets'),
         backgroundColor: _budgetPrimaryBlue,

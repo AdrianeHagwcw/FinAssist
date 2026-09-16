@@ -1,6 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../models/onboarding_data.dart';
+import 'firestore_write.dart';
+
+// Profile writes are not awaited and reads use Firestore's default source, so
+// they work from the local cache while offline and sync when back online.
 class UserProfileService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -29,12 +34,9 @@ class UserProfileService {
     }, SetOptions(merge: true));
   }
 
-  static Future<void> saveFinancialSetup({
-    required String incomeSource,
-    required double income,
-    required String incomeFrequency,
-    required double budget,
-  }) async {
+  /// Saves the onboarding answers and starting wallets in one batch, then
+  /// marks setup as completed.
+  static Future<void> completeOnboarding(OnboardingData data) async {
     final user = _auth.currentUser;
 
     if (user == null) {
@@ -42,26 +44,61 @@ class UserProfileService {
     }
 
     final profileReference = _profileReference(user.uid);
-    final existingProfile = await profileReference.get();
     final profileData = <String, dynamic>{
       'email': user.email,
-      'income': income,
-      'incomeSource': incomeSource,
-      'incomeFrequency': incomeFrequency,
-      'dailyBudget': budget,
-      'budget': budget,
-      'dailyBudgetStartedAt': Timestamp.fromDate(DateTime.now()),
+      'name': data.name,
+      'notificationsEnabled': data.notificationsEnabled,
+      'incomeSource': data.incomeSource,
+      'incomeFrequency': data.incomeFrequency,
+      'priorities': data.priorities.map((priority) => priority.name).toList(),
       'setupCompleted': true,
+      'onboardingVersion': 2,
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    if (!existingProfile.exists ||
-        !existingProfile.data()!.containsKey('createdAt')) {
+    if (data.income != null) {
+      profileData['income'] = data.income;
+    }
+
+    if (data.dailyBudget != null) {
+      profileData['dailyBudget'] = data.dailyBudget;
+      profileData['budget'] = data.dailyBudget;
+      profileData['dailyBudgetStartedAt'] = Timestamp.fromDate(DateTime.now());
+    }
+
+    if (await _isMissingCreatedAt(profileReference)) {
       profileData['createdAt'] = FieldValue.serverTimestamp();
     }
 
-    await profileReference.set(profileData, SetOptions(merge: true));
-    await profileReference.get(const GetOptions(source: Source.server));
+    final batch = _firestore.batch()
+      ..set(profileReference, profileData, SetOptions(merge: true));
+
+    final walletsCollection = profileReference.collection('wallets');
+    for (var index = 0; index < data.wallets.length; index++) {
+      final wallet = data.wallets[index];
+      batch.set(walletsCollection.doc(), {
+        'name': wallet.name,
+        'type': wallet.type.name,
+        'balance': wallet.startingBalance,
+        'startingBalance': wallet.startingBalance,
+        'receivesIncome': wallet.receivesIncome,
+        'archived': false,
+        'sortOrder': index,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    commitFirestoreWrite(batch.commit(), 'complete onboarding');
+
+    // Keeps the Home greeting in sync. Needs a connection, so a failure is
+    // only logged; the name is also stored in the profile above.
+    if (data.name.isNotEmpty && data.name != user.displayName) {
+      commitFirestoreWrite(
+        user.updateDisplayName(data.name),
+        'update display name',
+      );
+    }
   }
 
   static Future<void> updateIncome({
@@ -93,15 +130,18 @@ class UserProfileService {
       'lastDailyIncomeSource': incomeSource,
     });
 
-    await _profileReference(
-      user.uid,
-    ).collection('dailyIncomeTransactions').add({
-      'amount': amount,
-      'source': incomeSource,
-      'type': 'income',
-      'date': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    commitFirestoreWrite(
+      _profileReference(
+        user.uid,
+      ).collection('dailyIncomeTransactions').doc().set({
+        'amount': amount,
+        'source': incomeSource,
+        'type': 'income',
+        'date': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }),
+      'add income transaction',
+    );
   }
 
   static Future<void> updateBudget(double budget) async {
@@ -126,8 +166,6 @@ class UserProfileService {
     final budgetReference = _profileReference(
       user.uid,
     ).collection('categoryBudgets').doc(_categoryBudgetId(category));
-    final existingBudget = await budgetReference.get();
-    final existingData = existingBudget.data();
     final budgetData = <String, dynamic>{
       'category': category,
       'amount': amount,
@@ -135,11 +173,14 @@ class UserProfileService {
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    if (existingData?['createdAt'] == null) {
+    if (await _isMissingCreatedAt(budgetReference)) {
       budgetData['createdAt'] = FieldValue.serverTimestamp();
     }
 
-    await budgetReference.set(budgetData);
+    commitFirestoreWrite(
+      budgetReference.set(budgetData, SetOptions(merge: true)),
+      'save category budget',
+    );
   }
 
   static Future<void> deleteCategoryBudget(String category) async {
@@ -149,41 +190,30 @@ class UserProfileService {
       throw StateError('No authenticated user.');
     }
 
-    await _profileReference(
-      user.uid,
-    ).collection('categoryBudgets').doc(_categoryBudgetId(category)).delete();
+    commitFirestoreWrite(
+      _profileReference(
+        user.uid,
+      ).collection('categoryBudgets').doc(_categoryBudgetId(category)).delete(),
+      'delete category budget',
+    );
+  }
+
+  /// Whether [reference] has no `createdAt` yet. If the document can't be
+  /// read (offline and not cached), returns false so an existing `createdAt`
+  /// is never overwritten by a merge write.
+  static Future<bool> _isMissingCreatedAt(
+    DocumentReference<Map<String, dynamic>> reference,
+  ) async {
+    try {
+      final snapshot = await reference.get();
+      return snapshot.data()?['createdAt'] == null;
+    } on FirebaseException {
+      return false;
+    }
   }
 
   static String _categoryBudgetId(String category) {
     return category.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
-  }
-
-  static Future<void> markNotificationsSeen() async {
-    await _updateProfile({
-      'notificationsLastSeenAt': Timestamp.fromDate(DateTime.now()),
-    });
-  }
-
-  static Future<bool> hasUnreadNotifications() async {
-    final user = _auth.currentUser;
-
-    if (user == null) return false;
-
-    final profile = await _profileReference(user.uid).get();
-    final lastSeen = (profile.data()?['notificationsLastSeenAt'] as Timestamp?)
-        ?.toDate();
-    final latestExpense = await _profileReference(
-      user.uid,
-    ).collection('expenses').orderBy('date', descending: true).limit(1).get();
-
-    if (latestExpense.docs.isEmpty) return false;
-    if (lastSeen == null) return true;
-
-    final latestExpenseData = latestExpense.docs.first.data();
-    final latestDate =
-        (latestExpenseData['createdAt'] as Timestamp?)?.toDate() ??
-        (latestExpenseData['date'] as Timestamp?)?.toDate();
-    return latestDate != null && latestDate.isAfter(lastSeen);
   }
 
   static Future<DocumentSnapshot<Map<String, dynamic>>>
@@ -209,11 +239,14 @@ class UserProfileService {
     }
 
     if (storedStart is! Timestamp || nextStart != start) {
-      await profileReference.set({
-        'dailyBudgetStartedAt': Timestamp.fromDate(nextStart),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      return profileReference.get(const GetOptions(source: Source.server));
+      commitFirestoreWrite(
+        profileReference.set({
+          'dailyBudgetStartedAt': Timestamp.fromDate(nextStart),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true)),
+        'advance daily budget start',
+      );
+      return profileReference.get();
     }
 
     return profile;
@@ -226,12 +259,12 @@ class UserProfileService {
       throw StateError('No authenticated user.');
     }
 
-    await _profileReference(user.uid).set({
-      ...fields,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    await _profileReference(
-      user.uid,
-    ).get(const GetOptions(source: Source.server));
+    commitFirestoreWrite(
+      _profileReference(user.uid).set({
+        ...fields,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)),
+      'update profile',
+    );
   }
 }

@@ -2,9 +2,8 @@
 
 ## Social sign-in setup
 
-The login screen uses `google_sign_in` and `flutter_facebook_auth`. The buttons
-will open the provider sign-in flow once the app is registered with both
-providers.
+The login screen uses `google_sign_in`. The Google button will open the
+provider sign-in flow once the app is registered with Google.
 
 ### Google
 
@@ -15,15 +14,6 @@ providers.
 3. Register the web client ID when running on web. The plugin can also receive
 	it through `GoogleSignIn(serverClientId: '...')` if an ID token is needed by
 	a backend.
-
-### Facebook
-
-1. Create a Facebook app and enable Facebook Login.
-2. Add the Android package `com.example.testapp`, its key hashes, and the iOS
-	bundle ID in the Facebook developer dashboard.
-3. Follow the plugin setup to add the Facebook App ID and Client Token to
-	Android and iOS configuration files. Do not commit those provider values
-	if this repository is public.
 
 After platform configuration, run `flutter clean`, `flutter pub get`, and
 launch the app on a configured device or emulator.

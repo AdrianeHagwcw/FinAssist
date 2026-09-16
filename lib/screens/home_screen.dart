@@ -2,83 +2,35 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'add_expense_screen.dart';
-import 'expenses_screen.dart';
 import 'insights_screen.dart';
 import 'chatbot_screen.dart';
 import 'profile_screen.dart';
 import 'ocr_screen.dart';
 import 'voice_recognition_screen.dart';
 import 'budget_screen.dart';
-import 'notifications_screen.dart';
 import '../services/user_profile_service.dart';
+import '../utils/categories.dart';
+import '../utils/money_format.dart';
+import '../widgets/money_text.dart';
+import '../theme/app_colors.dart';
+import '../widgets/add_income_dialog.dart';
+import '../widgets/app_logo.dart';
+import '../widgets/quick_action_tile.dart';
 
 const Color primaryBlue = Color(0xFF1976D2);
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({this.onOpenTransactions, super.key});
+
+  /// Switches the app to the Transactions tab.
+  final VoidCallback? onOpenTransactions;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0;
-
   final User? user = FirebaseAuth.instance.currentUser;
-
-  // =================================================
-  // CATEGORY COLORS
-  // =================================================
-
-  Color _categoryColor(String category) {
-    switch (category.toLowerCase()) {
-      case 'food':
-        return Colors.orange;
-
-      case 'transportation':
-      case 'transport':
-        return Colors.blue;
-
-      case 'shopping':
-        return Colors.purple;
-
-      case 'bills':
-        return Colors.red;
-
-      case 'entertainment':
-        return Colors.pink;
-
-      case 'health':
-      case 'healthcare':
-        return Colors.green;
-
-      case 'education':
-        return Colors.indigo;
-
-      case 'other':
-      case 'others':
-        return Colors.grey;
-
-      default:
-        return Colors.teal;
-    }
-  }
-
-  // =================================================
-  // MONEY FORMAT
-  // =================================================
-
-  String _formatMoney(double amount) {
-    final absoluteAmount = amount.abs().toStringAsFixed(2);
-    final parts = absoluteAmount.split('.');
-    final integerPart = parts[0].replaceAllMapped(
-      RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => ',',
-    );
-
-    return '₱${amount < 0 ? '-' : ''}$integerPart.${parts[1]}';
-  }
 
   // =================================================
   // SECTION TITLE
@@ -89,10 +41,10 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.fromLTRB(20, 5, 20, 12),
       child: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.bold,
-          color: Colors.black87,
+          color: context.appColors.textBody,
         ),
       ),
     );
@@ -101,13 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // =================================================
   // NAVIGATION
   // =================================================
-
-  void _openExpenses() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ExpensesScreen()),
-    );
-  }
 
   void _openInsights() {
     Navigator.push(
@@ -138,41 +83,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // =================================================
-  // BOTTOM NAVIGATION
-  // =================================================
-
-  void _onBottomNavigationTapped(int index) {
-    if (index == 0) {
-      setState(() {
-        _selectedIndex = 0;
-      });
-    } else if (index == 1) {
-      _openExpenses();
-    } else if (index == 2) {
-      _openInsights();
-    } else if (index == 3) {
-      _openChatbot();
-    } else if (index == 4) {
-      _openProfile();
-    }
-  }
-
-  // =================================================
-  // ADD EXPENSE
-  // =================================================
-
-  Future<void> _addExpense() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const AddExpenseScreen()),
-    );
-
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  // =================================================
   // HOME SCREEN
   // =================================================
 
@@ -192,62 +102,34 @@ class _HomeScreenState extends State<HomeScreen> {
         .snapshots();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F8FC),
+      backgroundColor: context.appColors.pageBackground,
 
       // =================================================
       // APP BAR
       // =================================================
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: context.appColors.card,
         automaticallyImplyLeading: false,
 
-        title: Image.asset(
-          'assets/icons/e621696b-4d3b-4ad5-972c-7c96ad3f6c71_removalai_preview.png',
-          width: 82,
-          height: 52,
-          fit: BoxFit.contain,
-        ),
+        title: const AppLogo(width: 82, height: 52),
 
         actions: [
-          FutureBuilder<bool>(
-            future: UserProfileService.hasUnreadNotifications(),
-            builder: (context, snapshot) {
-              final hasUnread = snapshot.data ?? false;
-              return Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  IconButton(
-                    icon: const Icon(
-                      Icons.notifications_none,
-                      color: Colors.black87,
-                    ),
-                    onPressed: () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const NotificationsScreen(),
-                        ),
-                      );
-                      if (mounted) setState(() {});
-                    },
-                  ),
-                  if (hasUnread)
-                    Positioned(
-                      top: 8,
-                      right: 7,
-                      child: Container(
-                        width: 9,
-                        height: 9,
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
+          IconButton(
+            tooltip: 'AI Assistant',
+            icon: Icon(
+              Icons.smart_toy_outlined,
+              color: context.appColors.textBody,
+            ),
+            onPressed: _openChatbot,
+          ),
+          IconButton(
+            tooltip: 'Settings',
+            icon: Icon(
+              Icons.settings_outlined,
+              color: context.appColors.textBody,
+            ),
+            onPressed: _openProfile,
           ),
 
           const SizedBox(width: 8),
@@ -378,25 +260,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: _quickAction(
-                            icon: const Icon(Icons.add_circle_outline),
-                            title: 'Add Expense',
-                            onTap: () async {
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const AddExpenseScreen(),
-                                ),
-                              );
-                            },
+                          child: QuickActionTile(
+                            icon: Image.asset(
+                              'assets/icons/icons8-combo-chart-100.png',
+                              width: 24,
+                              height: 24,
+                            ),
+                            title: 'Reports',
+                            onTap: _openInsights,
                           ),
                         ),
 
                         const SizedBox(width: 12),
 
                         Expanded(
-                          child: _quickAction(
+                          child: QuickActionTile(
                             icon: Image.asset(
                               'assets/icons/icons8-camera-intelligence-94.png',
                               width: 24,
@@ -418,7 +296,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(width: 12),
 
                         Expanded(
-                          child: _quickAction(
+                          child: QuickActionTile(
                             icon: Image.asset(
                               'assets/icons/icons8-mic-94.png',
                               width: 24,
@@ -458,7 +336,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.all(18),
 
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: context.appColors.card,
                         borderRadius: BorderRadius.circular(16),
 
                         boxShadow: [
@@ -514,8 +392,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
                                 const SizedBox(height: 4),
 
-                                Text(
-                                  _formatMoney(totalExpenses),
+                                MoneyText(
+                                  totalExpenses,
                                   style: const TextStyle(
                                     color: Colors.red,
                                     fontSize: 22,
@@ -547,7 +425,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
                                             totalExpenses: totalExpenses,
 
-                                            categoryColor: _categoryColor,
+                                            categoryColor: categoryColor,
+
+                                            dividerColor:
+                                                context.appColors.card,
                                           ),
                                         ),
                                       ),
@@ -589,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                     height: 10,
 
                                                     decoration: BoxDecoration(
-                                                      color: _categoryColor(
+                                                      color: categoryColor(
                                                         category,
                                                       ),
                                                       shape: BoxShape.circle,
@@ -624,8 +505,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                                           height: 2,
                                                         ),
 
-                                                        Text(
-                                                          _formatMoney(amount),
+                                                        MoneyText(
+                                                          amount,
 
                                                           style:
                                                               const TextStyle(
@@ -685,7 +566,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: double.infinity,
 
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: context.appColors.card,
                         borderRadius: BorderRadius.circular(16),
 
                         boxShadow: [
@@ -813,8 +694,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                       color: Colors.grey,
                                     ),
                                   ),
-                                  trailing: Text(
-                                    '₱${isIncome ? '+' : '-'}${_formatMoney(amount).substring(1)}',
+                                  trailing: MoneyText(
+                                    amount,
+                                    sign: isIncome ? '+' : '-',
                                     style: TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.bold,
@@ -823,10 +705,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 );
                               }),
-                              if (documents.length > 5)
+                              if (documents.length > 5 &&
+                                  widget.onOpenTransactions != null)
                                 TextButton(
-                                  onPressed: _openExpenses,
-                                  child: const Text('View All Expenses'),
+                                  onPressed: widget.onOpenTransactions,
+                                  child: const Text('View All Transactions'),
                                 ),
                             ],
                           );
@@ -850,7 +733,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.all(18),
 
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: context.appColors.card,
 
                         borderRadius: BorderRadius.circular(16),
 
@@ -903,7 +786,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Text(
                                   totalExpenses == 0
                                       ? 'Start adding your expenses to receive personalized financial insights.'
-                                      : 'You have recorded ${documents.length} expense${documents.length == 1 ? '' : 's'} totaling ${_formatMoney(totalExpenses)}. Check your Insights section for a more detailed analysis.',
+                                      : 'You have recorded ${documents.length} expense${documents.length == 1 ? '' : 's'} totaling ${formatPeso(totalExpenses)}. Check your Insights section for a more detailed analysis.',
 
                                   style: const TextStyle(
                                     fontSize: 12,
@@ -939,109 +822,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         },
-      ),
-
-      // =================================================
-      // FLOATING ADD EXPENSE BUTTON
-      // =================================================
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addExpense,
-
-        backgroundColor: primaryBlue,
-
-        icon: const Icon(Icons.add, color: Colors.white),
-
-        label: const Text(
-          'Add Expense',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
-      ),
-
-      // =================================================
-      // BOTTOM NAVIGATION
-      // =================================================
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-
-        onTap: _onBottomNavigationTapped,
-
-        type: BottomNavigationBarType.fixed,
-
-        selectedItemColor: primaryBlue,
-
-        unselectedItemColor: Color(0xFF8A8A8A),
-
-        items: [
-          BottomNavigationBarItem(
-            icon: Image.asset(
-              'assets/icons/icons8-home-48.png',
-              width: 24,
-              height: 24,
-            ),
-            activeIcon: Image.asset(
-              'assets/icons/icons8-home-48.png',
-              width: 26,
-              height: 26,
-            ),
-            label: 'Home',
-          ),
-
-          BottomNavigationBarItem(
-            icon: Image.asset(
-              'assets/icons/icons8-expenses-64.png',
-              width: 24,
-              height: 24,
-            ),
-            activeIcon: Image.asset(
-              'assets/icons/icons8-expenses-64.png',
-              width: 26,
-              height: 26,
-            ),
-            label: 'Expenses',
-          ),
-
-          BottomNavigationBarItem(
-            icon: Image.asset(
-              'assets/icons/icons8-combo-chart-100.png',
-              width: 24,
-              height: 24,
-            ),
-            activeIcon: Image.asset(
-              'assets/icons/icons8-combo-chart-100.png',
-              width: 26,
-              height: 26,
-            ),
-            label: 'Insights',
-          ),
-
-          BottomNavigationBarItem(
-            icon: Image.asset(
-              'assets/icons/icons8-robot-48.png',
-              width: 24,
-              height: 24,
-            ),
-            activeIcon: Image.asset(
-              'assets/icons/icons8-robot-48.png',
-              width: 26,
-              height: 26,
-            ),
-            label: 'AI',
-          ),
-
-          BottomNavigationBarItem(
-            icon: Image.asset(
-              'assets/icons/icons8-profile-94.png',
-              width: 24,
-              height: 24,
-            ),
-            activeIcon: Image.asset(
-              'assets/icons/icons8-profile-94.png',
-              width: 26,
-              height: 26,
-            ),
-            label: 'Profile',
-          ),
-        ],
       ),
     );
   }
@@ -1100,8 +880,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: TextStyle(color: Colors.white70, fontSize: 14),
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  _formatMoney(totalBalance),
+                MoneyText(
+                  totalBalance,
                   style: TextStyle(
                     color: totalBalance < 0 ? Colors.redAccent : Colors.white,
                     fontSize: 32,
@@ -1110,7 +890,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '${_formatMoney(totalAccumulatedIncome)} income less ${_formatMoney(totalExpenses)} in expenses',
+                  '${formatPeso(totalAccumulatedIncome)} income less ${formatPeso(totalExpenses)} in expenses',
                   style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
                 const SizedBox(height: 3),
@@ -1160,7 +940,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ? Colors.red
             : budgetUsed >= 0.75
             ? Colors.amber.shade700
-            : primaryBlue;
+            : context.appColors.primaryText;
 
         if (snapshot.connectionState == ConnectionState.waiting &&
             profile == null) {
@@ -1176,7 +956,7 @@ class _HomeScreenState extends State<HomeScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: context.appColors.card,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
@@ -1206,7 +986,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _overviewAmount(
                       'Daily Limit',
                       dailyBudget,
-                      color: primaryBlue,
+                      color: context.appColors.primaryText,
                       icon: Icons.account_balance_wallet_outlined,
                     ),
                     _overviewAmount(
@@ -1229,7 +1009,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Remaining: ${_formatMoney(remainingBudget)}',
+                          'Remaining: ${formatPeso(remainingBudget)}',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -1255,7 +1035,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: LinearProgressIndicator(
                     value: budgetUsed,
                     minHeight: 8,
-                    backgroundColor: const Color(0xFFE4EAF3),
+                    backgroundColor: context.appColors.track,
                     color: primaryBlue,
                   ),
                 ),
@@ -1264,7 +1044,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _showAddIncomeDialog,
+                        onPressed: () async {
+                          final saved = await showAddIncomeDialog(context);
+                          if (saved && mounted) setState(() {});
+                        },
                         icon: const Icon(Icons.add, size: 16),
                         label: const Text('Add Income'),
                         style: OutlinedButton.styleFrom(
@@ -1308,108 +1091,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _showAddIncomeDialog() async {
-    final amountController = TextEditingController();
-    String? selectedSource;
-    var isSaving = false;
-    const sources = [
-      'Allowance',
-      'Salary',
-      'Part-time Job',
-      'Business',
-      'Freelance',
-      'Borrowed Money',
-      'Picked-up Money',
-      'Other',
-    ];
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Add Income'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountController,
-                enabled: !isSaving,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Income amount',
-                  prefixText: '₱',
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: selectedSource,
-                decoration: const InputDecoration(
-                  labelText: 'Where did this income come from?',
-                ),
-                items: sources
-                    .map(
-                      (source) =>
-                          DropdownMenuItem(value: source, child: Text(source)),
-                    )
-                    .toList(),
-                onChanged: isSaving
-                    ? null
-                    : (value) => setDialogState(() => selectedSource = value),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSaving ? null : () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: isSaving
-                  ? null
-                  : () async {
-                      final amount = double.tryParse(
-                        amountController.text.trim().replaceAll(',', ''),
-                      );
-                      if (amount == null || amount <= 0) {
-                        _showMessage('Enter a valid positive income amount.');
-                        return;
-                      }
-                      if (selectedSource == null) {
-                        _showMessage('Select where the income came from.');
-                        return;
-                      }
-
-                      setDialogState(() => isSaving = true);
-                      try {
-                        await UserProfileService.addOtherIncome(
-                          amount: amount,
-                          incomeSource: selectedSource!,
-                        );
-                        if (!mounted || !dialogContext.mounted) return;
-                        Navigator.pop(dialogContext);
-                        setState(() {});
-                      } catch (_) {
-                        setDialogState(() => isSaving = false);
-                        _showMessage('Income could not be saved.');
-                      }
-                    },
-              child: isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-    amountController.dispose();
-  }
-
   Future<void> _showAddBudgetDialog(double currentBudget) async {
     final amountController = TextEditingController();
     var isSaving = false;
@@ -1424,7 +1105,7 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Current daily limit: ${_formatMoney(currentBudget)}',
+                'Current daily limit: ${formatPeso(currentBudget)}',
                 style: const TextStyle(color: Colors.grey),
               ),
               TextField(
@@ -1541,8 +1222,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              _formatMoney(amount),
+            MoneyText(
+              amount,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
@@ -1551,57 +1232,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 fontWeight: FontWeight.bold,
                 color: color,
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _quickAction({
-    required Widget icon,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-
-      borderRadius: BorderRadius.circular(14),
-
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-
-        decoration: BoxDecoration(
-          color: Colors.white,
-
-          borderRadius: BorderRadius.circular(14),
-
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-
-              blurRadius: 8,
-
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-
-        child: Column(
-          children: [
-            IconTheme(
-              data: const IconThemeData(color: primaryBlue, size: 27),
-              child: icon,
-            ),
-
-            const SizedBox(height: 8),
-
-            Text(
-              title,
-
-              textAlign: TextAlign.center,
-
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -1641,11 +1271,13 @@ class SpendingPieChartPainter extends CustomPainter {
   final Map<String, double> categoryTotals;
   final double totalExpenses;
   final Color Function(String) categoryColor;
+  final Color dividerColor;
 
   SpendingPieChartPainter({
     required this.categoryTotals,
     required this.totalExpenses,
     required this.categoryColor,
+    required this.dividerColor,
   });
 
   @override
@@ -1693,13 +1325,13 @@ class SpendingPieChartPainter extends CustomPainter {
       );
 
       // ==========================================
-      // WHITE DIVIDER
+      // DIVIDER (matches the card background)
       // ==========================================
 
       final dividerPaint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
-        ..color = Colors.white;
+        ..color = dividerColor;
 
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
@@ -1720,6 +1352,7 @@ class SpendingPieChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant SpendingPieChartPainter oldDelegate) {
     return oldDelegate.categoryTotals != categoryTotals ||
-        oldDelegate.totalExpenses != totalExpenses;
+        oldDelegate.totalExpenses != totalExpenses ||
+        oldDelegate.dividerColor != dividerColor;
   }
 }

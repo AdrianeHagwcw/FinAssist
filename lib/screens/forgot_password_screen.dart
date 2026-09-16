@@ -1,7 +1,23 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
+
+Future<void> _sendFirebaseResetEmail(String email) {
+  return FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+}
 
 class ForgotPasswordScreen extends StatefulWidget {
-  const ForgotPasswordScreen({super.key});
+  const ForgotPasswordScreen({
+    this.initialEmail = '',
+    this.sendResetEmail = _sendFirebaseResetEmail,
+    super.key,
+  });
+
+  /// Pre-fills the email field, e.g. with what was typed on the login screen.
+  final String initialEmail;
+
+  /// Sends the reset email. Tests pass a fake instead of Firebase.
+  final Future<void> Function(String email) sendResetEmail;
 
   @override
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
@@ -10,9 +26,12 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   static const Color primaryBlue = Color(0xFF1976D2);
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController();
+  late final TextEditingController _emailController = TextEditingController(
+    text: widget.initialEmail.trim(),
+  );
   bool _isSubmitting = false;
   bool _emailSent = false;
+  String? _errorMessage;
 
   @override
   void dispose() {
@@ -21,22 +40,48 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Future<void> _sendResetLink() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_isSubmitting || !_formKey.currentState!.validate()) return;
 
-    setState(() => _isSubmitting = true);
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-
-    if (!mounted) return;
     setState(() {
-      _isSubmitting = false;
-      _emailSent = true;
+      _isSubmitting = true;
+      _errorMessage = null;
     });
+
+    try {
+      await widget.sendResetEmail(_emailController.text.trim());
+
+      if (!mounted) return;
+      setState(() => _emailSent = true);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage = _messageFor(e.code));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _errorMessage = 'Something went wrong. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  String _messageFor(String code) {
+    switch (code) {
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'user-not-found':
+        return 'No account found with this email.';
+      case 'network-request-failed':
+        return 'No internet connection. Connect and try again.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait a few minutes and try again.';
+      default:
+        return 'We could not send the reset email. Please try again.';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F8FC),
+      backgroundColor: context.appColors.pageBackground,
       appBar: AppBar(
         title: const Text('Forgot Password'),
         backgroundColor: primaryBlue,
@@ -86,9 +131,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   ),
                 ),
                 const SizedBox(height: 35),
-                if (_emailSent)
-                  _SuccessMessage(email: _emailController.text.trim())
-                else ...[
+                if (_emailSent) ...[
+                  _SuccessMessage(email: _emailController.text.trim()),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => setState(() => _emailSent = false),
+                      child: Text(
+                        "Didn't get it? Send again",
+                        style: TextStyle(color: context.appColors.primaryText),
+                      ),
+                    ),
+                  ),
+                ] else ...[
                   const Text(
                     'Email Address',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
@@ -103,7 +158,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       hintText: 'Enter your email',
                       prefixIcon: const Icon(Icons.email_outlined),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: context.appColors.card,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
@@ -120,6 +175,26 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       return null;
                     },
                   ),
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 14),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          color: Colors.red,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 25),
                   SizedBox(
                     width: double.infinity,
@@ -178,9 +253,9 @@ class _SuccessMessage extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8F5E9),
+        color: context.appColors.successTint,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFA5D6A7)),
+        border: Border.all(color: context.appColors.successBorder),
       ),
       child: Column(
         children: [
@@ -196,9 +271,13 @@ class _SuccessMessage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'A password reset link was sent to $email.',
+            // Firebase may hide whether an email is registered, so this
+            // message must not promise that an account exists.
+            'If an account exists for $email, we sent it a password reset '
+            'link. Open it to choose a new password. If you don\'t see it in a '
+            'few minutes, check your Spam folder.',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.black87),
+            style: TextStyle(color: context.appColors.textBody, height: 1.4),
           ),
         ],
       ),
