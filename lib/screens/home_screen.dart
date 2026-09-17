@@ -10,6 +10,7 @@ import 'profile_screen.dart';
 import 'ocr_screen.dart';
 import 'voice_recognition_screen.dart';
 import 'bill_calendar_screen.dart';
+import 'debts_screen.dart';
 import 'budget_screen.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
@@ -273,8 +274,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
 
-                    // Two rows of two: a single row of four squeezes the
-                    // labels until they wrap on a narrow phone.
+                    // Rows of three with equal widths, so every tile lines
+                    // up even when the last row isn't full.
                     child: Column(
                       children: [
                         Row(
@@ -288,6 +289,20 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 title: 'Bill Planner',
                                 onTap: _openBillPlanner,
+                              ),
+                            ),
+
+                            const SizedBox(width: 12),
+
+                            Expanded(
+                              child: QuickActionTile(
+                                icon: Image.asset(
+                                  'assets/icons/icons8-money-box-96.png',
+                                  width: 24,
+                                  height: 24,
+                                ),
+                                title: 'Debts',
+                                onTap: _openDebts,
                               ),
                             ),
 
@@ -354,6 +369,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                 },
                               ),
                             ),
+
+                            const SizedBox(width: 12),
+
+                            // Keeps the row's tiles the same width as above.
+                            const Expanded(child: SizedBox.shrink()),
                           ],
                         ),
                       ],
@@ -1063,6 +1083,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  void _openDebts() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const DebtsScreen()),
     );
   }
 

@@ -59,6 +59,8 @@ class Bill {
     required this.recurrence,
     this.walletId,
     this.archived = false,
+    this.endDate,
+    this.debtId,
   });
 
   factory Bill.fromMap(String id, Map<String, dynamic>? data) {
@@ -74,6 +76,8 @@ class Bill {
       recurrence: BillRecurrence.fromName(_asString(map['recurrence'])),
       walletId: _asString(map['walletId']),
       archived: map['archived'] == true,
+      endDate: _asDate(map['endDate']),
+      debtId: _asString(map['debtId']),
     );
   }
 
@@ -93,11 +97,26 @@ class Bill {
   final String? walletId;
   final bool archived;
 
+  /// The last day this bill can fall due. Null means it repeats with no end;
+  /// an installment has one, so its twelfth payment is its last.
+  final DateTime? endDate;
+
+  /// Set when this schedule is the payments of an installment or loan.
+  final String? debtId;
+
   /// Every date this bill falls due inside the given month.
   ///
   /// Nothing is stored until the user opens that month, so a bill set up
   /// years ago doesn't fill the database with rows nobody has looked at.
   List<DateTime> occurrencesIn(int year, int month) {
+    final end = endDate == null ? null : _dateOnly(endDate!);
+    return _occurrencesIn(
+      year,
+      month,
+    ).where((date) => end == null || !date.isAfter(end)).toList();
+  }
+
+  List<DateTime> _occurrencesIn(int year, int month) {
     final first = _dateOnly(firstDueDate);
     final monthStart = DateTime(year, month);
     final monthEnd = DateTime(year, month + 1);
@@ -277,6 +296,41 @@ class BillInstance {
     if (value is! List) return const [];
     return value.whereType<String>().toList(growable: false);
   }
+}
+
+/// The due date of payment number [count] for a schedule starting on
+/// [firstDueDate]: the last payment of an installment. Monthly dates keep the
+/// original day where the month allows, so the 31st lands on the 28th in
+/// February without every later payment moving earlier too.
+DateTime lastDueDateFor(
+  DateTime firstDueDate,
+  BillRecurrence recurrence,
+  int count,
+) {
+  final first = _dateOnly(firstDueDate);
+  final steps = count < 1 ? 0 : count - 1;
+
+  switch (recurrence) {
+    case BillRecurrence.once:
+      return first;
+    case BillRecurrence.weekly:
+      return DateTime(first.year, first.month, first.day + 7 * steps);
+    case BillRecurrence.monthly:
+      return _addMonths(first, steps);
+    case BillRecurrence.quarterly:
+      return _addMonths(first, 3 * steps);
+    case BillRecurrence.yearly:
+      return _addMonths(first, 12 * steps);
+  }
+}
+
+DateTime _addMonths(DateTime date, int months) {
+  final lastDay = DateTime(date.year, date.month + months + 1, 0).day;
+  return DateTime(
+    date.year,
+    date.month + months,
+    date.day < lastDay ? date.day : lastDay,
+  );
 }
 
 /// The id an occurrence is stored under.

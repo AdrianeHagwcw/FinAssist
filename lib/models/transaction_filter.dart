@@ -84,7 +84,8 @@ class TransactionFilter {
 }
 
 /// Money in and money out for a set of transactions. Transfers are left out
-/// of both: moving money between your own wallets is neither.
+/// of both: moving money between your own wallets is neither. So is money
+/// borrowed, lent or repaid, which isn't earning or spending.
 ({double moneyIn, double moneyOut}) inAndOut(
   Iterable<AppTransaction> transactions,
 ) {
@@ -92,6 +93,8 @@ class TransactionFilter {
   var moneyOut = 0.0;
 
   for (final transaction in transactions) {
+    if (transaction.isDebtMovement) continue;
+
     switch (transaction.type) {
       case TransactionType.income:
         moneyIn += transaction.amount;

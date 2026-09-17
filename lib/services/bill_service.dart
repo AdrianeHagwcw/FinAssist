@@ -134,24 +134,58 @@ class BillService {
     required DateTime firstDueDate,
     required BillRecurrence recurrence,
     String? walletId,
+    DateTime? endDate,
+    String? debtId,
   }) {
     final reference = _bills.doc();
+    final batch = _firestore.batch();
 
-    commitFirestoreWrite(
-      reference.set(
-        _billData(
-          name: name,
-          amount: amount,
-          category: category,
-          firstDueDate: firstDueDate,
-          recurrence: recurrence,
-          walletId: walletId,
-        )..['createdAt'] = FieldValue.serverTimestamp(),
-      ),
-      'add bill',
+    addBillToBatch(
+      batch,
+      reference: reference,
+      name: name,
+      amount: amount,
+      category: category,
+      firstDueDate: firstDueDate,
+      recurrence: recurrence,
+      walletId: walletId,
+      endDate: endDate,
+      debtId: debtId,
     );
 
+    commitFirestoreWrite(batch.commit(), 'add bill');
     return reference.id;
+  }
+
+  /// A new schedule's id, for callers saving it in their own batch.
+  static DocumentReference<Map<String, dynamic>> newBillReference() =>
+      _bills.doc();
+
+  static void addBillToBatch(
+    WriteBatch batch, {
+    required DocumentReference<Map<String, dynamic>> reference,
+    required String name,
+    required double amount,
+    required String category,
+    required DateTime firstDueDate,
+    required BillRecurrence recurrence,
+    String? walletId,
+    DateTime? endDate,
+    String? debtId,
+  }) {
+    batch.set(
+      reference,
+      _billData(
+        name: name,
+        amount: amount,
+        category: category,
+        firstDueDate: firstDueDate,
+        recurrence: recurrence,
+        walletId: walletId,
+        endDate: endDate,
+        debtId: debtId,
+      )..['createdAt'] = FieldValue.serverTimestamp(),
+    );
   }
 
   /// Changes a bill's schedule. Occurrences already created keep the amount
@@ -191,6 +225,8 @@ class BillService {
     required DateTime firstDueDate,
     required BillRecurrence recurrence,
     String? walletId,
+    DateTime? endDate,
+    String? debtId,
   }) {
     final trimmedName = name.trim();
 
@@ -204,6 +240,13 @@ class BillService {
       'recurrence': recurrence.name,
       'walletId': walletId,
       'archived': false,
+      // Only written when given, so editing an installment's bill from the
+      // Bill Planner can't wipe its last payment date.
+      if (endDate != null)
+        'endDate': Timestamp.fromDate(
+          DateTime(endDate.year, endDate.month, endDate.day),
+        ),
+      'debtId': ?debtId,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }

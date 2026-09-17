@@ -28,10 +28,15 @@ Future<void> showGoalFormSheet(
   BuildContext context, {
   Goal? existing,
   int nextPriority = 0,
+  String? initialName,
 }) {
   return _showSheet(
     context,
-    GoalFormSheet(existing: existing, nextPriority: nextPriority),
+    GoalFormSheet(
+      existing: existing,
+      nextPriority: nextPriority,
+      initialName: initialName,
+    ),
   );
 }
 
@@ -86,12 +91,16 @@ class GoalFormSheet extends StatefulWidget {
   const GoalFormSheet({
     this.existing,
     this.nextPriority = 0,
+    this.initialName,
     this.onSave,
     super.key,
   });
 
   final Goal? existing;
   final int nextPriority;
+
+  /// A name to start with, such as one picked from the savings guide.
+  final String? initialName;
 
   /// Replaces saving. Used by tests.
   final void Function(String name, double target, DateTime? date)? onSave;
@@ -102,7 +111,7 @@ class GoalFormSheet extends StatefulWidget {
 
 class _GoalFormSheetState extends State<GoalFormSheet> {
   late final _nameController = TextEditingController(
-    text: widget.existing?.name ?? '',
+    text: widget.existing?.name ?? widget.initialName ?? '',
   );
   late final _targetController = TextEditingController(
     text: widget.existing == null

@@ -31,6 +31,11 @@ class LedgerService {
           'to change. You can still delete it.';
     }
 
+    if (transaction.isDebtMovement) {
+      return 'This came from a loan or money lent. Manage it from Debts, so '
+          'what is owed stays right.';
+    }
+
     if (transaction.isBillPayment) {
       return 'This is a bill payment. Change it from the bill, so the bill '
           'stays in step. You can still delete it here.';
@@ -38,6 +43,11 @@ class LedgerService {
 
     return null;
   }
+
+  /// Loan movements are undone from Debts, where the amount owed is kept in
+  /// step. Everything else can be deleted here.
+  static bool canDeleteHere(AppTransaction transaction) =>
+      !transaction.isDebtMovement;
 
   static Future<void> update(
     AppTransaction original, {

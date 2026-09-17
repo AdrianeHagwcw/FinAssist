@@ -36,6 +36,7 @@ class AppTransaction {
     this.note,
     this.isLegacy = false,
     this.billInstanceId,
+    this.debtId,
   });
 
   /// Reads a stored transaction document.
@@ -63,6 +64,7 @@ class AppTransaction {
       note: _asString(map['note']),
       isLegacy: map['legacy'] == true,
       billInstanceId: _asString(map['billInstanceId']),
+      debtId: _asString(map['debtId']),
     );
   }
 
@@ -97,6 +99,13 @@ class AppTransaction {
   final String? billInstanceId;
 
   bool get isBillPayment => billInstanceId != null;
+
+  /// Set when money moved because of a loan: borrowed money arriving, money
+  /// lent out, or a repayment coming back. That money is neither earnings nor
+  /// everyday spending, so it is left out of both.
+  final String? debtId;
+
+  bool get isDebtMovement => debtId != null;
 
   /// How this transaction changes the balance of [walletId].
   double get sourceDelta {

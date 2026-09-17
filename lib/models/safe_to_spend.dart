@@ -139,6 +139,8 @@ double discretionarySpending(
   for (final transaction in transactions) {
     if (transaction.type != TransactionType.expense) continue;
     if (transaction.isBillPayment) continue;
+    // Lending money isn't spending it; it is expected back.
+    if (transaction.isDebtMovement) continue;
     if (transaction.date.isBefore(from) || !transaction.date.isBefore(until)) {
       continue;
     }

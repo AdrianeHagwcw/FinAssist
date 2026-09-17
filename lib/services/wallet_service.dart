@@ -365,6 +365,7 @@ class WalletService {
     AppTransaction? previous,
     Map<String, double>? collectDeltasInto,
     String? billInstanceId,
+    String? debtId,
   }) {
     if (!amount.isFinite || amount <= 0) {
       throw ArgumentError.value(amount, 'amount', 'Must be greater than zero.');
@@ -395,6 +396,7 @@ class WalletService {
       'date': Timestamp.fromDate(transaction.date),
       'legacy': false,
       'billInstanceId': billInstanceId,
+      'debtId': debtId,
       'createdAt': FieldValue.serverTimestamp(),
     });
 

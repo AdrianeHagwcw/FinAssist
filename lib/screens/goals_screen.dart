@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/goal.dart';
 import '../services/goal_service.dart';
+import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -10,15 +11,27 @@ import '../utils/money_format.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/money_text.dart';
+import '../widgets/savings_guide.dart';
+import 'debts_screen.dart';
 import 'goal_detail_screen.dart';
 
 /// The Goals tab: what the user is saving toward, in the order money reaches
 /// each goal.
 class GoalsScreen extends StatefulWidget {
-  const GoalsScreen({this.goals, this.onReorder, this.onOpen, super.key});
+  const GoalsScreen({
+    this.goals,
+    this.profile,
+    this.onReorder,
+    this.onOpen,
+    super.key,
+  });
 
   /// Replaces the live goals. Used by tests.
   final Stream<List<Goal>>? goals;
+
+  /// Replaces the live profile, read for the savings suggestion. Used by
+  /// tests.
+  final Stream<Map<String, dynamic>?>? profile;
 
   /// Replaces saving a new order. Used by tests.
   final void Function(List<Goal> ordered)? onReorder;
@@ -34,7 +47,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
   late final Stream<List<Goal>> _goals =
       widget.goals ?? GoalService.watchGoals();
 
+  late final Stream<Map<String, dynamic>?> _profile =
+      widget.profile ??
+      UserProfileService.watchProfile().map((snapshot) => snapshot.data());
+
   bool _showFinished = false;
+
+  /// Savings goals, or debts. Both live in this one tab so the bottom bar
+  /// stays at the plan's four tabs.
+  bool _showDebts = false;
 
   void _move(List<Goal> active, int index, int direction) {
     final ordered = [...active];
@@ -55,6 +76,123 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
+  Widget _buildSavings(BuildContext context) {
+    return StreamBuilder<List<Goal>>(
+      stream: _goals,
+      builder: (context, snapshot) {
+        final goals = snapshot.data;
+
+        if (goals == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final active = goals
+            .where((goal) => goal.status == GoalStatus.active)
+            .toList();
+        final finished = goals
+            .where((goal) => goal.status != GoalStatus.active)
+            .toList();
+        final shown = _showFinished ? finished : active;
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+          children: [
+            SegmentedButton<bool>(
+              segments: [
+                ButtonSegment(
+                  value: false,
+                  label: Text('Active (${active.length})'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  label: Text('Completed (${finished.length})'),
+                ),
+              ],
+              selected: {_showFinished},
+              showSelectedIcon: false,
+              onSelectionChanged: (value) =>
+                  setState(() => _showFinished = value.first),
+            ),
+            const SizedBox(height: 16),
+            if (goals.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 40),
+                child: EmptyStateView(
+                  iconAsset: 'assets/icons/icons8-goal-96.png',
+                  title: 'No goals yet',
+                  message:
+                      'Pick something to save for, like a laptop or an '
+                      'emergency fund, and watch it fill up.',
+                ),
+              )
+            else if (shown.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Text(
+                  _showFinished
+                      ? 'Goals you finish will show up here.'
+                      : 'Every goal is done. Add a new one to keep going.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              )
+            else ...[
+              if (!_showFinished && active.length > 1)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    'Money from income reaches the top goal first. Use the '
+                    'arrows to change the order.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ),
+              for (var i = 0; i < shown.length; i++) ...[
+                _GoalCard(
+                  goal: shown[i],
+                  rank: _showFinished ? null : i + 1,
+                  onTap: () => _open(shown[i]),
+                  onUp: !_showFinished && i > 0
+                      ? () => _move(active, i, -1)
+                      : null,
+                  onDown: !_showFinished && i < shown.length - 1
+                      ? () => _move(active, i, 1)
+                      : null,
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
+            const SizedBox(height: 4),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () =>
+                    showGoalFormSheet(context, nextPriority: active.length),
+                style: openButtonStyle(),
+                icon: const Icon(Icons.add),
+                label: const Text(
+                  'Add New Goal',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            StreamBuilder<Map<String, dynamic>?>(
+              stream: _profile,
+              builder: (context, profile) => SavingsGuide(
+                monthlyIncome: monthlyIncomeFrom(profile.data),
+                onCreateGoal: (name) => showGoalFormSheet(
+                  context,
+                  nextPriority: active.length,
+                  initialName: name,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -72,107 +210,36 @@ class _GoalsScreenState extends State<GoalsScreen> {
         elevation: 0,
         automaticallyImplyLeading: false,
       ),
-      body: StreamBuilder<List<Goal>>(
-        stream: _goals,
-        builder: (context, snapshot) {
-          final goals = snapshot.data;
-
-          if (goals == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final active = goals
-              .where((goal) => goal.status == GoalStatus.active)
-              .toList();
-          final finished = goals
-              .where((goal) => goal.status != GoalStatus.active)
-              .toList();
-          final shown = _showFinished ? finished : active;
-
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
-            children: [
-              SegmentedButton<bool>(
-                segments: [
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<bool>(
+                segments: const [
                   ButtonSegment(
                     value: false,
-                    label: Text('Active (${active.length})'),
+                    icon: Icon(Icons.savings_outlined),
+                    label: Text('Savings'),
                   ),
                   ButtonSegment(
                     value: true,
-                    label: Text('Completed (${finished.length})'),
+                    icon: Icon(Icons.receipt_long_outlined),
+                    label: Text('Debts'),
                   ),
                 ],
-                selected: {_showFinished},
+                selected: {_showDebts},
                 showSelectedIcon: false,
                 onSelectionChanged: (value) =>
-                    setState(() => _showFinished = value.first),
+                    setState(() => _showDebts = value.first),
               ),
-              const SizedBox(height: 16),
-              if (goals.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 40),
-                  child: EmptyStateView(
-                    iconAsset: 'assets/icons/icons8-goal-96.png',
-                    title: 'No goals yet',
-                    message:
-                        'Pick something to save for, like a laptop or an '
-                        'emergency fund, and watch it fill up.',
-                  ),
-                )
-              else if (shown.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Text(
-                    _showFinished
-                        ? 'Goals you finish will show up here.'
-                        : 'Every goal is done. Add a new one to keep going.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                )
-              else ...[
-                if (!_showFinished && active.length > 1)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 10),
-                    child: Text(
-                      'Money from income reaches the top goal first. Use the '
-                      'arrows to change the order.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ),
-                for (var i = 0; i < shown.length; i++) ...[
-                  _GoalCard(
-                    goal: shown[i],
-                    rank: _showFinished ? null : i + 1,
-                    onTap: () => _open(shown[i]),
-                    onUp: !_showFinished && i > 0
-                        ? () => _move(active, i, -1)
-                        : null,
-                    onDown: !_showFinished && i < shown.length - 1
-                        ? () => _move(active, i, 1)
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ],
-              const SizedBox(height: 4),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () =>
-                      showGoalFormSheet(context, nextPriority: active.length),
-                  style: openButtonStyle(),
-                  icon: const Icon(Icons.add),
-                  label: const Text(
-                    'Add New Goal',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
+            ),
+          ),
+          Expanded(
+            child: _showDebts ? const DebtsView() : _buildSavings(context),
+          ),
+        ],
       ),
     );
   }

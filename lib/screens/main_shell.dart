@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/debt_form_sheet.dart';
 import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
 import 'add_expense_screen.dart';
@@ -55,7 +56,7 @@ class _MainShellState extends State<MainShell> {
         ];
   }
 
-  // Bills and Goal shortcuts are added when those features exist.
+  // The things people log most, one tap from anywhere.
   List<QuickAddAction> _quickAddActions() {
     return widget.quickAddActions ??
         [
@@ -88,6 +89,13 @@ class _MainShellState extends State<MainShell> {
               final saved = await showTransferSheet(context);
               if (saved && mounted) setState(() => _homeRefreshKey++);
             },
+          ),
+          QuickAddAction(
+            icon: Icons.receipt_long_outlined,
+            iconAsset: 'assets/icons/icons8-money-box-96.png',
+            label: 'Installment',
+            color: appPrimaryBlue,
+            onSelected: () => showDebtFormSheet(context),
           ),
           QuickAddAction(
             icon: Icons.smart_toy_outlined,

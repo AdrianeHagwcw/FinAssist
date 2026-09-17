@@ -346,14 +346,15 @@ class _TransactionEditSheetState extends State<TransactionEditSheet> {
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _delete,
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          label: const Text('Delete'),
-                          style: dangerOutlineStyle(context, height: 52),
+                      if (LedgerService.canDeleteHere(_original))
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _delete,
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            label: const Text('Delete'),
+                            style: dangerOutlineStyle(context, height: 52),
+                          ),
                         ),
-                      ),
                       if (!locked) ...[
                         const SizedBox(width: 12),
                         Expanded(

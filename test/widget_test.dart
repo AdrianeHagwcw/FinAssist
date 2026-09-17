@@ -10,6 +10,7 @@ import 'package:testapp/main.dart';
 import 'package:testapp/models/allocation.dart';
 import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/bill.dart';
+import 'package:testapp/models/debt.dart';
 import 'package:testapp/models/goal.dart';
 import 'package:testapp/models/onboarding_data.dart';
 import 'package:testapp/models/safe_to_spend.dart';
@@ -19,6 +20,8 @@ import 'package:testapp/providers/app_settings_provider.dart';
 import 'package:testapp/screens/bill_calendar_screen.dart';
 import 'package:testapp/screens/bill_detail_screen.dart';
 import 'package:testapp/screens/chatbot_screen.dart';
+import 'package:testapp/screens/debt_detail_screen.dart';
+import 'package:testapp/screens/debts_screen.dart';
 import 'package:testapp/screens/financial_setup_screen.dart';
 import 'package:testapp/screens/forgot_password_screen.dart';
 import 'package:testapp/screens/goals_screen.dart';
@@ -31,6 +34,7 @@ import 'package:testapp/screens/transactions_screen.dart';
 import 'package:testapp/screens/wallet_detail_screen.dart';
 import 'package:testapp/screens/wallets_screen.dart';
 import 'package:testapp/services/legacy_migration.dart';
+import 'package:testapp/services/ledger_service.dart';
 import 'package:testapp/services/budget_service.dart';
 import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
@@ -43,6 +47,8 @@ import 'package:testapp/utils/date_format.dart';
 import 'package:testapp/utils/categories.dart';
 import 'package:testapp/utils/money_format.dart';
 import 'package:testapp/widgets/money_text.dart';
+import 'package:testapp/widgets/debt_form_sheet.dart';
+import 'package:testapp/widgets/savings_guide.dart';
 import 'package:testapp/widgets/safe_to_spend_card.dart';
 import 'package:testapp/widgets/transaction_edit_sheet.dart';
 import 'package:testapp/widgets/transfer_sheet.dart';
@@ -3581,6 +3587,7 @@ void main() {
             theme: AppTheme.light,
             home: GoalsScreen(
               goals: Stream.value(goals),
+              profile: Stream.value(null),
               onReorder: onReorder,
               onOpen: (_) {},
             ),
@@ -3767,6 +3774,435 @@ void main() {
       expect(confirmed?.goal?.id, 'g');
       expect(confirmed?.toGoal, 3800);
       expect(confirmed?.remaining, 6200);
+    });
+  });
+
+  group('installments', () {
+    Debt phone({int count = 12, double perPayment = 2400}) => Debt(
+      id: 'd',
+      direction: DebtDirection.iOwe,
+      name: 'Phone',
+      category: DebtCategory.gadget,
+      principal: 24000,
+      perPayment: perPayment,
+      paymentCount: count,
+      firstDueDate: DateTime(2026, 1, 31),
+      billId: 'b',
+      status: DebtStatus.active,
+    );
+
+    test('the last payment of a monthly plan keeps its day', () {
+      expect(
+        lastDueDateFor(DateTime(2026, 1, 31), BillRecurrence.monthly, 12),
+        DateTime(2026, 12, 31),
+      );
+      expect(
+        lastDueDateFor(DateTime(2026, 1, 31), BillRecurrence.monthly, 2),
+        DateTime(2026, 2, 28),
+      );
+      expect(
+        lastDueDateFor(DateTime(2026, 3, 2), BillRecurrence.weekly, 4),
+        DateTime(2026, 3, 23),
+      );
+    });
+
+    test('a bill with an end date stops asking after its last payment', () {
+      final bill = Bill(
+        id: 'b',
+        name: 'Phone',
+        amount: 2400,
+        category: 'Bills',
+        firstDueDate: DateTime(2026, 1, 31),
+        recurrence: BillRecurrence.monthly,
+        endDate: DateTime(2026, 12, 31),
+      );
+
+      expect(bill.occurrencesIn(2026, 12), [DateTime(2026, 12, 31)]);
+      expect(bill.occurrencesIn(2027, 1), isEmpty);
+    });
+
+    test('a blank payment count is worked out from the amounts', () {
+      expect(paymentsToCover(24000, 2000), 12);
+      expect(paymentsToCover(25000, 2000), 13);
+      expect(paymentsToCover(0, 2000), 0);
+    });
+
+    test('the cost of borrowing is shown in pesos, not a rate', () {
+      final debt = phone();
+
+      expect(debt.totalPayable, 28800);
+      expect(debt.extraCost, 4800);
+      expect(debt.lastDueDate, DateTime(2026, 12, 31));
+      expect(phone(perPayment: 2000).extraCost, 0);
+    });
+
+    test("progress comes from the installment's bill payments", () {
+      BillInstance payment(int month, double paid) => BillInstance(
+        id: 'b_$month',
+        billId: 'b',
+        name: 'Phone',
+        amount: 2400,
+        category: 'Bills',
+        dueDate: DateTime(2026, month, 28),
+        status: BillInstance.statusForPayment(paid, 2400),
+        amountPaid: paid,
+      );
+
+      final progress = DebtProgress.of(phone(), [
+        payment(1, 2400),
+        payment(2, 2400),
+        payment(3, 1000),
+      ]);
+
+      expect(progress.paid, 5800);
+      expect(progress.remaining, 23000);
+      expect(progress.paymentsMade, 2, reason: 'a part payment is not one');
+      expect(progress.paymentsLeft, 10);
+      expect(progress.isPaidOff, isFalse);
+    });
+
+    test('borrowed, lent and repaid money is not earning or spending', () {
+      AppTransaction t(TransactionType type, double amount, {String? debt}) =>
+          AppTransaction(
+            id: '$type$amount',
+            type: type,
+            amount: amount,
+            label: 'x',
+            date: DateTime(2026, 3, 10, 9),
+            walletId: 'w',
+            debtId: debt,
+          );
+
+      final list = [
+        t(TransactionType.income, 3000),
+        t(TransactionType.income, 50000, debt: 'loan'),
+        t(TransactionType.expense, 200),
+        t(TransactionType.expense, 1000, debt: 'lent'),
+      ];
+
+      final totals = inAndOut(list);
+      expect(totals.moneyIn, 3000);
+      expect(totals.moneyOut, 200);
+      expect(
+        discretionarySpending(
+          list,
+          from: DateTime(2026, 3, 10),
+          until: DateTime(2026, 3, 11),
+        ),
+        200,
+      );
+
+      final loan = list[1];
+      expect(LedgerService.whyNotEditable(loan), contains('Debts'));
+      expect(LedgerService.canDeleteHere(loan), isFalse);
+      expect(LedgerService.canDeleteHere(list[0]), isTrue);
+    });
+
+    test('income is turned into a monthly figure for the suggestion', () {
+      expect(
+        monthlyIncomeFrom({'income': 1200, 'incomeFrequency': 'Weekly'}),
+        closeTo(5200, 0.01),
+      );
+      expect(
+        monthlyIncomeFrom({'income': 5000, 'incomeFrequency': 'Semi-monthly'}),
+        10000,
+      );
+      expect(monthlyIncomeFrom({'incomeFrequency': 'Monthly'}), isNull);
+      expect(monthlyIncomeFrom(null), isNull);
+    });
+  });
+
+  group('Debts', () {
+    final cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 5000,
+      startingBalance: 5000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+
+    void tall(WidgetTester tester) {
+      tester.view.physicalSize = const Size(700, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+    }
+
+    Widget app(Widget home) => ChangeNotifierProvider(
+      create: (_) => AppSettingsProvider(),
+      child: MaterialApp(theme: AppTheme.light, home: home),
+    );
+
+    testWidgets('the form works out payments and the extra cost', (
+      tester,
+    ) async {
+      tall(tester);
+      DebtDraft? saved;
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtFormSheet(
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value([cash]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'Phone');
+      await tester.enterText(fields.at(1), '24000');
+      await tester.enterText(fields.at(2), '2400');
+      await tester.pump();
+
+      expect(find.text('10'), findsOneWidget, reason: 'payments, worked out');
+      expect(find.textContaining('Total you will pay: ₱24,000.00'), findsOne);
+
+      await tester.enterText(fields.at(3), '12');
+      await tester.pump();
+      expect(
+        find.textContaining('₱4,800.00 more than you borrowed'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Save Installment'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.paymentCount, 12);
+      expect(saved?.perPayment, 2400);
+      expect(saved?.direction, DebtDirection.iOwe);
+    });
+
+    testWidgets('payments that cannot cover the loan are refused', (
+      tester,
+    ) async {
+      tall(tester);
+      DebtDraft? saved;
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtFormSheet(
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value([cash]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'Loan');
+      await tester.enterText(fields.at(1), '10000');
+      await tester.enterText(fields.at(2), '500');
+      await tester.enterText(fields.at(3), '6');
+      await tester.tap(find.text('Save Installment'));
+      await tester.pump();
+
+      expect(find.textContaining('less than the ₱10,000.00'), findsOneWidget);
+      expect(saved, isNull);
+    });
+
+    testWidgets('money owed to me needs only who and how much', (tester) async {
+      tall(tester);
+      DebtDraft? saved;
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtFormSheet(
+              initialDirection: DebtDirection.owedToMe,
+              wallets: Stream.value([cash]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'Ana');
+      await tester.enterText(fields.at(1), '500');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.direction, DebtDirection.owedToMe);
+      expect(saved?.principal, 500);
+      expect(saved?.movedWalletId, isNull);
+    });
+
+    testWidgets('lists installments with their progress', (tester) async {
+      tall(tester);
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtsView(
+              debts: Stream.value([
+                Debt(
+                  id: 'd',
+                  direction: DebtDirection.iOwe,
+                  name: 'Phone',
+                  category: DebtCategory.gadget,
+                  principal: 24000,
+                  perPayment: 2000,
+                  paymentCount: 12,
+                  firstDueDate: DateTime(2026, 1, 5),
+                  billId: 'b',
+                  status: DebtStatus.active,
+                ),
+              ]),
+              paymentsFor: (_) => Stream.value([
+                BillInstance(
+                  id: 'b_1',
+                  billId: 'b',
+                  name: 'Phone',
+                  amount: 2000,
+                  category: 'Bills',
+                  dueDate: DateTime(2026, 1, 5),
+                  status: BillStatus.paid,
+                  amountPaid: 2000,
+                ),
+              ]),
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Phone'), findsOneWidget);
+      expect(find.text(' of ₱24,000.00 paid'), findsOneWidget);
+      expect(find.textContaining('11 payments left'), findsOneWidget);
+    });
+
+    testWidgets('shows how much is still to come back', (tester) async {
+      tall(tester);
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtsView(
+              debts: Stream.value(const [
+                Debt(
+                  id: 'a',
+                  direction: DebtDirection.owedToMe,
+                  name: 'Ana',
+                  category: DebtCategory.familyFriend,
+                  principal: 500,
+                  received: 200,
+                  status: DebtStatus.active,
+                ),
+              ]),
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Nothing to pay off'), findsOneWidget);
+
+      await tester.tap(find.text('Owed to me'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Still to come back to you'), findsOneWidget);
+      expect(find.text('₱300.00'), findsOneWidget);
+      expect(find.text(' of ₱500.00 back'), findsOneWidget);
+    });
+
+    testWidgets('a repayment cannot be more than is owed', (tester) async {
+      tall(tester);
+      double? saved;
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: RepaymentSheet(
+              debt: const Debt(
+                id: 'a',
+                direction: DebtDirection.owedToMe,
+                name: 'Ana',
+                category: DebtCategory.familyFriend,
+                principal: 500,
+                received: 200,
+                status: DebtStatus.active,
+              ),
+              wallets: Stream.value([cash]),
+              onSave: (amount, _) => saved = amount,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('300.00'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, '400');
+      await tester.tap(find.text('Record Repayment'));
+      await tester.pump();
+
+      expect(find.text('Only ₱300.00 is still owed.'), findsOneWidget);
+      expect(saved, isNull);
+    });
+  });
+
+  group('Grow Your Money', () {
+    testWidgets('suggests saving 20% of monthly income', (tester) async {
+      tester.view.physicalSize = const Size(700, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      String? goalName;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SavingsGuide(
+                monthlyIncome: 10000,
+                onCreateGoal: (name) => goalName = name,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('About ₱2,000.00'), findsOneWidget);
+      expect(find.textContaining('not financial advice'), findsOneWidget);
+
+      await tester.tap(find.text('Emergency Fund'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Watch out for'), findsOneWidget);
+      await tester.tap(find.text('Create Savings Goal'));
+      await tester.pumpAndSettle();
+
+      expect(goalName, 'Emergency Fund');
+    });
+
+    testWidgets('asks for income when there is none', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SavingsGuide(monthlyIncome: null, onCreateGoal: (_) {}),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Add your usual income to see this'), findsOneWidget);
     });
   });
 }
