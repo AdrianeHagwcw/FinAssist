@@ -7,9 +7,9 @@ import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
 import 'add_expense_screen.dart';
 import 'chatbot_screen.dart';
-import 'expenses_screen.dart';
 import 'home_screen.dart';
 import 'income_waterfall_screen.dart';
+import 'transactions_screen.dart';
 import 'wallets_screen.dart';
 
 /// The signed-in app: four bottom tabs (Home / Transactions / Goals / Wallet)
@@ -49,7 +49,7 @@ class _MainShellState extends State<MainShell> {
             key: ValueKey(_homeRefreshKey),
             onOpenTransactions: () => _selectTab(_transactionsIndex),
           ),
-          const ExpensesScreen(),
+          const TransactionsScreen(),
           const _ComingSoonTab(
             title: 'Goals',
             iconAsset: 'assets/icons/icons8-goal-96.png',

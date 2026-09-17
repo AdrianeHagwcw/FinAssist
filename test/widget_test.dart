@@ -12,6 +12,7 @@ import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/bill.dart';
 import 'package:testapp/models/onboarding_data.dart';
 import 'package:testapp/models/wallet.dart';
+import 'package:testapp/models/transaction_filter.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
 import 'package:testapp/screens/bill_calendar_screen.dart';
 import 'package:testapp/screens/bill_detail_screen.dart';
@@ -22,6 +23,7 @@ import 'package:testapp/screens/income_waterfall_screen.dart';
 import 'package:testapp/screens/main_shell.dart';
 import 'package:testapp/widgets/quick_add_sheet.dart';
 import 'package:testapp/screens/splash_screen.dart';
+import 'package:testapp/screens/transactions_screen.dart';
 import 'package:testapp/screens/wallet_detail_screen.dart';
 import 'package:testapp/screens/wallets_screen.dart';
 import 'package:testapp/services/legacy_migration.dart';
@@ -35,6 +37,7 @@ import 'package:testapp/utils/date_format.dart';
 import 'package:testapp/utils/categories.dart';
 import 'package:testapp/utils/money_format.dart';
 import 'package:testapp/widgets/money_text.dart';
+import 'package:testapp/widgets/transaction_edit_sheet.dart';
 import 'package:testapp/widgets/transfer_sheet.dart';
 import 'package:testapp/widgets/wallet_picker.dart';
 
@@ -2629,6 +2632,383 @@ void main() {
         'partly',
         'next month',
       ]);
+    });
+  });
+
+  group('transaction filters', () {
+    AppTransaction t(
+      String id, {
+      TransactionType type = TransactionType.expense,
+      String label = 'Food',
+      String? walletId = 'cash',
+      String? toWalletId,
+      DateTime? date,
+      double amount = 100,
+    }) {
+      return AppTransaction(
+        id: id,
+        type: type,
+        amount: amount,
+        label: label,
+        date: date ?? DateTime(2026, 3, 10, 12),
+        walletId: walletId,
+        toWalletId: toWalletId,
+      );
+    }
+
+    test('a wallet filter keeps transfers into and out of it', () {
+      const filter = TransactionFilter(walletId: 'gcash');
+      final list = [
+        t('a', walletId: 'cash'),
+        t('b', walletId: 'gcash'),
+        t(
+          'c',
+          type: TransactionType.transfer,
+          walletId: 'cash',
+          toWalletId: 'gcash',
+        ),
+      ];
+
+      expect(list.where(filter.matches).map((x) => x.id), ['b', 'c']);
+    });
+
+    test('category matching ignores capitalisation', () {
+      expect(const TransactionFilter(category: 'food').matches(t('a')), isTrue);
+    });
+
+    test('a date range includes both of its end days', () {
+      final filter = TransactionFilter(
+        from: DateTime(2026, 3, 1),
+        to: DateTime(2026, 3, 10),
+      );
+
+      expect(filter.matches(t('a', date: DateTime(2026, 3, 10, 23))), isTrue);
+      expect(filter.matches(t('b', date: DateTime(2026, 3, 1))), isTrue);
+      expect(filter.matches(t('c', date: DateTime(2026, 3, 11))), isFalse);
+    });
+
+    test('money in and out leave transfers out of both', () {
+      final totals = inAndOut([
+        t('a', amount: 200),
+        t('b', type: TransactionType.income, amount: 1000),
+        t(
+          'c',
+          type: TransactionType.transfer,
+          amount: 5000,
+          toWalletId: 'gcash',
+        ),
+      ]);
+
+      expect(totals.moneyIn, 1000);
+      expect(totals.moneyOut, 200);
+    });
+
+    test('spending by category counts expenses only, largest first', () {
+      final result = spendingByCategory([
+        t('a', label: 'Food', amount: 100),
+        t('b', label: 'Bills', amount: 900),
+        t('c', label: 'Food', amount: 150),
+        t('d', type: TransactionType.income, label: 'Allowance', amount: 9999),
+      ]);
+
+      expect(result.map((e) => '${e.key}=${e.value}'), [
+        'Bills=900.0',
+        'Food=250.0',
+      ]);
+    });
+  });
+
+  group('Transactions screen', () {
+    final cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 1000,
+      startingBalance: 1000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    final gcash = Wallet(
+      id: 'gcash',
+      name: 'GCash',
+      type: WalletType.gcash,
+      balance: 1000,
+      startingBalance: 1000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+    );
+
+    Future<void> pumpList(
+      WidgetTester tester,
+      List<AppTransaction> transactions, {
+      void Function(AppTransaction)? onOpen,
+    }) async {
+      tester.view.physicalSize = const Size(700, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: TransactionsScreen(
+              transactions: Stream.value(transactions),
+              wallets: Stream.value([cash, gcash]),
+              showLegacyImport: false,
+              onOpen: onOpen,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    final now = DateTime.now();
+
+    testWidgets('shows an empty state with nothing recorded', (tester) async {
+      await pumpList(tester, const []);
+
+      expect(find.text('No transactions yet'), findsOneWidget);
+    });
+
+    testWidgets('lists every kind, with transfers naming both wallets', (
+      tester,
+    ) async {
+      await pumpList(tester, [
+        AppTransaction(
+          id: 'e',
+          type: TransactionType.expense,
+          amount: 120,
+          label: 'Food',
+          date: now,
+          walletId: 'cash',
+        ),
+        AppTransaction(
+          id: 'i',
+          type: TransactionType.income,
+          amount: 2000,
+          label: 'Allowance',
+          date: now,
+          walletId: 'gcash',
+        ),
+        AppTransaction(
+          id: 't',
+          type: TransactionType.transfer,
+          amount: 300,
+          label: 'Transfer',
+          date: now,
+          walletId: 'cash',
+          toWalletId: 'gcash',
+        ),
+      ]);
+
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Food'), findsOneWidget);
+      expect(find.text('Allowance'), findsOneWidget);
+      expect(find.text('Cash → GCash'), findsOneWidget);
+      expect(find.text('-₱120.00'), findsOneWidget);
+      expect(find.text('+₱2,000.00'), findsWidgets);
+      expect(find.text('₱300.00'), findsOneWidget);
+    });
+
+    testWidgets('marks bill payments and records from before wallets', (
+      tester,
+    ) async {
+      await pumpList(tester, [
+        AppTransaction(
+          id: 'b',
+          type: TransactionType.expense,
+          amount: 3000,
+          label: 'Bills',
+          date: now,
+          walletId: 'cash',
+          note: 'Rent',
+          billInstanceId: 'rent_1',
+        ),
+        AppTransaction(
+          id: 'l',
+          type: TransactionType.expense,
+          amount: 50,
+          label: 'Food',
+          date: now,
+          isLegacy: true,
+        ),
+      ]);
+
+      expect(find.text('Cash · Bill payment · Rent'), findsOneWidget);
+      expect(find.text('Before wallets'), findsOneWidget);
+    });
+
+    testWidgets('tapping a transaction opens it', (tester) async {
+      AppTransaction? opened;
+      await pumpList(tester, [
+        AppTransaction(
+          id: 'e',
+          type: TransactionType.expense,
+          amount: 120,
+          label: 'Food',
+          date: now,
+          walletId: 'cash',
+        ),
+      ], onOpen: (t) => opened = t);
+
+      await tester.tap(find.text('Food'));
+      expect(opened?.id, 'e');
+    });
+
+    testWidgets('the category breakdown narrows the list', (tester) async {
+      await pumpList(tester, [
+        AppTransaction(
+          id: 'a',
+          type: TransactionType.expense,
+          amount: 120,
+          label: 'Food',
+          date: now,
+          walletId: 'cash',
+        ),
+        AppTransaction(
+          id: 'b',
+          type: TransactionType.expense,
+          amount: 80,
+          label: 'Transportation',
+          date: now,
+          walletId: 'cash',
+        ),
+      ]);
+
+      await tester.tap(find.byTooltip('Spending by category'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Transportation').last);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Showing:'), findsOneWidget);
+      expect(find.text('Food'), findsNothing);
+
+      await tester.tap(find.text('Clear'));
+      await tester.pumpAndSettle();
+      expect(find.text('Food'), findsOneWidget);
+    });
+  });
+
+  group('Transaction edit sheet', () {
+    final cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 1000,
+      startingBalance: 1000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+
+    Future<void> pumpSheet(
+      WidgetTester tester,
+      AppTransaction transaction, {
+      void Function(double amount)? onSave,
+      VoidCallback? onDelete,
+    }) async {
+      tester.view.physicalSize = const Size(700, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: TransactionEditSheet(
+              transaction: transaction,
+              wallets: Stream.value([cash]),
+              onSave:
+                  ({
+                    required double amount,
+                    required String label,
+                    required String? walletId,
+                    required String? toWalletId,
+                    required String? note,
+                    required DateTime date,
+                  }) => onSave?.call(amount),
+              onDelete: onDelete,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('an ordinary expense can be edited', (tester) async {
+      double? saved;
+      await pumpSheet(
+        tester,
+        AppTransaction(
+          id: 'e',
+          type: TransactionType.expense,
+          amount: 120,
+          label: 'Food',
+          date: DateTime(2026, 3, 10),
+          walletId: 'cash',
+        ),
+        onSave: (amount) => saved = amount,
+      );
+
+      await tester.enterText(find.byType(TextField).first, '150');
+      await tester.tap(find.text('Save Changes'));
+      await tester.pumpAndSettle();
+
+      expect(saved, 150);
+    });
+
+    testWidgets('a bill payment is changed from its bill, not here', (
+      tester,
+    ) async {
+      await pumpSheet(
+        tester,
+        AppTransaction(
+          id: 'b',
+          type: TransactionType.expense,
+          amount: 3000,
+          label: 'Bills',
+          date: DateTime(2026, 3, 10),
+          walletId: 'cash',
+          billInstanceId: 'rent_1',
+        ),
+      );
+
+      expect(find.textContaining('Change it from the bill'), findsOneWidget);
+      expect(find.text('Save Changes'), findsNothing);
+      expect(find.text('Delete'), findsOneWidget);
+    });
+
+    testWidgets('deleting asks first and explains what happens', (
+      tester,
+    ) async {
+      var deleted = false;
+      await pumpSheet(
+        tester,
+        AppTransaction(
+          id: 'l',
+          type: TransactionType.expense,
+          amount: 50,
+          label: 'Food',
+          date: DateTime(2026, 3, 10),
+          isLegacy: true,
+        ),
+        onDelete: () => deleted = true,
+      );
+
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('No balance changes'), findsOneWidget);
+
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+      expect(deleted, isTrue);
     });
   });
 }

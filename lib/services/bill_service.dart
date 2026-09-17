@@ -89,6 +89,12 @@ class BillService {
         );
   }
 
+  /// Reads one occurrence once, or null when it no longer exists.
+  static Future<BillInstance?> loadInstance(String instanceId) async {
+    final doc = await _instances.doc(instanceId).get();
+    return doc.exists ? BillInstance.fromMap(doc.id, doc.data()) : null;
+  }
+
   /// Every cycle of one bill, newest first, so the user can see what they
   /// paid last month and the month before.
   static Stream<List<BillInstance>> watchInstancesForBill(String billId) {
@@ -375,6 +381,7 @@ class BillService {
       note: instance.name,
       date: date,
       collectDeltasInto: collectDeltasInto,
+      billInstanceId: instance.id,
     );
 
     final paid = instance.amountPaid + amount;

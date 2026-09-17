@@ -35,6 +35,7 @@ class AppTransaction {
     this.toWalletId,
     this.note,
     this.isLegacy = false,
+    this.billInstanceId,
   });
 
   /// Reads a stored transaction document.
@@ -61,6 +62,7 @@ class AppTransaction {
       toWalletId: _asString(map['toWalletId']),
       note: _asString(map['note']),
       isLegacy: map['legacy'] == true,
+      billInstanceId: _asString(map['billInstanceId']),
     );
   }
 
@@ -88,6 +90,13 @@ class AppTransaction {
   /// one-time migration. They are shown in history but never counted into a
   /// wallet balance, so nothing is double counted.
   final bool isLegacy;
+
+  /// Set when this expense is a bill payment, naming the bill occurrence it
+  /// paid. Bill payments are planned spending, so they are kept out of what
+  /// the user spent "today", and undoing one has to update the bill too.
+  final String? billInstanceId;
+
+  bool get isBillPayment => billInstanceId != null;
 
   /// How this transaction changes the balance of [walletId].
   double get sourceDelta {

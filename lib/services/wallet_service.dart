@@ -254,15 +254,22 @@ class WalletService {
     required double amount,
     required String label,
     String? walletId,
+    String? toWalletId,
     String? note,
     DateTime? date,
   }) async {
+    if (type == TransactionType.transfer &&
+        (walletId == null || walletId == toWalletId)) {
+      throw ArgumentError('A transfer needs two different wallets.');
+    }
+
     _writeTransaction(
       id: id,
       type: type,
       amount: amount,
       label: label,
       walletId: walletId,
+      toWalletId: type == TransactionType.transfer ? toWalletId : null,
       note: note,
       date: date,
       previous: await loadTransaction(id),
@@ -357,6 +364,7 @@ class WalletService {
     DateTime? date,
     AppTransaction? previous,
     Map<String, double>? collectDeltasInto,
+    String? billInstanceId,
   }) {
     if (!amount.isFinite || amount <= 0) {
       throw ArgumentError.value(amount, 'amount', 'Must be greater than zero.');
@@ -386,6 +394,7 @@ class WalletService {
       'note': trimmedNote == null || trimmedNote.isEmpty ? null : trimmedNote,
       'date': Timestamp.fromDate(transaction.date),
       'legacy': false,
+      'billInstanceId': billInstanceId,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
