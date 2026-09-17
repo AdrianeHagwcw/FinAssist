@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'income_waterfall_screen.dart';
 import 'insights_screen.dart';
 import 'chatbot_screen.dart';
 import 'profile_screen.dart';
@@ -17,7 +18,6 @@ import '../utils/money_format.dart';
 import '../widgets/money_text.dart';
 import '../theme/app_colors.dart';
 import '../widgets/add_budget_dialog.dart';
-import '../widgets/add_income_dialog.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/quick_action_tile.dart';
 
@@ -1113,7 +1113,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () async {
-                          final saved = await showAddIncomeDialog(context);
+                          final saved = await showIncomeWaterfall(context);
                           if (saved && mounted) setState(() {});
                         },
                         icon: Image.asset(

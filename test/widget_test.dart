@@ -18,6 +18,7 @@ import 'package:testapp/screens/bill_detail_screen.dart';
 import 'package:testapp/screens/chatbot_screen.dart';
 import 'package:testapp/screens/financial_setup_screen.dart';
 import 'package:testapp/screens/forgot_password_screen.dart';
+import 'package:testapp/screens/income_waterfall_screen.dart';
 import 'package:testapp/screens/main_shell.dart';
 import 'package:testapp/widgets/quick_add_sheet.dart';
 import 'package:testapp/screens/splash_screen.dart';
@@ -27,7 +28,6 @@ import 'package:testapp/services/legacy_migration.dart';
 import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
 import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/widgets/add_income_dialog.dart';
 import 'package:testapp/widgets/bill_payment_sheet.dart';
 import 'package:testapp/widgets/legacy_import_card.dart';
 import 'package:testapp/widgets/light_dark_toggle.dart';
@@ -1388,55 +1388,214 @@ void main() {
     });
   });
 
-  group('Add income', () {
-    Future<void> pumpDialog(WidgetTester tester) async {
+  group('Add income waterfall', () {
+    final today = DateTime(2026, 3, 10);
+
+    final cash = Wallet(
+      id: 'w1',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 500,
+      startingBalance: 500,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+
+    BillInstance bill(String name, double amount, {DateTime? dueDate}) {
+      return BillInstance(
+        id: 'b_$name',
+        billId: 'b',
+        name: name,
+        amount: amount,
+        category: 'Bills',
+        dueDate: dueDate ?? DateTime(2026, 3, 15),
+        status: BillStatus.unpaid,
+      );
+    }
+
+    Future<void> pumpWaterfall(
+      WidgetTester tester, {
+      List<BillInstance> bills = const [],
+      void Function(AllocationPlan plan, String walletId, String source)?
+      onConfirm,
+    }) async {
+      tester.view.physicalSize = const Size(700, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.light,
-          home: Scaffold(
-            body: AddIncomeDialog(wallets: Stream.value(const [])),
+          home: IncomeWaterfallScreen(
+            today: today,
+            wallets: Stream.value([cash]),
+            loadBills: () async => bills,
+            onConfirm:
+                ({
+                  required AllocationPlan plan,
+                  required String walletId,
+                  required String source,
+                  required DateTime receivedAt,
+                }) => onConfirm?.call(plan, walletId, source),
           ),
         ),
       );
       await tester.pump();
+      await tester.pump();
     }
+
+    Future<void> pickSource(WidgetTester tester, String source) async {
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(source).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> fillIncome(WidgetTester tester, String amount) async {
+      await tester.enterText(find.byType(TextField).first, amount);
+      await pickSource(tester, 'Allowance');
+    }
+
+    Future<void> next(WidgetTester tester) async {
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('asks for the amount before moving on', (tester) async {
+      await pumpWaterfall(tester);
+
+      expect(find.text('Step 1 of 3'), findsOneWidget);
+      await next(tester);
+
+      expect(find.text('Enter how much came in.'), findsOneWidget);
+      expect(find.text('Step 1 of 3'), findsOneWidget);
+    });
 
     testWidgets('asks where the money came from only after picking Other', (
       tester,
     ) async {
-      await pumpDialog(tester);
+      await pumpWaterfall(tester);
 
       expect(find.text('Where did it come from?'), findsNothing);
-
-      await tester.tap(find.byType(DropdownButtonFormField<String>));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Other').last);
-      await tester.pumpAndSettle();
+      await pickSource(tester, 'Other');
 
       expect(find.text('Where did it come from?'), findsOneWidget);
-      expect(find.text('Optional. Blank just calls it Other.'), findsOneWidget);
     });
 
     testWidgets('offers the sources a student actually has', (tester) async {
-      await pumpDialog(tester);
+      await pumpWaterfall(tester);
 
-      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
       await tester.pumpAndSettle();
 
-      for (final source in [
-        'Allowance',
-        'Scholarship',
-        'Gift',
-        'Sold Something',
-        'Refund',
-      ]) {
+      for (final source in ['Allowance', 'Scholarship', 'Gift', 'Refund']) {
         expect(find.text(source), findsWidgets, reason: source);
       }
-
       expect(
         find.text('Borrowed Money'),
         findsNothing,
         reason: 'borrowed money is a debt, not income',
+      );
+    });
+
+    testWidgets('with no bills it goes straight to what is left', (
+      tester,
+    ) async {
+      await pumpWaterfall(tester);
+
+      await fillIncome(tester, '2000');
+      await next(tester);
+
+      expect(find.text('Step 3 of 3'), findsOneWidget);
+      expect(find.text('₱2,000.00'), findsOneWidget);
+      expect(find.textContaining('No unpaid bills right now'), findsOneWidget);
+      expect(find.text('Confirm'), findsOneWidget);
+    });
+
+    testWidgets('each bill starts on its full amount, with a running total', (
+      tester,
+    ) async {
+      await pumpWaterfall(
+        tester,
+        bills: [bill('Rent', 1500), bill('Load', 300)],
+      );
+
+      await fillIncome(tester, '5000');
+      await next(tester);
+
+      expect(find.text('Step 2 of 3'), findsOneWidget);
+      expect(find.text('1500.00'), findsOneWidget);
+      expect(find.text('300.00'), findsOneWidget);
+      expect(find.text('Left after these bills'), findsOneWidget);
+      expect(find.text('₱3,200.00'), findsOneWidget);
+    });
+
+    testWidgets('a bill cannot be paid more than it owes', (tester) async {
+      await pumpWaterfall(tester, bills: [bill('Rent', 1500)]);
+
+      await fillIncome(tester, '5000');
+      await next(tester);
+
+      await tester.enterText(find.widgetWithText(TextField, '1500.00'), '2000');
+      await next(tester);
+
+      expect(find.text('Rent only needs ₱1,500.00.'), findsOneWidget);
+      expect(find.text('Step 2 of 3'), findsOneWidget);
+    });
+
+    testWidgets('confirming saves the income, the bills and what is left', (
+      tester,
+    ) async {
+      AllocationPlan? saved;
+      String? savedWallet;
+      String? savedSource;
+
+      await pumpWaterfall(
+        tester,
+        bills: [bill('Rent', 1500), bill('Load', 300)],
+        onConfirm: (plan, walletId, source) {
+          saved = plan;
+          savedWallet = walletId;
+          savedSource = source;
+        },
+      );
+
+      await fillIncome(tester, '5000');
+      await next(tester);
+
+      // Leave Load for later instead of paying it.
+      await tester.tap(find.byType(Checkbox).last);
+      await tester.pumpAndSettle();
+      await next(tester);
+
+      expect(find.text('Left to spend'), findsOneWidget);
+      expect(find.text('₱3,500.00'), findsOneWidget);
+
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(saved!.income, 5000);
+      expect(saved!.toBills, 1500);
+      expect(saved!.bills.map((b) => b.instance.name), ['Rent']);
+      expect(savedWallet, 'w1');
+      expect(savedSource, 'Allowance');
+    });
+
+    testWidgets('warns when the bills cost more than came in', (tester) async {
+      await pumpWaterfall(tester, bills: [bill('Rent', 3000)]);
+
+      await fillIncome(tester, '1000');
+      await next(tester);
+
+      expect(find.text('Short by'), findsOneWidget);
+      await next(tester);
+
+      expect(find.text('More than came in'), findsOneWidget);
+      expect(
+        find.textContaining('will come out of what was already in Cash'),
+        findsOneWidget,
       );
     });
   });

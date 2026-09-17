@@ -12,6 +12,7 @@ import '../widgets/money_text.dart';
 import '../widgets/transfer_sheet.dart';
 import '../widgets/wallet_actions.dart';
 import '../widgets/wallet_form_sheet.dart';
+import 'income_waterfall_screen.dart';
 import 'wallet_detail_screen.dart';
 
 /// The Wallet tab: the combined balance, then one card per wallet.
@@ -142,6 +143,8 @@ class _WalletsScreenState extends State<WalletsScreen> {
                       onTap: () => _openWallet(wallet),
                       onTransfer: () =>
                           showTransferSheet(context, fromWalletId: wallet.id),
+                      onAddIncome: () =>
+                          showIncomeWaterfall(context, walletId: wallet.id),
                       onEdit: () => editWallet(context, wallet),
                       onSetIncomeWallet: () => WalletService.setIncomeWallet(
                         wallet.id,
@@ -218,6 +221,7 @@ class _WalletCard extends StatelessWidget {
     required this.incomeSource,
     required this.onTap,
     required this.onTransfer,
+    required this.onAddIncome,
     required this.onEdit,
     required this.onSetIncomeWallet,
     required this.onRemove,
@@ -229,6 +233,7 @@ class _WalletCard extends StatelessWidget {
   final String? incomeSource;
   final VoidCallback onTap;
   final VoidCallback onTransfer;
+  final VoidCallback onAddIncome;
   final VoidCallback onEdit;
   final VoidCallback onSetIncomeWallet;
   final VoidCallback onRemove;
@@ -329,6 +334,8 @@ class _WalletCard extends StatelessWidget {
                     padding: EdgeInsets.zero,
                     onSelected: (value) {
                       switch (value) {
+                        case 'income-in':
+                          onAddIncome();
                         case 'transfer':
                           onTransfer();
                         case 'edit':
@@ -340,6 +347,12 @@ class _WalletCard extends StatelessWidget {
                       }
                     },
                     itemBuilder: (context) => [
+                      menuItem(
+                        value: 'income-in',
+                        label: 'Add income',
+                        icon: Icons.add_card,
+                        color: appPrimaryBlue,
+                      ),
                       menuItem(
                         value: 'transfer',
                         label: 'Transfer money',

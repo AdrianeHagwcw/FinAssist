@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../widgets/add_income_dialog.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
@@ -10,6 +9,7 @@ import 'add_expense_screen.dart';
 import 'chatbot_screen.dart';
 import 'expenses_screen.dart';
 import 'home_screen.dart';
+import 'income_waterfall_screen.dart';
 import 'wallets_screen.dart';
 
 /// The signed-in app: four bottom tabs (Home / Transactions / Goals / Wallet)
@@ -82,7 +82,7 @@ class _MainShellState extends State<MainShell> {
             label: 'Income',
             color: Colors.green,
             onSelected: () async {
-              final saved = await showAddIncomeDialog(context);
+              final saved = await showIncomeWaterfall(context);
               if (saved && mounted) setState(() => _homeRefreshKey++);
             },
           ),

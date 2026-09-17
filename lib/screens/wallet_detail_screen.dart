@@ -13,6 +13,7 @@ import '../widgets/empty_state_view.dart';
 import '../widgets/money_text.dart';
 import '../widgets/transfer_sheet.dart';
 import '../widgets/wallet_actions.dart';
+import 'income_waterfall_screen.dart';
 
 /// One wallet: its balance, the income it receives, and its own transactions.
 class WalletDetailScreen extends StatefulWidget {
@@ -122,6 +123,8 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                 tooltip: 'Wallet options',
                 onSelected: (value) {
                   switch (value) {
+                    case 'income-in':
+                      showIncomeWaterfall(context, walletId: wallet.id);
                     case 'transfer':
                       showTransferSheet(context, fromWalletId: wallet.id);
                     case 'edit':
@@ -136,6 +139,12 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                   }
                 },
                 itemBuilder: (context) => [
+                  menuItem(
+                    value: 'income-in',
+                    label: 'Add income',
+                    icon: Icons.add_card,
+                    color: appPrimaryBlue,
+                  ),
                   menuItem(
                     value: 'transfer',
                     label: 'Transfer money',
