@@ -5,6 +5,7 @@ import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/light_dark_toggle.dart';
 import 'login_screen.dart';
+import 'reminders_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -366,6 +367,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                     child: Column(
                       children: [
+                        _buildActionTile(
+                          iconAsset: 'assets/icons/icons8-bell-96.png',
+                          title: 'Reminders',
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const RemindersScreen(),
+                            ),
+                          ),
+                        ),
+
+                        const Divider(height: 1, indent: 65),
+
                         _buildActionTile(
                           iconAsset: 'assets/icons/icons8-lock-96.png',
 

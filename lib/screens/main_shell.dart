@@ -8,7 +8,13 @@ import '../widgets/debt_form_sheet.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
+import '../services/bill_service.dart';
+import '../services/goal_service.dart';
+import '../services/reminder_scheduler.dart';
+import '../services/reminder_service.dart';
 import 'add_expense_screen.dart';
+import 'bill_detail_screen.dart';
+import 'goal_detail_screen.dart';
 import 'goals_screen.dart';
 import 'home_screen.dart';
 import 'income_waterfall_screen.dart';
@@ -30,7 +36,7 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static const _homeIndex = 0;
   static const _transactionsIndex = 1;
   static const _goalsIndex = 2;
@@ -39,10 +45,77 @@ class _MainShellState extends State<MainShell> {
   /// Opens the Goals tab on savings or on a debts list.
   final _goalsTab = GoalsTabController();
 
+  /// Keeps phone reminders in step with the data. Not run by tests, which
+  /// pass their own pages and can't reach Firebase.
+  final _reminders = ReminderScheduler();
+
+  bool get _live => widget.pages == null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_live) return;
+
+    WidgetsBinding.instance.addObserver(this);
+    _reminders.start();
+    ReminderService.opened.addListener(_openReminder);
+    // A reminder may have opened the app before this screen existed.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openReminder());
+  }
+
   @override
   void dispose() {
+    if (_live) {
+      WidgetsBinding.instance.removeObserver(this);
+      ReminderService.opened.removeListener(_openReminder);
+      _reminders.stop();
+    }
     _goalsTab.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A new day may have started, so "nothing logged today" is planned again.
+    if (state == AppLifecycleState.resumed) _reminders.refresh();
+  }
+
+  /// Opens what a tapped reminder is about.
+  Future<void> _openReminder() async {
+    final payload = ReminderService.opened.value;
+    if (payload == null || !mounted) return;
+    ReminderService.opened.value = null;
+
+    final navigator = Navigator.of(context);
+    navigator.popUntil((route) => route.isFirst);
+
+    if (payload.startsWith('bill:')) {
+      _selectTab(_homeIndex);
+      final instance = await BillService.loadInstance(payload.substring(5));
+      if (instance != null && mounted) {
+        navigator.push(
+          MaterialPageRoute(
+            builder: (context) => BillDetailScreen(instance: instance),
+          ),
+        );
+      }
+    } else if (payload.startsWith('goal:')) {
+      _openSavings();
+      final goal = await GoalService.watchGoal(payload.substring(5)).first;
+      if (goal != null && mounted) {
+        navigator.push(
+          MaterialPageRoute(builder: (context) => GoalDetailScreen(goal: goal)),
+        );
+      }
+    } else if (payload == 'log') {
+      _selectTab(_homeIndex);
+      navigator.push(
+        MaterialPageRoute(builder: (context) => const AddExpenseScreen()),
+      );
+    } else {
+      // The leftover notice waits on Home.
+      _selectTab(_homeIndex);
+    }
   }
 
   void _openSavings() {

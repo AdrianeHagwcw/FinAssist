@@ -16,7 +16,9 @@ import '../widgets/safe_to_spend_card.dart';
 import '../widgets/spending_chart.dart';
 import '../widgets/transaction_edit_sheet.dart';
 import '../widgets/transaction_row.dart';
+import '../widgets/due_soon_notice.dart';
 import 'bill_calendar_screen.dart';
+import 'bill_detail_screen.dart';
 import 'chatbot_screen.dart';
 import 'debts_screen.dart';
 import 'goals_screen.dart';
@@ -173,7 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SafeToSpendCard(
               key: ValueKey(_refreshKey),
               footerBuilder: _overviewButtons,
-              belowCard: _leftoverNotice,
+              belowCard: _belowCard,
             ),
         const SizedBox(height: 16),
         _BalanceCard(wallets: wallets, onTap: widget.onOpenWallets),
@@ -314,6 +316,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Offers the leftover review once a pay period is on its last day and
   /// what was left of it hasn't been decided.
+  /// Bills due soon, then the leftover decision when one is waiting.
+  Widget _belowCard(BuildContext context, SafeToSpendInputs inputs) {
+    return Column(
+      children: [
+        DueSoonNotice(
+          bills: inputs.bills,
+          now: inputs.now ?? DateTime.now(),
+          onOpen: (bill) => _push(BillDetailScreen(instance: bill)),
+        ),
+        _leftoverNotice(context, inputs),
+      ],
+    );
+  }
+
   Widget _leftoverNotice(BuildContext context, SafeToSpendInputs inputs) {
     final cycle = cycleAwaitingReview(
       inputs.cycles,

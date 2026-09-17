@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
 import 'providers/app_settings_provider.dart';
+import 'services/reminder_service.dart';
 import 'screens/splash_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -12,6 +13,8 @@ Future<void> main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   final settings = await AppSettingsProvider.load();
+  // Early, so a reminder that opened the app is caught before any screen.
+  await ReminderService.init();
 
   runApp(ChangeNotifierProvider.value(value: settings, child: const MyApp()));
 }

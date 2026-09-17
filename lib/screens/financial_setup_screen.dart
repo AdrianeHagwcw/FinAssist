@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/onboarding_data.dart';
 import '../models/wallet.dart';
 import '../widgets/wallet_form_sheet.dart';
+import '../services/reminder_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -20,8 +21,12 @@ class FinancialSetupScreen extends StatefulWidget {
     this.initialName,
     this.saveOnboarding = UserProfileService.completeOnboarding,
     this.onFinished,
+    this.requestReminderPermission = ReminderService.requestPermission,
     super.key,
   });
+
+  /// Asks Android to allow notifications when the user allows reminders.
+  final Future<bool> Function() requestReminderPermission;
 
   /// Pre-fills the name step. Defaults to the signed-in user's display name.
   final String? initialName;
@@ -126,8 +131,11 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
     _goTo(_step + 1);
   }
 
-  void _chooseReminders(bool enabled) {
-    _notificationsEnabled = enabled;
+  Future<void> _chooseReminders(bool enabled) async {
+    // Android asks here, right after the user said yes, so the question makes
+    // sense. Saying no to Android keeps reminders off rather than pretending.
+    _notificationsEnabled = enabled && await widget.requestReminderPermission();
+    if (!mounted) return;
     _goTo(_incomeStep);
   }
 

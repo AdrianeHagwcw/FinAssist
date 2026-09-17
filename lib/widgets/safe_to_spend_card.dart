@@ -32,9 +32,17 @@ class SafeToSpendInputs {
     required this.frequency,
     required this.cycles,
     required this.transactions,
+    this.bills = const [],
+    this.now,
   });
 
   final SafeToSpend safeToSpend;
+
+  /// Unpaid bills, overdue or coming up, as loaded for the figure.
+  final List<BillInstance> bills;
+
+  /// The moment the figure was worked out for.
+  final DateTime? now;
   final PayPeriod period;
   final String? frequency;
   final List<AllocationCycle> cycles;
@@ -188,6 +196,8 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       frequency: frequency,
       cycles: cycles,
       transactions: transactions,
+      bills: _bills,
+      now: now,
     );
   }
 

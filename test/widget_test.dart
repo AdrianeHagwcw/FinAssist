@@ -15,6 +15,7 @@ import 'package:testapp/models/goal.dart';
 import 'package:testapp/models/onboarding_data.dart';
 import 'package:testapp/models/safe_to_spend.dart';
 import 'package:testapp/models/report.dart';
+import 'package:testapp/models/reminder.dart';
 import 'package:testapp/models/wallet.dart';
 import 'package:testapp/models/transaction_filter.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
@@ -31,6 +32,7 @@ import 'package:testapp/screens/leftover_review_screen.dart';
 import 'package:testapp/screens/main_shell.dart';
 import 'package:testapp/screens/home_screen.dart';
 import 'package:testapp/screens/reports_screen.dart';
+import 'package:testapp/screens/reminders_screen.dart';
 import 'package:testapp/widgets/quick_add_sheet.dart';
 import 'package:testapp/screens/splash_screen.dart';
 import 'package:testapp/screens/transactions_screen.dart';
@@ -52,6 +54,7 @@ import 'package:testapp/utils/categories.dart';
 import 'package:testapp/utils/money_format.dart';
 import 'package:testapp/widgets/money_text.dart';
 import 'package:testapp/widgets/debt_form_sheet.dart';
+import 'package:testapp/widgets/due_soon_notice.dart';
 import 'package:testapp/widgets/savings_guide.dart';
 import 'package:testapp/widgets/safe_to_spend_card.dart';
 import 'package:testapp/widgets/spending_chart.dart';
@@ -352,6 +355,7 @@ void main() {
       WidgetTester tester, {
       required Future<void> Function(OnboardingData) save,
       VoidCallback? onFinished,
+      bool allowNotifications = true,
     }) async {
       // Phone-sized screen so the layout matches a real device.
       tester.view.physicalSize = const Size(1080, 2400);
@@ -367,6 +371,7 @@ void main() {
               initialName: '',
               saveOnboarding: save,
               onFinished: onFinished ?? () {},
+              requestReminderPermission: () async => allowNotifications,
             ),
           ),
         ),
@@ -388,6 +393,21 @@ void main() {
       await tester.tap(find.text(option).last);
       await tester.pumpAndSettle();
     }
+
+    testWidgets('a blocked notification prompt still moves on', (tester) async {
+      await pumpOnboarding(
+        tester,
+        save: (_) async {},
+        allowNotifications: false,
+      );
+
+      await tapText(tester, 'Get Started');
+      await tester.enterText(find.byType(TextFormField), 'Dave');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Allow Reminders');
+
+      expect(find.text('Step 4 of 5'), findsOneWidget);
+    });
 
     testWidgets('walks through every step and saves the answers', (
       tester,
@@ -5312,5 +5332,487 @@ void main() {
 
     expect(find.text('-₱120'), findsOneWidget);
     expect(find.text('-₱80'), findsNothing);
+  });
+
+  group('reminders', () {
+    Map<String, dynamic> profile(
+      List<FinancialPriority> order, {
+      bool allowed = true,
+      Map<String, dynamic>? reminders,
+    }) => {
+      'notificationsEnabled': allowed,
+      'priorities': [for (final p in order) p.name],
+      'reminders': ?reminders,
+    };
+
+    BillInstance bill(
+      String id,
+      DateTime due, {
+      BillStatus status = BillStatus.unpaid,
+      double amount = 1000,
+    }) => BillInstance(
+      id: id,
+      billId: 'b-$id',
+      name: id,
+      amount: amount,
+      category: 'Bills',
+      dueDate: due,
+      status: status,
+    );
+
+    List<PlannedReminder> plan(
+      ReminderSettings settings, {
+      List<BillInstance> bills = const [],
+      List<Goal> goals = const [],
+      List<AllocationCycle> cycles = const [],
+      List<AppTransaction> transactions = const [],
+      required DateTime now,
+    }) => planReminders(
+      settings: settings,
+      bills: bills,
+      goals: goals,
+      cycles: cycles,
+      incomeFrequency: 'Monthly',
+      transactions: transactions,
+      now: now,
+    );
+
+    test('priorities decide which reminders start on', () {
+      final billsFirst = ReminderSettings.fromProfile(
+        profile([
+          FinancialPriority.payBills,
+          FinancialPriority.saveForGoal,
+          FinancialPriority.generalSavings,
+          FinancialPriority.trackSpending,
+        ]),
+      );
+      expect(billsFirst.isOn(ReminderKind.bills), isTrue);
+      expect(billsFirst.isOn(ReminderKind.goals), isTrue);
+      expect(billsFirst.isOn(ReminderKind.leftover), isFalse);
+      expect(billsFirst.isOn(ReminderKind.dailyLog), isFalse);
+      expect(billsFirst.billLeadDays, 3);
+
+      final trackerFirst = ReminderSettings.fromProfile(
+        profile([
+          FinancialPriority.trackSpending,
+          FinancialPriority.generalSavings,
+          FinancialPriority.payBills,
+          FinancialPriority.saveForGoal,
+        ]),
+      );
+      expect(
+        trackerFirst.isOn(ReminderKind.bills),
+        isTrue,
+        reason: 'bills are always on',
+      );
+      expect(trackerFirst.isOn(ReminderKind.dailyLog), isTrue);
+      expect(trackerFirst.isOn(ReminderKind.leftover), isTrue);
+      expect(trackerFirst.isOn(ReminderKind.goals), isFalse);
+      expect(trackerFirst.billLeadDays, 1);
+    });
+
+    test('re-ranking moves only the reminders not set by hand', () {
+      const order = [
+        FinancialPriority.trackSpending,
+        FinancialPriority.saveForGoal,
+        FinancialPriority.payBills,
+        FinancialPriority.generalSavings,
+      ];
+      final before = ReminderSettings.fromProfile(
+        profile(order, reminders: {'goals': false}),
+      );
+      expect(before.isOn(ReminderKind.goals), isFalse, reason: 'by hand');
+      expect(before.isOn(ReminderKind.dailyLog), isTrue);
+
+      final reranked = ReminderSettings.fromProfile(
+        profile(
+          const [
+            FinancialPriority.saveForGoal,
+            FinancialPriority.generalSavings,
+            FinancialPriority.payBills,
+            FinancialPriority.trackSpending,
+          ],
+          reminders: {'goals': false},
+        ),
+      );
+      expect(reranked.isOn(ReminderKind.goals), isFalse);
+      expect(reranked.isOn(ReminderKind.dailyLog), isFalse);
+      expect(reranked.isOn(ReminderKind.leftover), isTrue);
+    });
+
+    test('onboarding\'s answer turns reminders on or off', () {
+      expect(
+        ReminderSettings.fromProfile(profile(const [], allowed: false)).enabled,
+        isFalse,
+      );
+      expect(
+        ReminderSettings.fromProfile(
+          profile(const [], allowed: false, reminders: {'enabled': true}),
+        ).enabled,
+        isTrue,
+      );
+      expect(
+        prioritiesFrom({
+          'priorities': ['trackSpending', 'nonsense'],
+        }),
+        [
+          FinancialPriority.trackSpending,
+          FinancialPriority.payBills,
+          FinancialPriority.saveForGoal,
+          FinancialPriority.generalSavings,
+        ],
+        reason: 'missing priorities go last, unknown ones are ignored',
+      );
+    });
+
+    test('bills are reminded early and on the day, at 9 AM', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.payBills]),
+      );
+      final now = DateTime(2026, 9, 18, 10);
+
+      final planned = plan(
+        settings,
+        now: now,
+        bills: [
+          bill('Internet', DateTime(2026, 9, 25)),
+          bill('Water', DateTime(2026, 9, 19)),
+          bill('Paid', DateTime(2026, 9, 26), status: BillStatus.paid),
+        ],
+      );
+
+      expect(planned.map((r) => '${r.title} @ ${r.at}'), [
+        'Water is due today @ 2026-09-19 09:00:00.000',
+        'Internet is due in 3 days @ 2026-09-22 09:00:00.000',
+        'Internet is due today @ 2026-09-25 09:00:00.000',
+      ], reason: "Water's early reminder was this morning, already past");
+      expect(planned.first.body, '₱1,000 to pay. Tap to pay it now.');
+      expect(planned.first.payload, 'bill:Water');
+    });
+
+    test('nothing is planned while reminders are off', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [], allowed: false),
+      );
+      expect(
+        plan(
+          settings,
+          now: DateTime(2026, 9, 18),
+          bills: [bill('Internet', DateTime(2026, 9, 25))],
+        ),
+        isEmpty,
+      );
+    });
+
+    test('saving plans are reminded on their own days', () {
+      expect(
+        planDates(
+          DateTime(2026, 1, 31),
+          ContributionFrequency.monthly,
+          from: DateTime(2026, 1, 31),
+          until: DateTime(2026, 4, 30),
+        ),
+        [DateTime(2026, 2, 28), DateTime(2026, 3, 31), DateTime(2026, 4, 30)],
+      );
+      expect(
+        planDates(
+          DateTime(2026, 9, 1),
+          ContributionFrequency.weekly,
+          from: DateTime(2026, 9, 10),
+          until: DateTime(2026, 9, 30),
+        ),
+        [DateTime(2026, 9, 15), DateTime(2026, 9, 22), DateTime(2026, 9, 29)],
+      );
+
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+      final planned = plan(
+        settings,
+        now: DateTime(2026, 9, 18, 12),
+        goals: [
+          Goal(
+            id: 'g',
+            name: 'Laptop',
+            targetAmount: 20000,
+            savedAmount: 1500,
+            priority: 0,
+            status: GoalStatus.active,
+            planAmount: 1500,
+            planStartedAt: DateTime(2026, 9, 17),
+          ),
+          Goal(
+            id: 'done',
+            name: 'Phone',
+            targetAmount: 1000,
+            savedAmount: 1000,
+            priority: 1,
+            status: GoalStatus.active,
+            planAmount: 500,
+            planStartedAt: DateTime(2026, 9, 17),
+          ),
+        ],
+      );
+
+      expect(planned.map((r) => r.at), [
+        DateTime(2026, 10, 17, 9),
+      ], reason: 'monthly from Sep 17, within six weeks; a reached goal waits');
+      expect(planned.single.title, 'Time to save for Laptop');
+      expect(
+        planned.single.body,
+        'Your plan is ₱1,500 a month. ₱18,500 to go.',
+      );
+
+      final byDate = plan(
+        settings,
+        now: DateTime(2026, 9, 18, 12),
+        goals: [
+          Goal(
+            id: 'd',
+            name: 'Laptop',
+            targetAmount: 20000,
+            savedAmount: 1000,
+            priority: 0,
+            status: GoalStatus.active,
+            targetDate: DateTime(2027, 9, 17),
+            planStartedAt: DateTime(2026, 9, 17),
+          ),
+          Goal(
+            id: 'x',
+            name: 'Someday',
+            targetAmount: 5000,
+            savedAmount: 0,
+            priority: 1,
+            status: GoalStatus.active,
+            planStartedAt: DateTime(2026, 9, 17),
+          ),
+        ],
+      );
+      expect(
+        byDate.single.body,
+        'Save ₱1,583.33 a month to reach it by Sep 17, 2027.',
+        reason: 'a goal with neither an amount nor a date gets no reminder',
+      );
+    });
+
+    test('the logging nudge skips a day that already has a record', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.trackSpending]),
+      );
+      final now = DateTime(2026, 9, 18, 13);
+
+      final nothingYet = plan(settings, now: now);
+      expect(nothingYet.first.at, DateTime(2026, 9, 18, 20));
+      expect(nothingYet.length, 7);
+
+      final logged = plan(
+        settings,
+        now: now,
+        transactions: [
+          AppTransaction(
+            id: 't',
+            type: TransactionType.expense,
+            amount: 50,
+            label: 'Food',
+            date: DateTime(2026, 9, 18, 8),
+          ),
+        ],
+      );
+      expect(logged.first.at, DateTime(2026, 9, 19, 20));
+      expect(logged.length, 6);
+    });
+
+    test('the leftover question comes as the pay period ends', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.generalSavings]),
+      );
+      final cycle = AllocationCycle(
+        id: 'c',
+        income: 5000,
+        remaining: 3000,
+        receivedAt: DateTime(2026, 9, 1),
+        source: 'Allowance',
+      );
+
+      final ending = plan(
+        settings,
+        now: DateTime(2026, 9, 18),
+        cycles: [cycle],
+      );
+      expect(ending.single.at, DateTime(2026, 9, 30, 19));
+      expect(ending.single.payload, 'leftover');
+
+      final stillWaiting = plan(
+        settings,
+        now: DateTime(2026, 10, 3, 12),
+        cycles: [cycle],
+      );
+      expect(stillWaiting.single.at, DateTime(2026, 10, 4, 9));
+      expect(stillWaiting.single.title, 'Your leftover is still waiting');
+    });
+
+    test('the same reminder keeps the same id', () {
+      PlannedReminder reminder(String key, String title) => PlannedReminder(
+        kind: ReminderKind.bills,
+        key: key,
+        at: DateTime(2026, 9, 25, 9),
+        title: title,
+        body: '',
+        payload: '',
+      );
+
+      final first = reminder('bill-due:x', 'Internet is due today');
+      expect(first.id, isPositive);
+      expect(first.id, reminder('bill-due:x', 'renamed').id);
+      expect(first.id, isNot(reminder('bill-early:x', '').id));
+    });
+
+    testWidgets('Home lists bills due soon, overdue first', (tester) async {
+      BillInstance? opened;
+      final now = DateTime(2026, 9, 18, 10);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: DueSoonNotice(
+                now: now,
+                onOpen: (b) => opened = b,
+                bills: [
+                  bill('Internet', DateTime(2026, 9, 19)),
+                  bill('Rent', DateTime(2026, 9, 16), amount: 3000),
+                  bill('Later', DateTime(2026, 9, 30)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Bills due soon'), findsOneWidget);
+      expect(find.text('2 days overdue'), findsOneWidget);
+      expect(find.text('due tomorrow'), findsOneWidget);
+      expect(find.text('Later'), findsNothing);
+      expect(
+        tester.getTopLeft(find.text('Rent')).dy,
+        lessThan(tester.getTopLeft(find.text('Internet')).dy),
+      );
+
+      await tester.tap(find.text('Pay').last);
+      expect(opened?.id, 'Internet');
+    });
+
+    group('settings screen', () {
+      Future<void> pumpScreen(
+        WidgetTester tester, {
+        required Map<String, dynamic> data,
+        bool permission = true,
+        void Function(bool)? onEnabled,
+        void Function(ReminderKind, bool?)? onKind,
+        void Function(List<FinancialPriority>)? onPriorities,
+      }) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light,
+            home: RemindersScreen(
+              profile: Stream.value(data),
+              requestPermission: () async => permission,
+              sendTest: () async => true,
+              onSetEnabled: onEnabled ?? (_) {},
+              onSetKind: onKind ?? (_, _) {},
+              onSetBillLeadDays: (_) {},
+              onSetPriorities: onPriorities ?? (_) {},
+            ),
+          ),
+        );
+        await tester.pump();
+      }
+
+      const order = [
+        FinancialPriority.payBills,
+        FinancialPriority.saveForGoal,
+        FinancialPriority.generalSavings,
+        FinancialPriority.trackSpending,
+      ];
+
+      testWidgets('explains each reminder by the user\'s ranking', (
+        tester,
+      ) async {
+        await pumpScreen(tester, data: profile(order));
+
+        expect(
+          find.text('Suggested: "Save toward a goal" is #2 for you.'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Off by default: "Just track my spending" is #4 for you.'),
+          findsOneWidget,
+        );
+        expect(find.text('3 days before'), findsOneWidget);
+      });
+
+      testWidgets('moving a priority up saves the new order', (tester) async {
+        List<FinancialPriority>? saved;
+        await pumpScreen(
+          tester,
+          data: profile(order),
+          onPriorities: (p) => saved = p,
+        );
+
+        await tester.tap(find.byTooltip('Move "Just track my spending" up'));
+        expect(saved, [
+          FinancialPriority.payBills,
+          FinancialPriority.saveForGoal,
+          FinancialPriority.trackSpending,
+          FinancialPriority.generalSavings,
+        ]);
+      });
+
+      testWidgets('a switch set back to the suggestion follows priorities', (
+        tester,
+      ) async {
+        final calls = <String>[];
+        await pumpScreen(
+          tester,
+          data: profile(order, reminders: {'dailyLog': true}),
+          onKind: (kind, on) => calls.add('${kind.name}=$on'),
+        );
+
+        expect(find.text('Follow priorities'), findsOneWidget);
+
+        final switches = find.byType(Switch);
+        // Master, bills, goals, leftover, logging.
+        await tester.tap(switches.at(2));
+        await tester.tap(switches.at(4));
+        expect(calls, ['goals=false', 'dailyLog=null']);
+      });
+
+      testWidgets('reminders stay off when Android blocks them', (
+        tester,
+      ) async {
+        bool? enabled;
+        await pumpScreen(
+          tester,
+          data: profile(order, allowed: false),
+          permission: false,
+          onEnabled: (value) => enabled = value,
+        );
+
+        await tester.tap(find.byType(Switch).first);
+        await tester.pump();
+        expect(enabled, isNull);
+        expect(
+          find.textContaining('Notifications are blocked for FinAssist'),
+          findsOneWidget,
+        );
+      });
+    });
   });
 }
