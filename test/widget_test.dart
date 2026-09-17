@@ -14,6 +14,7 @@ import 'package:testapp/models/debt.dart';
 import 'package:testapp/models/goal.dart';
 import 'package:testapp/models/onboarding_data.dart';
 import 'package:testapp/models/safe_to_spend.dart';
+import 'package:testapp/models/report.dart';
 import 'package:testapp/models/wallet.dart';
 import 'package:testapp/models/transaction_filter.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
@@ -28,6 +29,8 @@ import 'package:testapp/screens/goals_screen.dart';
 import 'package:testapp/screens/income_waterfall_screen.dart';
 import 'package:testapp/screens/leftover_review_screen.dart';
 import 'package:testapp/screens/main_shell.dart';
+import 'package:testapp/screens/home_screen.dart';
+import 'package:testapp/screens/reports_screen.dart';
 import 'package:testapp/widgets/quick_add_sheet.dart';
 import 'package:testapp/screens/splash_screen.dart';
 import 'package:testapp/screens/transactions_screen.dart';
@@ -39,6 +42,7 @@ import 'package:testapp/services/budget_service.dart';
 import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
 import 'package:testapp/theme/app_theme.dart';
+import 'package:testapp/widgets/back_to_home.dart';
 import 'package:testapp/widgets/bill_payment_sheet.dart';
 import 'package:testapp/widgets/goal_sheets.dart';
 import 'package:testapp/widgets/legacy_import_card.dart';
@@ -50,7 +54,9 @@ import 'package:testapp/widgets/money_text.dart';
 import 'package:testapp/widgets/debt_form_sheet.dart';
 import 'package:testapp/widgets/savings_guide.dart';
 import 'package:testapp/widgets/safe_to_spend_card.dart';
+import 'package:testapp/widgets/spending_chart.dart';
 import 'package:testapp/widgets/transaction_edit_sheet.dart';
+import 'package:testapp/widgets/transaction_row.dart';
 import 'package:testapp/widgets/transfer_sheet.dart';
 import 'package:testapp/widgets/wallet_picker.dart';
 
@@ -104,16 +110,27 @@ void main() {
   });
 
   group('formatPeso', () {
-    test('uses peso sign, thousands separators and 2 decimals', () {
-      expect(formatPeso(12500), '₱12,500.00');
+    test('uses peso sign and thousands separators, centavos only if any', () {
+      expect(formatPeso(12500), '₱12,500');
+      expect(formatPeso(20000.001), '₱20,000');
       expect(formatPeso(0.5), '₱0.50');
+      expect(formatPeso(150.05), '₱150.05');
       expect(formatPeso(1234567.891), '₱1,234,567.89');
+      expect(formatPeso(0), '₱0');
+      expect(formatPeso(-0.001), '₱0', reason: 'no minus on zero');
+    });
+
+    test('amounts start out in fields without needless centavos', () {
+      expect(formatAmountInput(20000), '20000');
+      expect(formatAmountInput(150.5), '150.50');
+      expect(formatAmountInput(0.1 + 0.2), '0.30');
+      expect(formatAmountInput(1583.3333), '1583.33');
     });
 
     test('puts signs before the peso symbol', () {
-      expect(formatPeso(-250), '-₱250.00');
-      expect(formatPeso(500, sign: '+'), '+₱500.00');
-      expect(formatPeso(500, sign: '-'), '-₱500.00');
+      expect(formatPeso(-250), '-₱250');
+      expect(formatPeso(500, sign: '+'), '+₱500');
+      expect(formatPeso(500, sign: '-'), '-₱500');
     });
 
     test('masks digits', () {
@@ -130,7 +147,7 @@ void main() {
         child: const MaterialApp(home: MoneyText(1500)),
       ),
     );
-    expect(find.text('₱1,500.00'), findsOneWidget);
+    expect(find.text('₱1,500'), findsOneWidget);
 
     settings.toggleAmountsMasked();
     await tester.pump();
@@ -233,6 +250,57 @@ void main() {
         reason: 'Goals tab should be visible after tapping it',
       );
       expect(find.text('Home page').hitTestable(), findsNothing);
+    });
+
+    testWidgets('each tab has a back arrow that returns to Home', (
+      tester,
+    ) async {
+      Widget tab(String title) => Builder(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: Text(title),
+            automaticallyImplyLeading: false,
+            leading: backToHomeButton(context),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: MainShell(
+            pages: [
+              const Text('Home page'),
+              tab('Transactions page'),
+              tab('Goals page'),
+              tab('Wallet page'),
+            ],
+            quickAddActions: const [],
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Wallet'));
+      await tester.pump();
+      final back = find.byTooltip('Back to Home').hitTestable();
+      expect(back, findsOneWidget);
+
+      await tester.tap(back);
+      await tester.pump();
+      expect(find.text('Home page').hitTestable(), findsOneWidget);
+    });
+
+    testWidgets('a tab shown on its own has no back arrow', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) =>
+                Scaffold(appBar: AppBar(leading: backToHomeButton(context))),
+          ),
+        ),
+      );
+
+      expect(find.byTooltip('Back to Home'), findsNothing);
     });
 
     testWidgets('back button returns to Home before leaving', (tester) async {
@@ -386,7 +454,7 @@ void main() {
       await tapText(tester, 'Add Wallet');
 
       expect(find.text('₱1,250.50'), findsOneWidget);
-      expect(find.text('₱300.00'), findsOneWidget);
+      expect(find.text('₱300'), findsOneWidget);
       expect(find.text('Receives my Allowance'), findsNWidgets(2));
 
       // Move the income to the second (Cash) wallet.
@@ -917,7 +985,7 @@ void main() {
       expect(find.text('Allowance'), findsOneWidget);
       expect(find.text('My GCash'), findsOneWidget);
       expect(find.text('GCash'), findsOneWidget, reason: 'the type label');
-      expect(find.text('₱1,200.00'), findsOneWidget);
+      expect(find.text('₱1,200'), findsOneWidget);
       expect(find.text('₱300.50'), findsOneWidget);
       expect(find.text('₱1,500.50'), findsOneWidget, reason: 'the total');
       expect(find.text('Across 2 wallets'), findsOneWidget);
@@ -1037,7 +1105,7 @@ void main() {
       await pumpDetail(tester, wallet: cash, incomeSource: 'Allowance');
 
       expect(find.text('Cash'), findsWidgets);
-      expect(find.text('₱1,200.00'), findsOneWidget);
+      expect(find.text('₱1,200'), findsOneWidget);
       expect(
         find.text('Your Allowance is paid into this wallet'),
         findsOneWidget,
@@ -1058,7 +1126,7 @@ void main() {
       await pumpDetail(tester, wallet: cash, transactions: [transfer()]);
 
       expect(find.text('To My GCash'), findsOneWidget);
-      expect(find.text('-₱200.00'), findsOneWidget);
+      expect(find.text('-₱200'), findsOneWidget);
       expect(find.text('Today'), findsOneWidget);
     });
 
@@ -1068,7 +1136,7 @@ void main() {
       await pumpDetail(tester, wallet: gcash, transactions: [transfer()]);
 
       expect(find.text('From Cash'), findsOneWidget);
-      expect(find.text('+₱200.00'), findsOneWidget);
+      expect(find.text('+₱200'), findsOneWidget);
     });
 
     testWidgets('groups older transactions under their date', (tester) async {
@@ -1225,7 +1293,7 @@ void main() {
     testWidgets('shows what the source wallet holds', (tester) async {
       await pumpTransfer(tester, wallets: [cash, gcash]);
 
-      expect(find.text('Cash holds ₱500.00'), findsOneWidget);
+      expect(find.text('Cash holds ₱500'), findsOneWidget);
       expect(find.textContaining('Your total stays the same'), findsOneWidget);
     });
 
@@ -1238,7 +1306,7 @@ void main() {
       await tester.tap(find.widgetWithText(ElevatedButton, 'Transfer'));
       await tester.pump();
 
-      expect(find.text('Cash only holds ₱500.00.'), findsOneWidget);
+      expect(find.text('Cash only holds ₱500.'), findsOneWidget);
     });
 
     testWidgets('asks for an amount before transferring', (tester) async {
@@ -1528,7 +1596,7 @@ void main() {
 
       // Only two steps: nothing to pay and no goals to save for.
       expect(find.text('Step 2 of 2'), findsOneWidget);
-      expect(find.text('₱2,000.00'), findsOneWidget);
+      expect(find.text('₱2,000'), findsOneWidget);
       expect(find.textContaining('No unpaid bills right now'), findsOneWidget);
       expect(find.text('Confirm'), findsOneWidget);
     });
@@ -1545,10 +1613,10 @@ void main() {
       await next(tester);
 
       expect(find.text('Step 2 of 3'), findsOneWidget);
-      expect(find.text('1500.00'), findsOneWidget);
-      expect(find.text('300.00'), findsOneWidget);
+      expect(find.text('1500'), findsOneWidget);
+      expect(find.text('300'), findsOneWidget);
       expect(find.text('Left after these bills'), findsOneWidget);
-      expect(find.text('₱3,200.00'), findsOneWidget);
+      expect(find.text('₱3,200'), findsOneWidget);
     });
 
     testWidgets('a bill cannot be paid more than it owes', (tester) async {
@@ -1557,10 +1625,10 @@ void main() {
       await fillIncome(tester, '5000');
       await next(tester);
 
-      await tester.enterText(find.widgetWithText(TextField, '1500.00'), '2000');
+      await tester.enterText(find.widgetWithText(TextField, '1500'), '2000');
       await next(tester);
 
-      expect(find.text('Rent only needs ₱1,500.00.'), findsOneWidget);
+      expect(find.text('Rent only needs ₱1,500.'), findsOneWidget);
       expect(find.text('Step 2 of 3'), findsOneWidget);
     });
 
@@ -1590,7 +1658,7 @@ void main() {
       await next(tester);
 
       expect(find.text('Left to spend'), findsOneWidget);
-      expect(find.text('₱3,500.00'), findsOneWidget);
+      expect(find.text('₱3,500'), findsOneWidget);
 
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
@@ -1936,8 +2004,8 @@ void main() {
       );
 
       expect(find.text('March 2026'), findsOneWidget);
-      expect(find.text('₱4,500.00'), findsOneWidget, reason: 'due this month');
-      expect(find.text('₱3,000.00'), findsWidgets, reason: 'still owing');
+      expect(find.text('₱4,500'), findsOneWidget, reason: 'due this month');
+      expect(find.text('₱3,000'), findsWidgets, reason: 'still owing');
       expect(find.textContaining('1 overdue'), findsOneWidget);
     });
 
@@ -2009,7 +2077,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Partly paid'), findsOneWidget);
-      expect(find.text('₱2,000.00'), findsWidgets, reason: 'still owed');
+      expect(find.text('₱2,000'), findsWidgets, reason: 'still owed');
     });
 
     testWidgets('the list view shows every bill without picking a day', (
@@ -2129,7 +2197,7 @@ void main() {
       await pumpDetail(tester, current: instance());
 
       expect(find.text('Rent'), findsWidgets);
-      expect(find.text('₱3,000.00'), findsOneWidget);
+      expect(find.text('₱3,000'), findsOneWidget);
       expect(find.text('Due Mar 5, 2026'), findsOneWidget);
       expect(
         find.text('Falls due on the same date each month.'),
@@ -2147,8 +2215,8 @@ void main() {
         current: instance(amountPaid: 1200, status: BillStatus.partial),
       );
 
-      expect(find.text('Paid ₱1200.00'), findsOneWidget);
-      expect(find.text('₱1800.00 to go'), findsOneWidget);
+      expect(find.text('Paid ₱1,200'), findsOneWidget);
+      expect(find.text('₱1,800 to go'), findsOneWidget);
       expect(find.text('Partly paid'), findsOneWidget);
       expect(find.text('Undo payment'), findsOneWidget);
     });
@@ -2280,14 +2348,14 @@ void main() {
     testWidgets('starts on the full amount owing', (tester) async {
       await pumpSheet(tester);
 
-      expect(find.text('3000.00'), findsOneWidget);
-      expect(find.text('₱3,000.00 still owing'), findsOneWidget);
+      expect(find.text('3000'), findsOneWidget);
+      expect(find.text('₱3,000 still owing'), findsOneWidget);
     });
 
     testWidgets('starts empty when paying only part of it', (tester) async {
       await pumpSheet(tester, payInFull: false);
 
-      expect(find.text('3000.00'), findsNothing);
+      expect(find.text('3000'), findsNothing);
     });
 
     testWidgets('refuses to pay more than the bill needs', (tester) async {
@@ -2297,7 +2365,7 @@ void main() {
       await tester.tap(find.text('Record Payment'));
       await tester.pump();
 
-      expect(find.text('This bill only needs ₱3,000.00.'), findsOneWidget);
+      expect(find.text('This bill only needs ₱3,000.'), findsOneWidget);
     });
 
     testWidgets('is honest that no real payment is made', (tester) async {
@@ -2410,8 +2478,8 @@ void main() {
 
       expect(find.text('From Cash'), findsOneWidget);
       expect(find.text('From My GCash'), findsOneWidget);
-      expect(find.text('₱1,000.00'), findsOneWidget);
-      expect(find.text('₱800.00'), findsOneWidget);
+      expect(find.text('₱1,000'), findsOneWidget);
+      expect(find.text('₱800'), findsOneWidget);
       expect(find.text('Mar 5, 2026'), findsOneWidget);
       expect(find.text('Mar 6, 2026'), findsOneWidget);
     });
@@ -2421,8 +2489,8 @@ void main() {
     ) async {
       await pumpDetail(tester);
 
-      expect(find.text('Paid ₱1800.00'), findsOneWidget);
-      expect(find.text('₱1200.00 to go'), findsOneWidget);
+      expect(find.text('Paid ₱1,800'), findsOneWidget);
+      expect(find.text('₱1,200 to go'), findsOneWidget);
     });
 
     testWidgets('one payment can be undone without touching the other', (
@@ -2608,7 +2676,7 @@ void main() {
         ],
       );
 
-      expect(plan.problems, ['Rent only needs ₱3,000.00.']);
+      expect(plan.problems, ['Rent only needs ₱3,000.']);
     });
 
     test('no income means nothing can be confirmed', () {
@@ -2725,12 +2793,21 @@ void main() {
         t('b', label: 'Bills', amount: 900),
         t('c', label: 'Food', amount: 150),
         t('d', type: TransactionType.income, label: 'Allowance', amount: 9999),
+        AppTransaction(
+          id: 'e',
+          type: TransactionType.expense,
+          amount: 500,
+          label: 'Lent',
+          date: DateTime(2026, 3, 10, 12),
+          walletId: 'cash',
+          debtId: 'ana',
+        ),
       ]);
 
       expect(result.map((e) => '${e.key}=${e.value}'), [
         'Bills=900.0',
         'Food=250.0',
-      ]);
+      ], reason: 'money lent out is not spending');
     });
   });
 
@@ -2827,9 +2904,9 @@ void main() {
       expect(find.text('Food'), findsOneWidget);
       expect(find.text('Allowance'), findsOneWidget);
       expect(find.text('Cash → GCash'), findsOneWidget);
-      expect(find.text('-₱120.00'), findsOneWidget);
-      expect(find.text('+₱2,000.00'), findsWidgets);
-      expect(find.text('₱300.00'), findsOneWidget);
+      expect(find.text('-₱120'), findsOneWidget);
+      expect(find.text('+₱2,000'), findsWidgets);
+      expect(find.text('₱300'), findsOneWidget);
     });
 
     testWidgets('marks bill payments and records from before wallets', (
@@ -3364,7 +3441,7 @@ void main() {
       await tester.tap(find.text('Confirm'));
       await tester.pump();
 
-      expect(find.textContaining('must add up to ₱1,000.00'), findsOneWidget);
+      expect(find.textContaining('must add up to ₱1,000'), findsOneWidget);
       expect(decided, isNull);
 
       await tester.enterText(find.byType(TextField).last, '200');
@@ -3386,6 +3463,111 @@ void main() {
   });
 
   group('Safe to Spend card', () {
+    Future<void> pumpLimitSheet(
+      WidgetTester tester,
+      SafeToSpend safeToSpend,
+      void Function(double?, double) onSave,
+    ) {
+      tester.view.physicalSize = const Size(700, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      return tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: EditSafeToSpendSheet(
+              safeToSpend: safeToSpend,
+              onSave: onSave,
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('the daily limit left empty uses the recommendation', (
+      tester,
+    ) async {
+      double? limit = -1;
+      await pumpLimitSheet(
+        tester,
+        const SafeToSpend(
+          walletBalance: 1400,
+          billsDue: 0,
+          savingsReserve: 0,
+          spentToday: 0,
+          daysLeft: 14,
+        ),
+        (custom, _) => limit = custom,
+      );
+
+      expect(find.text('Use Recommendation'), findsNothing);
+      expect(find.text('100'), findsOneWidget, reason: 'shown as the hint');
+
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      expect(limit, isNull);
+    });
+
+    testWidgets('a typed daily limit is saved as your own', (tester) async {
+      double? limit;
+      await pumpLimitSheet(
+        tester,
+        const SafeToSpend(
+          walletBalance: 1400,
+          billsDue: 0,
+          savingsReserve: 0,
+          spentToday: 0,
+          daysLeft: 14,
+        ),
+        (custom, _) => limit = custom,
+      );
+
+      await tester.enterText(find.byType(TextField).first, '150.50');
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      expect(limit, 150.5);
+    });
+
+    testWidgets('clearing your own limit goes back to the recommendation', (
+      tester,
+    ) async {
+      double? limit = -1;
+      await pumpLimitSheet(
+        tester,
+        const SafeToSpend(
+          walletBalance: 1400,
+          billsDue: 0,
+          savingsReserve: 0,
+          spentToday: 0,
+          daysLeft: 14,
+          customDailyLimit: 200,
+        ),
+        (custom, _) => limit = custom,
+      );
+
+      final field = find.byType(TextField).first;
+      expect(find.widgetWithText(TextField, '200'), findsOneWidget);
+
+      await tester.enterText(field, '150.50');
+      await tester.pump();
+      expect(
+        find.textContaining('Clear it to use the recommendation'),
+        findsOneWidget,
+      );
+
+      await tester.enterText(field, '');
+      await tester.pump();
+      expect(
+        find.textContaining('Empty, so the recommendation is used'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      expect(limit, isNull);
+    });
+
     final cash = Wallet(
       id: 'cash',
       name: 'Cash',
@@ -3425,6 +3607,7 @@ void main() {
                 cycles: Stream.value(const []),
                 loadBills: () async => const [],
                 goals: Stream.value(const []),
+                billSchedules: Stream.value(const []),
               ),
             ),
           ),
@@ -3436,9 +3619,9 @@ void main() {
 
       // 5800 + 200 spent today, over the 10 days from the 22nd to month end.
       expect(find.text('Safe to Spend Today'), findsOneWidget);
-      expect(find.text('₱400.00'), findsOneWidget);
-      expect(find.text('of ₱600.00 daily limit'), findsOneWidget);
-      expect(find.text('Today spent: ₱200.00'), findsOneWidget);
+      expect(find.text('₱400'), findsOneWidget);
+      expect(find.text('of ₱600 daily limit'), findsOneWidget);
+      expect(find.text('Today spent: ₱200'), findsOneWidget);
       expect(find.text('10 days left this period'), findsOneWidget);
     });
   });
@@ -3535,7 +3718,7 @@ void main() {
         goalAmount: 1500,
       );
 
-      expect(plan.problems, ['Laptop only needs ₱1,000.00 more.']);
+      expect(plan.problems, ['Laptop only needs ₱1,000 more.']);
     });
 
     test('goal savings are not safe to spend', () {
@@ -3597,6 +3780,71 @@ void main() {
       await tester.pump();
     }
 
+    test('the tab controller opens savings or a debts list', () {
+      final controller = GoalsTabController();
+      addTearDown(controller.dispose);
+      var tabChanges = 0;
+      var listChanges = 0;
+      controller.addListener(() => tabChanges++);
+      controller.debtsList.addListener(() => listChanges++);
+
+      controller.openDebts(DebtDirection.owedToMe);
+      expect(controller.showDebts, isTrue);
+      expect(controller.debtsList.value, DebtDirection.owedToMe);
+
+      // Saving to the same list again still switches back to it.
+      controller.openDebts(DebtDirection.owedToMe);
+      expect(listChanges, 2);
+
+      controller.openSavings();
+      expect(controller.showDebts, isFalse);
+      expect(tabChanges, 3);
+    });
+
+    testWidgets('Save to Goal picks a goal or offers a new one', (
+      tester,
+    ) async {
+      Object? picked;
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  picked = await showModalBottomSheet<Object>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => GoalPickerSheet(
+                      goals: [goal('Laptop', 0), goal('Phone', 1)],
+                    ),
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Save to which goal?'), findsOneWidget);
+      expect(find.text('₱1,000 of ₱5,000'), findsNWidgets(2));
+
+      await tester.tap(find.text('Phone'));
+      await tester.pumpAndSettle();
+      expect((picked as Goal?)?.id, 'Phone');
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New Goal'));
+      await tester.pumpAndSettle();
+      expect(picked, GoalPickerSheet.newGoal);
+    });
+
     testWidgets('invites a first goal', (tester) async {
       await pumpGoals(tester, const []);
 
@@ -3609,7 +3857,7 @@ void main() {
 
       expect(find.text('#1'), findsOneWidget);
       expect(find.text('#2'), findsOneWidget);
-      expect(find.text(' of ₱5,000.00'), findsNWidgets(2));
+      expect(find.text(' of ₱5,000'), findsNWidgets(2));
     });
 
     testWidgets('moving a goal down saves the new order', (tester) async {
@@ -3693,7 +3941,7 @@ void main() {
       double? saved;
       await pumpSheet(tester, takeOut: false, onSave: (a, _) => saved = a);
 
-      expect(find.text('3800.00'), findsOneWidget);
+      expect(find.text('3800'), findsOneWidget);
       await tester.tap(find.text('Set Aside'));
       await tester.pumpAndSettle();
 
@@ -3709,7 +3957,7 @@ void main() {
       await tester.pump();
 
       expect(
-        find.text('Only ₱1,200.00 is set aside for this goal.'),
+        find.text('Only ₱1,200 is set aside for this goal.'),
         findsOneWidget,
       );
       expect(saved, isNull);
@@ -3764,7 +4012,7 @@ void main() {
       await tester.tap(find.text('Yes'));
       await tester.pumpAndSettle();
       // "Use what is left" is capped at what the goal still needs.
-      expect(find.text('₱3,800.00, all this goal needs'), findsOneWidget);
+      expect(find.text('₱3,800, all this goal needs'), findsOneWidget);
 
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
@@ -3962,12 +4210,12 @@ void main() {
       await tester.pump();
 
       expect(find.text('10'), findsOneWidget, reason: 'payments, worked out');
-      expect(find.textContaining('Total you will pay: ₱24,000.00'), findsOne);
+      expect(find.textContaining('Total you will pay: ₱24,000'), findsOne);
 
       await tester.enterText(fields.at(3), '12');
       await tester.pump();
       expect(
-        find.textContaining('₱4,800.00 more than you borrowed'),
+        find.textContaining('₱4,800 more than you borrowed'),
         findsOneWidget,
       );
 
@@ -4006,7 +4254,7 @@ void main() {
       await tester.tap(find.text('Save Installment'));
       await tester.pump();
 
-      expect(find.textContaining('less than the ₱10,000.00'), findsOneWidget);
+      expect(find.textContaining('less than the ₱10,000'), findsOneWidget);
       expect(saved, isNull);
     });
 
@@ -4035,7 +4283,83 @@ void main() {
 
       expect(saved?.direction, DebtDirection.owedToMe);
       expect(saved?.principal, 500);
+      expect(
+        saved?.movedWalletId,
+        'cash',
+        reason: 'lent money leaves a wallet unless the user says otherwise',
+      );
+    });
+
+    testWidgets('money lent before using the app can skip the wallet', (
+      tester,
+    ) async {
+      tall(tester);
+      DebtDraft? saved;
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtFormSheet(
+              initialDirection: DebtDirection.owedToMe,
+              wallets: Stream.value([cash]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'Ana');
+      await tester.enterText(fields.at(1), '9000');
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+
+      expect(find.text('Cash only holds ₱5,000.'), findsOneWidget);
+      expect(saved, isNull);
+
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.principal, 9000);
       expect(saved?.movedWalletId, isNull);
+    });
+
+    testWidgets('switches to the list something was just saved to', (
+      tester,
+    ) async {
+      tall(tester);
+      final showing = ValueNotifier(DebtDirection.iOwe);
+      addTearDown(showing.dispose);
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtsView(
+              showing: showing,
+              debts: Stream.value(const [
+                Debt(
+                  id: 'a',
+                  direction: DebtDirection.owedToMe,
+                  name: 'Ana',
+                  category: DebtCategory.familyFriend,
+                  principal: 500,
+                  received: 0,
+                  status: DebtStatus.active,
+                ),
+              ]),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Ana'), findsNothing);
+
+      showing.value = DebtDirection.owedToMe;
+      await tester.pump();
+      expect(find.text('Ana'), findsOneWidget);
     });
 
     testWidgets('lists installments with their progress', (tester) async {
@@ -4080,7 +4404,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('Phone'), findsOneWidget);
-      expect(find.text(' of ₱24,000.00 paid'), findsOneWidget);
+      expect(find.text(' of ₱24,000 paid'), findsOneWidget);
       expect(find.textContaining('11 payments left'), findsOneWidget);
     });
 
@@ -4115,8 +4439,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Still to come back to you'), findsOneWidget);
-      expect(find.text('₱300.00'), findsOneWidget);
-      expect(find.text(' of ₱500.00 back'), findsOneWidget);
+      expect(find.text('₱300'), findsOneWidget);
+      expect(find.text(' of ₱500 back'), findsOneWidget);
     });
 
     testWidgets('a repayment cannot be more than is owed', (tester) async {
@@ -4144,12 +4468,12 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('300.00'), findsOneWidget);
+      expect(find.text('300'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, '400');
       await tester.tap(find.text('Record Repayment'));
       await tester.pump();
 
-      expect(find.text('Only ₱300.00 is still owed.'), findsOneWidget);
+      expect(find.text('Only ₱300 is still owed.'), findsOneWidget);
       expect(saved, isNull);
     });
   });
@@ -4177,7 +4501,7 @@ void main() {
         ),
       );
 
-      expect(find.text('About ₱2,000.00'), findsOneWidget);
+      expect(find.text('About ₱2,000'), findsOneWidget);
       expect(find.textContaining('not financial advice'), findsOneWidget);
 
       await tester.tap(find.text('Emergency Fund'));
@@ -4370,7 +4694,7 @@ void main() {
       await tester.enterText(fields.at(3), '2500');
       await tester.pump();
       expect(
-        find.textContaining('At ₱2,500.00 a month you reach it around'),
+        find.textContaining('At ₱2,500 a month you reach it around'),
         findsOneWidget,
       );
 
@@ -4383,5 +4707,610 @@ void main() {
       expect(saved?.kind, GoalKind.emergencyFund);
       expect(saved?.walletId, 'cash');
     });
+  });
+
+  group('reports', () {
+    AppTransaction tx(
+      String id,
+      TransactionType type,
+      double amount,
+      DateTime date, {
+      String label = 'Food',
+      String? debtId,
+      String? billInstanceId,
+      String? toWalletId,
+    }) {
+      return AppTransaction(
+        id: id,
+        type: type,
+        amount: amount,
+        label: label,
+        date: date,
+        walletId: 'cash',
+        toWalletId: toWalletId,
+        debtId: debtId,
+        billInstanceId: billInstanceId,
+      );
+    }
+
+    test('weeks run Monday to Sunday and months to their last day', () {
+      // Thursday.
+      final week = ReportPeriod.weekOf(DateTime(2026, 9, 17, 15));
+      expect(week.start, DateTime(2026, 9, 14));
+      expect(week.end, DateTime(2026, 9, 20));
+      expect(week.contains(DateTime(2026, 9, 20, 23, 59)), isTrue);
+      expect(week.contains(DateTime(2026, 9, 21)), isFalse);
+
+      final february = ReportPeriod.monthOf(DateTime(2028, 2, 10));
+      expect(february.end, DateTime(2028, 2, 29));
+      expect(february.label, 'Feb 1 – Feb 29, 2028');
+    });
+
+    test('the period before crosses years and keeps a custom length', () {
+      expect(
+        ReportPeriod.monthOf(DateTime(2026, 1, 5)).previous(ReportRange.month),
+        ReportPeriod(DateTime(2025, 12, 1), DateTime(2025, 12, 31)),
+      );
+      expect(
+        ReportPeriod.weekOf(DateTime(2026, 1, 1)).previous(ReportRange.week),
+        ReportPeriod(DateTime(2025, 12, 22), DateTime(2025, 12, 28)),
+      );
+      expect(
+        ReportPeriod(
+          DateTime(2026, 9, 11),
+          DateTime(2026, 9, 20),
+        ).previous(ReportRange.custom),
+        ReportPeriod(DateTime(2026, 9, 1), DateTime(2026, 9, 10)),
+      );
+    });
+
+    test('the summary leaves out borrowing, lending and transfers', () {
+      final september = ReportPeriod.monthOf(DateTime(2026, 9, 17));
+      final day = DateTime(2026, 9, 10);
+      final summary = summarize(
+        [
+          tx('a', TransactionType.income, 5000, day, label: 'Allowance'),
+          tx('b', TransactionType.income, 2000, day, debtId: 'x'),
+          tx('c', TransactionType.expense, 300, day),
+          tx('d', TransactionType.expense, 1000, day, billInstanceId: 'i'),
+          tx('e', TransactionType.expense, 500, day, debtId: 'y'),
+          tx('f', TransactionType.transfer, 900, day, toWalletId: 'gcash'),
+          // August.
+          tx('g', TransactionType.expense, 700, DateTime(2026, 8, 31)),
+        ],
+        [
+          GoalContribution(id: '1', amount: 800, date: day),
+          GoalContribution(id: '2', amount: -200, date: day),
+          GoalContribution(id: '3', amount: 999, date: DateTime(2026, 8, 1)),
+        ],
+        september,
+      );
+
+      expect(summary.income, 5000);
+      expect(summary.expenses, 1300, reason: 'bills count, lending does not');
+      expect(summary.saved, 600);
+      expect(summary.netChange, 3700);
+    });
+
+    test('the trend covers six months, oldest first', () {
+      final points = trend(
+        [
+          tx('a', TransactionType.income, 3000, DateTime(2026, 9, 2)),
+          tx('b', TransactionType.expense, 450, DateTime(2026, 9, 3)),
+          tx('c', TransactionType.expense, 200, DateTime(2026, 4, 30)),
+          tx('d', TransactionType.expense, 999, DateTime(2026, 3, 31)),
+        ],
+        range: ReportRange.month,
+        end: DateTime(2026, 9, 17),
+      );
+
+      expect(points.map((p) => p.label), [
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+      ]);
+      expect(points.first.moneyOut, 200, reason: 'March is outside the six');
+      expect(points.last.moneyIn, 3000);
+      expect(points.last.moneyOut, 450);
+
+      final weeks = trend(
+        const [],
+        range: ReportRange.week,
+        end: DateTime(2026, 9, 17),
+      );
+      expect(weeks.last.label, 'Sep 14');
+      expect(weeks.first.label, 'Aug 10');
+    });
+
+    test('the trend starts where the records do', () {
+      final points = trend(
+        [
+          tx('a', TransactionType.income, 6000, DateTime(2026, 9, 2)),
+          tx('b', TransactionType.expense, 2500, DateTime(2026, 8, 31, 22)),
+        ],
+        range: ReportRange.month,
+        end: DateTime(2026, 9, 17),
+      );
+
+      expect(points.map((p) => p.label), ['Aug', 'Sep']);
+      expect(points.first.moneyOut, 2500);
+      expect(points.last.moneyIn, 6000);
+
+      final onlyThisMonth = trend(
+        [tx('a', TransactionType.income, 6000, DateTime(2026, 9, 2))],
+        range: ReportRange.month,
+        end: DateTime(2026, 9, 17),
+      );
+      expect(onlyThisMonth.map((p) => p.label), ['Sep']);
+    });
+
+    test('insights compare with earlier months only when there are some', () {
+      final september = ReportPeriod.monthOf(DateTime(2026, 9, 17));
+
+      final firstMonth = insightsFor(
+        [
+          tx('a', TransactionType.income, 4000, DateTime(2026, 9, 1)),
+          tx('b', TransactionType.expense, 900, DateTime(2026, 9, 2)),
+          tx(
+            'c',
+            TransactionType.expense,
+            100,
+            DateTime(2026, 9, 3),
+            label: 'Transportation',
+          ),
+        ],
+        period: september,
+        range: ReportRange.month,
+      );
+      expect(firstMonth, [
+        'Food is 90% of your spending this month.',
+        'You kept 75% of what came in this month.',
+      ]);
+
+      final withHistory = insightsFor(
+        [
+          tx('a', TransactionType.expense, 1200, DateTime(2026, 9, 2)),
+          tx('b', TransactionType.expense, 1000, DateTime(2026, 8, 2)),
+          tx('c', TransactionType.expense, 1000, DateTime(2026, 7, 2)),
+          tx('d', TransactionType.expense, 1000, DateTime(2026, 6, 2)),
+          tx('e', TransactionType.income, 1000, DateTime(2026, 9, 1)),
+        ],
+        period: september,
+        range: ReportRange.month,
+      );
+      expect(withHistory, [
+        'Food spending is 20% higher than your 3-month average.',
+        'You spent ₱200 more than came in this month.',
+      ]);
+
+      final shortHistory = insightsFor(
+        [
+          tx('a', TransactionType.expense, 500, DateTime(2026, 9, 2)),
+          tx('b', TransactionType.expense, 1000, DateTime(2026, 8, 2)),
+        ],
+        period: september,
+        range: ReportRange.month,
+      );
+      expect(
+        shortHistory.first,
+        'Food spending is 50% lower than your recent average.',
+        reason: 'one earlier month is not a 3-month average',
+      );
+
+      expect(
+        insightsFor(const [], period: september, range: ReportRange.month),
+        isEmpty,
+      );
+    });
+
+    test('spending past the top few is summed into one entry', () {
+      const spending = [
+        MapEntry('Food', 500.0),
+        MapEntry('Bills', 300.0),
+        MapEntry('Shopping', 150.0),
+        MapEntry('Education', 40.0),
+        MapEntry('Others', 10.0),
+      ];
+
+      final folded = foldSpending(spending, 3);
+      expect(folded.map((e) => e.key), ['Food', 'Bills', 'Shopping', null]);
+      expect(folded.last.value, 50);
+      expect(foldSpending(spending, 5).length, 5);
+      expect(foldSpending(spending, null).length, 5);
+    });
+
+    test('axis amounts are short', () {
+      expect(formatPesoCompact(950), '₱950');
+      expect(formatPesoCompact(1500), '₱1.5k');
+      expect(formatPesoCompact(20000), '₱20k');
+      expect(formatPesoCompact(999.6), '₱1k');
+      expect(formatPesoCompact(999999), '₱1M');
+      expect(formatPesoCompact(1250000), '₱1.25M');
+    });
+
+    test('categories keep one color, stepped for dark mode', () {
+      expect(categoryColor('Food'), categoryColor('food'));
+      expect(
+        categoryColor('Food', brightness: Brightness.dark),
+        isNot(categoryColor('Food')),
+      );
+      expect(categoryColor('Something new'), categoryColor('Others'));
+    });
+  });
+
+  group('Reports screen', () {
+    final day = DateTime(2026, 9, 10);
+    final transactions = [
+      AppTransaction(
+        id: 'a',
+        type: TransactionType.income,
+        amount: 5000,
+        label: 'Allowance',
+        date: day,
+        walletId: 'cash',
+      ),
+      AppTransaction(
+        id: 'b',
+        type: TransactionType.expense,
+        amount: 1000,
+        label: 'Bills',
+        date: day,
+        walletId: 'cash',
+        billInstanceId: 'i',
+      ),
+      AppTransaction(
+        id: 'c',
+        type: TransactionType.expense,
+        amount: 250.5,
+        label: 'Food',
+        date: DateTime(2026, 9, 16),
+        walletId: 'cash',
+      ),
+    ];
+
+    Future<void> pumpReports(
+      WidgetTester tester, {
+      List<AppTransaction>? list,
+      void Function(TransactionFilter)? onOpenCategory,
+    }) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: ReportsScreen(
+              transactions: Stream.value(list ?? transactions),
+              contributions: Stream.value([
+                GoalContribution(id: '1', amount: 400, date: day),
+              ]),
+              today: DateTime(2026, 9, 17),
+              onOpenCategory: onOpenCategory,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('summarizes this month and breaks spending down', (
+      tester,
+    ) async {
+      TransactionFilter? opened;
+      await pumpReports(tester, onOpenCategory: (f) => opened = f);
+
+      expect(find.text('Sep 1 – Sep 30, 2026'), findsOneWidget);
+      expect(find.text('₱5,000'), findsOneWidget);
+      expect(find.text('₱1,250.50'), findsWidgets);
+      expect(find.text('₱400'), findsOneWidget);
+      expect(find.text('+₱3,749.50'), findsOneWidget);
+      expect(find.text('80%'), findsOneWidget);
+      expect(
+        find.text('Bills is 80% of your spending this month.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Food'));
+      await tester.pump();
+      expect(opened?.category, 'Food');
+      expect(opened?.type, TransactionType.expense);
+      expect(opened?.from, DateTime(2026, 9, 1));
+      expect(opened?.to, DateTime(2026, 9, 30));
+    });
+
+    testWidgets('switches to this week and steps back a week', (tester) async {
+      await pumpReports(tester);
+
+      await tester.tap(find.text('This week'));
+      await tester.pump();
+      expect(find.text('Sep 14 – Sep 20, 2026'), findsOneWidget);
+      expect(find.text('Food'), findsOneWidget);
+      expect(find.text('Bills'), findsNothing, reason: 'paid the week before');
+
+      await tester.tap(find.byTooltip('Earlier'));
+      await tester.pump();
+      expect(find.text('Sep 7 – Sep 13, 2026'), findsOneWidget);
+      expect(find.text('Bills'), findsOneWidget);
+    });
+
+    testWidgets('a new account gets a friendly empty state', (tester) async {
+      await pumpReports(tester, list: const []);
+
+      expect(find.text('Nothing to report yet'), findsOneWidget);
+    });
+  });
+
+  group('Home screen', () {
+    final cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 5000,
+      startingBalance: 5000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    final gcash = Wallet(
+      id: 'gcash',
+      name: 'GCash',
+      type: WalletType.gcash,
+      balance: 10000,
+      startingBalance: 10000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+    );
+
+    Future<void> pumpHome(
+      WidgetTester tester,
+      List<AppTransaction> transactions,
+    ) async {
+      tester.view.physicalSize = const Size(800, 3200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: HomeScreen(
+              userName: 'Hayato',
+              wallets: Stream.value([cash, gcash]),
+              transactions: Stream.value(transactions),
+              safeToSpend: const SizedBox(
+                height: 80,
+                child: Text('Safe to Spend placeholder'),
+              ),
+              today: DateTime(2026, 9, 17),
+              onOpenTransactions: () {},
+              onOpenWallets: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('reads the wallet ledger, with Safe to Spend first', (
+      tester,
+    ) async {
+      await pumpHome(tester, [
+        AppTransaction(
+          id: 'b',
+          type: TransactionType.expense,
+          amount: 1000,
+          label: 'Bills',
+          date: DateTime(2026, 9, 17),
+          walletId: 'cash',
+          billInstanceId: 'i',
+        ),
+        AppTransaction(
+          id: 'l',
+          type: TransactionType.expense,
+          amount: 500,
+          label: 'Lent',
+          date: DateTime(2026, 9, 17),
+          walletId: 'gcash',
+          debtId: 'ana',
+        ),
+      ]);
+
+      expect(find.text('Hello, Hayato!'), findsOneWidget);
+      expect(find.text('₱15,000'), findsOneWidget);
+      expect(find.text('Across 2 wallets'), findsOneWidget);
+      expect(find.textContaining('transactions recorded'), findsNothing);
+      expect(find.text('Manage Category Budgets'), findsNothing);
+      for (final shortcut in [
+        'Bill Planner',
+        'Savings',
+        'Debts',
+        'Reports',
+        'OCR Receipt',
+        'Voice Input',
+      ]) {
+        expect(find.text(shortcut), findsOneWidget);
+      }
+
+      final safeTop = tester.getTopLeft(find.text('Safe to Spend placeholder'));
+      final balanceTop = tester.getTopLeft(find.text('Total Balance'));
+      expect(safeTop.dy, lessThan(balanceTop.dy));
+
+      // The bill payment is spending; the loan to Ana isn't.
+      expect(find.text('spent so far this month'), findsOneWidget);
+      expect(find.byType(SpendingBar), findsOneWidget);
+      expect(find.text('100%'), findsOneWidget);
+
+      // Both show in the recent list.
+      expect(find.text('Lent'), findsOneWidget);
+      expect(find.text('-₱500'), findsOneWidget);
+    });
+
+    testWidgets('a new account sees helpful empty sections', (tester) async {
+      await pumpHome(tester, const []);
+
+      expect(find.textContaining('No spending yet this month'), findsOneWidget);
+      expect(find.textContaining('No transactions yet'), findsOneWidget);
+    });
+  });
+
+  test('loans are totalled apart from money in and out', () {
+    final day = DateTime(2026, 9, 17);
+    final list = [
+      AppTransaction(
+        id: 'a',
+        type: TransactionType.expense,
+        amount: 500,
+        label: 'Lent',
+        date: day,
+        debtId: 'ana',
+      ),
+      AppTransaction(
+        id: 'b',
+        type: TransactionType.income,
+        amount: 200,
+        label: 'Repayment',
+        date: day,
+        debtId: 'ana',
+      ),
+      AppTransaction(
+        id: 'c',
+        type: TransactionType.expense,
+        amount: 100,
+        label: 'Food',
+        date: day,
+      ),
+    ];
+
+    final loans = loanMovements(list);
+    expect(loans.moneyOut, 500);
+    expect(loans.moneyIn, 200);
+    expect(inAndOut(list).moneyOut, 100);
+  });
+
+  testWidgets('Transactions explains loans left out of the totals', (
+    tester,
+  ) async {
+    Future<void> pump(List<AppTransaction> list) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: TransactionsScreen(
+              key: UniqueKey(),
+              showLegacyImport: false,
+              wallets: Stream.value(const []),
+              transactions: Stream.value(list),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    final food = AppTransaction(
+      id: 'f',
+      type: TransactionType.expense,
+      amount: 100,
+      label: 'Food',
+      date: DateTime(2026, 9, 17),
+    );
+
+    await pump([food]);
+    expect(find.text('Loans in'), findsNothing);
+
+    await pump([
+      food,
+      AppTransaction(
+        id: 'l',
+        type: TransactionType.expense,
+        amount: 500,
+        label: 'Lent',
+        date: DateTime(2026, 9, 17),
+        debtId: 'ana',
+      ),
+      AppTransaction(
+        id: 'r',
+        type: TransactionType.income,
+        amount: 500,
+        label: 'Repayment',
+        date: DateTime(2026, 9, 17),
+        debtId: 'ana',
+      ),
+    ]);
+    expect(find.text('Loans in'), findsOneWidget);
+    expect(find.text('Loans out'), findsOneWidget);
+    expect(find.text('₱500'), findsNWidgets(2), reason: 'loans in and out');
+    expect(find.text('₱100'), findsOneWidget, reason: 'money out stays ₱100');
+  });
+
+  test('loans get their own icons, not a category one', () {
+    AppTransaction loan(TransactionType type) => AppTransaction(
+      id: 'x',
+      type: type,
+      amount: 500,
+      label: type == TransactionType.expense ? 'Lent' : 'Repayment',
+      date: DateTime(2026, 9, 17),
+      debtId: 'ana',
+    );
+
+    expect(
+      loanIconAsset(loan(TransactionType.expense)),
+      'assets/icons/lend-96.png',
+    );
+    expect(
+      loanIconAsset(loan(TransactionType.income)),
+      'assets/icons/loan-in-96.png',
+    );
+  });
+
+  testWidgets('Transactions can open already filtered', (tester) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: TransactionsScreen(
+            showLegacyImport: false,
+            initialFilter: const TransactionFilter(category: 'Food'),
+            wallets: Stream.value(const []),
+            transactions: Stream.value([
+              AppTransaction(
+                id: 'a',
+                type: TransactionType.expense,
+                amount: 120,
+                label: 'Food',
+                date: DateTime(2026, 9, 17),
+              ),
+              AppTransaction(
+                id: 'b',
+                type: TransactionType.expense,
+                amount: 80,
+                label: 'Shopping',
+                date: DateTime(2026, 9, 17),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('-₱120'), findsOneWidget);
+    expect(find.text('-₱80'), findsNothing);
   });
 }

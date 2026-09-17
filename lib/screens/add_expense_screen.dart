@@ -12,6 +12,7 @@ import '../utils/categories.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/wallet_picker.dart';
+import '../utils/money_format.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   // =========================================================
@@ -102,7 +103,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     if (_isEditMode) {
       if (widget.initialAmount != null) {
-        _amountController.text = widget.initialAmount!.toStringAsFixed(2);
+        _amountController.text = formatAmountInput(widget.initialAmount!);
       }
 
       _selectedCategory = widget.initialCategory;

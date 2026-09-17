@@ -3,7 +3,7 @@ enum WalletType {
   cash('Cash', 'assets/icons/icons8-banknotes-96.png'),
   gcash('GCash', 'assets/icons/icons8-mobile-payment-96.png'),
   maya('Maya', 'assets/icons/icons8-wallet-96.png'),
-  bank('Bank', 'assets/icons/icons8-bank-96.png'),
+  bank('Bank', 'assets/icons/bank-96.png'),
   other('Other', 'assets/icons/icons8-money-box-96.png');
 
   const WalletType(this.label, this.iconAsset);

@@ -140,10 +140,9 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
   void initState() {
     super.initState();
     // Start the split down the middle, so the two boxes already add up.
-    final half = (widget.leftover / 2).toStringAsFixed(2);
-    _saveController.text = half;
-    _spendController.text = (widget.leftover - double.parse(half))
-        .toStringAsFixed(2);
+    final half = (widget.leftover * 50).round() / 100;
+    _saveController.text = formatAmountInput(half);
+    _spendController.text = formatAmountInput(widget.leftover - half);
   }
 
   @override
@@ -303,7 +302,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
                     decoration: dialogFieldDecoration(
                       context,
                       'Save',
-                    ).copyWith(prefixText: '₱ '),
+                    ).copyWith(prefixText: '₱ ', hintText: '0.00'),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -316,7 +315,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
                     decoration: dialogFieldDecoration(
                       context,
                       'Spend',
-                    ).copyWith(prefixText: '₱ '),
+                    ).copyWith(prefixText: '₱ ', hintText: '0.00'),
                   ),
                 ),
               ],

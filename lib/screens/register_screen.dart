@@ -222,12 +222,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // UI
   // =========================================================
 
+  /// Back to the Log In screen this was opened from, or a fresh one if
+  /// there is nothing to go back to.
+  void _backToLogin() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+      return;
+    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
 
     return Scaffold(
       backgroundColor: colors.card,
+
+      appBar: AppBar(
+        backgroundColor: colors.card,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          tooltip: 'Back to Log In',
+          icon: Icon(Icons.arrow_back, color: colors.textBody),
+          onPressed: _isLoading ? null : _backToLogin,
+        ),
+      ),
 
       body: SafeArea(
         child: Center(
@@ -589,17 +613,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       children: [
                         WidgetSpan(
                           child: GestureDetector(
-                            onTap: _isLoading
-                                ? null
-                                : () {
-                                    Navigator.pushReplacement(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            const LoginScreen(),
-                                      ),
-                                    );
-                                  },
+                            onTap: _isLoading ? null : _backToLogin,
 
                             child: Text(
                               'Log In',

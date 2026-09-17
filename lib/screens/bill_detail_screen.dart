@@ -14,6 +14,7 @@ import '../widgets/bill_payment_sheet.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/money_text.dart';
+import '../utils/money_format.dart';
 
 /// One bill on one due date: what is owed, what has been paid, and the
 /// actions that settle it.
@@ -152,7 +153,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
 
   Future<void> _editOccurrence(BillInstance instance) async {
     final amountController = TextEditingController(
-      text: instance.amount.toStringAsFixed(2),
+      text: formatAmountInput(instance.amount),
     );
 
     final saved = await showDialog<bool>(
@@ -180,6 +181,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
               decoration: const InputDecoration(
                 labelText: 'Amount',
                 prefixText: '₱ ',
+                hintText: '0.00',
               ),
             ),
           ],
@@ -241,7 +243,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     if (mounted) Navigator.pop(context);
   }
 
-  String _money(double amount) => '₱${amount.toStringAsFixed(2)}';
+  String _money(double amount) => formatPeso(amount);
 
   @override
   Widget build(BuildContext context) {
@@ -531,7 +533,7 @@ class _BillHeader extends StatelessWidget {
     );
   }
 
-  static String _peso(double amount) => '₱${amount.toStringAsFixed(2)}';
+  static String _peso(double amount) => formatPeso(amount);
 }
 
 class _BillActions extends StatelessWidget {

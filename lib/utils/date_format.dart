@@ -18,6 +18,14 @@ String formatShortDate(DateTime date) {
   return '${_monthNames[date.month - 1]} ${date.day}, ${date.year}';
 }
 
+/// A month and day without the year, e.g. `Sep 16`.
+String formatMonthDay(DateTime date) {
+  return '${_monthNames[date.month - 1]} ${date.day}';
+}
+
+/// A month's short name, e.g. `Sep`.
+String formatMonthName(DateTime date) => _monthNames[date.month - 1];
+
 /// The heading a transaction is grouped under: `Today`, `Yesterday`, or the
 /// date itself. [now] is injectable so tests don't depend on the clock.
 String transactionDateLabel(DateTime date, {DateTime? now}) {

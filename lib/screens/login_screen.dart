@@ -496,7 +496,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _login,
 
-                    style: confirmButtonStyle(),
+                    // Blue like the rest of the app; green is kept for Sign Up,
+                    // which creates something new.
+                    style: openButtonStyle(),
 
                     child: _isLoading
                         ? const SizedBox(

@@ -11,6 +11,7 @@ import '../models/safe_to_spend.dart';
 import '../models/wallet.dart';
 import '../providers/app_settings_provider.dart';
 import '../services/allocation_service.dart';
+import '../services/bill_service.dart';
 import '../services/budget_service.dart';
 import '../services/goal_service.dart';
 import '../services/user_profile_service.dart';
@@ -50,6 +51,7 @@ class SafeToSpendCard extends StatefulWidget {
     this.cycles,
     this.loadBills,
     this.goals,
+    this.billSchedules,
     this.today,
     this.footerBuilder,
     this.belowCard,
@@ -63,6 +65,9 @@ class SafeToSpendCard extends StatefulWidget {
   final Stream<List<AllocationCycle>>? cycles;
   final Future<List<BillInstance>> Function()? loadBills;
   final Stream<List<Goal>>? goals;
+
+  /// Replaces watching the bill schedules for changes. Used by tests.
+  final Stream<List<Bill>>? billSchedules;
   final DateTime? today;
 
   /// Buttons shown under the figure. Given a way to open the limit editor so
@@ -94,6 +99,13 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
   double _goalSavings = 0;
   StreamSubscription<List<Goal>>? _goalSubscription;
 
+  /// Bumped whenever a bill is added, edited or deleted, so the bills due are
+  /// read again. Paying a bill already shows up as a new transaction, but
+  /// adding one doesn't, and Safe to Spend would otherwise miss it until the
+  /// next transaction.
+  int _billsVersion = 0;
+  StreamSubscription<List<Bill>>? _billSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -104,18 +116,22 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       // Unreachable goals are left out rather than blocking the card.
       onError: (Object _) {},
     );
+    _billSubscription = (widget.billSchedules ?? BillService.watchBills())
+        .listen((_) {
+          if (mounted) setState(() => _billsVersion++);
+        }, onError: (Object _) {});
   }
 
   @override
   void dispose() {
     _goalSubscription?.cancel();
+    _billSubscription?.cancel();
     super.dispose();
   }
 
   List<BillInstance> _bills = const [];
 
-  /// Bills are re-read when the transactions change, since paying a bill
-  /// always adds a transaction.
+  /// Bills are re-read when the transactions or the bill schedules change.
   int _billsLoadedFor = -1;
 
   DateTime get _now => widget.today ?? DateTime.now();
@@ -124,6 +140,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
     final signature = Object.hash(
       transactions.length,
       transactions.isEmpty ? null : transactions.first.id,
+      _billsVersion,
     );
     if (signature == _billsLoadedFor) return;
     _billsLoadedFor = signature;
@@ -459,15 +476,17 @@ class EditSafeToSpendSheet extends StatefulWidget {
 class _EditSafeToSpendSheetState extends State<EditSafeToSpendSheet> {
   late final SafeToSpend _s = widget.safeToSpend;
 
+  // Empty means the recommendation, which is shown as the hint instead.
   late final _limitController = TextEditingController(
-    text: _s.dailyLimit.toStringAsFixed(2),
+    text: _s.usesCustomLimit ? formatAmountInput(_s.dailyLimit) : '',
   );
   late final _reserveController = TextEditingController(
-    text: _s.savingsReserve.toStringAsFixed(2),
+    text: formatAmountInput(_s.savingsReserve),
   );
 
-  late bool _useRecommendation = !_s.usesCustomLimit;
   String? _error;
+
+  bool get _useRecommendation => _limitController.text.trim().isEmpty;
 
   @override
   void dispose() {
@@ -476,25 +495,18 @@ class _EditSafeToSpendSheetState extends State<EditSafeToSpendSheet> {
     super.dispose();
   }
 
-  void _applyRecommendation() {
-    setState(() {
-      _useRecommendation = true;
-      _limitController.text = _s.recommendedDailyLimit.toStringAsFixed(2);
-      _error = null;
-    });
-  }
-
   void _save() {
-    final limit = double.tryParse(
-      _limitController.text.trim().replaceAll(',', ''),
-    );
+    final limit = _useRecommendation
+        ? _s.recommendedDailyLimit
+        : double.tryParse(_limitController.text.trim().replaceAll(',', ''));
     final reserve = double.tryParse(
       _reserveController.text.trim().replaceAll(',', ''),
     );
 
     if (limit == null || limit < 0) {
       setState(
-        () => _error = 'Enter a daily limit, or use the recommendation.',
+        () => _error =
+            'Enter a daily limit, or leave it empty to use the recommendation.',
       );
       return;
     }
@@ -549,16 +561,7 @@ class _EditSafeToSpendSheetState extends State<EditSafeToSpendSheet> {
                   color: colors.textPrimary,
                 ),
               ),
-              const SizedBox(height: 12),
-              DialogNote(
-                text:
-                    'Recommended: ${formatPeso(_s.recommendedDailyLimit)} a day. '
-                    'That is ${formatPeso(_s.spendableThisPeriod)} you can '
-                    'spend, shared over the ${_s.daysLeft} '
-                    '${_s.daysLeft == 1 ? 'day' : 'days'} left in this pay '
-                    'period.',
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               TextField(
                 controller: _limitController,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -568,21 +571,22 @@ class _EditSafeToSpendSheetState extends State<EditSafeToSpendSheet> {
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                 ),
-                onChanged: (_) => setState(() => _useRecommendation = false),
-                decoration: dialogFieldDecoration(
-                  context,
-                  'Your daily limit',
-                  helper: _useRecommendation
-                      ? 'Using the recommendation. It updates every day.'
-                      : 'Your own limit. It stays the same every day.',
-                ).copyWith(prefixText: '₱ '),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: _applyRecommendation,
-                style: openOutlineStyle(context),
-                icon: const Icon(Icons.auto_awesome, size: 18),
-                label: const Text('Use Recommendation'),
+                onChanged: (_) => setState(() => _error = null),
+                decoration:
+                    dialogFieldDecoration(
+                      context,
+                      'Your daily limit',
+                      helper: _useRecommendation
+                          ? 'Empty, so the recommendation is used. It updates '
+                                'every day.'
+                          : 'Your own limit. It stays the same every day. Clear '
+                                'it to use the recommendation.',
+                    ).copyWith(
+                      prefixText: '₱ ',
+                      hintText: formatAmountInput(_s.recommendedDailyLimit),
+                      // The hint is the recommendation, so keep it in view.
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                    ),
               ),
               const SizedBox(height: 20),
               TextField(
@@ -596,7 +600,7 @@ class _EditSafeToSpendSheetState extends State<EditSafeToSpendSheet> {
                   helper:
                       'Not counted as spendable. Lower it if you have used '
                       'some of your savings.',
-                ).copyWith(prefixText: '₱ '),
+                ).copyWith(prefixText: '₱ ', hintText: '0.00'),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 10),

@@ -71,7 +71,7 @@ class _TransactionEditSheetState extends State<TransactionEditSheet> {
       widget.wallets ?? WalletService.watchWallets(includeArchived: true);
 
   late final _amountController = TextEditingController(
-    text: _original.amount.toStringAsFixed(2),
+    text: formatAmountInput(_original.amount),
   );
   late final _noteController = TextEditingController(
     text: _original.note ?? '',

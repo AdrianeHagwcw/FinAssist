@@ -9,11 +9,13 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/categories.dart';
 import '../utils/date_format.dart';
+import '../widgets/back_to_home.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/legacy_import_card.dart';
 import '../widgets/money_text.dart';
 import '../widgets/transaction_edit_sheet.dart';
+import '../widgets/transaction_row.dart';
 
 /// Every income, expense and transfer across all wallets, newest first.
 class TransactionsScreen extends StatefulWidget {
@@ -22,8 +24,12 @@ class TransactionsScreen extends StatefulWidget {
     this.wallets,
     this.showLegacyImport = true,
     this.onOpen,
+    this.initialFilter,
     super.key,
   });
+
+  /// Starts the list narrowed down, like one category from Reports.
+  final TransactionFilter? initialFilter;
 
   /// Replaces the live transactions. Used by tests.
   final Stream<List<AppTransaction>>? transactions;
@@ -49,7 +55,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets(includeArchived: true);
 
-  TransactionFilter _filter = const TransactionFilter();
+  late TransactionFilter _filter =
+      widget.initialFilter ?? const TransactionFilter();
 
   void _open(AppTransaction transaction) {
     if (widget.onOpen != null) {
@@ -57,7 +64,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       return;
     }
 
-    showTransactionEditSheet(context, transaction, wallets: _wallets);
+    // The sheet opens its own wallet feed; a live feed only hands its data
+    // to the first listener, and this screen is already listening.
+    showTransactionEditSheet(context, transaction, wallets: widget.wallets);
   }
 
   Future<void> _editFilter(List<Wallet> wallets) async {
@@ -121,7 +130,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 backgroundColor: appPrimaryBlue,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                automaticallyImplyLeading: false,
+                // As a tab it goes back to Home; opened from another screen,
+                // like Reports, it gets the usual back arrow.
+                leading: backToHomeButton(context),
                 actions: [
                   IconButton(
                     tooltip: 'Spending by category',
@@ -209,7 +220,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
       rows
         ..add(
-          _TransactionRow(
+          TransactionRow(
             transaction: transaction,
             wallets: wallets,
             onTap: () => _open(transaction),
@@ -223,7 +234,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
       children: [
         ...header,
-        _InOutStrip(moneyIn: totals.moneyIn, moneyOut: totals.moneyOut),
+        _InOutStrip(
+          moneyIn: totals.moneyIn,
+          moneyOut: totals.moneyOut,
+          loans: loanMovements(shown),
+        ),
         const SizedBox(height: 16),
         if (shown.isEmpty)
           const Padding(
@@ -241,135 +256,19 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   }
 }
 
-String _walletName(List<Wallet> wallets, String? id) {
-  for (final wallet in wallets) {
-    if (wallet.id == id) return wallet.name;
-  }
-  return 'a wallet';
-}
-
-class _TransactionRow extends StatelessWidget {
-  const _TransactionRow({
-    required this.transaction,
-    required this.wallets,
-    required this.onTap,
-  });
-
-  final AppTransaction transaction;
-  final List<Wallet> wallets;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final t = transaction;
-
-    final (Color color, String sign) = switch (t.type) {
-      TransactionType.expense => (dangerColorOn(context), '-'),
-      TransactionType.income => (confirmColorOn(context), '+'),
-      TransactionType.transfer => (appPrimaryBlue, ''),
-    };
-
-    final title = t.type == TransactionType.transfer
-        ? '${_walletName(wallets, t.walletId)} → '
-              '${_walletName(wallets, t.toWalletId)}'
-        : t.label;
-
-    final details = [
-      if (t.type != TransactionType.transfer)
-        t.isLegacy ? 'Before wallets' : _walletName(wallets, t.walletId),
-      if (t.isBillPayment) 'Bill payment',
-      if ((t.note ?? '').isNotEmpty) t.note!,
-    ].join(' · ');
-
-    return Material(
-      color: colors.card,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: colors.border),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: switch (t.type) {
-                  TransactionType.expense => CategoryIcon(t.label, size: 22),
-                  TransactionType.income => Image.asset(
-                    'assets/icons/icons8-money-transfer-96.png',
-                    width: 22,
-                    height: 22,
-                  ),
-                  TransactionType.transfer => Icon(
-                    Icons.swap_horiz,
-                    color: color,
-                  ),
-                },
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: colors.textPrimary,
-                      ),
-                    ),
-                    if (details.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        details,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              MoneyText(
-                t.amount,
-                sign: sign.isEmpty ? null : sign,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _InOutStrip extends StatelessWidget {
-  const _InOutStrip({required this.moneyIn, required this.moneyOut});
+  const _InOutStrip({
+    required this.moneyIn,
+    required this.moneyOut,
+    required this.loans,
+  });
 
   final double moneyIn;
   final double moneyOut;
+
+  /// Shown apart, so the list adds up: a loan is your own money leaving and
+  /// coming back, not spending or income.
+  final ({double moneyIn, double moneyOut}) loans;
 
   @override
   Widget build(BuildContext context) {
@@ -405,16 +304,44 @@ class _InOutStrip extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: colors.border),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          figure('Money in', moneyIn, confirmColorOn(context)),
-          Container(
-            width: 1,
-            height: 34,
-            color: colors.border,
-            margin: const EdgeInsets.symmetric(horizontal: 12),
+          Row(
+            children: [
+              figure('Money in', moneyIn, confirmColorOn(context)),
+              Container(
+                width: 1,
+                height: 34,
+                color: colors.border,
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              figure('Money out', moneyOut, dangerColorOn(context)),
+            ],
           ),
-          figure('Money out', moneyOut, dangerColorOn(context)),
+          if (loans.moneyIn > 0.005 || loans.moneyOut > 0.005) ...[
+            const SizedBox(height: 12),
+            Divider(height: 1, color: colors.border),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                // Plain text colors: this money isn't earned or spent.
+                figure('Loans in', loans.moneyIn, colors.textPrimary),
+                Container(
+                  width: 1,
+                  height: 34,
+                  color: colors.border,
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+                figure('Loans out', loans.moneyOut, colors.textPrimary),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Lent, borrowed or paid back. Not counted in money in or out.',
+              style: TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ],
         ],
       ),
     );
@@ -437,7 +364,7 @@ class _ActiveFilters extends StatelessWidget {
     final parts = [
       if (filter.type != null) filter.type!.label,
       if (filter.category != null) filter.category!,
-      if (filter.walletId != null) _walletName(wallets, filter.walletId),
+      if (filter.walletId != null) walletNameFor(wallets, filter.walletId),
       if (filter.from != null || filter.to != null)
         [
           if (filter.from != null) formatShortDate(filter.from!),

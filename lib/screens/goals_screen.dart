@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/debt.dart';
 import '../models/goal.dart';
 import '../services/goal_service.dart';
 import '../services/user_profile_service.dart';
@@ -8,6 +9,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../widgets/back_to_home.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/money_text.dart';
@@ -17,14 +19,59 @@ import 'goal_detail_screen.dart';
 
 /// The Goals tab: what the user is saving toward, in the order money reaches
 /// each goal.
+/// Lets other screens open the Goals tab on savings or on a debts list.
+class GoalsTabController extends ChangeNotifier {
+  bool _showDebts = false;
+
+  bool get showDebts => _showDebts;
+
+  /// The debts list to show. Tells its listeners on every [openDebts], even
+  /// to the list already showing.
+  final debtsList = _AlwaysNotifier<DebtDirection>(DebtDirection.iOwe);
+
+  void openSavings() {
+    _showDebts = false;
+    notifyListeners();
+  }
+
+  void openDebts(DebtDirection direction) {
+    _showDebts = true;
+    notifyListeners();
+    debtsList.show(direction);
+  }
+
+  @override
+  void dispose() {
+    debtsList.dispose();
+    super.dispose();
+  }
+}
+
+class _AlwaysNotifier<T> extends ValueNotifier<T> {
+  _AlwaysNotifier(super.value);
+
+  void show(T next) {
+    if (value == next) {
+      notifyListeners();
+    } else {
+      value = next;
+    }
+  }
+}
+
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({
+    this.controller,
     this.goals,
     this.profile,
     this.onReorder,
     this.onOpen,
     super.key,
   });
+
+  /// Switches between savings and debts from outside, like Home's shortcuts
+  /// or saving an installment from the + button.
+  final GoalsTabController? controller;
 
   /// Replaces the live goals. Used by tests.
   final Stream<List<Goal>>? goals;
@@ -55,7 +102,26 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   /// Savings goals, or debts. Both live in this one tab so the bottom bar
   /// stays at the plan's four tabs.
-  bool _showDebts = false;
+  late bool _showDebts = widget.controller?.showDebts ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller?.addListener(_follow);
+  }
+
+  @override
+  void dispose() {
+    widget.controller?.removeListener(_follow);
+    super.dispose();
+  }
+
+  void _follow() {
+    final controller = widget.controller;
+    if (controller != null && mounted) {
+      setState(() => _showDebts = controller.showDebts);
+    }
+  }
 
   void _move(List<Goal> active, int index, int direction) {
     final ordered = [...active];
@@ -209,7 +275,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
         backgroundColor: appPrimaryBlue,
         foregroundColor: Colors.white,
         elevation: 0,
-        automaticallyImplyLeading: false,
+        // As a tab it goes back to Home; opened on its own it gets the usual
+        // back arrow.
+        leading: backToHomeButton(context),
       ),
       body: Column(
         children: [
@@ -238,7 +306,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
             ),
           ),
           Expanded(
-            child: _showDebts ? const DebtsView() : _buildSavings(context),
+            child: _showDebts
+                ? DebtsView(showing: widget.controller?.debtsList)
+                : _buildSavings(context),
           ),
         ],
       ),

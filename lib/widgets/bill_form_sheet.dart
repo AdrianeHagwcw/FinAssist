@@ -8,6 +8,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
 import '../utils/categories.dart';
 import '../utils/date_format.dart';
+import '../utils/money_format.dart';
 import 'category_icon.dart';
 import 'dialog_kit.dart';
 import 'wallet_picker.dart';
@@ -64,7 +65,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
   late final _amountController = TextEditingController(
     text: widget.existing == null
         ? ''
-        : widget.existing!.amount.toStringAsFixed(2),
+        : formatAmountInput(widget.existing!.amount),
   );
 
   late final Stream<List<Wallet>> _wallets =

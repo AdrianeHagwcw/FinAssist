@@ -25,14 +25,15 @@ Future<T?> _showSheet<T>(BuildContext context, Widget child) {
 }
 
 /// Adds a goal, or edits [existing]. [nextPriority] places a new goal last.
-Future<void> showGoalFormSheet(
+/// Returns true when it was saved.
+Future<bool> showGoalFormSheet(
   BuildContext context, {
   Goal? existing,
   int nextPriority = 0,
   String? initialName,
   GoalKind initialKind = GoalKind.regular,
-}) {
-  return _showSheet(
+}) async {
+  final saved = await _showSheet<bool>(
     context,
     GoalFormSheet(
       existing: existing,
@@ -41,15 +42,174 @@ Future<void> showGoalFormSheet(
       initialKind: initialKind,
     ),
   );
+  return saved ?? false;
 }
 
 /// Sets money aside for a goal, or takes it back out when [takeOut] is true.
-Future<void> showContributionSheet(
+/// Returns true when money was set aside or taken out.
+Future<bool> showContributionSheet(
   BuildContext context,
   Goal goal, {
   bool takeOut = false,
-}) {
-  return _showSheet(context, ContributionSheet(goal: goal, takeOut: takeOut));
+}) async {
+  final saved = await _showSheet<bool>(
+    context,
+    ContributionSheet(goal: goal, takeOut: takeOut),
+  );
+  return saved ?? false;
+}
+
+/// The + button's "Save to Goal": picks a goal, then sets money aside for it.
+/// With one goal it goes straight to that goal; with none it offers to make
+/// one. Returns true when something was saved.
+Future<bool> showSaveToGoal(BuildContext context) async {
+  final List<Goal> goals;
+  try {
+    goals = (await GoalService.watchGoals().first)
+        .where((goal) => goal.status == GoalStatus.active && !goal.isReached)
+        .toList();
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your goals could not be loaded.')),
+      );
+    }
+    return false;
+  }
+  if (!context.mounted) return false;
+
+  final picked = goals.length == 1
+      ? goals.first
+      : await _showSheet<Object>(context, GoalPickerSheet(goals: goals));
+  if (!context.mounted || picked == null) return false;
+
+  if (picked == GoalPickerSheet.newGoal) {
+    return showGoalFormSheet(context, nextPriority: goals.length);
+  }
+
+  final goal = picked as Goal;
+  final saved = await showContributionSheet(context, goal);
+  if (saved && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Saved toward ${goal.name}.'),
+        backgroundColor: appConfirmGreen,
+      ),
+    );
+  }
+  return saved;
+}
+
+/// Lists the goals still being saved toward, to choose one to add to.
+class GoalPickerSheet extends StatelessWidget {
+  const GoalPickerSheet({required this.goals, super.key});
+
+  final List<Goal> goals;
+
+  /// Popped instead of a goal when the user wants to make a new one.
+  static const Object newGoal = 'new goal';
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SheetHeader('Save to which goal?'),
+              if (goals.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Text(
+                    'You have no goals to save toward yet. Make one, and '
+                    'you can start setting money aside for it.',
+                    style: TextStyle(color: colors.textBody, height: 1.4),
+                  ),
+                ),
+              for (final goal in goals) ...[
+                Material(
+                  color: colors.card,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    onTap: () => Navigator.pop(context, goal),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: colors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(goal.kind.icon, color: appPrimaryBlue),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  goal.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: colors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(3),
+                                  child: LinearProgressIndicator(
+                                    value: goal.progress,
+                                    minHeight: 5,
+                                    backgroundColor: colors.track,
+                                    color: appPrimaryBlue,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${formatPeso(goal.shownSaved)} of '
+                                  '${formatPeso(goal.targetAmount)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: colors.textBody,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, color: colors.textBody),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 6),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(context, newGoal),
+                  style: openOutlineStyle(context),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New Goal'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// The pull handle and title every goal sheet starts with.
@@ -156,11 +316,13 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     text: _existing?.name ?? widget.initialName ?? '',
   );
   late final _targetController = TextEditingController(
-    text: _existing == null ? '' : _existing.targetAmount.toStringAsFixed(2),
+    text: _existing == null ? '' : formatAmountInput(_existing.targetAmount),
   );
   final _savedController = TextEditingController();
   late final _planController = TextEditingController(
-    text: _existing?.planAmount?.toStringAsFixed(2) ?? '',
+    text: _existing?.planAmount == null
+        ? ''
+        : formatAmountInput(_existing!.planAmount!),
   );
   late final _noteController = TextEditingController(
     text: _existing?.note ?? '',
@@ -334,7 +496,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
       );
     }
 
-    Navigator.pop(context);
+    Navigator.pop(context, true);
   }
 
   @override
@@ -419,7 +581,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                         helper:
                             'What you have put aside so far, so you '
                             'start above zero.',
-                      ).copyWith(prefixText: '₱ '),
+                      ).copyWith(prefixText: '₱ ', hintText: '0.00'),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -476,7 +638,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     decoration: dialogFieldDecoration(
                       context,
                       'Amount each time (optional)',
-                    ).copyWith(prefixText: '₱ '),
+                    ).copyWith(prefixText: '₱ ', hintText: '0.00'),
                   ),
                   if (hint != null) ...[
                     const SizedBox(height: 12),
@@ -658,7 +820,7 @@ class _ContributionSheetState extends State<ContributionSheet> {
     // Suggests finishing the goal, which is the most common thing to do.
     text: widget.takeOut || widget.goal.remaining <= 0
         ? ''
-        : widget.goal.remaining.toStringAsFixed(2),
+        : formatAmountInput(widget.goal.remaining),
   );
   String? _walletId;
   String? _error;
@@ -697,7 +859,7 @@ class _ContributionSheetState extends State<ContributionSheet> {
       GoalService.contribute(goal, amount: signed, walletId: walletId!);
     }
 
-    Navigator.pop(context);
+    Navigator.pop(context, true);
   }
 
   @override

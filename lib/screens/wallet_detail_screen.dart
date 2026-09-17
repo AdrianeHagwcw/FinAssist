@@ -11,6 +11,7 @@ import '../utils/date_format.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/money_text.dart';
+import '../widgets/transaction_row.dart';
 import '../widgets/transfer_sheet.dart';
 import '../widgets/wallet_actions.dart';
 import 'income_waterfall_screen.dart';
@@ -390,6 +391,10 @@ class _TransactionRow extends StatelessWidget {
   }
 
   Widget get _icon {
+    if (transaction.isDebtMovement) {
+      return Image.asset(loanIconAsset(transaction), width: 22, height: 22);
+    }
+
     switch (transaction.type) {
       case TransactionType.expense:
         return CategoryIcon(transaction.label, size: 22);

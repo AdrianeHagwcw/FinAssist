@@ -6,6 +6,7 @@ import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/back_to_home.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/legacy_import_card.dart';
 import '../widgets/money_text.dart';
@@ -79,7 +80,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
         backgroundColor: appPrimaryBlue,
         foregroundColor: Colors.white,
         elevation: 0,
-        automaticallyImplyLeading: false,
+        leading: backToHomeButton(context),
       ),
       body: StreamBuilder<List<Wallet>>(
         stream: _wallets,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -46,6 +48,56 @@ class GoalService {
               .map((doc) => GoalContribution.fromMap(doc.id, doc.data()))
               .toList(),
         );
+  }
+
+  /// Every contribution to every goal, updating live, in no set order.
+  ///
+  /// Contributions live under each goal, so this follows the goals and keeps
+  /// one feed open per goal. Each call returns its own stream.
+  static Stream<List<GoalContribution>> watchAllContributions() {
+    late final StreamController<List<GoalContribution>> controller;
+    StreamSubscription<List<Goal>>? goalsSubscription;
+    final perGoal = <String, StreamSubscription<List<GoalContribution>>>{};
+    final byGoal = <String, List<GoalContribution>>{};
+
+    void emit() {
+      if (!controller.isClosed) {
+        controller.add([for (final list in byGoal.values) ...list]);
+      }
+    }
+
+    controller = StreamController<List<GoalContribution>>(
+      onListen: () {
+        goalsSubscription = watchGoals().listen((goals) {
+          final ids = {for (final goal in goals) goal.id};
+
+          for (final id in perGoal.keys.toList()) {
+            if (ids.contains(id)) continue;
+            perGoal.remove(id)?.cancel();
+            byGoal.remove(id);
+          }
+
+          for (final id in ids) {
+            perGoal[id] ??= watchContributions(id).listen((list) {
+              byGoal[id] = list;
+              emit();
+            }, onError: controller.addError);
+          }
+
+          // Keeps the total right when goals are removed, or there are none.
+          emit();
+        }, onError: controller.addError);
+      },
+      onCancel: () {
+        goalsSubscription?.cancel();
+        for (final subscription in perGoal.values) {
+          subscription.cancel();
+        }
+        perGoal.clear();
+      },
+    );
+
+    return controller.stream;
   }
 
   /// Adds a goal at the end of the priority order.

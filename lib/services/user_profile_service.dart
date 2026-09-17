@@ -113,52 +113,6 @@ class UserProfileService {
     }
   }
 
-  static Future<void> saveCategoryBudget({
-    required String category,
-    required double amount,
-    required String period,
-  }) async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      throw StateError('No authenticated user.');
-    }
-
-    final budgetReference = _profileReference(
-      user.uid,
-    ).collection('categoryBudgets').doc(_categoryBudgetId(category));
-    final budgetData = <String, dynamic>{
-      'category': category,
-      'amount': amount,
-      'period': period,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-
-    if (await _isMissingCreatedAt(budgetReference)) {
-      budgetData['createdAt'] = FieldValue.serverTimestamp();
-    }
-
-    commitFirestoreWrite(
-      budgetReference.set(budgetData, SetOptions(merge: true)),
-      'save category budget',
-    );
-  }
-
-  static Future<void> deleteCategoryBudget(String category) async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      throw StateError('No authenticated user.');
-    }
-
-    commitFirestoreWrite(
-      _profileReference(
-        user.uid,
-      ).collection('categoryBudgets').doc(_categoryBudgetId(category)).delete(),
-      'delete category budget',
-    );
-  }
-
   /// Whether [reference] has no `createdAt` yet. If the document can't be
   /// read (offline and not cached), returns false so an existing `createdAt`
   /// is never overwritten by a merge write.
@@ -171,9 +125,5 @@ class UserProfileService {
     } on FirebaseException {
       return false;
     }
-  }
-
-  static String _categoryBudgetId(String category) {
-    return category.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
   }
 }

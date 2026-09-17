@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/bill.dart';
@@ -40,12 +41,17 @@ class DebtsScreen extends StatelessWidget {
 /// Installments and loans the user pays, and money others owe the user.
 class DebtsView extends StatefulWidget {
   const DebtsView({
+    this.showing,
     this.debts,
     this.paymentsFor,
     this.onOpen,
     this.bottomPadding = 100,
     super.key,
   });
+
+  /// Switches the list to a direction from outside, like after adding an
+  /// installment from the + button.
+  final ValueListenable<DebtDirection>? showing;
 
   /// Replace the live data. Used by tests.
   final Stream<List<Debt>>? debts;
@@ -63,7 +69,30 @@ class _DebtsViewState extends State<DebtsView> {
   late final Stream<List<Debt>> _debts =
       widget.debts ?? DebtService.watchDebts();
 
-  DebtDirection _direction = DebtDirection.iOwe;
+  late DebtDirection _direction = widget.showing?.value ?? DebtDirection.iOwe;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.showing?.addListener(_follow);
+  }
+
+  @override
+  void dispose() {
+    widget.showing?.removeListener(_follow);
+    super.dispose();
+  }
+
+  void _follow() {
+    final direction = widget.showing?.value;
+    if (direction != null && mounted) setState(() => _direction = direction);
+  }
+
+  /// Opens the form, then shows the list the new entry went to.
+  Future<void> _add() async {
+    final saved = await showDebtFormSheet(context, direction: _direction);
+    if (saved != null && mounted) setState(() => _direction = saved);
+  }
 
   Stream<List<BillInstance>> _payments(String billId) =>
       (widget.paymentsFor ?? BillService.watchInstancesForBill)(billId);
@@ -164,8 +193,7 @@ class _DebtsViewState extends State<DebtsView> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () =>
-                    showDebtFormSheet(context, direction: _direction),
+                onPressed: _add,
                 style: openButtonStyle(),
                 icon: const Icon(Icons.add),
                 label: Text(

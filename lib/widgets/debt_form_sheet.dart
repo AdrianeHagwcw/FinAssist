@@ -13,11 +13,14 @@ import 'dialog_kit.dart';
 import 'wallet_picker.dart';
 
 /// Adds an installment the user pays, or money someone owes the user.
-Future<void> showDebtFormSheet(
+///
+/// Returns which list the new entry went to, or null if nothing was saved,
+/// and confirms the save so the user knows it worked.
+Future<DebtDirection?> showDebtFormSheet(
   BuildContext context, {
   DebtDirection direction = DebtDirection.iOwe,
-}) {
-  return showModalBottomSheet<void>(
+}) async {
+  final saved = await showModalBottomSheet<DebtDirection>(
     context: context,
     isScrollControlled: true,
     backgroundColor: context.appColors.card,
@@ -26,6 +29,20 @@ Future<void> showDebtFormSheet(
     ),
     builder: (context) => DebtFormSheet(initialDirection: direction),
   );
+
+  if (saved != null && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          saved == DebtDirection.iOwe
+              ? 'Installment saved. Its payments are in your Bill Planner.'
+              : 'Saved to Owed to me.',
+        ),
+        backgroundColor: appConfirmGreen,
+      ),
+    );
+  }
+  return saved;
 }
 
 /// What the form would save, handed to tests instead of Firestore.
@@ -100,7 +117,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   final _noteController = TextEditingController();
 
   String? _payFromWalletId;
-  bool _movedMoney = false;
+  // Lent money almost always leaves a wallet, so that starts on. An
+  // installment is often a gadget bought on credit, where no cash arrives.
+  late bool _movedMoney = widget.initialDirection == DebtDirection.owedToMe;
   String? _movedWalletId;
   String? _error;
 
@@ -173,6 +192,20 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     if (picked != null) setState(() => _date = picked);
   }
 
+  static double _balanceOf(List<Wallet> wallets, String? id) {
+    for (final wallet in wallets) {
+      if (wallet.id == id) return wallet.balance;
+    }
+    return 0;
+  }
+
+  static String _nameOf(List<Wallet> wallets, String? id) {
+    for (final wallet in wallets) {
+      if (wallet.id == id) return wallet.name;
+    }
+    return 'That wallet';
+  }
+
   void _save(List<Wallet> wallets) {
     final name = _nameController.text.trim();
     final principal = _number(_principalController);
@@ -198,6 +231,12 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
           'less than the ${formatPeso(principal)} borrowed.';
     } else if (_movedMoney && movedWallet == null) {
       problem = 'Add a wallet first.';
+    } else if (!_iOwe &&
+        _movedMoney &&
+        _balanceOf(wallets, movedWallet) + 0.005 < principal) {
+      problem =
+          '${_nameOf(wallets, movedWallet)} only holds '
+          '${formatPeso(_balanceOf(wallets, movedWallet))}.';
     } else {
       problem = null;
     }
@@ -246,7 +285,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       );
     }
 
-    Navigator.pop(context);
+    Navigator.pop(context, draft.direction);
   }
 
   @override
@@ -305,7 +344,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                       onSelectionChanged: (value) => setState(() {
                         _direction = value.first;
                         _error = null;
-                        _movedMoney = false;
+                        _movedMoney = !_iOwe;
                         _date = _iOwe
                             ? DateTime(
                                 _today.year,
@@ -369,7 +408,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             decoration: dialogFieldDecoration(
                               context,
                               'Each payment',
-                            ).copyWith(prefixText: '₱ '),
+                            ).copyWith(prefixText: '₱ ', hintText: '0.00'),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -463,7 +502,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             ? 'For a cash loan. Leave off for a gadget bought '
                                   'on installment.'
                             : 'The wallet goes down now, and back up when '
-                                  'you are paid back.',
+                                  'you are paid back. Turn off for money lent '
+                                  'before you used FinAssist.',
                         style: const TextStyle(fontSize: 12),
                       ),
                       onChanged: (value) => setState(() => _movedMoney = value),

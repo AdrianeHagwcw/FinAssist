@@ -108,7 +108,32 @@ class TransactionFilter {
   return (moneyIn: moneyIn, moneyOut: moneyOut);
 }
 
+/// Money lent out, borrowed, or paid back, which [inAndOut] leaves out.
+({double moneyIn, double moneyOut}) loanMovements(
+  Iterable<AppTransaction> transactions,
+) {
+  var moneyIn = 0.0;
+  var moneyOut = 0.0;
+
+  for (final transaction in transactions) {
+    if (!transaction.isDebtMovement) continue;
+
+    switch (transaction.type) {
+      case TransactionType.income:
+        moneyIn += transaction.amount;
+      case TransactionType.expense:
+        moneyOut += transaction.amount;
+      case TransactionType.transfer:
+        break;
+    }
+  }
+
+  return (moneyIn: moneyIn, moneyOut: moneyOut);
+}
+
 /// Spending per category, largest first.
+///
+/// Like [inAndOut], money lent out isn't spending: it is expected back.
 List<MapEntry<String, double>> spendingByCategory(
   Iterable<AppTransaction> transactions,
 ) {
@@ -116,6 +141,7 @@ List<MapEntry<String, double>> spendingByCategory(
 
   for (final transaction in transactions) {
     if (transaction.type != TransactionType.expense) continue;
+    if (transaction.isDebtMovement) continue;
     totals[transaction.label] =
         (totals[transaction.label] ?? 0) + transaction.amount;
   }

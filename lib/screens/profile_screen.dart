@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/light_dark_toggle.dart';
-import 'budget_screen.dart';
 import 'login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -367,21 +366,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                     child: Column(
                       children: [
-                        _buildActionTile(
-                          iconAsset: 'assets/icons/icons8-money-box-96.png',
-                          title: 'Category Budgets',
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const BudgetScreen(),
-                              ),
-                            );
-                          },
-                        ),
-
-                        const Divider(height: 1, indent: 65),
-
                         _buildActionTile(
                           iconAsset: 'assets/icons/icons8-lock-96.png',
 

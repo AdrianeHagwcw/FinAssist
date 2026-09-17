@@ -65,7 +65,7 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
   final _formKey = GlobalKey<FormState>();
 
   late final _amountController = TextEditingController(
-    text: widget.payInFull ? widget.instance.remaining.toStringAsFixed(2) : '',
+    text: widget.payInFull ? formatAmountInput(widget.instance.remaining) : '',
   );
 
   late final Stream<List<Wallet>> _wallets =

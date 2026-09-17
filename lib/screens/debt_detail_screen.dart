@@ -110,7 +110,7 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => RepaymentSheet(debt: debt, wallets: _wallets),
+      builder: (context) => RepaymentSheet(debt: debt, wallets: widget.wallets),
     );
   }
 
@@ -563,13 +563,17 @@ class _Line extends StatelessWidget {
 class RepaymentSheet extends StatefulWidget {
   const RepaymentSheet({
     required this.debt,
-    required this.wallets,
+    this.wallets,
     this.onSave,
     super.key,
   });
 
   final Debt debt;
-  final Stream<List<Wallet>> wallets;
+
+  /// Its own feed of wallets unless given one. A live Firestore feed only
+  /// hands its data to the first listener, so a sheet can't borrow the one
+  /// the screen underneath is already showing.
+  final Stream<List<Wallet>>? wallets;
 
   /// Replaces saving. Used by tests.
   final void Function(double amount, String walletId)? onSave;
@@ -580,8 +584,10 @@ class RepaymentSheet extends StatefulWidget {
 
 class _RepaymentSheetState extends State<RepaymentSheet> {
   late final _amountController = TextEditingController(
-    text: widget.debt.stillOwedToMe.toStringAsFixed(2),
+    text: formatAmountInput(widget.debt.stillOwedToMe),
   );
+  late final Stream<List<Wallet>> _wallets =
+      widget.wallets ?? WalletService.watchWallets();
   String? _walletId;
   String? _error;
 
@@ -633,7 +639,7 @@ class _RepaymentSheetState extends State<RepaymentSheet> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
           child: StreamBuilder<List<Wallet>>(
-            stream: widget.wallets,
+            stream: _wallets,
             builder: (context, snapshot) {
               final wallets = snapshot.data ?? const <Wallet>[];
 

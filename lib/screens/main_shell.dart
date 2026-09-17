@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../models/debt.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/back_to_home.dart';
 import '../widgets/debt_form_sheet.dart';
+import '../widgets/goal_sheets.dart';
 import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
 import 'add_expense_screen.dart';
-import 'chatbot_screen.dart';
 import 'goals_screen.dart';
 import 'home_screen.dart';
 import 'income_waterfall_screen.dart';
@@ -31,6 +33,33 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   static const _homeIndex = 0;
   static const _transactionsIndex = 1;
+  static const _goalsIndex = 2;
+  static const _walletIndex = 3;
+
+  /// Opens the Goals tab on savings or on a debts list.
+  final _goalsTab = GoalsTabController();
+
+  @override
+  void dispose() {
+    _goalsTab.dispose();
+    super.dispose();
+  }
+
+  void _openSavings() {
+    _selectTab(_goalsIndex);
+    _goalsTab.openSavings();
+  }
+
+  void _openDebts(DebtDirection direction) {
+    _selectTab(_goalsIndex);
+    _goalsTab.openDebts(direction);
+  }
+
+  /// Adds an installment or a loan, then shows the list it went to.
+  Future<void> _addDebt(DebtDirection direction) async {
+    final saved = await showDebtFormSheet(context, direction: direction);
+    if (saved != null && mounted) _openDebts(saved);
+  }
 
   int _currentIndex = _homeIndex;
 
@@ -49,14 +78,18 @@ class _MainShellState extends State<MainShell> {
           HomeScreen(
             key: ValueKey(_homeRefreshKey),
             onOpenTransactions: () => _selectTab(_transactionsIndex),
+            onOpenWallets: () => _selectTab(_walletIndex),
+            onOpenSavings: _openSavings,
+            onOpenDebts: () => _openDebts(DebtDirection.iOwe),
           ),
           const TransactionsScreen(),
-          const GoalsScreen(),
+          GoalsScreen(controller: _goalsTab),
           const WalletsScreen(),
         ];
   }
 
-  // The things people log most, one tap from anywhere.
+  // Things to record, one tap from anywhere. Places to go live on Home's
+  // Quick Actions and the bottom bar instead.
   List<QuickAddAction> _quickAddActions() {
     return widget.quickAddActions ??
         [
@@ -91,21 +124,28 @@ class _MainShellState extends State<MainShell> {
             },
           ),
           QuickAddAction(
-            icon: Icons.receipt_long_outlined,
+            icon: Icons.savings_outlined,
             iconAsset: 'assets/icons/icons8-money-box-96.png',
-            label: 'Installment',
+            label: 'Save to Goal',
             color: appPrimaryBlue,
-            onSelected: () => showDebtFormSheet(context),
+            onSelected: () async {
+              final saved = await showSaveToGoal(context);
+              if (saved && mounted) _openSavings();
+            },
           ),
           QuickAddAction(
-            icon: Icons.smart_toy_outlined,
-            iconAsset: 'assets/icons/icons8-robot-48.png',
-            label: 'AI Chat',
+            icon: Icons.receipt_long_outlined,
+            iconAsset: 'assets/icons/icons8-receipt-96.png',
+            label: 'Installment',
             color: appPrimaryBlue,
-            onSelected: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ChatbotScreen()),
-            ),
+            onSelected: () => _addDebt(DebtDirection.iOwe),
+          ),
+          QuickAddAction(
+            icon: Icons.handshake_outlined,
+            iconAsset: 'assets/icons/lend-96.png',
+            label: 'Lend',
+            color: appPrimaryBlue,
+            onSelected: () => _addDebt(DebtDirection.owedToMe),
           ),
         ];
   }
@@ -122,7 +162,10 @@ class _MainShellState extends State<MainShell> {
       },
       child: Scaffold(
         backgroundColor: colors.pageBackground,
-        body: IndexedStack(index: _currentIndex, children: _pages()),
+        body: BackToHomeScope(
+          goHome: () => _selectTab(_homeIndex),
+          child: IndexedStack(index: _currentIndex, children: _pages()),
+        ),
         floatingActionButton: FloatingActionButton(
           onPressed: () => showQuickAddSheet(context, _quickAddActions()),
           tooltip: 'Quick add',

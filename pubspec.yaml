@@ -44,6 +44,7 @@ dependencies:
   provider: ^6.1.5+1
   shared_preferences: ^2.5.5
   connectivity_plus: ^7.3.1
+  fl_chart: ^1.2.0
 
 dev_dependencies:
   flutter_test:
@@ -120,7 +121,9 @@ flutter:
     - assets/icons/icons8-lock-96.png
     - assets/icons/icons8-help-96.png
     - assets/icons/icons8-bell-96.png
-    - assets/icons/icons8-bank-96.png
+    - assets/icons/bank-96.png
+    - assets/icons/lend-96.png
+    - assets/icons/loan-in-96.png
     - assets/icons/icons8-calendar-96.png
     - assets/icons/icons8-mobile-payment-96.png
     - assets/icons/icons8-shield-96.png

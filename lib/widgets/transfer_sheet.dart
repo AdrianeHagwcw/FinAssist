@@ -162,6 +162,7 @@ class _TransferSheetState extends State<TransferSheet> {
                         decoration: InputDecoration(
                           labelText: 'Amount',
                           prefixText: '₱ ',
+                          hintText: '0.00',
                           helperText: source == null
                               ? null
                               : '${source.name} holds '

@@ -160,7 +160,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         _allocations = [for (final bill in bills) BillAllocation.full(bill)];
         for (final bill in bills) {
           _billControllers[bill.id] = TextEditingController(
-            text: bill.remaining.toStringAsFixed(2),
+            text: formatAmountInput(bill.remaining),
           )..addListener(_refresh);
         }
       });
@@ -647,7 +647,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 context,
                 'Amount to set aside',
                 helper: '${goal.name} needs ${formatPeso(goal.remaining)} more',
-              ).copyWith(prefixText: '₱ '),
+              ).copyWith(prefixText: '₱ ', hintText: '0.00'),
             ),
         ],
         const SizedBox(height: 16),
@@ -957,7 +957,7 @@ class _BillChoice extends StatelessWidget {
                   context,
                   'Pay now',
                   helper: 'Still owes ${formatPeso(bill.remaining)}',
-                ).copyWith(prefixText: '₱ '),
+                ).copyWith(prefixText: '₱ ', hintText: '0.00'),
               ),
             ),
           ],
