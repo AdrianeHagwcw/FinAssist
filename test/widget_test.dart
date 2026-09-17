@@ -11,6 +11,7 @@ import 'package:testapp/models/allocation.dart';
 import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/bill.dart';
 import 'package:testapp/models/onboarding_data.dart';
+import 'package:testapp/models/safe_to_spend.dart';
 import 'package:testapp/models/wallet.dart';
 import 'package:testapp/models/transaction_filter.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
@@ -20,6 +21,7 @@ import 'package:testapp/screens/chatbot_screen.dart';
 import 'package:testapp/screens/financial_setup_screen.dart';
 import 'package:testapp/screens/forgot_password_screen.dart';
 import 'package:testapp/screens/income_waterfall_screen.dart';
+import 'package:testapp/screens/leftover_review_screen.dart';
 import 'package:testapp/screens/main_shell.dart';
 import 'package:testapp/widgets/quick_add_sheet.dart';
 import 'package:testapp/screens/splash_screen.dart';
@@ -27,6 +29,7 @@ import 'package:testapp/screens/transactions_screen.dart';
 import 'package:testapp/screens/wallet_detail_screen.dart';
 import 'package:testapp/screens/wallets_screen.dart';
 import 'package:testapp/services/legacy_migration.dart';
+import 'package:testapp/services/budget_service.dart';
 import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
 import 'package:testapp/theme/app_theme.dart';
@@ -37,6 +40,7 @@ import 'package:testapp/utils/date_format.dart';
 import 'package:testapp/utils/categories.dart';
 import 'package:testapp/utils/money_format.dart';
 import 'package:testapp/widgets/money_text.dart';
+import 'package:testapp/widgets/safe_to_spend_card.dart';
 import 'package:testapp/widgets/transaction_edit_sheet.dart';
 import 'package:testapp/widgets/transfer_sheet.dart';
 import 'package:testapp/widgets/wallet_picker.dart';
@@ -3009,6 +3013,420 @@ void main() {
       await tester.tap(find.text('Delete').last);
       await tester.pumpAndSettle();
       expect(deleted, isTrue);
+    });
+  });
+
+  group('pay periods', () {
+    test('semi-monthly splits on the 15th', () {
+      final early = payPeriodFor('Semi-monthly', now: DateTime(2026, 3, 10));
+      final late = payPeriodFor('Semi-monthly', now: DateTime(2026, 3, 20));
+
+      expect(early.start, DateTime(2026, 3, 1));
+      expect(early.end, DateTime(2026, 3, 16));
+      expect(early.daysLeft(DateTime(2026, 3, 10)), 6);
+      expect(late.start, DateTime(2026, 3, 16));
+      expect(late.end, DateTime(2026, 4, 1));
+    });
+
+    test('a monthly income runs from the day it arrived', () {
+      final period = payPeriodFor(
+        'Monthly',
+        lastIncomeAt: DateTime(2026, 3, 7),
+        now: DateTime(2026, 3, 20),
+      );
+
+      expect(period.start, DateTime(2026, 3, 7));
+      expect(period.end, DateTime(2026, 4, 7));
+    });
+
+    test('an allowance on the 31st does not drift through February', () {
+      final anchor = DateTime(2026, 1, 31);
+
+      final feb = payPeriodFor(
+        'Monthly',
+        lastIncomeAt: anchor,
+        now: DateTime(2026, 3, 1),
+      );
+      expect(feb.start, DateTime(2026, 2, 28));
+      expect(feb.end, DateTime(2026, 3, 31));
+
+      final april = payPeriodFor(
+        'Monthly',
+        lastIncomeAt: anchor,
+        now: DateTime(2026, 4, 5),
+      );
+      expect(april.start, DateTime(2026, 3, 31));
+      expect(april.end, DateTime(2026, 4, 30));
+    });
+
+    test('weekly periods follow the day income arrived', () {
+      final period = payPeriodFor(
+        'Weekly',
+        lastIncomeAt: DateTime(2026, 3, 4),
+        now: DateTime(2026, 3, 19),
+      );
+
+      expect(period.start, DateTime(2026, 3, 18));
+      expect(period.end, DateTime(2026, 3, 25));
+    });
+
+    test('with nothing to go on, a month is a calendar month', () {
+      final period = payPeriodFor('Irregular', now: DateTime(2026, 2, 14));
+
+      expect(period.start, DateTime(2026, 2, 1));
+      expect(period.end, DateTime(2026, 3, 1));
+      expect(period.daysLeft(DateTime(2026, 2, 28)), 1);
+      expect(period.isLastDay(DateTime(2026, 2, 28)), isTrue);
+    });
+  });
+
+  group('safe to spend', () {
+    test('bills and savings come off before sharing over the days left', () {
+      const s = SafeToSpend(
+        walletBalance: 10000,
+        billsDue: 3000,
+        savingsReserve: 1000,
+        spentToday: 0,
+        daysLeft: 10,
+      );
+
+      expect(s.spendableThisPeriod, 6000);
+      expect(s.recommendedDailyLimit, 600);
+      expect(s.leftToday, 600);
+    });
+
+    test("spending today doesn't shrink today's own limit", () {
+      // The balance already dropped by the 200 spent, so it is added back
+      // before sharing out, and taken off once, from what is left today.
+      const s = SafeToSpend(
+        walletBalance: 5800,
+        billsDue: 0,
+        savingsReserve: 0,
+        spentToday: 200,
+        daysLeft: 10,
+      );
+
+      expect(s.dailyLimit, 600);
+      expect(s.leftToday, 400);
+      expect(s.usedFraction, closeTo(1 / 3, 0.001));
+    });
+
+    test('a limit the user set is used instead of the recommendation', () {
+      const s = SafeToSpend(
+        walletBalance: 5000,
+        billsDue: 0,
+        savingsReserve: 0,
+        spentToday: 350,
+        daysLeft: 5,
+        customDailyLimit: 300,
+      );
+
+      expect(s.dailyLimit, 300);
+      expect(s.leftToday, -50);
+      expect(s.isOverLimit, isTrue);
+      expect(s.usedFraction, 1);
+    });
+
+    test('owing more than you have means nothing is safe to spend', () {
+      const s = SafeToSpend(
+        walletBalance: 1000,
+        billsDue: 4000,
+        savingsReserve: 0,
+        spentToday: 0,
+        daysLeft: 7,
+      );
+
+      expect(s.spendableThisPeriod, 0);
+      expect(s.recommendedDailyLimit, 0);
+    });
+
+    test("bill payments and transfers aren't today's spending", () {
+      final today = DateTime(2026, 3, 10);
+      AppTransaction t(
+        TransactionType type,
+        double amount, {
+        String? bill,
+        DateTime? date,
+      }) => AppTransaction(
+        id: '$type$amount',
+        type: type,
+        amount: amount,
+        label: 'x',
+        date: date ?? today.add(const Duration(hours: 9)),
+        walletId: 'w',
+        toWalletId: type == TransactionType.transfer ? 'v' : null,
+        billInstanceId: bill,
+      );
+
+      final spent = discretionarySpending(
+        [
+          t(TransactionType.expense, 120),
+          t(TransactionType.expense, 3000, bill: 'rent'),
+          t(TransactionType.transfer, 500),
+          t(TransactionType.income, 999),
+          t(TransactionType.expense, 80, date: DateTime(2026, 3, 9, 23)),
+        ],
+        from: today,
+        until: today.add(const Duration(days: 1)),
+      );
+
+      expect(spent, 120);
+    });
+
+    test('only unpaid bills due before the period ends are counted', () {
+      BillInstance b(double amount, DateTime due, [BillStatus? status]) =>
+          BillInstance(
+            id: '$amount',
+            billId: 'b',
+            name: 'b',
+            amount: amount,
+            category: 'Bills',
+            dueDate: due,
+            status: status ?? BillStatus.unpaid,
+          );
+
+      final total = billsDueBefore([
+        b(1000, DateTime(2026, 3, 5)),
+        b(500, DateTime(2026, 3, 20)),
+        b(700, DateTime(2026, 4, 2)),
+        b(900, DateTime(2026, 3, 12), BillStatus.skipped),
+      ], DateTime(2026, 4, 1));
+
+      expect(total, 1500);
+    });
+
+    test('an older profile limit counts as one the user chose', () {
+      expect(customDailyLimitFrom({'dailyBudget': 250}), 250);
+      expect(
+        customDailyLimitFrom({
+          'dailyBudget': 250,
+          'dailyLimitMode': 'recommended',
+        }),
+        isNull,
+      );
+      expect(customDailyLimitFrom(null), isNull);
+      expect(savingsReserveFrom({'savingsReserve': -5}), 0);
+    });
+  });
+
+  group('leftover review', () {
+    AllocationCycle cycle({
+      double remaining = 2000,
+      DateTime? receivedAt,
+      LeftoverDecision? decision,
+    }) {
+      return AllocationCycle(
+        id: 'c',
+        income: 5000,
+        remaining: remaining,
+        receivedAt: receivedAt ?? DateTime(2026, 3, 1),
+        source: 'Allowance',
+        decision: decision,
+      );
+    }
+
+    test('is due on the last day of the period, not before', () {
+      final cycles = [cycle()];
+
+      expect(
+        cycleAwaitingReview(cycles, 'Semi-monthly', now: DateTime(2026, 3, 10)),
+        isNull,
+      );
+      expect(
+        cycleAwaitingReview(cycles, 'Semi-monthly', now: DateTime(2026, 3, 15)),
+        isNotNull,
+      );
+    });
+
+    test('a decided leftover is not asked about again, a deferred one is', () {
+      final late = DateTime(2026, 3, 20);
+
+      expect(
+        cycleAwaitingReview(
+          [cycle(decision: LeftoverDecision.saved)],
+          'Semi-monthly',
+          now: late,
+        ),
+        isNull,
+      );
+      expect(
+        cycleAwaitingReview(
+          [cycle(decision: LeftoverDecision.pending)],
+          'Semi-monthly',
+          now: late,
+        ),
+        isNotNull,
+      );
+    });
+
+    test("the leftover is what bills left, less the period's spending", () {
+      final c = cycle(remaining: 2000);
+      final period = periodOf(c, 'Semi-monthly');
+
+      final leftover = leftoverOf(c, [
+        AppTransaction(
+          id: 'a',
+          type: TransactionType.expense,
+          amount: 700,
+          label: 'Food',
+          date: DateTime(2026, 3, 6),
+          walletId: 'w',
+        ),
+        AppTransaction(
+          id: 'late',
+          type: TransactionType.expense,
+          amount: 5000,
+          label: 'Food',
+          date: DateTime(2026, 3, 16),
+          walletId: 'w',
+        ),
+      ], period);
+
+      expect(leftover, 1300);
+    });
+
+    Future<void> pumpReview(
+      WidgetTester tester, {
+      required void Function(LeftoverDecision, double, double) onResolve,
+    }) async {
+      tester.view.physicalSize = const Size(700, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: LeftoverReviewScreen(
+              cycle: cycle(),
+              leftover: 1000,
+              periodEnd: DateTime(2026, 3, 16),
+              onResolve: onResolve,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('asks for a choice before confirming', (tester) async {
+      LeftoverDecision? decided;
+      await pumpReview(tester, onResolve: (d, _, _) => decided = d);
+
+      await tester.tap(find.text('Confirm'));
+      await tester.pump();
+
+      expect(find.text('Choose what to do with it first.'), findsOneWidget);
+      expect(decided, isNull);
+    });
+
+    testWidgets('saving records the whole amount as saved', (tester) async {
+      LeftoverDecision? decided;
+      double? saved;
+      await pumpReview(
+        tester,
+        onResolve: (d, s, _) {
+          decided = d;
+          saved = s;
+        },
+      );
+
+      await tester.tap(find.text('Save it'));
+      await tester.pump();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(decided, LeftoverDecision.saved);
+      expect(saved, 1000);
+    });
+
+    testWidgets('a split must add up to the leftover', (tester) async {
+      LeftoverDecision? decided;
+      await pumpReview(tester, onResolve: (d, _, _) => decided = d);
+
+      await tester.tap(find.text('Split it'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).first, '800');
+      await tester.tap(find.text('Confirm'));
+      await tester.pump();
+
+      expect(find.textContaining('must add up to ₱1,000.00'), findsOneWidget);
+      expect(decided, isNull);
+
+      await tester.enterText(find.byType(TextField).last, '200');
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(decided, LeftoverDecision.split);
+    });
+
+    testWidgets('deciding later leaves it pending', (tester) async {
+      LeftoverDecision? decided;
+      await pumpReview(tester, onResolve: (d, _, _) => decided = d);
+
+      await tester.tap(find.text('Decide later'));
+      await tester.pumpAndSettle();
+
+      expect(decided, LeftoverDecision.pending);
+    });
+  });
+
+  group('Safe to Spend card', () {
+    final cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 5800,
+      startingBalance: 5800,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+
+    testWidgets("shows what is left today against the day's limit", (
+      tester,
+    ) async {
+      final today = DateTime(2026, 3, 22, 10);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SafeToSpendCard(
+                today: today,
+                wallets: Stream.value([cash]),
+                transactions: Stream.value([
+                  AppTransaction(
+                    id: 'lunch',
+                    type: TransactionType.expense,
+                    amount: 200,
+                    label: 'Food',
+                    date: today,
+                    walletId: 'cash',
+                  ),
+                ]),
+                profile: Stream.value({'incomeFrequency': 'Semi-monthly'}),
+                cycles: Stream.value(const []),
+                loadBills: () async => const [],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      // 5800 + 200 spent today, over the 10 days from the 22nd to month end.
+      expect(find.text('Safe to Spend Today'), findsOneWidget);
+      expect(find.text('₱400.00'), findsOneWidget);
+      expect(find.text('of ₱600.00 daily limit'), findsOneWidget);
+      expect(find.text('Today spent: ₱200.00'), findsOneWidget);
+      expect(find.text('10 days left this period'), findsOneWidget);
     });
   });
 }

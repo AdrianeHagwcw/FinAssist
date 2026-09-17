@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'income_waterfall_screen.dart';
 import 'insights_screen.dart';
+import 'leftover_review_screen.dart';
 import 'chatbot_screen.dart';
 import 'profile_screen.dart';
 import 'ocr_screen.dart';
@@ -11,13 +12,13 @@ import 'voice_recognition_screen.dart';
 import 'bill_calendar_screen.dart';
 import 'budget_screen.dart';
 import '../models/wallet.dart';
-import '../services/user_profile_service.dart';
 import '../services/wallet_service.dart';
 import '../utils/categories.dart';
 import '../utils/money_format.dart';
+import '../models/allocation.dart';
 import '../widgets/money_text.dart';
+import '../widgets/safe_to_spend_card.dart';
 import '../theme/app_colors.dart';
-import '../widgets/add_budget_dialog.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/quick_action_tile.dart';
 
@@ -254,7 +255,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   const SizedBox(height: 25),
 
-                  _buildFinancialOverview(documents),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: SafeToSpendCard(
+                      footerBuilder: _overviewButtons,
+                      belowCard: _leftoverNotice,
+                    ),
+                  ),
 
                   const SizedBox(height: 25),
 
@@ -974,191 +981,88 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildFinancialOverview(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> documents,
-  ) {
-    final profileFuture = UserProfileService.getDailyBudgetProfile();
-
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: profileFuture,
-      builder: (context, snapshot) {
-        final profile = snapshot.data?.data();
-        final dailyBudget =
-            (profile?['dailyBudget'] as num?)?.toDouble() ??
-            (profile?['budget'] as num?)?.toDouble() ??
-            0;
-        final income = (profile?['income'] as num?)?.toDouble() ?? 0;
-        final dailyBudgetStart =
-            (profile?['dailyBudgetStartedAt'] as Timestamp?)?.toDate();
-        final dailyExpenses = dailyBudgetStart == null
-            ? 0.0
-            : documents.fold<double>(0, (total, document) {
-                final data = document.data();
-                final date = (data['date'] as Timestamp?)?.toDate();
-                if (date == null || date.isBefore(dailyBudgetStart)) {
-                  return total;
-                }
-                return total + ((data['amount'] as num?)?.toDouble() ?? 0);
-              });
-        final remainingBudget = dailyBudget - dailyExpenses;
-        final budgetUsed = dailyBudget > 0
-            ? (dailyExpenses / dailyBudget).clamp(0.0, 1.0).toDouble()
-            : 0.0;
-        final budgetUsedColor = budgetUsed >= 1.0
-            ? Colors.red
-            : budgetUsed >= 0.75
-            ? Colors.amber.shade700
-            : context.appColors.primaryText;
-
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            profile == null) {
-          return const SizedBox(
-            height: 120,
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: context.appColors.card,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
+  /// The buttons under the Safe-to-Spend figure. "Daily Limit" opens the
+  /// same editor as the card's pencil.
+  Widget _overviewButtons(BuildContext context, VoidCallback openLimitEditor) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final saved = await showIncomeWaterfall(context);
+                  if (saved && mounted) setState(() {});
+                },
+                icon: Image.asset(
+                  'assets/icons/icons8-money-transfer-96.png',
+                  width: 18,
+                  height: 18,
                 ),
-              ],
+                label: const Text('Add Income'),
+                style: _overviewButtonStyle,
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Financial Overview',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: openLimitEditor,
+                icon: Image.asset(
+                  'assets/icons/icons8-calendar-96.png',
+                  width: 18,
+                  height: 18,
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _overviewAmount(
-                      'Income',
-                      income,
-                      color: Colors.green,
-                      iconAsset: 'assets/icons/icons8-money-transfer-96.png',
-                    ),
-                    _overviewAmount(
-                      'Daily Limit',
-                      dailyBudget,
-                      color: primaryBlue,
-                      iconAsset: 'assets/icons/icons8-calendar-96.png',
-                    ),
-                    _overviewAmount(
-                      'Today',
-                      dailyExpenses,
-                      color: Colors.red,
-                      iconAsset: 'assets/icons/icons8-expenses-64.png',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Daily Limit Used',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Remaining: ${formatPeso(remainingBudget)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: budgetUsedColor,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          '${(budgetUsed * 100).toStringAsFixed(1)}%',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: budgetUsedColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: LinearProgressIndicator(
-                    value: budgetUsed,
-                    minHeight: 8,
-                    backgroundColor: context.appColors.track,
-                    color: primaryBlue,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final saved = await showIncomeWaterfall(context);
-                          if (saved && mounted) setState(() {});
-                        },
-                        icon: Image.asset(
-                          'assets/icons/icons8-money-transfer-96.png',
-                          width: 18,
-                          height: 18,
-                        ),
-                        label: const Text('Add Income'),
-                        style: _overviewButtonStyle,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _showAddBudgetDialog(dailyBudget),
-                        icon: Image.asset(
-                          'assets/icons/icons8-calendar-96.png',
-                          width: 18,
-                          height: 18,
-                        ),
-                        label: const Text('Add Budget'),
-                        style: _overviewButtonStyle,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _openBudgets,
-                    icon: Image.asset(
-                      'assets/icons/icons8-money-box-96.png',
-                      width: 18,
-                      height: 18,
-                    ),
-                    label: const Text('Manage Category Budgets'),
-                    style: _overviewButtonStyle,
-                  ),
-                ),
-              ],
+                label: const Text('Daily Limit'),
+                style: _overviewButtonStyle,
+              ),
             ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _openBudgets,
+            icon: Image.asset(
+              'assets/icons/icons8-money-box-96.png',
+              width: 18,
+              height: 18,
+            ),
+            label: const Text('Manage Category Budgets'),
+            style: _overviewButtonStyle,
           ),
-        );
-      },
+        ),
+      ],
+    );
+  }
+
+  /// Offers the leftover review once a pay period is on its last day and
+  /// what was left of it hasn't been decided.
+  Widget _leftoverNotice(BuildContext context, SafeToSpendInputs inputs) {
+    final cycle = cycleAwaitingReview(
+      inputs.cycles,
+      inputs.frequency,
+      now: DateTime.now(),
+    );
+    if (cycle == null) return const SizedBox.shrink();
+
+    final period = periodOf(cycle, inputs.frequency);
+    final leftover = leftoverOf(cycle, inputs.transactions, period);
+    if (leftover <= 0) return const SizedBox.shrink();
+
+    return LeftoverNotice(
+      cycle: cycle,
+      leftover: leftover,
+      onReview: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LeftoverReviewScreen(
+            cycle: cycle,
+            leftover: leftover,
+            periodEnd: period.end,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1167,15 +1071,6 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(builder: (context) => const BillCalendarScreen()),
     );
-  }
-
-  Future<void> _showAddBudgetDialog(double currentBudget) async {
-    final saved = await showAddBudgetDialog(
-      context,
-      currentBudget: currentBudget,
-    );
-
-    if (saved && mounted) setState(() {});
   }
 
   /// Same blue as the + button in both light and dark mode, so these
@@ -1188,51 +1083,6 @@ class _HomeScreenState extends State<HomeScreen> {
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     textStyle: const TextStyle(fontWeight: FontWeight.w600),
   );
-
-  Widget _overviewAmount(
-    String label,
-    double amount, {
-    required Color color,
-    required String iconAsset,
-  }) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            SizedBox(
-              height: 18,
-              child: Image.asset(iconAsset, width: 18, height: 18),
-            ),
-            SizedBox(
-              height: 28,
-              width: double.infinity,
-              child: Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-            ),
-            const SizedBox(height: 4),
-            MoneyText(
-              amount,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // =================================================
   // DATE FORMAT

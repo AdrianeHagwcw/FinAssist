@@ -113,64 +113,6 @@ class UserProfileService {
     }
   }
 
-  static Future<void> updateIncome({
-    required double income,
-    required String incomeSource,
-  }) async {
-    await _updateProfile({'income': income, 'incomeSource': incomeSource});
-  }
-
-  /// Records income against the running daily total and returns the id of
-  /// the stored record, so the caller can file the matching wallet entry
-  /// under the same id.
-  static Future<String> addOtherIncome({
-    required double amount,
-    required String incomeSource,
-  }) async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      throw StateError('No authenticated user.');
-    }
-
-    final profile = await _profileReference(user.uid).get();
-    final profileData = profile.data();
-    final currentDailyIncome =
-        (profileData?['dailyIncome'] as num?)?.toDouble() ??
-        (profileData?['otherIncome'] as num?)?.toDouble() ??
-        0;
-
-    await _updateProfile({
-      'dailyIncome': currentDailyIncome + amount,
-      'lastDailyIncomeSource': incomeSource,
-    });
-
-    final reference = _profileReference(
-      user.uid,
-    ).collection('dailyIncomeTransactions').doc();
-
-    commitFirestoreWrite(
-      reference.set({
-        'amount': amount,
-        'source': incomeSource,
-        'type': 'income',
-        'date': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-      }),
-      'add income transaction',
-    );
-
-    return reference.id;
-  }
-
-  static Future<void> updateBudget(double budget) async {
-    await _updateProfile({
-      'dailyBudget': budget,
-      'budget': budget,
-      'dailyBudgetStartedAt': Timestamp.fromDate(DateTime.now()),
-    });
-  }
-
   static Future<void> saveCategoryBudget({
     required String category,
     required double amount,
@@ -233,57 +175,5 @@ class UserProfileService {
 
   static String _categoryBudgetId(String category) {
     return category.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
-  }
-
-  static Future<DocumentSnapshot<Map<String, dynamic>>>
-  getDailyBudgetProfile() async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      throw StateError('No authenticated user.');
-    }
-
-    final profileReference = _profileReference(user.uid);
-    final profile = await profileReference.get();
-    final profileData = profile.data() ?? <String, dynamic>{};
-    final storedStart = profileData['dailyBudgetStartedAt'];
-    final start = storedStart is Timestamp
-        ? storedStart.toDate()
-        : DateTime.now();
-    final now = DateTime.now();
-
-    var nextStart = start;
-    while (!now.isBefore(nextStart.add(const Duration(days: 1)))) {
-      nextStart = nextStart.add(const Duration(days: 1));
-    }
-
-    if (storedStart is! Timestamp || nextStart != start) {
-      commitFirestoreWrite(
-        profileReference.set({
-          'dailyBudgetStartedAt': Timestamp.fromDate(nextStart),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true)),
-        'advance daily budget start',
-      );
-      return profileReference.get();
-    }
-
-    return profile;
-  }
-
-  static Future<void> _updateProfile(Map<String, dynamic> fields) async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      throw StateError('No authenticated user.');
-    }
-
-    commitFirestoreWrite(
-      _profileReference(user.uid).set({
-        ...fields,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)),
-      'update profile',
-    );
   }
 }

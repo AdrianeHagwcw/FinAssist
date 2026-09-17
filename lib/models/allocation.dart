@@ -1,5 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../utils/money_format.dart';
+import 'app_transaction.dart';
 import 'bill.dart';
+import 'safe_to_spend.dart';
 
 /// What the user decided for one bill while allocating new income.
 class BillAllocation {
@@ -47,7 +51,7 @@ class AllocationPlan {
   /// Total going to bills this cycle.
   double get toBills => bills
       .where((bill) => bill.pays)
-      .fold<double>(0, (sum, bill) => sum + bill.amount);
+      .fold<double>(0, (total, bill) => total + bill.amount);
 
   /// What is left of the income after bills. Negative means the bills chosen
   /// cost more than came in, and the difference comes out of money already in
@@ -112,4 +116,128 @@ List<BillInstance> outstandingBills(
 
   outstanding.sort((a, b) => a.dueDate.compareTo(b.dueDate));
   return outstanding;
+}
+
+/// What the user decided about the money left at the end of a pay period.
+enum LeftoverDecision {
+  saved('Saved'),
+  spent('Used for spending'),
+  split('Split'),
+  pending('Decide later');
+
+  const LeftoverDecision(this.label);
+
+  final String label;
+
+  static LeftoverDecision? fromName(String? name) {
+    for (final decision in LeftoverDecision.values) {
+      if (decision.name == name) return decision;
+    }
+    return null;
+  }
+}
+
+/// One time income came in and was allocated, as saved by the waterfall.
+class AllocationCycle {
+  const AllocationCycle({
+    required this.id,
+    required this.income,
+    required this.remaining,
+    required this.receivedAt,
+    required this.source,
+    this.walletId,
+    this.decision,
+    this.savedAmount = 0,
+    this.spentAmount = 0,
+  });
+
+  factory AllocationCycle.fromMap(String id, Map<String, dynamic>? data) {
+    final map = data ?? const <String, dynamic>{};
+    final received = map['receivedAt'];
+
+    return AllocationCycle(
+      id: id,
+      income: _asDouble(map['income']),
+      remaining: _asDouble(map['remaining']),
+      receivedAt: received is Timestamp ? received.toDate() : DateTime.now(),
+      source: map['source'] is String ? map['source'] as String : 'Income',
+      walletId: map['walletId'] is String ? map['walletId'] as String : null,
+      decision: LeftoverDecision.fromName(
+        map['leftoverDecision'] is String
+            ? map['leftoverDecision'] as String
+            : null,
+      ),
+      savedAmount: _asDouble(map['leftoverSaved']),
+      spentAmount: _asDouble(map['leftoverSpent']),
+    );
+  }
+
+  final String id;
+  final double income;
+
+  /// What was left after bills when the income was allocated.
+  final double remaining;
+  final DateTime receivedAt;
+  final String source;
+  final String? walletId;
+
+  /// Null until the leftover review has been seen.
+  final LeftoverDecision? decision;
+  final double savedAmount;
+  final double spentAmount;
+
+  /// A decision was made. "Decide later" doesn't count: it is still open.
+  bool get isResolved =>
+      decision != null && decision != LeftoverDecision.pending;
+
+  static double _asDouble(Object? value) => value is num ? value.toDouble() : 0;
+}
+
+/// The pay period a cycle's income was meant to cover.
+PayPeriod periodOf(AllocationCycle cycle, String? frequency) {
+  return payPeriodFor(
+    frequency,
+    lastIncomeAt: cycle.receivedAt,
+    now: cycle.receivedAt,
+  );
+}
+
+/// What is left of a cycle's income: what was left after bills, less what was
+/// spent during its period. Never below zero.
+double leftoverOf(
+  AllocationCycle cycle,
+  Iterable<AppTransaction> transactions,
+  PayPeriod period,
+) {
+  final spent = discretionarySpending(
+    transactions,
+    from: DateTime(
+      cycle.receivedAt.year,
+      cycle.receivedAt.month,
+      cycle.receivedAt.day,
+    ),
+    until: period.end,
+  );
+  final left = cycle.remaining - spent;
+  return left > 0 ? left : 0;
+}
+
+/// The newest cycle whose period is on its last day or already over and whose
+/// leftover hasn't been decided, or null when nothing is waiting.
+AllocationCycle? cycleAwaitingReview(
+  Iterable<AllocationCycle> cycles,
+  String? frequency, {
+  required DateTime now,
+}) {
+  final newestFirst = cycles.toList()
+    ..sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
+
+  for (final cycle in newestFirst) {
+    if (cycle.isResolved) continue;
+
+    final period = periodOf(cycle, frequency);
+    if (period.isLastDay(now) || !now.isBefore(period.end)) return cycle;
+  }
+
+  return null;
 }
