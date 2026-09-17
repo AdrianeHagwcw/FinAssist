@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/goal.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -37,6 +38,7 @@ class SavingsOption {
     required this.bestFor,
     required this.watchOutFor,
     required this.goalName,
+    this.goalKind = GoalKind.regular,
   });
 
   final String name;
@@ -49,8 +51,9 @@ class SavingsOption {
   final List<String> bestFor;
   final List<String> watchOutFor;
 
-  /// What a goal made from this card is called.
+  /// What a goal made from this card is called, and what kind it is.
   final String goalName;
+  final GoalKind goalKind;
 }
 
 const List<SavingsOption> savingsOptions = [
@@ -73,6 +76,7 @@ const List<SavingsOption> savingsOptions = [
       'Only use it for real emergencies, not wants.',
     ],
     goalName: 'Emergency Fund',
+    goalKind: GoalKind.emergencyFund,
   ),
   SavingsOption(
     name: 'Savings Account',
@@ -128,8 +132,8 @@ class SavingsGuide extends StatelessWidget {
   /// Null when there is no income to base a suggestion on.
   final double? monthlyIncome;
 
-  /// Opens the goal form with this name filled in.
-  final void Function(String goalName) onCreateGoal;
+  /// Opens the goal form with this name and kind filled in.
+  final void Function(String goalName, GoalKind kind) onCreateGoal;
 
   /// The savings share of the 50/30/20 rule: half for needs, 30% for wants,
   /// 20% for savings.
@@ -148,7 +152,7 @@ class SavingsGuide extends StatelessWidget {
         monthlyIncome: monthlyIncome,
         onCreateGoal: () {
           Navigator.pop(sheetContext);
-          onCreateGoal(option.goalName);
+          onCreateGoal(option.goalName, option.goalKind);
         },
       ),
     );

@@ -180,10 +180,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
               stream: _profile,
               builder: (context, profile) => SavingsGuide(
                 monthlyIncome: monthlyIncomeFrom(profile.data),
-                onCreateGoal: (name) => showGoalFormSheet(
+                onCreateGoal: (name, kind) => showGoalFormSheet(
                   context,
                   nextPriority: active.length,
                   initialName: name,
+                  initialKind: kind,
                 ),
               ),
             ),
@@ -287,6 +288,8 @@ class _GoalCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
+                        Icon(goal.kind.icon, size: 20, color: appPrimaryBlue),
+                        const SizedBox(width: 8),
                         if (rank != null) ...[
                           _Tag(text: '#$rank', color: appPrimaryBlue),
                           const SizedBox(width: 8),

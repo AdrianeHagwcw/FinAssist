@@ -330,6 +330,7 @@ class _ProgressHeader extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, color: colors.textBody),
           ),
+          if (!done) _PlanLine(goal: goal, now: now),
         ],
       ),
     );
@@ -494,6 +495,68 @@ class _History extends StatelessWidget {
           const SizedBox(height: 10),
         ],
       ],
+    );
+  }
+}
+
+/// The goal's saving plan and whether the user is keeping up with it.
+class _PlanLine extends StatelessWidget {
+  const _PlanLine({required this.goal, required this.now});
+
+  final Goal goal;
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) {
+    final plan = goal.planAmount;
+    final needed = neededPerContribution(
+      remaining: goal.remaining,
+      targetDate: goal.targetDate,
+      frequency: goal.frequency,
+      now: now,
+    );
+
+    final String text;
+    final Color color;
+
+    if (plan != null) {
+      final behind = behindPlan(goal, now: now) ?? 0;
+      if (behind > 0.005) {
+        text =
+            'Plan: ${formatPeso(plan)} ${goal.frequency.per} · behind by '
+            '${formatPeso(behind)}';
+        color = dangerColorOn(context);
+      } else {
+        text = 'Plan: ${formatPeso(plan)} ${goal.frequency.per} · on track';
+        color = confirmColorOn(context);
+      }
+    } else if (needed != null) {
+      text =
+          'Save ${formatPeso(needed)} ${goal.frequency.per} to finish by '
+          '${formatShortDate(goal.targetDate!)}';
+      color = context.appColors.textBody;
+    } else {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ),
     );
   }
 }

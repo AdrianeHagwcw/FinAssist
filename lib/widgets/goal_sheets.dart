@@ -6,6 +6,7 @@ import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 import 'dialog_kit.dart';
@@ -29,6 +30,7 @@ Future<void> showGoalFormSheet(
   Goal? existing,
   int nextPriority = 0,
   String? initialName,
+  GoalKind initialKind = GoalKind.regular,
 }) {
   return _showSheet(
     context,
@@ -36,6 +38,7 @@ Future<void> showGoalFormSheet(
       existing: existing,
       nextPriority: nextPriority,
       initialName: initialName,
+      initialKind: initialKind,
     ),
   );
 }
@@ -87,11 +90,39 @@ class _SheetHeader extends StatelessWidget {
   }
 }
 
+/// What the goal form would save, handed to tests instead of Firestore.
+class GoalDraft {
+  const GoalDraft({
+    required this.name,
+    required this.kind,
+    required this.targetAmount,
+    required this.alreadySaved,
+    required this.targetDate,
+    required this.frequency,
+    required this.planAmount,
+    required this.walletId,
+    required this.note,
+  });
+
+  final String name;
+  final GoalKind kind;
+  final double targetAmount;
+  final double alreadySaved;
+  final DateTime? targetDate;
+  final ContributionFrequency frequency;
+  final double? planAmount;
+  final String? walletId;
+  final String? note;
+}
+
 class GoalFormSheet extends StatefulWidget {
   const GoalFormSheet({
     this.existing,
     this.nextPriority = 0,
     this.initialName,
+    this.initialKind = GoalKind.regular,
+    this.wallets,
+    this.today,
     this.onSave,
     super.key,
   });
@@ -101,74 +132,205 @@ class GoalFormSheet extends StatefulWidget {
 
   /// A name to start with, such as one picked from the savings guide.
   final String? initialName;
+  final GoalKind initialKind;
+
+  /// Replaces the live wallet list. Used by tests.
+  final Stream<List<Wallet>>? wallets;
+  final DateTime? today;
 
   /// Replaces saving. Used by tests.
-  final void Function(String name, double target, DateTime? date)? onSave;
+  final void Function(GoalDraft draft)? onSave;
 
   @override
   State<GoalFormSheet> createState() => _GoalFormSheetState();
 }
 
 class _GoalFormSheetState extends State<GoalFormSheet> {
+  late final Goal? _existing = widget.existing;
+  late final DateTime _today = widget.today ?? DateTime.now();
+
+  late final Stream<List<Wallet>> _wallets =
+      widget.wallets ?? WalletService.watchWallets();
+
   late final _nameController = TextEditingController(
-    text: widget.existing?.name ?? widget.initialName ?? '',
+    text: _existing?.name ?? widget.initialName ?? '',
   );
   late final _targetController = TextEditingController(
-    text: widget.existing == null
-        ? ''
-        : widget.existing!.targetAmount.toStringAsFixed(2),
+    text: _existing == null ? '' : _existing.targetAmount.toStringAsFixed(2),
   );
-  late DateTime? _date = widget.existing?.targetDate;
+  final _savedController = TextEditingController();
+  late final _planController = TextEditingController(
+    text: _existing?.planAmount?.toStringAsFixed(2) ?? '',
+  );
+  late final _noteController = TextEditingController(
+    text: _existing?.note ?? '',
+  );
+
+  late GoalKind _kind = _existing?.kind ?? widget.initialKind;
+  late ContributionFrequency _frequency =
+      _existing?.frequency ?? ContributionFrequency.monthly;
+  late DateTime? _date = _existing?.targetDate;
+  late String? _walletId = _existing?.walletId;
   String? _error;
+
+  bool get _isEditing => _existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    // The preview and suggestion follow every keystroke.
+    for (final controller in [
+      _nameController,
+      _targetController,
+      _savedController,
+      _planController,
+    ]) {
+      controller.addListener(_refresh);
+    }
+  }
+
+  void _refresh() => setState(() {});
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _targetController.dispose();
+    for (final controller in [
+      _nameController,
+      _targetController,
+      _savedController,
+      _planController,
+      _noteController,
+    ]) {
+      controller
+        ..removeListener(_refresh)
+        ..dispose();
+    }
     super.dispose();
   }
 
+  double _number(TextEditingController controller) =>
+      double.tryParse(controller.text.trim().replaceAll(',', '')) ?? 0;
+
+  /// Still to save, counting what is already saved.
+  double get _remaining {
+    final saved = _isEditing
+        ? _existing!.shownSaved
+        : _number(_savedController);
+    final left = _number(_targetController) - saved;
+    return left > 0 ? left : 0;
+  }
+
+  double? get _needed => neededPerContribution(
+    remaining: _remaining,
+    targetDate: _date,
+    frequency: _frequency,
+    now: _today,
+  );
+
+  double? get _planAmount {
+    final amount = _number(_planController);
+    return amount > 0 ? amount : null;
+  }
+
+  /// The one line that tells the user what their numbers mean.
+  String? get _hint {
+    if (_number(_targetController) <= 0) return null;
+    if (_remaining <= 0) return 'Already reached with what you have saved.';
+
+    final needed = _needed;
+    if (needed != null) {
+      final plan = _planAmount;
+      final base =
+          'Save ${formatPeso(needed)} ${_frequency.per} to reach it by '
+          '${formatShortDate(_date!)}.';
+      if (plan == null || plan + 0.005 >= needed) return base;
+      return '$base Your planned ${formatPeso(plan)} is not enough to make '
+          'that date.';
+    }
+
+    final reached = reachedByPlan(
+      remaining: _remaining,
+      amount: _planAmount,
+      frequency: _frequency,
+      now: _today,
+    );
+    if (reached != null) {
+      return 'At ${formatPeso(_planAmount!)} ${_frequency.per} you reach it '
+          'around ${formatShortDate(reached)}.';
+    }
+
+    return 'Add a target date or an amount to see how long it takes.';
+  }
+
   Future<void> _pickDate() async {
-    final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: _date ?? DateTime(now.year, now.month + 3, now.day),
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: DateTime(now.year + 20),
+      initialDate: _date ?? DateTime(_today.year, _today.month + 6, _today.day),
+      firstDate: DateTime(_today.year, _today.month, _today.day),
+      lastDate: DateTime(_today.year + 20),
     );
     if (picked != null) setState(() => _date = picked);
   }
 
-  void _save() {
+  void _save(List<Wallet> wallets) {
     final name = _nameController.text.trim();
-    final target = double.tryParse(
-      _targetController.text.trim().replaceAll(',', ''),
+    final target = _number(_targetController);
+    final saved = _isEditing ? 0.0 : _number(_savedController);
+    final walletId = _walletId ?? defaultWalletId(wallets);
+
+    final String? problem;
+    if (name.isEmpty) {
+      problem = 'Give the goal a name.';
+    } else if (target <= 0) {
+      problem = 'Enter how much you want to save.';
+    } else if (saved > 0 && walletId == null) {
+      problem = 'Add a wallet first, so your savings have somewhere to be.';
+    } else {
+      problem = null;
+    }
+
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+
+    final draft = GoalDraft(
+      name: name,
+      kind: _kind,
+      targetAmount: target,
+      alreadySaved: saved,
+      targetDate: _date,
+      frequency: _frequency,
+      planAmount: _planAmount,
+      walletId: walletId,
+      note: _noteController.text,
     );
 
-    if (name.isEmpty) {
-      setState(() => _error = 'Give the goal a name.');
-      return;
-    }
-    if (target == null || target <= 0) {
-      setState(() => _error = 'Enter how much you want to save.');
-      return;
-    }
-
     if (widget.onSave != null) {
-      widget.onSave!(name, target, _date);
-    } else if (widget.existing == null) {
-      GoalService.addGoal(
-        name: name,
-        targetAmount: target,
-        targetDate: _date,
-        priority: widget.nextPriority,
+      widget.onSave!(draft);
+    } else if (_isEditing) {
+      GoalService.updateGoal(
+        _existing!,
+        name: draft.name,
+        targetAmount: draft.targetAmount,
+        targetDate: draft.targetDate,
+        kind: draft.kind,
+        frequency: draft.frequency,
+        planAmount: draft.planAmount,
+        walletId: draft.walletId,
+        note: draft.note,
       );
     } else {
-      GoalService.updateGoal(
-        widget.existing!,
-        name: name,
-        targetAmount: target,
-        targetDate: _date,
+      GoalService.addGoal(
+        name: draft.name,
+        targetAmount: draft.targetAmount,
+        targetDate: draft.targetDate,
+        priority: widget.nextPriority,
+        kind: draft.kind,
+        frequency: draft.frequency,
+        planAmount: draft.planAmount,
+        walletId: draft.walletId,
+        note: draft.note,
+        alreadySaved: draft.alreadySaved,
       );
     }
 
@@ -177,91 +339,288 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final hint = _hint;
+
+    Widget sectionTitle(String text) => Padding(
+      padding: const EdgeInsets.only(top: 20, bottom: 10),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.bold,
+          color: colors.textPrimary,
+        ),
+      ),
+    );
+
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SheetHeader(widget.existing == null ? 'New Goal' : 'Edit Goal'),
-              TextField(
-                controller: _nameController,
-                textCapitalization: TextCapitalization.sentences,
-                maxLength: 40,
-                decoration: dialogFieldDecoration(
-                  context,
-                  'What are you saving for?',
-                  hint: 'e.g. New laptop, Emergency fund',
-                ),
-              ),
-              const SizedBox(height: 8),
-              AmountField(
-                controller: _targetController,
-                label: 'Target amount',
-                autofocus: false,
-              ),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: _pickDate,
-                borderRadius: BorderRadius.circular(12),
-                child: InputDecorator(
-                  decoration: dialogFieldDecoration(
-                    context,
-                    'Target date (optional)',
+          child: StreamBuilder<List<Wallet>>(
+            stream: _wallets,
+            builder: (context, snapshot) {
+              final wallets = snapshot.data ?? const <Wallet>[];
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SheetHeader(_isEditing ? 'Edit Goal' : 'New Savings Goal'),
+                  _GoalPreview(
+                    name: _nameController.text.trim(),
+                    kind: _kind,
+                    target: _number(_targetController),
+                    needed: _needed,
+                    frequency: _frequency,
                   ),
-                  child: Row(
+                  sectionTitle('Goal type'),
+                  Wrap(
+                    spacing: 8,
                     children: [
-                      Expanded(
-                        child: Text(
-                          _date == null
-                              ? 'No deadline'
-                              : formatShortDate(_date!),
+                      for (final kind in GoalKind.values)
+                        ChoiceChip(
+                          avatar: Icon(kind.icon, size: 18),
+                          label: Text(kind.label),
+                          selected: _kind == kind,
+                          onSelected: (_) => setState(() => _kind = kind),
                         ),
-                      ),
-                      if (_date != null)
-                        IconButton(
-                          tooltip: 'Remove deadline',
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.close, size: 18),
-                          onPressed: () => setState(() => _date = null),
-                        )
-                      else
-                        const Icon(Icons.calendar_today, size: 18),
                     ],
                   ),
-                ),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  _error!,
-                  style: TextStyle(
-                    color: dangerColorOn(context),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _save,
-                  style: confirmButtonStyle(),
-                  child: Text(
-                    widget.existing == null ? 'Add Goal' : 'Save Changes',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                  sectionTitle('Details'),
+                  TextField(
+                    controller: _nameController,
+                    textCapitalization: TextCapitalization.sentences,
+                    maxLength: 40,
+                    decoration: dialogFieldDecoration(
+                      context,
+                      'What are you saving for?',
+                      hint: 'e.g. New laptop, Emergency fund',
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  AmountField(
+                    controller: _targetController,
+                    label: 'Target amount',
+                    autofocus: false,
+                  ),
+                  if (!_isEditing) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _savedController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'Already saved (optional)',
+                        helper:
+                            'What you have put aside so far, so you '
+                            'start above zero.',
+                      ).copyWith(prefixText: '₱ '),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: _pickDate,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InputDecorator(
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'Target date (optional)',
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _date == null
+                                  ? 'No deadline'
+                                  : formatShortDate(_date!),
+                            ),
+                          ),
+                          if (_date != null)
+                            IconButton(
+                              tooltip: 'Remove deadline',
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.close, size: 18),
+                              onPressed: () => setState(() => _date = null),
+                            )
+                          else
+                            const Icon(Icons.calendar_today, size: 18),
+                        ],
+                      ),
+                    ),
+                  ),
+                  sectionTitle('Saving plan'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final frequency in ContributionFrequency.values)
+                        ChoiceChip(
+                          label: Text(frequency.label),
+                          selected: _frequency == frequency,
+                          onSelected: (_) =>
+                              setState(() => _frequency = frequency),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _planController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: dialogFieldDecoration(
+                      context,
+                      'Amount each time (optional)',
+                    ).copyWith(prefixText: '₱ '),
+                  ),
+                  if (hint != null) ...[
+                    const SizedBox(height: 12),
+                    DialogNote(text: hint),
+                  ],
+                  if (wallets.isNotEmpty) ...[
+                    sectionTitle('Wallet'),
+                    WalletPicker(
+                      wallets: wallets,
+                      selectedId: _walletId ?? defaultWalletId(wallets),
+                      label: 'Usually kept in',
+                      onChanged: (value) => setState(() => _walletId = value),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _noteController,
+                    maxLength: 80,
+                    decoration: dialogFieldDecoration(
+                      context,
+                      'Notes (optional)',
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: dangerColorOn(context),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => _save(wallets),
+                      style: confirmButtonStyle(),
+                      child: Text(
+                        _isEditing ? 'Save Changes' : 'Save Goal',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A live preview of the goal: its name, target, and what to save each time.
+class _GoalPreview extends StatelessWidget {
+  const _GoalPreview({
+    required this.name,
+    required this.kind,
+    required this.target,
+    required this.needed,
+    required this.frequency,
+  });
+
+  final String name;
+  final GoalKind kind;
+  final double target;
+  final double? needed;
+  final ContributionFrequency frequency;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget chip(String value, String label) => Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: appPrimaryBlue,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(kind.icon, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  name.isEmpty ? 'New goal' : name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              chip(target > 0 ? formatPeso(target) : '—', 'Target'),
+              const SizedBox(width: 8),
+              chip(
+                needed == null ? '—' : formatPeso(needed!),
+                'Need ${frequency.per}',
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -49,26 +49,83 @@ class GoalService {
   }
 
   /// Adds a goal at the end of the priority order.
+  ///
+  /// [alreadySaved] is money the user had put aside before using the app. It
+  /// is recorded as a first contribution kept in [walletId], in the same
+  /// batch as the goal, so Safe to Spend sets it aside straight away.
   static void addGoal({
     required String name,
     required double targetAmount,
     DateTime? targetDate,
     required int priority,
+    GoalKind kind = GoalKind.regular,
+    ContributionFrequency frequency = ContributionFrequency.monthly,
+    double? planAmount,
+    String? walletId,
+    String? note,
+    double alreadySaved = 0,
   }) {
-    commitFirestoreWrite(
-      _goals.doc().set({
-        'name': name.trim(),
-        'targetAmount': targetAmount,
-        'savedAmount': 0,
-        'targetDate': targetDate == null
-            ? null
-            : Timestamp.fromDate(targetDate),
-        'priority': priority,
-        'status': GoalStatus.active.name,
-        'createdAt': FieldValue.serverTimestamp(),
-      }),
-      'add goal',
-    );
+    final batch = _firestore.batch();
+    final reference = _goals.doc();
+    final now = DateTime.now();
+
+    batch.set(reference, {
+      'name': name.trim(),
+      'targetAmount': targetAmount,
+      'savedAmount': 0,
+      'targetDate': targetDate == null ? null : Timestamp.fromDate(targetDate),
+      'priority': priority,
+      'status': GoalStatus.active.name,
+      ..._planFields(
+        kind: kind,
+        frequency: frequency,
+        planAmount: planAmount,
+        walletId: walletId,
+        note: note,
+      ),
+      'startingSaved': alreadySaved > 0 ? alreadySaved : 0,
+      // Kept on the device's clock: a server timestamp is empty until it
+      // syncs, and the plan needs a start date straight away.
+      'planStartedAt': Timestamp.fromDate(now),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    if (alreadySaved > 0 && walletId != null) {
+      addContributionToBatch(
+        batch,
+        goal: Goal(
+          id: reference.id,
+          name: name,
+          targetAmount: targetAmount,
+          savedAmount: 0,
+          priority: priority,
+          status: GoalStatus.active,
+        ),
+        amount: alreadySaved,
+        walletId: walletId,
+        date: now,
+      );
+    }
+
+    commitFirestoreWrite(batch.commit(), 'add goal');
+  }
+
+  static Map<String, dynamic> _planFields({
+    required GoalKind kind,
+    required ContributionFrequency frequency,
+    required double? planAmount,
+    required String? walletId,
+    required String? note,
+  }) {
+    final trimmed = note?.trim();
+
+    return {
+      'kind': kind.name,
+      'frequency': frequency.name,
+      'planAmount': planAmount != null && planAmount > 0 ? planAmount : null,
+      'walletId': walletId,
+      'note': trimmed == null || trimmed.isEmpty ? null : trimmed,
+    };
   }
 
   /// Changes a goal's details. Raising the target of a finished goal puts it
@@ -78,6 +135,11 @@ class GoalService {
     required String name,
     required double targetAmount,
     DateTime? targetDate,
+    GoalKind? kind,
+    ContributionFrequency? frequency,
+    double? planAmount,
+    String? walletId,
+    String? note,
   }) {
     final reached = targetAmount > 0 && goal.shownSaved + 0.005 >= targetAmount;
     final status = goal.status == GoalStatus.used
@@ -85,6 +147,12 @@ class GoalService {
         : reached
         ? GoalStatus.completed
         : GoalStatus.active;
+
+    // Changing the plan restarts its clock, so the user isn't shown as behind
+    // for months that were under the old plan.
+    final planChanged =
+        planAmount != goal.planAmount ||
+        (frequency != null && frequency != goal.frequency);
 
     commitFirestoreWrite(
       _goals.doc(goal.id).set({
@@ -94,6 +162,17 @@ class GoalService {
             ? null
             : Timestamp.fromDate(targetDate),
         'status': status.name,
+        ..._planFields(
+          kind: kind ?? goal.kind,
+          frequency: frequency ?? goal.frequency,
+          planAmount: planAmount,
+          walletId: walletId ?? goal.walletId,
+          note: note,
+        ),
+        if (planChanged) ...{
+          'planStartedAt': Timestamp.fromDate(DateTime.now()),
+          'startingSaved': goal.shownSaved,
+        },
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)),
       'update goal',

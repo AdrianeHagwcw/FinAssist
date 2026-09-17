@@ -4170,7 +4170,7 @@ void main() {
             body: SingleChildScrollView(
               child: SavingsGuide(
                 monthlyIncome: 10000,
-                onCreateGoal: (name) => goalName = name,
+                onCreateGoal: (name, _) => goalName = name,
               ),
             ),
           ),
@@ -4196,13 +4196,192 @@ void main() {
           theme: AppTheme.light,
           home: Scaffold(
             body: SingleChildScrollView(
-              child: SavingsGuide(monthlyIncome: null, onCreateGoal: (_) {}),
+              child: SavingsGuide(monthlyIncome: null, onCreateGoal: (_, _) {}),
             ),
           ),
         ),
       );
 
       expect(find.text('Add your usual income to see this'), findsOneWidget);
+    });
+  });
+
+  group('goal plans', () {
+    final now = DateTime(2026, 3, 10);
+
+    test('a year away at ₱30,000 is ₱2,500 a month, not ₱2,727', () {
+      expect(
+        neededPerContribution(
+          remaining: 30000,
+          targetDate: DateTime(2027, 3, 10),
+          frequency: ContributionFrequency.monthly,
+          now: now,
+        ),
+        2500,
+      );
+    });
+
+    test('the same goal weekly is about ₱577 a week', () {
+      expect(
+        neededPerContribution(
+          remaining: 30000,
+          targetDate: DateTime(2027, 3, 10),
+          frequency: ContributionFrequency.weekly,
+          now: now,
+        ),
+        closeTo(576.92, 0.01),
+      );
+    });
+
+    test('no date means no suggestion; a past date means all of it now', () {
+      expect(
+        neededPerContribution(
+          remaining: 30000,
+          targetDate: null,
+          frequency: ContributionFrequency.monthly,
+          now: now,
+        ),
+        isNull,
+      );
+      expect(
+        neededPerContribution(
+          remaining: 1200,
+          targetDate: DateTime(2026, 3, 1),
+          frequency: ContributionFrequency.monthly,
+          now: now,
+        ),
+        1200,
+      );
+    });
+
+    test('a plan amount gives a finish date', () {
+      final reached = reachedByPlan(
+        remaining: 10000,
+        amount: 2500,
+        frequency: ContributionFrequency.monthly,
+        now: now,
+      );
+
+      // Four monthly contributions.
+      expect(reached, DateTime(2026, 7, 10));
+      expect(
+        reachedByPlan(
+          remaining: 10000,
+          amount: null,
+          frequency: ContributionFrequency.monthly,
+          now: now,
+        ),
+        isNull,
+      );
+    });
+
+    Goal planned({required double saved, double startingSaved = 0}) => Goal(
+      id: 'g',
+      name: 'Laptop',
+      targetAmount: 30000,
+      savedAmount: saved,
+      priority: 0,
+      status: GoalStatus.active,
+      planAmount: 1000,
+      frequency: ContributionFrequency.monthly,
+      planStartedAt: DateTime(2026, 1, 4),
+      startingSaved: startingSaved,
+    );
+
+    test('keeping up with a plan', () {
+      // 65 days in is two full months, so ₱2,000 is expected.
+      expect(behindPlan(planned(saved: 1500), now: now), 500);
+      expect(behindPlan(planned(saved: 2500), now: now), -500);
+      expect(
+        behindPlan(planned(saved: 5000, startingSaved: 3000), now: now),
+        0,
+        reason: 'what was already saved counts toward the plan',
+      );
+    });
+
+    test('nobody is behind the day after starting a plan', () {
+      final goal = Goal(
+        id: 'g',
+        name: 'Laptop',
+        targetAmount: 30000,
+        savedAmount: 0,
+        priority: 0,
+        status: GoalStatus.active,
+        planAmount: 1000,
+        planStartedAt: DateTime(2026, 3, 9),
+      );
+
+      expect(behindPlan(goal, now: now), 0);
+    });
+  });
+
+  group('New Savings Goal form', () {
+    final cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 5000,
+      startingBalance: 5000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+
+    testWidgets('shows what to save and records money already saved', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      GoalDraft? saved;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFormSheet(
+              initialName: 'Emergency Fund',
+              initialKind: GoalKind.emergencyFund,
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value([cash]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Emergency Fund'), findsWidgets);
+
+      final fields = find.byType(TextField);
+      // Target, then already saved.
+      await tester.enterText(fields.at(1), '12000');
+      await tester.enterText(fields.at(2), '2000');
+      await tester.pump();
+
+      // No date yet and no plan amount.
+      expect(
+        find.text('Add a target date or an amount to see how long it takes.'),
+        findsOneWidget,
+      );
+
+      await tester.enterText(fields.at(3), '2500');
+      await tester.pump();
+      expect(
+        find.textContaining('At ₱2,500.00 a month you reach it around'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.targetAmount, 12000);
+      expect(saved?.alreadySaved, 2000);
+      expect(saved?.planAmount, 2500);
+      expect(saved?.kind, GoalKind.emergencyFund);
+      expect(saved?.walletId, 'cash');
     });
   });
 }
