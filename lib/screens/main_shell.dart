@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../widgets/empty_state_view.dart';
 import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
 import 'add_expense_screen.dart';
 import 'chatbot_screen.dart';
+import 'goals_screen.dart';
 import 'home_screen.dart';
 import 'income_waterfall_screen.dart';
 import 'transactions_screen.dart';
@@ -50,14 +50,7 @@ class _MainShellState extends State<MainShell> {
             onOpenTransactions: () => _selectTab(_transactionsIndex),
           ),
           const TransactionsScreen(),
-          const _ComingSoonTab(
-            title: 'Goals',
-            iconAsset: 'assets/icons/icons8-goal-96.png',
-            emptyTitle: 'Savings goals are coming soon',
-            emptyMessage:
-                'Soon you can set savings goals here and track your progress '
-                'toward each one.',
-          ),
+          const GoalsScreen(),
           const WalletsScreen(),
         ];
   }
@@ -235,43 +228,6 @@ class _NavItem extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _ComingSoonTab extends StatelessWidget {
-  const _ComingSoonTab({
-    required this.title,
-    required this.iconAsset,
-    required this.emptyTitle,
-    required this.emptyMessage,
-  });
-
-  final String title;
-  final String iconAsset;
-  final String emptyTitle;
-  final String emptyMessage;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: context.appColors.pageBackground,
-      appBar: AppBar(
-        title: Text(
-          title,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        backgroundColor: appPrimaryBlue,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-      ),
-      body: EmptyStateView(
-        iconAsset: iconAsset,
-        title: emptyTitle,
-        message: emptyMessage,
       ),
     );
   }

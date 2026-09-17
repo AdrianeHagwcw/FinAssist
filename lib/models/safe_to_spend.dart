@@ -170,6 +170,7 @@ class SafeToSpend {
     required this.savingsReserve,
     required this.spentToday,
     required this.daysLeft,
+    this.goalSavings = 0,
     this.customDailyLimit,
   });
 
@@ -181,6 +182,10 @@ class SafeToSpend {
 
   /// Money the user chose to set aside as savings.
   final double savingsReserve;
+
+  /// Money set aside for goals, which stays in the wallets but isn't
+  /// spendable.
+  final double goalSavings;
 
   /// Spent today, not counting bill payments.
   final double spentToday;
@@ -194,7 +199,8 @@ class SafeToSpend {
   /// of today. Today's own spending is added back, because the balance has
   /// already dropped by it and it is counted separately below.
   double get spendableThisPeriod {
-    final amount = walletBalance + spentToday - billsDue - savingsReserve;
+    final amount =
+        walletBalance + spentToday - billsDue - savingsReserve - goalSavings;
     return amount > 0 ? amount : 0;
   }
 

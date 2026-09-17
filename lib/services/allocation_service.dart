@@ -6,6 +6,7 @@ import '../models/app_transaction.dart';
 import '../models/bill.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
+import 'goal_service.dart';
 import 'wallet_service.dart';
 
 /// Saves what the user decided to do with new income: the income itself, the
@@ -84,6 +85,8 @@ class AllocationService {
 
     final batch = _firestore.batch();
     final deltas = <String, double>{};
+    // Made first, so the goal contribution can point back to this cycle.
+    final cycle = _cycles.doc();
 
     final incomeId = WalletService.addTransactionToBatch(
       batch,
@@ -127,7 +130,20 @@ class AllocationService {
 
     WalletService.applyDeltasToBatch(batch, deltas);
 
-    final cycle = _cycles.doc();
+    // Setting money aside for a goal moves nothing between wallets, so it
+    // adds no balance change; it only marks part of this income as saved.
+    final goal = plan.goal;
+    if (goal != null && plan.toGoal > 0) {
+      GoalService.addContributionToBatch(
+        batch,
+        goal: goal,
+        amount: plan.toGoal,
+        walletId: walletId,
+        date: receivedAt,
+        cycleId: cycle.id,
+      );
+    }
+
     batch.set(cycle, {
       'incomeTransactionId': incomeId,
       'walletId': walletId,
@@ -137,6 +153,9 @@ class AllocationService {
       'billPayments': payments,
       'skippedInstanceIds': skipped,
       'toBills': plan.toBills,
+      'goalId': plan.toGoal > 0 ? goal?.id : null,
+      'goalName': plan.toGoal > 0 ? goal?.name : null,
+      'toGoal': plan.toGoal,
       'remaining': plan.remaining,
       'createdAt': FieldValue.serverTimestamp(),
     });

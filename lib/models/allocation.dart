@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/money_format.dart';
 import 'app_transaction.dart';
 import 'bill.dart';
+import 'goal.dart';
 import 'safe_to_spend.dart';
 
 /// What the user decided for one bill while allocating new income.
@@ -43,10 +44,26 @@ class BillAllocation {
 /// Pure arithmetic with no Firestore in it, so the numbers the summary shows
 /// and the numbers that get saved come from the same place and can be tested.
 class AllocationPlan {
-  const AllocationPlan({required this.income, this.bills = const []});
+  const AllocationPlan({
+    required this.income,
+    this.bills = const [],
+    this.goal,
+    this.goalAmount = 0,
+  });
 
   final double income;
   final List<BillAllocation> bills;
+
+  /// The goal some of this income is set aside for, if any.
+  final Goal? goal;
+  final double goalAmount;
+
+  /// Set aside for the goal this cycle.
+  double get toGoal => goal == null || goalAmount <= 0 ? 0 : goalAmount;
+
+  /// What is left once bills are paid, before anything goes to a goal. This
+  /// is what "use what's left" puts toward the goal.
+  double get afterBills => income - toBills;
 
   /// Total going to bills this cycle.
   double get toBills => bills
@@ -56,7 +73,7 @@ class AllocationPlan {
   /// What is left of the income after bills. Negative means the bills chosen
   /// cost more than came in, and the difference comes out of money already in
   /// the wallet.
-  double get remaining => income - toBills;
+  double get remaining => income - toBills - toGoal;
 
   bool get dipsIntoSavings => remaining < -0.005;
 
@@ -81,6 +98,17 @@ class AllocationPlan {
       }
     }
 
+    final goal = this.goal;
+    if (goal != null) {
+      if (!goalAmount.isFinite || goalAmount < 0) {
+        problems.add('Enter a valid amount for ${goal.name}.');
+      } else if (goalAmount > goal.remaining + 0.005) {
+        problems.add(
+          '${goal.name} only needs ${formatPeso(goal.remaining)} more.',
+        );
+      }
+    }
+
     return problems;
   }
 
@@ -88,6 +116,8 @@ class AllocationPlan {
     return AllocationPlan(
       income: income ?? this.income,
       bills: bills ?? this.bills,
+      goal: goal,
+      goalAmount: goalAmount,
     );
   }
 }

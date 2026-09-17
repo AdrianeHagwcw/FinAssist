@@ -10,6 +10,7 @@ import 'package:testapp/main.dart';
 import 'package:testapp/models/allocation.dart';
 import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/bill.dart';
+import 'package:testapp/models/goal.dart';
 import 'package:testapp/models/onboarding_data.dart';
 import 'package:testapp/models/safe_to_spend.dart';
 import 'package:testapp/models/wallet.dart';
@@ -20,6 +21,7 @@ import 'package:testapp/screens/bill_detail_screen.dart';
 import 'package:testapp/screens/chatbot_screen.dart';
 import 'package:testapp/screens/financial_setup_screen.dart';
 import 'package:testapp/screens/forgot_password_screen.dart';
+import 'package:testapp/screens/goals_screen.dart';
 import 'package:testapp/screens/income_waterfall_screen.dart';
 import 'package:testapp/screens/leftover_review_screen.dart';
 import 'package:testapp/screens/main_shell.dart';
@@ -34,6 +36,7 @@ import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
 import 'package:testapp/theme/app_theme.dart';
 import 'package:testapp/widgets/bill_payment_sheet.dart';
+import 'package:testapp/widgets/goal_sheets.dart';
 import 'package:testapp/widgets/legacy_import_card.dart';
 import 'package:testapp/widgets/light_dark_toggle.dart';
 import 'package:testapp/utils/date_format.dart';
@@ -1424,6 +1427,7 @@ void main() {
     Future<void> pumpWaterfall(
       WidgetTester tester, {
       List<BillInstance> bills = const [],
+      List<Goal> goals = const [],
       void Function(AllocationPlan plan, String walletId, String source)?
       onConfirm,
     }) async {
@@ -1439,6 +1443,7 @@ void main() {
             today: today,
             wallets: Stream.value([cash]),
             loadBills: () async => bills,
+            goals: Stream.value(goals),
             onConfirm:
                 ({
                   required AllocationPlan plan,
@@ -1473,11 +1478,11 @@ void main() {
     testWidgets('asks for the amount before moving on', (tester) async {
       await pumpWaterfall(tester);
 
-      expect(find.text('Step 1 of 3'), findsOneWidget);
+      expect(find.text('Step 1 of 2'), findsOneWidget);
       await next(tester);
 
       expect(find.text('Enter how much came in.'), findsOneWidget);
-      expect(find.text('Step 1 of 3'), findsOneWidget);
+      expect(find.text('Step 1 of 2'), findsOneWidget);
     });
 
     testWidgets('asks where the money came from only after picking Other', (
@@ -1515,7 +1520,8 @@ void main() {
       await fillIncome(tester, '2000');
       await next(tester);
 
-      expect(find.text('Step 3 of 3'), findsOneWidget);
+      // Only two steps: nothing to pay and no goals to save for.
+      expect(find.text('Step 2 of 2'), findsOneWidget);
       expect(find.text('₱2,000.00'), findsOneWidget);
       expect(find.textContaining('No unpaid bills right now'), findsOneWidget);
       expect(find.text('Confirm'), findsOneWidget);
@@ -3412,6 +3418,7 @@ void main() {
                 profile: Stream.value({'incomeFrequency': 'Semi-monthly'}),
                 cycles: Stream.value(const []),
                 loadBills: () async => const [],
+                goals: Stream.value(const []),
               ),
             ),
           ),
@@ -3427,6 +3434,339 @@ void main() {
       expect(find.text('of ₱600.00 daily limit'), findsOneWidget);
       expect(find.text('Today spent: ₱200.00'), findsOneWidget);
       expect(find.text('10 days left this period'), findsOneWidget);
+    });
+  });
+
+  group('goals', () {
+    Goal goal({
+      String id = 'g',
+      String name = 'Laptop',
+      double target = 30000,
+      double saved = 0,
+      int priority = 0,
+      GoalStatus status = GoalStatus.active,
+    }) {
+      return Goal(
+        id: id,
+        name: name,
+        targetAmount: target,
+        savedAmount: saved,
+        priority: priority,
+        status: status,
+      );
+    }
+
+    test('progress, what is left, and when it is reached', () {
+      final halfway = goal(saved: 15000);
+
+      expect(halfway.progress, 0.5);
+      expect(halfway.remaining, 15000);
+      expect(halfway.isReached, isFalse);
+      expect(goal(saved: 30000).isReached, isTrue);
+      expect(goal(saved: 45000).progress, 1, reason: 'never past full');
+    });
+
+    test('money stops being set aside once it is used', () {
+      expect(goal(saved: 5000).setAside, 5000);
+      expect(goal(saved: 5000, status: GoalStatus.used).setAside, 0);
+      expect(
+        totalSetAside([
+          goal(saved: 5000),
+          goal(saved: 2000, status: GoalStatus.completed),
+          goal(saved: 9000, status: GoalStatus.used),
+        ]),
+        7000,
+      );
+    });
+
+    test('goals are ordered by priority', () {
+      final sorted = sortGoals([
+        goal(id: 'b', name: 'Phone', priority: 1),
+        goal(id: 'a', name: 'Laptop', priority: 0),
+      ]);
+
+      expect(sorted.map((g) => g.id), ['a', 'b']);
+    });
+
+    test('a finish date needs at least two contributions', () {
+      final now = DateTime(2026, 3, 11);
+      final g = goal(target: 3000, saved: 1000);
+
+      expect(
+        projectedCompletion(g, [
+          GoalContribution(id: '1', amount: 1000, date: DateTime(2026, 3, 1)),
+        ], now: now),
+        isNull,
+      );
+
+      // ₱1,000 over 10 days is ₱100 a day; ₱2,000 to go is 20 more days.
+      expect(
+        projectedCompletion(g, [
+          GoalContribution(id: '1', amount: 600, date: DateTime(2026, 3, 1)),
+          GoalContribution(id: '2', amount: 400, date: DateTime(2026, 3, 6)),
+        ], now: now),
+        DateTime(2026, 3, 31),
+      );
+    });
+
+    test('putting income toward a goal lowers what is left', () {
+      final plan = AllocationPlan(
+        income: 5000,
+        goal: goal(target: 10000),
+        goalAmount: 2000,
+      );
+
+      expect(plan.afterBills, 5000);
+      expect(plan.toGoal, 2000);
+      expect(plan.remaining, 3000);
+      expect(plan.problems, isEmpty);
+    });
+
+    test('a goal cannot be overfilled from income', () {
+      final plan = AllocationPlan(
+        income: 5000,
+        goal: goal(target: 10000, saved: 9000),
+        goalAmount: 1500,
+      );
+
+      expect(plan.problems, ['Laptop only needs ₱1,000.00 more.']);
+    });
+
+    test('goal savings are not safe to spend', () {
+      const s = SafeToSpend(
+        walletBalance: 10000,
+        billsDue: 0,
+        savingsReserve: 0,
+        goalSavings: 4000,
+        spentToday: 0,
+        daysLeft: 6,
+      );
+
+      expect(s.spendableThisPeriod, 6000);
+      expect(s.recommendedDailyLimit, 1000);
+    });
+  });
+
+  group('Goals screen', () {
+    Goal goal(
+      String id,
+      int priority, {
+      GoalStatus status = GoalStatus.active,
+      double saved = 1000,
+    }) {
+      return Goal(
+        id: id,
+        name: id,
+        targetAmount: 5000,
+        savedAmount: saved,
+        priority: priority,
+        status: status,
+      );
+    }
+
+    Future<void> pumpGoals(
+      WidgetTester tester,
+      List<Goal> goals, {
+      void Function(List<Goal>)? onReorder,
+    }) async {
+      tester.view.physicalSize = const Size(700, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: GoalsScreen(
+              goals: Stream.value(goals),
+              onReorder: onReorder,
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('invites a first goal', (tester) async {
+      await pumpGoals(tester, const []);
+
+      expect(find.text('No goals yet'), findsOneWidget);
+      expect(find.text('Add New Goal'), findsOneWidget);
+    });
+
+    testWidgets('ranks active goals and shows their progress', (tester) async {
+      await pumpGoals(tester, [goal('Laptop', 0), goal('Phone', 1)]);
+
+      expect(find.text('#1'), findsOneWidget);
+      expect(find.text('#2'), findsOneWidget);
+      expect(find.text(' of ₱5,000.00'), findsNWidgets(2));
+    });
+
+    testWidgets('moving a goal down saves the new order', (tester) async {
+      List<Goal>? saved;
+      await pumpGoals(tester, [
+        goal('Laptop', 0),
+        goal('Phone', 1),
+      ], onReorder: (ordered) => saved = ordered);
+
+      await tester.tap(find.byTooltip('Move down').first);
+      await tester.pump();
+
+      expect(saved?.map((g) => g.id), ['Phone', 'Laptop']);
+    });
+
+    testWidgets('reached goals live under Completed', (tester) async {
+      await pumpGoals(tester, [
+        goal('Laptop', 0),
+        goal('Trip', 1, status: GoalStatus.completed, saved: 5000),
+      ]);
+
+      expect(find.text('Trip'), findsNothing);
+
+      await tester.tap(find.text('Completed (1)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Trip'), findsOneWidget);
+      expect(find.text('Reached'), findsOneWidget);
+    });
+  });
+
+  group('Goal money', () {
+    final cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 9000,
+      startingBalance: 9000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    const laptop = Goal(
+      id: 'g',
+      name: 'Laptop',
+      targetAmount: 5000,
+      savedAmount: 1200,
+      priority: 0,
+      status: GoalStatus.active,
+    );
+
+    Future<void> pumpSheet(
+      WidgetTester tester, {
+      required bool takeOut,
+      required void Function(double, String) onSave,
+    }) async {
+      tester.view.physicalSize = const Size(700, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: ContributionSheet(
+              goal: laptop,
+              takeOut: takeOut,
+              wallets: Stream.value([cash]),
+              onSave: onSave,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('contributing starts on what the goal still needs', (
+      tester,
+    ) async {
+      double? saved;
+      await pumpSheet(tester, takeOut: false, onSave: (a, _) => saved = a);
+
+      expect(find.text('3800.00'), findsOneWidget);
+      await tester.tap(find.text('Set Aside'));
+      await tester.pumpAndSettle();
+
+      expect(saved, 3800);
+    });
+
+    testWidgets('cannot take out more than is set aside', (tester) async {
+      double? saved;
+      await pumpSheet(tester, takeOut: true, onSave: (a, _) => saved = a);
+
+      await tester.enterText(find.byType(TextField).first, '2000');
+      await tester.tap(find.text('Take It Out'));
+      await tester.pump();
+
+      expect(
+        find.text('Only ₱1,200.00 is set aside for this goal.'),
+        findsOneWidget,
+      );
+      expect(saved, isNull);
+
+      await tester.enterText(find.byType(TextField).first, '500');
+      await tester.tap(find.text('Take It Out'));
+      await tester.pumpAndSettle();
+
+      expect(saved, -500);
+    });
+
+    testWidgets('income can go toward a goal in the waterfall', (tester) async {
+      AllocationPlan? confirmed;
+
+      tester.view.physicalSize = const Size(700, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: IncomeWaterfallScreen(
+            today: DateTime(2026, 3, 10),
+            wallets: Stream.value([cash]),
+            loadBills: () async => const [],
+            goals: Stream.value(const [laptop]),
+            onConfirm:
+                ({
+                  required AllocationPlan plan,
+                  required String walletId,
+                  required String source,
+                  required DateTime receivedAt,
+                }) => confirmed = plan,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField).first, '10000');
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Allowance').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Step 2 of 3'), findsOneWidget);
+      expect(find.text('Save some toward a goal?'), findsOneWidget);
+
+      await tester.tap(find.text('Yes'));
+      await tester.pumpAndSettle();
+      // "Use what is left" is capped at what the goal still needs.
+      expect(find.text('₱3,800.00, all this goal needs'), findsOneWidget);
+
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(confirmed?.goal?.id, 'g');
+      expect(confirmed?.toGoal, 3800);
+      expect(confirmed?.remaining, 6200);
     });
   });
 }

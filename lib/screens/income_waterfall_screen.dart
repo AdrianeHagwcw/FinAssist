@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/allocation.dart';
 import '../models/bill.dart';
+import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/allocation_service.dart';
+import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -32,6 +36,7 @@ class IncomeWaterfallScreen extends StatefulWidget {
     this.initialWalletId,
     this.wallets,
     this.loadBills,
+    this.goals,
     this.onConfirm,
     this.today,
     super.key,
@@ -45,6 +50,9 @@ class IncomeWaterfallScreen extends StatefulWidget {
 
   /// Replaces the lookup of bills to offer. Used by tests.
   final Future<List<BillInstance>> Function()? loadBills;
+
+  /// Replaces the live goals. Used by tests.
+  final Stream<List<Goal>>? goals;
 
   /// Replaces saving to Firestore. Used by tests.
   final void Function({
@@ -62,7 +70,7 @@ class IncomeWaterfallScreen extends StatefulWidget {
   State<IncomeWaterfallScreen> createState() => _IncomeWaterfallScreenState();
 }
 
-enum _Step { income, bills, summary }
+enum _Step { income, bills, goal, summary }
 
 class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   late final DateTime _today = widget.today ?? DateTime.now();
@@ -77,6 +85,16 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   final Map<String, TextEditingController> _billControllers = {};
 
   _Step _step = _Step.income;
+
+  /// Active goals, highest priority first. Null until loaded.
+  List<Goal>? _goals;
+  StreamSubscription<List<Goal>>? _goalSubscription;
+
+  /// The goal step's answers.
+  bool _toGoal = false;
+  String? _goalId;
+  bool _useWhatsLeft = true;
+  final _goalAmountController = TextEditingController();
   String? _source;
   String? _walletId;
   late DateTime _receivedAt = _today;
@@ -97,6 +115,20 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     _amountController.addListener(_refresh);
     // Start looking up bills straight away, so they're ready by step 2.
     _loadBills();
+    _goalSubscription = (widget.goals ?? GoalService.watchGoals()).listen(
+      (goals) {
+        if (!mounted) return;
+        setState(() {
+          _goals = goals
+              .where((goal) => goal.status == GoalStatus.active)
+              .toList();
+        });
+      },
+      onError: (Object _) {
+        if (mounted) setState(() => _goals = const []);
+      },
+    );
+    _goalAmountController.addListener(_refresh);
   }
 
   void _refresh() => setState(() {});
@@ -107,6 +139,10 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       ..removeListener(_refresh)
       ..dispose();
     _otherSourceController.dispose();
+    _goalSubscription?.cancel();
+    _goalAmountController
+      ..removeListener(_refresh)
+      ..dispose();
     for (final controller in _billControllers.values) {
       controller.dispose();
     }
@@ -170,12 +206,67 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       bills.add(allocation.copyWith(amount: typed ?? -1));
     }
 
-    return AllocationPlan(income: _income, bills: bills);
+    final withBills = AllocationPlan(income: _income, bills: bills);
+    final goal = _toGoal ? _selectedGoal : null;
+    if (goal == null) return withBills;
+
+    final double amount;
+    if (_useWhatsLeft) {
+      // Everything left after bills, but never past what the goal needs.
+      final left = withBills.afterBills;
+      amount = left <= 0 ? 0 : (left < goal.remaining ? left : goal.remaining);
+    } else {
+      amount =
+          double.tryParse(
+            _goalAmountController.text.trim().replaceAll(',', ''),
+          ) ??
+          -1;
+    }
+
+    return AllocationPlan(
+      income: _income,
+      bills: bills,
+      goal: goal,
+      goalAmount: amount,
+    );
   }
 
-  void _toIncomeStep() => setState(() {
-    _step = _Step.income;
+  Goal? get _selectedGoal {
+    final goals = _goals ?? const <Goal>[];
+    if (goals.isEmpty) return null;
+
+    for (final goal in goals) {
+      if (goal.id == _goalId) return goal;
+    }
+    return goals.first;
+  }
+
+  /// The steps this income goes through. Bills and goals are left out when
+  /// there are none to ask about, so the step count is honest.
+  List<_Step> get _steps => [
+    _Step.income,
+    if (_allocations?.isNotEmpty ?? true) _Step.bills,
+    if (_goals?.isNotEmpty ?? false) _Step.goal,
+    _Step.summary,
+  ];
+
+  _Step _stepAfter(_Step step) {
+    final steps = _steps;
+    final index = steps.indexOf(step);
+    return index < 0 || index + 1 >= steps.length
+        ? _Step.summary
+        : steps[index + 1];
+  }
+
+  _Step _stepBefore(_Step step) {
+    final steps = _steps;
+    final index = steps.indexOf(step);
+    return index <= 0 ? _Step.income : steps[index - 1];
+  }
+
+  void _back() => setState(() {
     _error = null;
+    _step = _stepBefore(_step);
   });
 
   void _fromIncomeStep() {
@@ -194,8 +285,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
     setState(() {
       _error = null;
-      // Straight to the summary when there are no bills to ask about.
-      _step = (_allocations?.isEmpty ?? false) ? _Step.summary : _Step.bills;
+      // Skips straight past bills or goals when there are none to ask about.
+      _step = _stepAfter(_Step.income);
     });
   }
 
@@ -209,14 +300,23 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
     setState(() {
       _error = null;
-      _step = _Step.summary;
+      _step = _stepAfter(_Step.bills);
     });
   }
 
-  void _backFromSummary() => setState(() {
-    _error = null;
-    _step = (_allocations?.isEmpty ?? true) ? _Step.income : _Step.bills;
-  });
+  void _fromGoalStep() {
+    final problems = _plan.problems;
+
+    if (problems.isNotEmpty) {
+      setState(() => _error = problems.first);
+      return;
+    }
+
+    setState(() {
+      _error = null;
+      _step = _Step.summary;
+    });
+  }
 
   void _confirm() {
     final plan = _plan;
@@ -266,7 +366,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     if (picked != null) setState(() => _receivedAt = picked);
   }
 
-  int get _stepNumber => _step.index + 1;
+  int get _stepNumber => _steps.indexOf(_step) + 1;
 
   @override
   Widget build(BuildContext context) {
@@ -291,7 +391,11 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
           return Column(
             children: [
-              _StepHeader(step: _stepNumber, of: 3, title: _stepTitle),
+              _StepHeader(
+                step: _stepNumber,
+                of: _steps.length,
+                title: _stepTitle,
+              ),
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
@@ -299,6 +403,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                     switch (_step) {
                       _Step.income => _buildIncomeStep(context),
                       _Step.bills => _buildBillsStep(context),
+                      _Step.goal => _buildGoalStep(context),
                       _Step.summary => _buildSummaryStep(context),
                     },
                     if (_error != null) ...[
@@ -328,6 +433,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         return 'What came in?';
       case _Step.bills:
         return 'Pay any bills from it?';
+      case _Step.goal:
+        return 'Save some toward a goal?';
       case _Step.summary:
         return 'Here is what is left';
     }
@@ -455,6 +562,100 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     _allocations = [...list]..[index] = list[index].copyWith(skipped: skipped);
   }
 
+  // ------------------------------------------------------------ goal step
+
+  Widget _buildGoalStep(BuildContext context) {
+    final colors = context.appColors;
+    final goals = _goals ?? const <Goal>[];
+    final goal = _selectedGoal;
+    final plan = _plan;
+    final left = plan.afterBills;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Money set aside for a goal stays in your wallet, but stops counting '
+          'as money you can spend.',
+          style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
+        ),
+        const SizedBox(height: 14),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: false, label: Text('Not this time')),
+            ButtonSegment(value: true, label: Text('Yes')),
+          ],
+          selected: {_toGoal},
+          showSelectedIcon: false,
+          onSelectionChanged: (value) => setState(() {
+            _toGoal = value.first;
+            _error = null;
+          }),
+        ),
+        if (_toGoal && goal != null) ...[
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            initialValue: goal.id,
+            isExpanded: true,
+            decoration: dialogFieldDecoration(context, 'Which goal?'),
+            items: [
+              for (final option in goals)
+                DropdownMenuItem(
+                  value: option.id,
+                  child: Text(
+                    '${option.name} · ${formatPeso(option.remaining)} to go',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (value) => setState(() => _goalId = value),
+          ),
+          const SizedBox(height: 16),
+          RadioGroup<bool>(
+            groupValue: _useWhatsLeft,
+            onChanged: (value) =>
+                setState(() => _useWhatsLeft = value ?? _useWhatsLeft),
+            child: Column(
+              children: [
+                RadioListTile<bool>(
+                  value: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Use what is left'),
+                  subtitle: Text(
+                    left <= 0
+                        ? 'Nothing is left after bills.'
+                        : left > goal.remaining
+                        ? '${formatPeso(goal.remaining)}, all this goal needs'
+                        : formatPeso(left),
+                  ),
+                ),
+                RadioListTile<bool>(
+                  value: false,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Enter an amount'),
+                ),
+              ],
+            ),
+          ),
+          if (!_useWhatsLeft)
+            TextField(
+              controller: _goalAmountController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: dialogFieldDecoration(
+                context,
+                'Amount to set aside',
+                helper: '${goal.name} needs ${formatPeso(goal.remaining)} more',
+              ).copyWith(prefixText: '₱ '),
+            ),
+        ],
+        const SizedBox(height: 16),
+        _RunningTotal(plan: plan, label: 'Left after bills and goal'),
+      ],
+    );
+  }
+
   // ------------------------------------------------------------ step 3
 
   Widget _buildSummaryStep(BuildContext context) {
@@ -490,6 +691,13 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 detail: 'Skipped this cycle',
                 amount: formatPeso(0),
                 color: Colors.grey,
+              ),
+            if (plan.goal != null && plan.toGoal > 0)
+              _SummaryLine(
+                label: plan.goal!.name,
+                detail: 'Set aside toward your goal',
+                amount: formatPeso(plan.toGoal, sign: '-'),
+                color: appPrimaryBlue,
               ),
           ],
         ),
@@ -556,15 +764,12 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   // ----------------------------------------------------------- buttons
 
   Widget _buildButtons(BuildContext context) {
-    final back = switch (_step) {
-      _Step.income => null,
-      _Step.bills => _toIncomeStep,
-      _Step.summary => _backFromSummary,
-    };
+    final back = _step == _Step.income ? null : _back;
 
     final next = switch (_step) {
       _Step.income => _fromIncomeStep,
       _Step.bills => _fromBillsStep,
+      _Step.goal => _fromGoalStep,
       _Step.summary => _confirm,
     };
 
@@ -774,9 +979,13 @@ class _BillChoice extends StatelessWidget {
 }
 
 class _RunningTotal extends StatelessWidget {
-  const _RunningTotal({required this.plan});
+  const _RunningTotal({
+    required this.plan,
+    this.label = 'Left after these bills',
+  });
 
   final AllocationPlan plan;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -793,7 +1002,7 @@ class _RunningTotal extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              short ? 'Short by' : 'Left after these bills',
+              short ? 'Short by' : label,
               style: TextStyle(fontSize: 13, color: colors.textBody),
             ),
           ),

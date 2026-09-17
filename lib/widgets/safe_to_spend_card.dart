@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
+import '../models/goal.dart';
 import '../models/safe_to_spend.dart';
 import '../models/wallet.dart';
 import '../providers/app_settings_provider.dart';
 import '../services/allocation_service.dart';
 import '../services/budget_service.dart';
+import '../services/goal_service.dart';
 import '../services/user_profile_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
@@ -45,6 +49,7 @@ class SafeToSpendCard extends StatefulWidget {
     this.profile,
     this.cycles,
     this.loadBills,
+    this.goals,
     this.today,
     this.footerBuilder,
     this.belowCard,
@@ -57,6 +62,7 @@ class SafeToSpendCard extends StatefulWidget {
   final Stream<Map<String, dynamic>?>? profile;
   final Stream<List<AllocationCycle>>? cycles;
   final Future<List<BillInstance>> Function()? loadBills;
+  final Stream<List<Goal>>? goals;
   final DateTime? today;
 
   /// Buttons shown under the figure. Given a way to open the limit editor so
@@ -82,6 +88,29 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       UserProfileService.watchProfile().map((snapshot) => snapshot.data());
   late final Stream<List<AllocationCycle>> _cycles =
       widget.cycles ?? BudgetService.watchRecentCycles();
+
+  /// Money set aside for goals. Held here rather than in another nested
+  /// builder, since only its total matters.
+  double _goalSavings = 0;
+  StreamSubscription<List<Goal>>? _goalSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _goalSubscription = (widget.goals ?? GoalService.watchGoals()).listen(
+      (goals) {
+        if (mounted) setState(() => _goalSavings = totalSetAside(goals));
+      },
+      // Unreachable goals are left out rather than blocking the card.
+      onError: (Object _) {},
+    );
+  }
+
+  @override
+  void dispose() {
+    _goalSubscription?.cancel();
+    super.dispose();
+  }
 
   List<BillInstance> _bills = const [];
 
@@ -129,6 +158,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         walletBalance: totalWalletBalance(wallets),
         billsDue: billsDueBefore(_bills, period.end),
         savingsReserve: savingsReserveFrom(profile),
+        goalSavings: _goalSavings,
         spentToday: discretionarySpending(
           transactions,
           from: startOfToday,
@@ -168,7 +198,8 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
           'Your wallets hold ${formatPeso(s.walletBalance)}'
           '${s.spentToday > 0 ? ', plus ${formatPeso(s.spentToday)} spent today' : ''}.\n\n'
           'Less ${formatPeso(s.billsDue)} owed on bills due this pay period'
-          '${s.savingsReserve > 0 ? ' and ${formatPeso(s.savingsReserve)} set aside as savings' : ''}, '
+          '${s.savingsReserve > 0 ? ', ${formatPeso(s.savingsReserve)} set aside as savings' : ''}'
+          '${s.goalSavings > 0 ? ', ${formatPeso(s.goalSavings)} saved toward goals' : ''}, '
           'that leaves ${formatPeso(s.spendableThisPeriod)} for the '
           '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'} left: '
           '${formatPeso(s.recommendedDailyLimit)} a day.'
