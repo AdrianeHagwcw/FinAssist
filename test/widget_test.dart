@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:testapp/main.dart';
+import 'package:testapp/models/allocation.dart';
 import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/bill.dart';
 import 'package:testapp/models/onboarding_data.dart';
@@ -2341,6 +2342,134 @@ void main() {
 
       expect(colors[0], isNot(appConfirmGreen));
       expect(colors[1], isNot(appDangerRed));
+    });
+  });
+
+  group('income allocation', () {
+    final today = DateTime(2026, 3, 10);
+
+    BillInstance bill({
+      required String id,
+      double amount = 1000,
+      double amountPaid = 0,
+      BillStatus status = BillStatus.unpaid,
+      DateTime? dueDate,
+    }) {
+      return BillInstance(
+        id: id,
+        billId: 'b',
+        name: id,
+        amount: amount,
+        category: 'Bills',
+        dueDate: dueDate ?? DateTime(2026, 3, 15),
+        status: status,
+        amountPaid: amountPaid,
+      );
+    }
+
+    test('each bill starts on paying what it still owes', () {
+      final partly = bill(id: 'Rent', amount: 3000, amountPaid: 1000);
+
+      expect(BillAllocation.full(partly).amount, 2000);
+    });
+
+    test('what is left is the income less the bills paid', () {
+      final plan = AllocationPlan(
+        income: 5000,
+        bills: [
+          BillAllocation.full(bill(id: 'Rent', amount: 3000)),
+          BillAllocation.full(bill(id: 'Load', amount: 500)),
+        ],
+      );
+
+      expect(plan.toBills, 3500);
+      expect(plan.remaining, 1500);
+      expect(plan.dipsIntoSavings, isFalse);
+      expect(plan.problems, isEmpty);
+    });
+
+    test('skipped bills and bills left at zero cost nothing', () {
+      final plan = AllocationPlan(
+        income: 5000,
+        bills: [
+          BillAllocation.full(
+            bill(id: 'Rent', amount: 3000),
+          ).copyWith(skipped: true),
+          BillAllocation.full(
+            bill(id: 'Load', amount: 500),
+          ).copyWith(amount: 0),
+        ],
+      );
+
+      expect(plan.toBills, 0);
+      expect(plan.remaining, 5000);
+    });
+
+    test('paying more bills than came in is allowed but flagged', () {
+      final plan = AllocationPlan(
+        income: 1000,
+        bills: [BillAllocation.full(bill(id: 'Rent', amount: 3000))],
+      );
+
+      expect(plan.remaining, -2000);
+      expect(
+        plan.dipsIntoSavings,
+        isTrue,
+        reason: 'the rest comes from money already in the wallet',
+      );
+      expect(plan.problems, isEmpty);
+    });
+
+    test('a bill cannot be overpaid', () {
+      final plan = AllocationPlan(
+        income: 5000,
+        bills: [
+          BillAllocation.full(
+            bill(id: 'Rent', amount: 3000),
+          ).copyWith(amount: 3500),
+        ],
+      );
+
+      expect(plan.problems, ['Rent only needs ₱3,000.00.']);
+    });
+
+    test('no income means nothing can be confirmed', () {
+      expect(const AllocationPlan(income: 0).problems, [
+        'Enter how much came in.',
+      ]);
+    });
+
+    test('only open bills due within the month ahead are offered', () {
+      final offered = outstandingBills([
+        bill(id: 'overdue', dueDate: DateTime(2026, 2, 20)),
+        bill(id: 'soon', dueDate: DateTime(2026, 3, 12)),
+        bill(id: 'next month', dueDate: DateTime(2026, 4, 8)),
+        bill(id: 'too far', dueDate: DateTime(2026, 5, 20)),
+        bill(
+          id: 'paid',
+          amountPaid: 1000,
+          status: BillStatus.paid,
+          dueDate: DateTime(2026, 3, 11),
+        ),
+        bill(
+          id: 'skipped',
+          status: BillStatus.skipped,
+          dueDate: DateTime(2026, 3, 11),
+        ),
+        bill(
+          id: 'partly',
+          amountPaid: 400,
+          status: BillStatus.partial,
+          dueDate: DateTime(2026, 3, 14),
+        ),
+      ], now: today);
+
+      expect(offered.map((bill) => bill.id), [
+        'overdue',
+        'soon',
+        'partly',
+        'next month',
+      ]);
     });
   });
 }

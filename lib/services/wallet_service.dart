@@ -340,6 +340,11 @@ class WalletService {
   /// This exists so a caller that must save something else in the very same
   /// write — marking a bill paid, say — can do it atomically instead of
   /// hoping two separate writes both land. Returns the transaction's id.
+  ///
+  /// Pass [collectDeltasInto] when the batch will hold several transactions
+  /// touching the same wallet. The balance changes are then added to that map
+  /// instead of written, and the caller writes the totals once with
+  /// [applyDeltasToBatch].
   static String addTransactionToBatch(
     WriteBatch batch, {
     required TransactionType type,
@@ -351,6 +356,7 @@ class WalletService {
     String? note,
     DateTime? date,
     AppTransaction? previous,
+    Map<String, double>? collectDeltasInto,
   }) {
     if (!amount.isFinite || amount <= 0) {
       throw ArgumentError.value(amount, 'amount', 'Must be greater than zero.');
@@ -383,12 +389,20 @@ class WalletService {
       'createdAt': FieldValue.serverTimestamp(),
     });
 
-    final deltas = <String, double>{};
+    final deltas = collectDeltasInto ?? <String, double>{};
     if (previous != null) _collectDeltas(deltas, previous, reverse: true);
     _collectDeltas(deltas, transaction, reverse: false);
-    _applyDeltas(batch, deltas);
+
+    // A caller gathering several transactions applies the total itself.
+    if (collectDeltasInto == null) _applyDeltas(batch, deltas);
 
     return reference.id;
+  }
+
+  /// Writes balance changes gathered with `collectDeltasInto`, one write per
+  /// wallet.
+  static void applyDeltasToBatch(WriteBatch batch, Map<String, double> deltas) {
+    _applyDeltas(batch, deltas);
   }
 
   /// Removes a transaction and puts the money it moved back, in one batch.

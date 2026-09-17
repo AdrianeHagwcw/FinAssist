@@ -51,6 +51,16 @@ class BillService {
     });
   }
 
+  /// Reads the bill schedules once. Returns cached data while offline.
+  static Future<List<Bill>> loadBills() async {
+    final snapshot = await _bills.get();
+
+    return snapshot.docs
+        .map((doc) => Bill.fromMap(doc.id, doc.data()))
+        .where((bill) => !bill.archived)
+        .toList();
+  }
+
   /// Every occurrence falling due in the given month, updating live.
   static Stream<List<BillInstance>> watchInstances(int year, int month) {
     return _instances
@@ -328,23 +338,46 @@ class BillService {
     required String walletId,
     double? amount,
   }) {
-    final payment = amount ?? instance.remaining;
+    final batch = _firestore.batch();
+    addPaymentToBatch(
+      batch,
+      instance: instance,
+      walletId: walletId,
+      amount: amount ?? instance.remaining,
+    );
 
-    if (!payment.isFinite || payment <= 0) {
+    commitFirestoreWrite(batch.commit(), 'pay bill');
+  }
+
+  /// Adds a payment against [instance] to [batch]: the expense, the wallet's
+  /// balance change, and the bill's new status. Returns the expense's id.
+  ///
+  /// Pass [collectDeltasInto] when the same batch moves that wallet more than
+  /// once; see [WalletService.addTransactionToBatch].
+  static String addPaymentToBatch(
+    WriteBatch batch, {
+    required BillInstance instance,
+    required String walletId,
+    required double amount,
+    DateTime? date,
+    Map<String, double>? collectDeltasInto,
+  }) {
+    if (!amount.isFinite || amount <= 0) {
       throw ArgumentError.value(amount, 'amount', 'Must be greater than zero.');
     }
 
-    final batch = _firestore.batch();
     final transactionId = WalletService.addTransactionToBatch(
       batch,
       type: TransactionType.expense,
-      amount: payment,
+      amount: amount,
       label: instance.category,
       walletId: walletId,
       note: instance.name,
+      date: date,
+      collectDeltasInto: collectDeltasInto,
     );
 
-    final paid = instance.amountPaid + payment;
+    final paid = instance.amountPaid + amount;
 
     batch.set(_instances.doc(instance.id), {
       'status': BillInstance.statusForPayment(paid, instance.amount).name,
@@ -355,7 +388,7 @@ class BillService {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    commitFirestoreWrite(batch.commit(), 'pay bill');
+    return transactionId;
   }
 
   /// The payments made against a bill, oldest first.
@@ -426,13 +459,17 @@ class BillService {
   /// Marks a bill as deliberately not paid. It stays on the calendar, and
   /// unlike an unpaid bill it rolls nothing into the next cycle.
   static void skipInstance(String instanceId) {
-    commitFirestoreWrite(
-      _instances.doc(instanceId).set({
-        'status': BillStatus.skipped.name,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)),
-      'skip bill',
-    );
+    final batch = _firestore.batch();
+    addSkipToBatch(batch, instanceId);
+    commitFirestoreWrite(batch.commit(), 'skip bill');
+  }
+
+  /// The batch counterpart of [skipInstance].
+  static void addSkipToBatch(WriteBatch batch, String instanceId) {
+    batch.set(_instances.doc(instanceId), {
+      'status': BillStatus.skipped.name,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// Puts a skipped bill back to unpaid.
