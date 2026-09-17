@@ -235,16 +235,29 @@ class _SheetHeader extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 16),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: colors.textPrimary,
-          ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                ),
+              ),
+            ),
+            // A visible way out: dragging a long sheet down only works from
+            // the very top of it.
+            IconButton(
+              tooltip: 'Close',
+              onPressed: () => Navigator.maybePop(context),
+              icon: const Icon(Icons.close),
+            ),
+          ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
       ],
     );
   }
@@ -334,6 +347,14 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
   late DateTime? _date = _existing?.targetDate;
   late String? _walletId = _existing?.walletId;
   String? _error;
+
+  /// Optional fields start folded away; an edited goal that already uses
+  /// them opens with them showing.
+  late bool _showMore =
+      _existing != null &&
+      (_existing.planAmount != null ||
+          (_existing.note ?? '').isNotEmpty ||
+          _existing.kind != GoalKind.regular);
 
   bool get _isEditing => _existing != null;
 
@@ -538,20 +559,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     needed: _needed,
                     frequency: _frequency,
                   ),
-                  sectionTitle('Goal type'),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final kind in GoalKind.values)
-                        ChoiceChip(
-                          avatar: Icon(kind.icon, size: 18),
-                          label: Text(kind.label),
-                          selected: _kind == kind,
-                          onSelected: (_) => setState(() => _kind = kind),
-                        ),
-                    ],
-                  ),
-                  sectionTitle('Details'),
+                  const SizedBox(height: 18),
                   TextField(
                     controller: _nameController,
                     textCapitalization: TextCapitalization.sentences,
@@ -559,31 +567,16 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     decoration: dialogFieldDecoration(
                       context,
                       'What are you saving for?',
-                      hint: 'e.g. New laptop, Emergency fund',
+                      hint: 'e.g. New laptop',
                     ),
                   ),
                   const SizedBox(height: 8),
                   AmountField(
                     controller: _targetController,
-                    label: 'Target amount',
+                    label: 'How much do you need?',
+                    hint: 'e.g. 20000',
                     autofocus: false,
                   ),
-                  if (!_isEditing) ...[
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _savedController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: dialogFieldDecoration(
-                        context,
-                        'Already saved (optional)',
-                        helper:
-                            'What you have put aside so far, so you '
-                            'start above zero.',
-                      ).copyWith(prefixText: '₱ ', hintText: '0.00'),
-                    ),
-                  ],
                   const SizedBox(height: 16),
                   InkWell(
                     onTap: _pickDate,
@@ -591,7 +584,10 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     child: InputDecorator(
                       decoration: dialogFieldDecoration(
                         context,
-                        'Target date (optional)',
+                        'By when? (optional)',
+                        helper:
+                            'Pick a date and FinAssist works out what to '
+                            'save each time.',
                       ),
                       child: Row(
                         children: [
@@ -615,53 +611,106 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                       ),
                     ),
                   ),
-                  sectionTitle('Saving plan'),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final frequency in ContributionFrequency.values)
-                        ChoiceChip(
-                          label: Text(frequency.label),
-                          selected: _frequency == frequency,
-                          onSelected: (_) =>
-                              setState(() => _frequency = frequency),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _planController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: dialogFieldDecoration(
-                      context,
-                      'Amount each time (optional)',
-                    ).copyWith(prefixText: '₱ ', hintText: '0.00'),
-                  ),
                   if (hint != null) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     DialogNote(text: hint),
                   ],
-                  if (wallets.isNotEmpty) ...[
-                    sectionTitle('Wallet'),
-                    WalletPicker(
-                      wallets: wallets,
-                      selectedId: _walletId ?? defaultWalletId(wallets),
-                      label: 'Usually kept in',
-                      onChanged: (value) => setState(() => _walletId = value),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _noteController,
-                    maxLength: 80,
-                    decoration: dialogFieldDecoration(
-                      context,
-                      'Notes (optional)',
+                  // Everything below is optional, so it stays out of the way
+                  // until the user asks for it.
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => setState(() => _showMore = !_showMore),
+                      style: TextButton.styleFrom(
+                        foregroundColor: colors.primaryText,
+                        padding: EdgeInsets.zero,
+                      ),
+                      icon: Icon(
+                        _showMore ? Icons.expand_less : Icons.expand_more,
+                      ),
+                      label: Text(
+                        _showMore ? 'Fewer options' : 'More options (optional)',
+                      ),
                     ),
                   ),
+                  if (_showMore) ...[
+                    sectionTitle('Goal type'),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final kind in GoalKind.values)
+                          ChoiceChip(
+                            avatar: Icon(kind.icon, size: 18),
+                            label: Text(kind.label),
+                            selected: _kind == kind,
+                            onSelected: (_) => setState(() => _kind = kind),
+                          ),
+                      ],
+                    ),
+                    if (!_isEditing) ...[
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _savedController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: dialogFieldDecoration(
+                          context,
+                          'Already saved',
+                          helper:
+                              'What you have put aside so far, so you '
+                              'start above zero.',
+                        ).copyWith(prefixText: '₱ ', hintText: 'e.g. 1000'),
+                      ),
+                    ],
+                    sectionTitle('Saving plan'),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final frequency in ContributionFrequency.values)
+                          ChoiceChip(
+                            label: Text(frequency.label),
+                            selected: _frequency == frequency,
+                            onSelected: (_) =>
+                                setState(() => _frequency = frequency),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _planController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'Amount each time',
+                        helper: 'Leave blank to follow the target date.',
+                      ).copyWith(prefixText: '₱ ', hintText: 'e.g. 1500'),
+                    ),
+                    if (wallets.isNotEmpty) ...[
+                      sectionTitle('Wallet'),
+                      WalletPicker(
+                        wallets: wallets,
+                        selectedId: _walletId ?? defaultWalletId(wallets),
+                        label: 'Usually kept in',
+                        onChanged: (value) => setState(() => _walletId = value),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _noteController,
+                      maxLength: 80,
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'Notes',
+                        hint: 'e.g. for school work',
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 4),
                   if (_error != null) ...[
                     Text(
                       _error!,

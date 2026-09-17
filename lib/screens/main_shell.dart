@@ -1,4 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_settings_provider.dart';
+import '../services/user_profile_service.dart';
 
 import '../models/debt.dart';
 import '../theme/app_colors.dart';
@@ -50,11 +54,23 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   final _reminders = ReminderScheduler();
 
   bool get _live => widget.pages == null;
+  StreamSubscription? _profileSubscription;
 
   @override
   void initState() {
     super.initState();
     if (!_live) return;
+
+    final settings = context.read<AppSettingsProvider>();
+    // Subscribe per signed-in shell so another account never inherits categories.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      settings.updateFinancialProfile(null);
+      _profileSubscription = UserProfileService.watchProfile().listen(
+        (snapshot) => settings.updateFinancialProfile(snapshot.data()),
+        onError: (Object error) => debugPrint('Profile preferences: $error'),
+      );
+    });
 
     WidgetsBinding.instance.addObserver(this);
     _reminders.start();
@@ -65,6 +81,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _profileSubscription?.cancel();
     if (_live) {
       WidgetsBinding.instance.removeObserver(this);
       ReminderService.opened.removeListener(_openReminder);

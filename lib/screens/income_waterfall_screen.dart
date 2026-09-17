@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_settings_provider.dart';
 
 import '../models/allocation.dart';
 import '../models/bill.dart';
@@ -111,6 +113,18 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   @override
   void initState() {
     super.initState();
+    final preferences = context.read<AppSettingsProvider?>()?.financial;
+    if (preferences != null && preferences.source.isNotEmpty) {
+      _source = incomeSources.contains(preferences.source)
+          ? preferences.source
+          : otherIncomeSource;
+      if (_source == otherIncomeSource) {
+        _otherSourceController.text = preferences.source;
+      }
+      if (preferences.income != null) {
+        _amountController.text = formatAmountInput(preferences.income!);
+      }
+    }
     _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
     // Start looking up bills straight away, so they're ready by step 2.
@@ -339,6 +353,10 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           required String source,
           required DateTime receivedAt,
         }) => AllocationService.confirm(
+          incomeFrequency: context
+              .read<AppSettingsProvider?>()
+              ?.financial
+              .frequency,
           plan: plan,
           walletId: walletId,
           source: source,

@@ -7,7 +7,9 @@ import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/category_options.dart';
 import '../utils/categories.dart';
+import 'history_screen.dart';
 import '../utils/date_format.dart';
 import '../widgets/back_to_home.dart';
 import '../widgets/category_icon.dart';
@@ -69,7 +71,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     showTransactionEditSheet(context, transaction, wallets: widget.wallets);
   }
 
-  Future<void> _editFilter(List<Wallet> wallets) async {
+  Future<void> _editFilter(
+    List<Wallet> wallets,
+    List<AppTransaction> transactions,
+  ) async {
     final chosen = await showModalBottomSheet<TransactionFilter>(
       context: context,
       isScrollControlled: true,
@@ -77,7 +82,15 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => _FilterSheet(initial: _filter, wallets: wallets),
+      builder: (context) => _FilterSheet(
+        initial: _filter,
+        wallets: wallets,
+        historicalCategories: transactions
+            .where((t) => t.type == TransactionType.expense)
+            .map((t) => t.label)
+            .toSet()
+            .toList(),
+      ),
     );
 
     if (chosen != null) setState(() => _filter = chosen);
@@ -135,6 +148,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 leading: backToHomeButton(context),
                 actions: [
                   IconButton(
+                    tooltip: 'Pay-cycle history',
+                    icon: const Icon(Icons.history),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                    ),
+                  ),
+                  IconButton(
                     tooltip: 'Spending by category',
                     icon: const Icon(Icons.pie_chart_outline),
                     onPressed: all == null ? null : () => _showBreakdown(shown),
@@ -146,7 +167,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       label: Text('${_filter.activeCount}'),
                       child: const Icon(Icons.filter_list),
                     ),
-                    onPressed: () => _editFilter(wallets),
+                    onPressed: () => _editFilter(wallets, all ?? const []),
                   ),
                 ],
               ),
@@ -396,7 +417,12 @@ class _ActiveFilters extends StatelessWidget {
 }
 
 class _FilterSheet extends StatefulWidget {
-  const _FilterSheet({required this.initial, required this.wallets});
+  const _FilterSheet({
+    required this.initial,
+    required this.wallets,
+    required this.historicalCategories,
+  });
+  final List<String> historicalCategories;
 
   final TransactionFilter initial;
   final List<Wallet> wallets;
@@ -496,9 +522,7 @@ class _FilterSheetState extends State<_FilterSheet> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String?>(
-              initialValue: expenseCategories.contains(_filter.category)
-                  ? _filter.category
-                  : null,
+              initialValue: _filter.category,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Category'),
               items: [
@@ -506,7 +530,14 @@ class _FilterSheetState extends State<_FilterSheet> {
                   value: null,
                   child: Text('All categories'),
                 ),
-                for (final category in expenseCategories)
+                for (final category in {
+                  ...categoryOptions(
+                    context,
+                    selected: _filter.category,
+                    includeHidden: true,
+                  ),
+                  ...widget.historicalCategories,
+                })
                   DropdownMenuItem(value: category, child: Text(category)),
               ],
               onChanged: (value) => setState(

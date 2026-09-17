@@ -93,6 +93,40 @@ void main() {
     expect(find.text('Facebook'), findsNothing);
   });
 
+  testWidgets('the welcome screen is plain and follows the saved theme', (
+    tester,
+  ) async {
+    final settings = AppSettingsProvider();
+    settings.setThemeMode(ThemeMode.dark);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: settings,
+        child: MyApp(
+          home: SplashScreen(
+            resolveDestination: () async => StartDestination.signedOut,
+          ),
+        ),
+      ),
+    );
+
+    // The logo, the words and the loading ring, nothing floating around them.
+    expect(find.text('Welcome to FinAssist'), findsOneWidget);
+    expect(find.text('No subscriptions'), findsNothing);
+    expect(find.text('Works offline'), findsNothing);
+    expect(find.text('Only you see your data'), findsNothing);
+
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).last);
+    expect(
+      scaffold.backgroundColor,
+      AppColors.dark.card,
+      reason: 'it follows the mode the user already chose',
+    );
+
+    // Let the splash's own timer finish before the tree goes away.
+    await tester.pump(const Duration(milliseconds: 900));
+  });
+
   testWidgets('splash shows retry when the session check fails', (
     tester,
   ) async {
@@ -4699,9 +4733,16 @@ void main() {
 
       expect(find.text('Emergency Fund'), findsWidgets);
 
+      // Only the essentials show at first.
+      expect(find.byType(TextField), findsNWidgets(2));
+      expect(find.text('Already saved'), findsNothing);
+
+      await tester.enterText(find.byType(TextField).at(1), '12000');
+      await tester.tap(find.text('More options (optional)'));
+      await tester.pumpAndSettle();
+
       final fields = find.byType(TextField);
-      // Target, then already saved.
-      await tester.enterText(fields.at(1), '12000');
+      // Name, target, already saved, amount each time, notes.
       await tester.enterText(fields.at(2), '2000');
       await tester.pump();
 
@@ -5170,6 +5211,15 @@ void main() {
       // The bill payment is spending; the loan to Ana isn't.
       expect(find.text('spent so far this month'), findsOneWidget);
       expect(find.byType(SpendingBar), findsOneWidget);
+      final segments = find.descendant(
+        of: find.byType(SpendingBar),
+        matching: find.byType(ColoredBox),
+      );
+      expect(
+        tester.getSize(segments.first).height,
+        10,
+        reason: 'the bar has to be drawn, not just present',
+      );
       expect(find.text('100%'), findsOneWidget);
 
       // Both show in the recent list.

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
+import '../models/safe_to_spend.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
 import 'goal_service.dart';
@@ -76,6 +77,7 @@ class AllocationService {
     required String walletId,
     required String source,
     required DateTime receivedAt,
+    String? incomeFrequency,
   }) {
     final problems = plan.problems;
 
@@ -144,7 +146,14 @@ class AllocationService {
       );
     }
 
+    final period = payPeriodFor(
+      incomeFrequency,
+      lastIncomeAt: receivedAt,
+      now: receivedAt,
+    );
     batch.set(cycle, {
+      'periodStart': Timestamp.fromDate(period.start),
+      'periodEnd': Timestamp.fromDate(period.end),
       'incomeTransactionId': incomeId,
       'walletId': walletId,
       'source': source,

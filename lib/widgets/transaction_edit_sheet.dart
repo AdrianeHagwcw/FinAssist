@@ -6,7 +6,7 @@ import '../services/ledger_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
-import '../utils/categories.dart';
+import '../utils/category_options.dart';
 import '../utils/date_format.dart';
 import '../utils/income_sources.dart';
 import '../utils/money_format.dart';
@@ -98,7 +98,7 @@ class _TransactionEditSheetState extends State<TransactionEditSheet> {
   List<String> get _labelChoices {
     final base = _original.type == TransactionType.income
         ? incomeSources
-        : expenseCategories;
+        : categoryOptions(context, selected: _label);
 
     // Keep an older label that is no longer offered, so opening a record
     // doesn't silently rename it.

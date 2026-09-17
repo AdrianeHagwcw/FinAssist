@@ -7,6 +7,18 @@ import 'firestore_write.dart';
 // Profile writes are not awaited and reads use Firestore's default source, so
 // they work from the local cache while offline and sync when back online.
 class UserProfileService {
+  static void updatePreferences(Map<String, dynamic> values) {
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('No authenticated user.');
+    commitFirestoreWrite(
+      _profileReference(user.uid).set({
+        ...values,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)),
+      'update financial preferences',
+    );
+  }
+
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 

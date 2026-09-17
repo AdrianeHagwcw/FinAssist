@@ -97,6 +97,7 @@ const List<SavingsOption> savingsOptions = [
       'Make sure the bank is covered by PDIC deposit insurance.',
     ],
     goalName: 'Savings',
+    goalKind: GoalKind.savingsAccount,
   ),
   SavingsOption(
     name: 'Time Deposit',
@@ -117,6 +118,7 @@ const List<SavingsOption> savingsOptions = [
       'There is often a minimum amount to start.',
     ],
     goalName: 'Time Deposit',
+    goalKind: GoalKind.timeDeposit,
   ),
 ];
 

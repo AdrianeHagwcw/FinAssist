@@ -132,26 +132,6 @@ class _SplashScreenState extends State<SplashScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, color: Colors.grey, height: 1.4),
               ),
-              const SizedBox(height: 22),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: const [
-                  _ReassuranceChip(
-                    icon: Icons.money_off_outlined,
-                    label: 'No subscriptions',
-                  ),
-                  _ReassuranceChip(
-                    icon: Icons.cloud_off_outlined,
-                    label: 'Works offline',
-                  ),
-                  _ReassuranceChip(
-                    icon: Icons.lock_outline,
-                    label: 'Only you see your data',
-                  ),
-                ],
-              ),
               const Spacer(),
               SizedBox(
                 width: double.infinity,
@@ -192,39 +172,6 @@ class _SplashScreenState extends State<SplashScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _ReassuranceChip extends StatelessWidget {
-  const _ReassuranceChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: context.appColors.primaryTint,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: context.appColors.primaryText),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: context.appColors.primaryText,
-            ),
-          ),
-        ],
       ),
     );
   }

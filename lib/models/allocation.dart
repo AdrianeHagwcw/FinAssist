@@ -179,6 +179,11 @@ class AllocationCycle {
     this.decision,
     this.savedAmount = 0,
     this.spentAmount = 0,
+    this.toBills = 0,
+    this.toGoal = 0,
+    this.goalName,
+    this.periodStart,
+    this.periodEnd,
   });
 
   factory AllocationCycle.fromMap(String id, Map<String, dynamic>? data) {
@@ -199,6 +204,15 @@ class AllocationCycle {
       ),
       savedAmount: _asDouble(map['leftoverSaved']),
       spentAmount: _asDouble(map['leftoverSpent']),
+      toBills: _asDouble(map['toBills']),
+      toGoal: _asDouble(map['toGoal']),
+      goalName: map['goalName'] is String ? map['goalName'] as String : null,
+      periodStart: map['periodStart'] is Timestamp
+          ? (map['periodStart'] as Timestamp).toDate()
+          : null,
+      periodEnd: map['periodEnd'] is Timestamp
+          ? (map['periodEnd'] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -215,6 +229,11 @@ class AllocationCycle {
   final LeftoverDecision? decision;
   final double savedAmount;
   final double spentAmount;
+  final double toBills;
+  final double toGoal;
+  final String? goalName;
+  final DateTime? periodStart;
+  final DateTime? periodEnd;
 
   /// A decision was made. "Decide later" doesn't count: it is still open.
   bool get isResolved =>
@@ -225,6 +244,11 @@ class AllocationCycle {
 
 /// The pay period a cycle's income was meant to cover.
 PayPeriod periodOf(AllocationCycle cycle, String? frequency) {
+  if (cycle.periodStart != null &&
+      cycle.periodEnd != null &&
+      cycle.periodEnd!.isAfter(cycle.periodStart!)) {
+    return PayPeriod(start: cycle.periodStart!, end: cycle.periodEnd!);
+  }
   return payPeriodFor(
     frequency,
     lastIncomeAt: cycle.receivedAt,

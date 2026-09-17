@@ -57,6 +57,7 @@ class AmountField extends StatelessWidget {
   const AmountField({
     required this.controller,
     required this.label,
+    this.hint = '0.00',
     this.enabled = true,
     this.autofocus = true,
     this.onSubmitted,
@@ -65,6 +66,9 @@ class AmountField extends StatelessWidget {
 
   final TextEditingController controller;
   final String label;
+
+  /// Grey example inside the field, such as `20000`.
+  final String hint;
   final bool enabled;
   final bool autofocus;
   final VoidCallback? onSubmitted;
@@ -86,7 +90,7 @@ class AmountField extends StatelessWidget {
       decoration: dialogFieldDecoration(
         context,
         label,
-      ).copyWith(prefixText: '₱ ', hintText: '0.00'),
+      ).copyWith(prefixText: '₱ ', hintText: hint),
     );
   }
 }

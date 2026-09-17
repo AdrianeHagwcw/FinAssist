@@ -10,6 +10,17 @@ import 'firestore_write.dart';
 /// These live on the profile rather than per wallet: a daily limit and money
 /// set aside are about the user's spending as a whole, not one wallet.
 class BudgetService {
+  /// Complete history; the dashboard's small window must not hide old pending cycles.
+  static Stream<List<AllocationCycle>> watchHistory() => _profile
+      .collection('allocationCycles')
+      .orderBy('receivedAt', descending: true)
+      .snapshots()
+      .map(
+        (snapshot) => snapshot.docs
+            .map((doc) => AllocationCycle.fromMap(doc.id, doc.data()))
+            .toList(),
+      );
+
   static DocumentReference<Map<String, dynamic>> get _profile {
     final user = FirebaseAuth.instance.currentUser;
 
@@ -71,6 +82,12 @@ class BudgetService {
     double saved = 0,
     double spent = 0,
   }) {
+    if (cycle.isResolved) {
+      throw StateError('This cycle has already been reviewed.');
+    }
+    if (!saved.isFinite || !spent.isFinite || saved < 0 || spent < 0) {
+      throw ArgumentError('Enter valid leftover amounts.');
+    }
     final batch = FirebaseFirestore.instance.batch();
 
     batch.set(_profile.collection('allocationCycles').doc(cycle.id), {

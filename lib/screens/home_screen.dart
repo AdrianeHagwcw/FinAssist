@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
+import '../models/bill.dart';
+import '../models/dashboard_tip.dart';
 import '../models/report.dart';
 import '../models/transaction_filter.dart';
 import '../models/wallet.dart';
@@ -17,6 +19,8 @@ import '../widgets/spending_chart.dart';
 import '../widgets/transaction_edit_sheet.dart';
 import '../widgets/transaction_row.dart';
 import '../widgets/due_soon_notice.dart';
+import '../widgets/dashboard_tip.dart';
+import 'history_screen.dart';
 import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
 import 'chatbot_screen.dart';
@@ -83,6 +87,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Changing this rebuilds the Safe to Spend card after income is added.
   int _refreshKey = 0;
+
+  /// The bills the Safe to Spend card loaded, reused by the tip so the screen
+  /// doesn't read them twice.
+  List<BillInstance> _bills = const [];
 
   String get _name {
     if (widget.userName != null) return widget.userName!;
@@ -183,6 +191,8 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 25),
         _SectionTitle('Quick Actions'),
         _quickActions(),
+        const SizedBox(height: 20),
+        _tip(wallets: wallets, transactions: transactions, now: now),
 
         const SizedBox(height: 25),
         _SectionTitle(
@@ -212,6 +222,24 @@ class _HomeScreenState extends State<HomeScreen> {
           onOpenReports: () => _push(const ReportsScreen()),
         ),
       ],
+    );
+  }
+
+  /// The tip needs the bills the Safe to Spend card already loaded, so it is
+  /// built from the same inputs further down the screen.
+  Widget _tip({
+    required List<Wallet>? wallets,
+    required List<AppTransaction>? transactions,
+    required DateTime now,
+  }) {
+    return DashboardTipCard(
+      tip: dashboardTipFor(
+        wallets: wallets,
+        transactions: transactions,
+        bills: _bills,
+        now: now,
+      ),
+      onOpenHistory: () => _push(const HistoryScreen()),
     );
   }
 
@@ -318,6 +346,13 @@ class _HomeScreenState extends State<HomeScreen> {
   /// what was left of it hasn't been decided.
   /// Bills due soon, then the leftover decision when one is waiting.
   Widget _belowCard(BuildContext context, SafeToSpendInputs inputs) {
+    // Kept for the tip above, which is built before this runs.
+    if (!identical(_bills, inputs.bills)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _bills = inputs.bills);
+      });
+    }
+
     return Column(
       children: [
         DueSoonNotice(

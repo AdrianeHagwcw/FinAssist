@@ -6,6 +6,12 @@ import '../theme/app_colors.dart';
 import '../widgets/light_dark_toggle.dart';
 import 'login_screen.dart';
 import 'reminders_screen.dart';
+import 'categories_screen.dart';
+import 'financial_preferences_screen.dart';
+import 'forgot_password_screen.dart';
+import 'help_screen.dart';
+import 'history_screen.dart';
+import 'wallets_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -22,6 +28,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // =========================================================
 
   User? get currentUser => _auth.currentUser;
+
+  void _open(Widget screen) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+
+  void _security() {
+    final passwordAccount =
+        currentUser?.providerData.any((p) => p.providerId == 'password') ??
+        false;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Account security'),
+        content: Text(
+          passwordAccount
+              ? 'Use a password-reset email to change your password. You will need access to ${_getUserEmail()}.'
+              : 'You sign in through Google. Manage your password and sign-in protection in your Google account.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          if (passwordAccount)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _open(ForgotPasswordScreen(initialEmail: _getUserEmail()));
+              },
+              child: const Text('Reset password'),
+            ),
+        ],
+      ),
+    );
+  }
 
   // =========================================================
   // LOGOUT
@@ -354,7 +394,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   // =================================================
                   // SETTINGS
                   // =================================================
-                  _buildSectionTitle('Settings'),
+                  _buildSectionTitle('Your money'),
+
+                  const SizedBox(height: 10),
+                  Material(
+                    color: colors.card,
+                    borderRadius: BorderRadius.circular(16),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        _buildActionTile(
+                          iconAsset: 'assets/icons/icons8-banknotes-96.png',
+                          title: 'Income & leftover preferences',
+                          onTap: () =>
+                              _open(const FinancialPreferencesScreen()),
+                        ),
+                        const Divider(height: 1, indent: 65),
+                        _buildActionTile(
+                          iconAsset: 'assets/icons/icons8-calendar-96.png',
+                          title: 'Pay-cycle history',
+                          onTap: () => _open(const HistoryScreen()),
+                        ),
+                        const Divider(height: 1, indent: 65),
+                        _buildActionTile(
+                          iconAsset: 'assets/icons/icons8-cat-shopping-96.png',
+                          title: 'Manage expense categories',
+                          onTap: () => _open(const CategoriesScreen()),
+                        ),
+                        const Divider(height: 1, indent: 65),
+                        _buildActionTile(
+                          iconAsset: 'assets/icons/icons8-wallet-96.png',
+                          title: 'Manage wallets',
+                          onTap: () => _open(const WalletsScreen()),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+                  _buildSectionTitle('Reminders & support'),
 
                   const SizedBox(height: 10),
 
@@ -385,13 +462,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                           title: 'Security',
 
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Security settings coming soon.'),
-                              ),
-                            );
-                          },
+                          onTap: _security,
                         ),
 
                         const Divider(height: 1, indent: 65),
@@ -401,13 +472,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                           title: 'Help & Support',
 
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Help & Support coming soon.'),
-                              ),
-                            );
-                          },
+                          onTap: () => _open(const HelpScreen()),
                         ),
                       ],
                     ),

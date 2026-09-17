@@ -316,7 +316,17 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  // A visible way out: a long sheet can only be dragged down
+                  // from the very top of it.
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.maybePop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
                   Text(
                     _iOwe ? 'Add Installment' : 'Add Money Owed to You',
                     style: TextStyle(

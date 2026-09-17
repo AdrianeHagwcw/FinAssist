@@ -149,6 +149,9 @@ class SpendingBar extends StatelessWidget {
       child: SizedBox(
         height: 10,
         child: Row(
+          // Stretch, or the segments take their natural height, which is
+          // nothing, and the bar never shows.
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (var i = 0; i < entries.length; i++) ...[
               if (i > 0)

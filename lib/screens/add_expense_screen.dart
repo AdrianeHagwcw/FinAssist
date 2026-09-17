@@ -6,9 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/app_transaction.dart';
 import '../models/wallet.dart';
-import '../services/firestore_write.dart';
 import '../services/wallet_service.dart';
-import '../utils/categories.dart';
+import '../utils/category_options.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/wallet_picker.dart';
@@ -87,7 +86,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   // CATEGORIES
   // =========================================================
 
-  final List<String> _categories = expenseCategories;
+  List<String> get _categories =>
+      categoryOptions(context, selected: _selectedCategory);
 
   // =========================================================
   // INIT
@@ -192,7 +192,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       _amountController.text.trim().replaceAll(',', ''),
     );
 
-    if (amount == null || amount <= 0) {
+    if (amount == null || !amount.isFinite || amount <= 0) {
       _showError('Please enter a valid expense amount.');
       return;
     }
@@ -255,22 +255,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     final wallet = _selectedWallet;
     final description = _descriptionController.text.trim();
-
-    final Map<String, dynamic> expenseData = {
-      'amount': amount,
-      'category': _selectedCategory,
-      'description': description,
-      'date': Timestamp.fromDate(_selectedDate),
-      // Kept so the older expense screens keep showing something sensible.
-      'paymentMethod': wallet?.type.label ?? widget.initialPaymentMethod,
-      'walletId': wallet?.id,
-      'notes': _notesController.text.trim(),
-    };
-
-    final expensesCollection = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('expenses');
+    final note = [
+      description,
+      _notesController.text.trim(),
+    ].where((part) => part.isNotEmpty).join('\n\n');
 
     // Writes are not awaited: Firestore saves them locally right away and
     // syncs when online, so saving also works without a connection.
@@ -280,11 +268,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     // =======================================================
 
     if (_isEditMode) {
-      commitFirestoreWrite(
-        expensesCollection.doc(widget.documentId).update(expenseData),
-        'update expense',
-      );
-
       // Rewrites the matching wallet entry, putting back what the old version
       // took out before applying the new amount.
       WalletService.replaceTransaction(
@@ -293,7 +276,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         amount: amount,
         label: _selectedCategory!,
         walletId: wallet?.id,
-        note: description,
+        note: note,
         date: _selectedDate,
       );
     }
@@ -301,22 +284,14 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     // ADD NEW EXPENSE
     // =======================================================
     else {
-      expenseData['userId'] = user.uid;
-      expenseData['email'] = user.email;
-      expenseData['createdAt'] = FieldValue.serverTimestamp();
-
-      final reference = expensesCollection.doc();
-      commitFirestoreWrite(reference.set(expenseData), 'add expense');
-
-      // The wallet entry reuses the expense's id, so the one-time migration
-      // of old expenses can never turn this into two records.
+      // The wallet ledger is the only source for new records. Older records
+      // remain available through the one-time legacy import.
       WalletService.recordTransaction(
-        id: reference.id,
         type: TransactionType.expense,
         amount: amount,
         label: _selectedCategory!,
         walletId: wallet?.id,
-        note: description,
+        note: note,
         date: _selectedDate,
       );
     }

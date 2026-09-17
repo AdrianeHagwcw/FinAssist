@@ -6,7 +6,7 @@ import '../services/bill_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
-import '../utils/categories.dart';
+import '../utils/category_options.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 import 'category_icon.dart';
@@ -226,7 +226,10 @@ class _BillFormSheetState extends State<BillFormSheet> {
                   isExpanded: true,
                   decoration: dialogFieldDecoration(context, 'Category'),
                   items: [
-                    for (final category in expenseCategories)
+                    for (final category in categoryOptions(
+                      context,
+                      selected: _category,
+                    ))
                       DropdownMenuItem(
                         value: category,
                         child: Row(

@@ -4,7 +4,9 @@ import 'package:flutter/material.dart' show IconData, Icons;
 /// What a goal is for. Only a label and an icon; the saving works the same.
 enum GoalKind {
   regular('Regular goal', Icons.flag_outlined),
-  emergencyFund('Emergency fund', Icons.health_and_safety_outlined);
+  emergencyFund('Emergency fund', Icons.health_and_safety_outlined),
+  savingsAccount('Savings account', Icons.account_balance_outlined),
+  timeDeposit('Time deposit', Icons.lock_clock_outlined);
 
   const GoalKind(this.label, this.icon);
 

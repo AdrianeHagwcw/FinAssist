@@ -9,6 +9,7 @@ const List<String> expenseCategories = [
   'Entertainment',
   'Healthcare',
   'Education',
+  'Pets',
   'Others',
 ];
 
@@ -43,6 +44,8 @@ Color categoryColor(
       return dark ? const Color(0xFFE66767) : const Color(0xFFE34948);
     case 'entertainment':
       return dark ? const Color(0xFF9085E9) : const Color(0xFF4A3AA7);
+    case 'pets':
+      return const Color(0xFF008300);
     default:
       return dark ? const Color(0xFF8A8986) : const Color(0xFF9A9994);
   }
@@ -69,6 +72,8 @@ String categoryIconAsset(String category) {
       return 'assets/icons/icons8-cat-healthcare-96.png';
     case 'education':
       return 'assets/icons/icons8-cat-education-96.png';
+    case 'pets':
+      return 'assets/icons/icons8-cat-pets-96.png';
     default:
       return 'assets/icons/icons8-cat-others-96.png';
   }

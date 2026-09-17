@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_settings_provider.dart';
 
 import '../models/allocation.dart';
 import '../services/budget_service.dart';
@@ -83,7 +85,12 @@ class DecisionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pending = decision == LeftoverDecision.pending;
-    final color = pending ? Colors.amber.shade700 : confirmColorOn(context);
+    final declined = decision == LeftoverDecision.spent;
+    final color = pending
+        ? Colors.amber.shade700
+        : declined
+        ? dangerColorOn(context)
+        : confirmColorOn(context);
 
     return Tooltip(
       message: pending ? 'Pending' : decision.label,
@@ -95,7 +102,11 @@ class DecisionBadge extends StatelessWidget {
           shape: BoxShape.circle,
         ),
         child: Icon(
-          pending ? Icons.hourglass_top : Icons.check,
+          pending
+              ? Icons.hourglass_top
+              : declined
+              ? Icons.close
+              : Icons.check,
           size: 20,
           color: color,
         ),
@@ -113,11 +124,13 @@ class LeftoverReviewScreen extends StatefulWidget {
     required this.leftover,
     required this.periodEnd,
     this.onResolve,
+    this.initialDecision,
     super.key,
   });
 
   final AllocationCycle cycle;
   final double leftover;
+  final LeftoverDecision? initialDecision;
 
   /// The day after the period's last day.
   final DateTime periodEnd;
@@ -135,10 +148,20 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
   final _saveController = TextEditingController();
   final _spendController = TextEditingController();
   String? _error;
+  bool _resolved = false;
 
   @override
   void initState() {
     super.initState();
+    final suggested =
+        widget.initialDecision ??
+        context.read<AppSettingsProvider?>()?.financial.leftover;
+    _choice = switch (suggested) {
+      LeftoverDecision.saved => _Choice.save,
+      LeftoverDecision.spent => _Choice.spend,
+      LeftoverDecision.split => _Choice.split,
+      _ => null,
+    };
     // Start the split down the middle, so the two boxes already add up.
     final half = (widget.leftover * 50).round() / 100;
     _saveController.text = formatAmountInput(half);
@@ -153,15 +176,26 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
   }
 
   void _resolve(LeftoverDecision decision, double saved, double spent) {
+    if (_resolved || widget.cycle.isResolved) return;
+    _resolved = true;
     if (widget.onResolve != null) {
       widget.onResolve!(decision, saved, spent);
     } else {
-      BudgetService.resolveLeftover(
-        cycle: widget.cycle,
-        decision: decision,
-        saved: saved,
-        spent: spent,
-      );
+      try {
+        BudgetService.resolveLeftover(
+          cycle: widget.cycle,
+          decision: decision,
+          saved: saved,
+          spent: spent,
+        );
+      } catch (_) {
+        // Already settled somewhere else, or the amounts no longer add up.
+        setState(() {
+          _resolved = false;
+          _error = 'This leftover was already decided. Reopen it to see how.';
+        });
+        return;
+      }
     }
     Navigator.pop(context, true);
   }
@@ -180,7 +214,12 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
         final saved = double.tryParse(_saveController.text.trim());
         final spent = double.tryParse(_spendController.text.trim());
 
-        if (saved == null || spent == null || saved < 0 || spent < 0) {
+        if (saved == null ||
+            spent == null ||
+            !saved.isFinite ||
+            !spent.isFinite ||
+            saved < 0 ||
+            spent < 0) {
           setState(() => _error = 'Enter both amounts.');
           return;
         }

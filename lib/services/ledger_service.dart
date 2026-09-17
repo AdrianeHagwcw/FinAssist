@@ -10,7 +10,7 @@ import 'wallet_service.dart';
 ///
 /// A transaction can have copies elsewhere that must stay in step with it:
 /// an expense made from Add Expense also lives in the older `expenses`
-/// collection that Home's spending summary still reads, and a bill payment is
+/// collection retained for legacy import, and a bill payment is
 /// counted on the bill it paid. This keeps those in line instead of leaving
 /// each screen to remember.
 class LedgerService {
