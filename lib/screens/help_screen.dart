@@ -78,11 +78,11 @@ class HelpScreen extends StatelessWidget {
           ],
         ),
         ExpansionTile(
-          title: Text('Where are receipt attachments and AI logging?'),
+          title: Text('How do Scan Receipt and Voice Entry work?'),
           children: [
             ListTile(
               title: Text(
-                'Receipt photos cannot be attached to payments yet. Receipt scanning and voice input currently show recognized text; review and record your expense manually.',
+                'Scan Receipt reads the text on a receipt photo, and Voice Entry turns what you say into words. Either way you check the text first, then Use This opens a new expense with it filled in. You add the amount and category and save it yourself; nothing is saved automatically. Receipt photos are not attached to expenses or uploaded anywhere.',
               ),
             ),
           ],

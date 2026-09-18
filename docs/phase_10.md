@@ -32,7 +32,7 @@ History reads every allocation cycle, not just the dashboard's six most recent. 
 
 ## Validation
 
-250 automated tests pass and `flutter analyze` reports no issues. `test/phase10_test.dart` covers period preservation, statuses, hiding categories while keeping Others and old labels, account reset, the remembered privacy choice, history filtering and review, empty and error states, form validation and saving, explicit leftover confirmation, and a 320-pixel layout at 150% text size. `test/widget_test.dart` checks Flutter's labelled-tap-target guideline on the Log In screen.
+271 automated tests pass and `flutter analyze` reports no issues. `test/phase10_test.dart` covers period preservation, statuses, hiding categories while keeping Others and old labels, account reset, the remembered privacy choice, history filtering and review, empty and error states, form validation and saving, explicit leftover confirmation, and a 320-pixel layout at 150% text size. `test/widget_test.dart` checks Flutter's labelled-tap-target guideline on the Log In screen.
 
 Run `flutter test --no-pub` and `flutter analyze --no-pub`.
 

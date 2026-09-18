@@ -5277,8 +5277,8 @@ void main() {
         'Savings',
         'Debts',
         'Reports',
-        'OCR Receipt',
-        'Voice Input',
+        'Scan Receipt',
+        'Voice Entry',
       ]) {
         expect(find.text(shortcut), findsOneWidget);
       }

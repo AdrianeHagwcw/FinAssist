@@ -108,14 +108,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
       _selectedCategory = widget.initialCategory;
 
-      _descriptionController.text = widget.initialDescription ?? '';
-
-      _notesController.text = widget.initialNotes ?? '';
-
       if (widget.initialDate != null) {
         _selectedDate = widget.initialDate!.toDate();
       }
     }
+
+    // An expense being edited, or a new one started from voice entry or a
+    // receipt scan, which the user checks before saving.
+    _descriptionController.text = widget.initialDescription ?? '';
+    _notesController.text = widget.initialNotes ?? '';
 
     // The wallet list is held here rather than read from a builder, because
     // saving needs to know which wallet was picked.

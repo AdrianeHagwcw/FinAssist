@@ -290,13 +290,13 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 12),
             tile(
               'assets/icons/icons8-camera-96.png',
-              'OCR Receipt',
-              () => _push(const OcrScreen(autoStart: true)),
+              'Scan Receipt',
+              () => _push(const OcrScreen()),
             ),
             const SizedBox(width: 12),
             tile(
               'assets/icons/icons8-microphone-96.png',
-              'Voice Input',
+              'Voice Entry',
               () => _push(const VoiceRecognitionScreen(autoStart: true)),
             ),
           ],
