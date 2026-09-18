@@ -35,6 +35,7 @@ import 'package:testapp/screens/reports_screen.dart';
 import 'package:testapp/screens/reminders_screen.dart';
 import 'package:testapp/widgets/quick_add_sheet.dart';
 import 'package:testapp/screens/splash_screen.dart';
+import 'package:testapp/services/launch_screen.dart';
 import 'package:testapp/screens/transactions_screen.dart';
 import 'package:testapp/screens/wallet_detail_screen.dart';
 import 'package:testapp/screens/wallets_screen.dart';
@@ -44,6 +45,7 @@ import 'package:testapp/services/budget_service.dart';
 import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
 import 'package:testapp/theme/app_theme.dart';
+import 'package:testapp/widgets/app_logo.dart';
 import 'package:testapp/widgets/back_to_home.dart';
 import 'package:testapp/widgets/bill_payment_sheet.dart';
 import 'package:testapp/widgets/goal_sheets.dart';
@@ -64,7 +66,7 @@ import 'package:testapp/widgets/transfer_sheet.dart';
 import 'package:testapp/widgets/wallet_picker.dart';
 
 void main() {
-  testWidgets('signed-out users see splash, then login after Get Started', (
+  testWidgets('signed-out users go straight to log in', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -77,31 +79,110 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
 
-    expect(find.text('Welcome to FinAssist'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-
-    // Splash stays up for its minimum display time, then offers Get Started.
-    await tester.pump(const Duration(milliseconds: 900));
-    expect(find.text('Get Started'), findsOneWidget);
-
-    await tester.tap(find.text('Get Started'));
-    await tester.pumpAndSettle();
-
+    // Android's launch screen shows the logo, so there is no welcome page.
+    expect(find.text('Welcome to FinAssist'), findsNothing);
+    expect(find.text('Get Started'), findsNothing);
     expect(find.text('Welcome Back!'), findsOneWidget);
     expect(find.text('Google'), findsOneWidget);
     expect(find.text('Facebook'), findsNothing);
   });
 
-  testWidgets('the welcome screen is plain and follows the saved theme', (
+  testWidgets('the launch screen stays up until the first screen is ready', (
     tester,
   ) async {
+    final session = Completer<StartDestination>();
+    LaunchScreen.hold();
+    addTearDown(LaunchScreen.release);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MyApp(
+          home: SplashScreen(resolveDestination: () => session.future),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(LaunchScreen.isHolding, isTrue);
+
+    session.complete(StartDestination.signedOut);
+    await tester.pump();
+    expect(LaunchScreen.isHolding, isFalse);
+    expect(find.text('Welcome Back!'), findsOneWidget);
+  });
+
+  testWidgets('a slow start shows the logo and a loading ring in the saved '
+      'theme', (tester) async {
     final settings = AppSettingsProvider();
     settings.setThemeMode(ThemeMode.dark);
+    final session = Completer<StartDestination>();
+    LaunchScreen.hold();
+    addTearDown(LaunchScreen.release);
 
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
         value: settings,
+        child: MyApp(
+          home: SplashScreen(resolveDestination: () => session.future),
+        ),
+      ),
+    );
+
+    // The launch screen gives way after its limit, so the wait never looks
+    // frozen.
+    await tester.pump(SplashScreen.launchScreenLimit);
+    expect(LaunchScreen.isHolding, isFalse);
+    expect(find.byType(AppLogo), findsOneWidget);
+    expect(find.bySemanticsLabel('Loading'), findsOneWidget);
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(
+      scaffold.backgroundColor,
+      AppColors.dark.card,
+      reason: 'the colour of the dark launch screen, for anyone who chose dark',
+    );
+
+    session.complete(StartDestination.signedOut);
+    await tester.pump();
+    expect(find.text('Welcome Back!'), findsOneWidget);
+  });
+
+  testWidgets('choosing a theme sets the next launch screen straight away', (
+    tester,
+  ) async {
+    final sent = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      LaunchScreen.channel,
+      (call) async {
+        sent.add('${call.method} ${call.arguments}');
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        LaunchScreen.channel,
+        null,
+      ),
+    );
+
+    final settings = AppSettingsProvider();
+    settings.setThemeMode(ThemeMode.dark);
+    settings.setThemeMode(ThemeMode.dark);
+    settings.setThemeMode(ThemeMode.light);
+    await tester.pump();
+
+    // Once per real change, and before the app is ever closed.
+    expect(sent, ['setDark true', 'setDark false']);
+  });
+
+  testWidgets('log in has a spoken label on every tappable control', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
         child: MyApp(
           home: SplashScreen(
             resolveDestination: () async => StartDestination.signedOut,
@@ -109,27 +190,23 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
 
-    // The logo, the words and the loading ring, nothing floating around them.
-    expect(find.text('Welcome to FinAssist'), findsOneWidget);
-    expect(find.text('No subscriptions'), findsNothing);
-    expect(find.text('Works offline'), findsNothing);
-    expect(find.text('Only you see your data'), findsNothing);
+    // The eye beside the password says what it does, and says the opposite
+    // once pressed.
+    expect(find.byTooltip('Show password'), findsOneWidget);
+    await tester.tap(find.byTooltip('Show password'));
+    await tester.pump();
+    expect(find.byTooltip('Hide password'), findsOneWidget);
 
-    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).last);
-    expect(
-      scaffold.backgroundColor,
-      AppColors.dark.card,
-      reason: 'it follows the mode the user already chose',
-    );
-
-    // Let the splash's own timer finish before the tree goes away.
-    await tester.pump(const Duration(milliseconds: 900));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    handle.dispose();
   });
 
-  testWidgets('splash shows retry when the session check fails', (
-    tester,
-  ) async {
+  testWidgets('start shows retry when the session check fails', (tester) async {
+    LaunchScreen.hold();
+    addTearDown(LaunchScreen.release);
+
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => AppSettingsProvider(),
@@ -140,8 +217,10 @@ void main() {
         ),
       ),
     );
-    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump();
 
+    expect(LaunchScreen.isHolding, isFalse, reason: 'the problem is shown');
+    expect(find.text('We could not load your profile'), findsOneWidget);
     expect(find.text('Try Again'), findsOneWidget);
     expect(find.text('Log Out'), findsOneWidget);
   });

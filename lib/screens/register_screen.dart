@@ -457,6 +457,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
 
                     suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? 'Show password'
+                          : 'Hide password',
                       onPressed: _isLoading
                           ? null
                           : () {
@@ -524,6 +527,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
 
                     suffixIcon: IconButton(
+                      tooltip: _obscureConfirmPassword
+                          ? 'Show confirmed password'
+                          : 'Hide confirmed password',
                       onPressed: _isLoading
                           ? null
                           : () {

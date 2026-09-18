@@ -274,6 +274,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
         actions: [
           IconButton(
+            tooltip: 'More options',
             icon: const Icon(Icons.more_vert),
             onPressed: () {
               _showOptions();
@@ -523,6 +524,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
+                    tooltip: 'Send message',
                     onPressed: _sendMessage,
                     icon: const Icon(Icons.send, color: Colors.white, size: 20),
                   ),

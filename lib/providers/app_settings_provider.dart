@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/financial_preferences.dart';
+import '../services/launch_screen.dart';
 
 /// Device display preferences and the signed-in account's live financial profile.
 class AppSettingsProvider extends ChangeNotifier {
@@ -59,6 +60,7 @@ class AppSettingsProvider extends ChangeNotifier {
     _themeMode = mode;
     notifyListeners();
     _preferences?.setString(_themeModeKey, mode.name);
+    LaunchScreen.follow(dark: mode == ThemeMode.dark);
   }
 
   /// The eye on the Safe to Spend card. Remembered, so amounts stay hidden

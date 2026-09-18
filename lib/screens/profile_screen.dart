@@ -220,14 +220,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         elevation: 0,
 
-        // BACK TO HOME
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
+        // BACK TO HOME. Flutter's BackButton, so screen readers announce it.
+        leading: const BackButton(),
 
         title: const Text(
           'Profile & Settings',

@@ -16,6 +16,9 @@ class ReminderService {
   static final _plugin = FlutterLocalNotificationsPlugin();
   static bool _ready = false;
 
+  /// The set-up under way, shared by everyone who asks while it runs.
+  static Future<void>? _starting;
+
   /// The payload of a reminder the user tapped, waiting to be opened. Set
   /// before the app has signed in too, so it is opened once it can be.
   static final ValueNotifier<String?> opened = ValueNotifier(null);
@@ -36,11 +39,15 @@ class ReminderService {
   /// again leaves this one alone.
   static const _testId = 1;
 
-  /// Sets up time zones and the plugin. Safe to call more than once, and
-  /// never throws: an app without reminders still works.
+  /// Sets up time zones and the plugin. Safe to call more than once, even
+  /// while it is still running, and never throws: an app without reminders
+  /// still works. A failed set-up is tried again on the next call.
   static Future<void> init() async {
     if (_ready) return;
+    await (_starting ??= _start().whenComplete(() => _starting = null));
+  }
 
+  static Future<void> _start() async {
     try {
       tz_data.initializeTimeZones();
       try {
