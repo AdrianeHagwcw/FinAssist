@@ -316,6 +316,7 @@ class _KindCard extends StatelessWidget {
 
   static String titleOf(ReminderKind kind) => switch (kind) {
     ReminderKind.bills => 'Bills due',
+    ReminderKind.payday => 'Payday',
     ReminderKind.goals => 'Saving plans',
     ReminderKind.leftover => 'Leftover money',
     ReminderKind.dailyLog => 'Log your spending',
@@ -323,6 +324,8 @@ class _KindCard extends StatelessWidget {
 
   static String whenOf(ReminderKind kind) => switch (kind) {
     ReminderKind.bills => 'Before and on the due date, at 9 AM.',
+    ReminderKind.payday =>
+      'On payday at 12 PM, then daily for 3 days until you log it.',
     ReminderKind.goals => "On your goal's saving days, at 9 AM.",
     ReminderKind.leftover => 'When a pay period ends, to save or spend it.',
     ReminderKind.dailyLog => '8 PM on days nothing was logged yet.',
@@ -330,7 +333,11 @@ class _KindCard extends StatelessWidget {
 
   String get _why {
     final priority = ReminderSettings.priorityFor(kind);
-    if (priority == null) return 'Always suggested: a missed bill costs money.';
+    if (priority == null) {
+      return kind == ReminderKind.payday
+          ? 'Always suggested: logged pay keeps Safe to Spend right.'
+          : 'Always suggested: a missed bill costs money.';
+    }
 
     final rank = settings.rankOf(priority) + 1;
     return settings.suggested(kind)

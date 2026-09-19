@@ -16,6 +16,7 @@ Future<T?> _showSheet<T>(BuildContext context, Widget child) {
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: context.appColors.card,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -32,6 +33,8 @@ Future<bool> showGoalFormSheet(
   int nextPriority = 0,
   String? initialName,
   GoalKind initialKind = GoalKind.regular,
+  double? initialTarget,
+  DateTime? initialDate,
 }) async {
   final saved = await _showSheet<bool>(
     context,
@@ -40,6 +43,8 @@ Future<bool> showGoalFormSheet(
       nextPriority: nextPriority,
       initialName: initialName,
       initialKind: initialKind,
+      initialTarget: initialTarget,
+      initialDate: initialDate,
     ),
   );
   return saved ?? false;
@@ -294,6 +299,8 @@ class GoalFormSheet extends StatefulWidget {
     this.nextPriority = 0,
     this.initialName,
     this.initialKind = GoalKind.regular,
+    this.initialTarget,
+    this.initialDate,
     this.wallets,
     this.today,
     this.onSave,
@@ -306,6 +313,11 @@ class GoalFormSheet extends StatefulWidget {
   /// A name to start with, such as one picked from the savings guide.
   final String? initialName;
   final GoalKind initialKind;
+
+  /// A target and date to start with, such as a price the assistant was
+  /// asked about.
+  final double? initialTarget;
+  final DateTime? initialDate;
 
   /// Replaces the live wallet list. Used by tests.
   final Stream<List<Wallet>>? wallets;
@@ -329,7 +341,11 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     text: _existing?.name ?? widget.initialName ?? '',
   );
   late final _targetController = TextEditingController(
-    text: _existing == null ? '' : formatAmountInput(_existing.targetAmount),
+    text: _existing != null
+        ? formatAmountInput(_existing.targetAmount)
+        : widget.initialTarget == null
+        ? ''
+        : formatAmountInput(widget.initialTarget!),
   );
   final _savedController = TextEditingController();
   late final _planController = TextEditingController(
@@ -344,7 +360,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
   late GoalKind _kind = _existing?.kind ?? widget.initialKind;
   late ContributionFrequency _frequency =
       _existing?.frequency ?? ContributionFrequency.monthly;
-  late DateTime? _date = _existing?.targetDate;
+  late DateTime? _date = _existing?.targetDate ?? widget.initialDate;
   late String? _walletId = _existing?.walletId;
   String? _error;
 
@@ -407,6 +423,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     targetDate: _date,
     frequency: _frequency,
     now: _today,
+    planStartedAt: _existing?.planStartedAt,
   );
 
   double? get _planAmount {
@@ -435,6 +452,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
       amount: _planAmount,
       frequency: _frequency,
       now: _today,
+      planStartedAt: _existing?.planStartedAt,
     );
     if (reached != null) {
       return 'At ${formatPeso(_planAmount!)} ${_frequency.per} you reach it '
@@ -606,7 +624,11 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                               onPressed: () => setState(() => _date = null),
                             )
                           else
-                            const Icon(Icons.calendar_today, size: 18),
+                            Image.asset(
+                              'assets/icons/icons8-calendar-96.png',
+                              width: 22,
+                              height: 22,
+                            ),
                         ],
                       ),
                     ),

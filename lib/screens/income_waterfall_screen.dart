@@ -9,6 +9,7 @@ import '../models/bill.dart';
 import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/allocation_service.dart';
+import '../services/budget_service.dart';
 import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
@@ -39,6 +40,7 @@ class IncomeWaterfallScreen extends StatefulWidget {
     this.wallets,
     this.loadBills,
     this.goals,
+    this.cycles,
     this.onConfirm,
     this.today,
     super.key,
@@ -55,6 +57,10 @@ class IncomeWaterfallScreen extends StatefulWidget {
 
   /// Replaces the live goals. Used by tests.
   final Stream<List<Goal>>? goals;
+
+  /// Replaces the recent income, which says which pay period this income
+  /// joins. Used by tests.
+  final Stream<List<AllocationCycle>>? cycles;
 
   /// Replaces saving to Firestore. Used by tests.
   final void Function({
@@ -92,6 +98,10 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   List<Goal>? _goals;
   StreamSubscription<List<Goal>>? _goalSubscription;
 
+  /// Income already logged, to place this one in the right pay period.
+  List<AllocationCycle> _recentCycles = const [];
+  StreamSubscription<List<AllocationCycle>>? _cycleSubscription;
+
   /// The goal step's answers.
   bool _toGoal = false;
   String? _goalId;
@@ -121,9 +131,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       if (_source == otherIncomeSource) {
         _otherSourceController.text = preferences.source;
       }
-      if (preferences.income != null) {
-        _amountController.text = formatAmountInput(preferences.income!);
-      }
     }
     _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
@@ -143,6 +150,12 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       },
     );
     _goalAmountController.addListener(_refresh);
+    _cycleSubscription = (widget.cycles ?? BudgetService.watchRecentCycles())
+        .listen(
+          (cycles) => _recentCycles = cycles,
+          // Without them, the income is placed as before: from its own date.
+          onError: (Object _) {},
+        );
   }
 
   void _refresh() => setState(() {});
@@ -154,6 +167,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       ..dispose();
     _otherSourceController.dispose();
     _goalSubscription?.cancel();
+    _cycleSubscription?.cancel();
     _goalAmountController
       ..removeListener(_refresh)
       ..dispose();
@@ -357,6 +371,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               .read<AppSettingsProvider?>()
               ?.financial
               .frequency,
+          usualSource: context.read<AppSettingsProvider?>()?.financial.source,
+          recentCycles: _recentCycles,
           plan: plan,
           walletId: walletId,
           source: source,
@@ -512,7 +528,11 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             child: Row(
               children: [
                 Expanded(child: Text(formatShortDate(_receivedAt))),
-                const Icon(Icons.calendar_today, size: 18),
+                Image.asset(
+                  'assets/icons/icons8-calendar-96.png',
+                  width: 22,
+                  height: 22,
+                ),
               ],
             ),
           ),

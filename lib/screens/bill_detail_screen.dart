@@ -494,6 +494,21 @@ class _BillHeader extends StatelessWidget {
               ),
             ),
           ],
+          if (instance.isCarriedForward) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: colors.primaryTint,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'The unpaid ${_peso(instance.movedAmount)} moved to the next '
+                'due date of this bill, so it is paid there.',
+                style: TextStyle(fontSize: 12, color: colors.textBody),
+              ),
+            ),
+          ],
           if (instance.amountPaid > 0) ...[
             const SizedBox(height: 16),
             ClipRRect(
@@ -514,13 +529,17 @@ class _BillHeader extends StatelessWidget {
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 Text(
-                  instance.remaining > 0
+                  instance.isCarriedForward
+                      ? 'Rest moved to the next bill'
+                      : instance.remaining > 0
                       ? '${_peso(instance.remaining)} to go'
                       : 'Fully paid',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: instance.remaining > 0
+                    color: instance.isCarriedForward
+                        ? colors.textBody
+                        : instance.remaining > 0
                         ? colors.textPrimary
                         : Colors.green,
                   ),
@@ -555,6 +574,10 @@ class _BillActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Paid through the occurrence its unpaid part moved to. Paying or undoing
+    // here would count the same money twice.
+    if (instance.isCarriedForward) return const SizedBox.shrink();
+
     if (instance.status == BillStatus.skipped) {
       return OutlinedButton.icon(
         onPressed: onUnskip,

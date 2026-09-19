@@ -58,6 +58,8 @@ class AmountField extends StatelessWidget {
     required this.controller,
     required this.label,
     this.hint = '0.00',
+    this.helper,
+    this.alwaysShowHint = false,
     this.enabled = true,
     this.autofocus = true,
     this.onSubmitted,
@@ -69,6 +71,15 @@ class AmountField extends StatelessWidget {
 
   /// Grey example inside the field, such as `20000`.
   final String hint;
+
+  /// A short line under the field saying what goes in it.
+  final String? helper;
+
+  /// Keeps the label above the field so the example shows before it is
+  /// tapped. The peso sign then waits for the first digit, so the example
+  /// can't be taken for an amount already filled in. The screen showing the
+  /// field rebuilds it as the user types.
+  final bool alwaysShowHint;
   final bool enabled;
   final bool autofocus;
   final VoidCallback? onSubmitted;
@@ -87,10 +98,14 @@ class AmountField extends StatelessWidget {
         fontWeight: FontWeight.bold,
         color: context.appColors.textPrimary,
       ),
-      decoration: dialogFieldDecoration(
-        context,
-        label,
-      ).copyWith(prefixText: '₱ ', hintText: hint),
+      decoration: dialogFieldDecoration(context, label, helper: helper)
+          .copyWith(
+            prefixText: alwaysShowHint && controller.text.isEmpty ? null : '₱ ',
+            hintText: hint,
+            floatingLabelBehavior: alwaysShowHint
+                ? FloatingLabelBehavior.always
+                : null,
+          ),
     );
   }
 }

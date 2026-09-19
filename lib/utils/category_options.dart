@@ -18,3 +18,9 @@ List<String> categoryOptions(
     if (categories == null) ...expenseCategories,
   }.toList();
 }
+
+/// The categories a new expense can use, read once rather than watched, for
+/// use outside `build`, such as when a suggestion is worked out.
+List<String> availableCategoriesOf(BuildContext context) =>
+    context.read<AppSettingsProvider?>()?.financial.availableCategories ??
+    expenseCategories;

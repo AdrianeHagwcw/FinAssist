@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/wallet.dart';
 import '../utils/money_format.dart';
+import 'dialog_kit.dart';
 
 /// The wallet a new entry should start on: the one that receives income,
 /// otherwise the first in the list. Null when there are no wallets yet.
@@ -45,10 +46,7 @@ class WalletPicker extends StatelessWidget {
     return DropdownButtonFormField<String>(
       initialValue: value,
       isExpanded: true,
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-      ),
+      decoration: dialogFieldDecoration(context, label),
       items: [
         for (final wallet in choices)
           DropdownMenuItem(

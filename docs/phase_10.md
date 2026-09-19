@@ -21,6 +21,8 @@ Financial preferences live on the existing user profile (`incomeSource`, `income
 
 New allocation cycles save `periodStart` and `periodEnd` in the same batch as the income plan, so changing the income frequency later does not alter them. Older records did not save period dates: they use the frequency-based calculation and are labelled accordingly. Allocation totals show the original plan, not a recalculation after later ledger edits. Resolved leftover amounts come from the stored decision, and a leftover already decided elsewhere shows a message instead of failing.
 
+A new pay period starts only with the user's usual income (the source saved in Financial preferences, or any income that isn't a gift, refund or item sold when none is set). Other income joins the period already under way, so it raises Safe to Spend instead of spreading everything over a fresh month; its cycle saves that same period. An unpaid bill carried into its next occurrence closes the earlier one ("Moved to next"), so the money is owed and counted once; a weekly bill carries only into its first new week. Add Expense asks before saving more than the chosen wallet holds, without blocking it. Installments follow the user's contract: a different last payment can be entered (the last bill asks for it), and a blank count pays back exactly the amount borrowed. A goal's amount needed each time counts the plan's real saving dates up to the target date, the same days its reminders ask on.
+
 History reads every allocation cycle, not just the dashboard's six most recent. Rendering is lazy; server pagination can be added if histories grow large. The existing leftover calculation and offline savings-reserve write strategy are unchanged; this phase does not add cross-device transactional reconciliation.
 
 ## Deferred by decision
@@ -32,7 +34,7 @@ History reads every allocation cycle, not just the dashboard's six most recent. 
 
 ## Validation
 
-271 automated tests pass and `flutter analyze` reports no issues. `test/phase10_test.dart` covers period preservation, statuses, hiding categories while keeping Others and old labels, account reset, the remembered privacy choice, history filtering and review, empty and error states, form validation and saving, explicit leftover confirmation, and a 320-pixel layout at 150% text size. `test/widget_test.dart` checks Flutter's labelled-tap-target guideline on the Log In screen.
+368 automated tests pass and `flutter analyze` reports no issues. `test/phase10_test.dart` covers period preservation, statuses, hiding categories while keeping Others and old labels, account reset, the remembered privacy choice, history filtering and review, empty and error states, form validation and saving, explicit leftover confirmation, and a 320-pixel layout at 150% text size. `test/widget_test.dart` checks Flutter's labelled-tap-target guideline on the Log In screen.
 
 Run `flutter test --no-pub` and `flutter analyze --no-pub`.
 

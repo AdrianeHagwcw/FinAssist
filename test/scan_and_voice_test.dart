@@ -22,7 +22,7 @@ class FakeReader extends ReceiptReader {
 
   final String? photo;
   String text;
-  final Object? error;
+  Object? error;
   Completer<String>? reading;
   final sources = <ImageSource>[];
 
@@ -160,7 +160,7 @@ void main() {
       expect(find.text('Use This'), findsOneWidget);
     });
 
-    testWidgets('Use This opens a new expense with the text in its notes', (
+    testWidgets('Use This starts a new expense filled in from the receipt', (
       tester,
     ) async {
       final reader = FakeReader(text: 'JOLLIBEE\nTOTAL 150.00');
@@ -170,18 +170,50 @@ void main() {
       );
       await tester.tap(find.text('Take Photo'));
       await tester.pump();
+
+      // What will be filled in is shown first.
+      expect(find.text('Filled in for you'), findsOneWidget);
+      expect(find.text('₱150'), findsOneWidget);
+      expect(find.text('Food'), findsOneWidget);
+      expect(find.text('Jollibee'), findsOneWidget);
+
       await tester.tap(find.text('Use This'));
       await tester.pumpAndSettle();
 
-      // Nothing is saved: the form is open for the user to finish.
+      // Nothing is saved: the form is open for the user to check.
       expect(find.byType(AddExpenseScreen), findsOneWidget);
       expect(find.text('Check the text'), findsNothing);
+      expect(fieldText(tester, '0.00'), '150');
+      expect(fieldText(tester, 'What did you spend money on?'), 'Jollibee');
       expect(
         fieldText(tester, 'Add additional notes...'),
         'JOLLIBEE\nTOTAL 150.00',
       );
-      expect(fieldText(tester, 'What did you spend money on?'), '');
-      expect(fieldText(tester, '0.00'), '', reason: 'the user adds it');
+      expect(find.text('Food'), findsOneWidget);
+      expect(
+        find.text("Suggested for you. Change it if it's wrong."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a receipt with nothing recognisable leaves the form to the '
+        'user', (tester) async {
+      final reader = FakeReader(text: 'Thank you for shopping');
+      await pumpScreen(
+        tester,
+        OcrScreen(reader: reader, wallets: Stream.value(const [])),
+      );
+      await tester.tap(find.text('Take Photo'));
+      await tester.pump();
+      expect(find.text('Filled in for you'), findsNothing);
+
+      await tester.tap(find.text('Use This'));
+      await tester.pumpAndSettle();
+      expect(fieldText(tester, '0.00'), '');
+      expect(
+        fieldText(tester, 'Add additional notes...'),
+        'Thank you for shopping',
+      );
     });
 
     testWidgets('backing out of the camera changes nothing', (tester) async {
@@ -207,7 +239,8 @@ void main() {
       reader.text = 'SM Supermarket';
       await tester.tap(find.text('Choose from Gallery'));
       await tester.pump();
-      expect(find.text('SM Supermarket'), findsOneWidget);
+      // In the text, and as the store found in it.
+      expect(find.text('SM Supermarket'), findsNWidgets(2));
       await tester.tap(find.text('Choose Another'));
       await tester.pump();
       expect(reader.sources, [
@@ -215,6 +248,275 @@ void main() {
         ImageSource.gallery,
         ImageSource.gallery,
       ]);
+    });
+
+    testWidgets('a long receipt is taken in parts and read as one', (
+      tester,
+    ) async {
+      final reader = FakeReader(
+        text: 'PUREGOLD\nRice 5kg  250.00\nEggs  120.00',
+      );
+      await pumpScreen(
+        tester,
+        OcrScreen(reader: reader, wallets: Stream.value(const [])),
+      );
+      await tester.tap(find.text('Take Photo'));
+      await tester.pump();
+      expect(find.text('Part 1'), findsNothing, reason: 'one photo, no parts');
+      expect(find.text('Filled in for you'), findsOneWidget);
+      expect(find.text('₱465'), findsNothing);
+
+      // The next photo overlaps the first by two lines.
+      reader.text =
+          'Rice 5kg  250.00\nEggs  120.00\nMilk  95.00\nTOTAL  465.00';
+      await tester.tap(find.text('Add Next Part'));
+      await tester.pump();
+      expect(find.text('Part 1'), findsOneWidget);
+      expect(find.text('Part 2'), findsOneWidget);
+      expect(find.text('₱465'), findsOneWidget);
+      expect(find.text('Puregold'), findsOneWidget);
+      expect(reader.sources, [ImageSource.camera, ImageSource.camera]);
+
+      await tester.tap(find.text('Use This'));
+      await tester.pumpAndSettle();
+      expect(fieldText(tester, '0.00'), '465');
+      expect(
+        fieldText(tester, 'Add additional notes...'),
+        'PUREGOLD\nRice 5kg  250.00\nEggs  120.00\nMilk  95.00\nTOTAL  465.00',
+        reason: 'the overlapping lines only once',
+      );
+    });
+
+    testWidgets('Retake redoes the last part, and any part can be removed', (
+      tester,
+    ) async {
+      final reader = FakeReader(text: 'SAVEMORE\nBread  50.00');
+      await pumpScreen(tester, OcrScreen(reader: reader));
+      await tester.tap(find.text('Take Photo'));
+      await tester.pump();
+
+      reader.text = 'blurry';
+      await tester.tap(find.text('Add Next Part'));
+      await tester.pump();
+      expect(find.text('blurry'), findsOneWidget);
+
+      reader.text = 'TOTAL  50.00';
+      await tester.tap(find.text('Retake'));
+      await tester.pump();
+      expect(find.text('blurry'), findsNothing);
+      expect(find.text('TOTAL  50.00'), findsOneWidget);
+      expect(find.text('Part 2'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Remove part 1'));
+      await tester.pump();
+      expect(find.text('SAVEMORE\nBread  50.00'), findsNothing);
+      expect(find.text('Part 1'), findsNothing, reason: 'one part left');
+      expect(find.text('TOTAL  50.00'), findsOneWidget);
+    });
+
+    testWidgets('a part that fails to read keeps what was read so far', (
+      tester,
+    ) async {
+      final reader = FakeReader(text: 'JOLLIBEE\nTOTAL 150.00');
+      await pumpScreen(tester, OcrScreen(reader: reader));
+      await tester.tap(find.text('Take Photo'));
+      await tester.pump();
+
+      reader.text = '';
+      await tester.tap(find.text('Add Next Part'));
+      await tester.pump();
+      expect(find.text('JOLLIBEE\nTOTAL 150.00'), findsOneWidget);
+      expect(find.text('Part 2'), findsNothing);
+      expect(
+        find.text('No text found in that photo, so nothing changed.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Retake'));
+      await tester.pump();
+      expect(
+        find.text('JOLLIBEE\nTOTAL 150.00'),
+        findsOneWidget,
+        reason: 'a failed retake keeps the photo it was replacing',
+      );
+
+      reader.error = PlatformException(code: 'camera_access_denied');
+      await tester.tap(find.text('Add Next Part'));
+      await tester.pump();
+      expect(find.text('Check the text'), findsOneWidget);
+      expect(find.textContaining("Can't use the camera."), findsOneWidget);
+    });
+
+    testWidgets('photos taken out of order are put in order', (tester) async {
+      const top = 'SAVEMORE MARKET\nOfficial Receipt\nRice  289.00';
+      const bottom = 'Eggs  240.00\nTOTAL  529.00\nCASH  600.00';
+      final reader = FakeReader(text: bottom);
+      await pumpScreen(tester, OcrScreen(reader: reader));
+      await tester.tap(find.text('Take Photo'));
+      await tester.pump();
+      expect(find.text('₱529'), findsOneWidget);
+
+      reader.text = top;
+      await tester.tap(find.text('Add Next Part'));
+      await tester.pump();
+      expect(
+        tester.getTopLeft(find.text(top)).dy,
+        lessThan(tester.getTopLeft(find.text(bottom)).dy),
+      );
+      expect(find.text('Savemore Market'), findsOneWidget, reason: 'store');
+      expect(
+        find.text(
+          'Added as part 1, where it fits. Use the arrows to change the order.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Move part 1 up'), findsNothing);
+
+      // Retake redoes the photo just taken, wherever it was put.
+      reader.text = '$top\nBread  72.00';
+      await tester.tap(find.text('Retake'));
+      await tester.pump();
+      expect(find.text('$top\nBread  72.00'), findsOneWidget);
+      expect(find.text(bottom), findsOneWidget);
+
+      // The order can always be changed by hand.
+      await tester.tap(find.byTooltip('Move part 2 up'));
+      await tester.pump();
+      expect(
+        tester.getTopLeft(find.text(bottom)).dy,
+        lessThan(tester.getTopLeft(find.text('$top\nBread  72.00')).dy),
+      );
+    });
+
+    testWidgets('a photo of another receipt is asked about first', (
+      tester,
+    ) async {
+      const puregold = 'PUREGOLD\nRice  289.00\nTOTAL  289.00';
+      const jollibee = 'JOLLIBEE\nChickenjoy  99.00\nTOTAL  99.00';
+      final reader = FakeReader(text: puregold);
+      await pumpScreen(tester, OcrScreen(reader: reader));
+      await tester.tap(find.text('Take Photo'));
+      await tester.pump();
+
+      reader.text = jollibee;
+      await tester.tap(find.text('Add Next Part'));
+      await tester.pumpAndSettle();
+      expect(find.text('A different receipt?'), findsOneWidget);
+      expect(
+        find.text(
+          'It is from Jollibee, not Puregold. Each receipt is its own '
+          'expense, so add only parts of this one.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text("Don't Add"));
+      await tester.pumpAndSettle();
+      expect(find.text(jollibee), findsNothing);
+      expect(find.text('Part 2'), findsNothing);
+      expect(find.text('₱289'), findsOneWidget);
+
+      await tester.tap(find.text('Add Next Part'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add Anyway'));
+      await tester.pumpAndSettle();
+      expect(find.text('Part 2'), findsOneWidget);
+      expect(find.text(jollibee), findsOneWidget);
+    });
+
+    test('what shows a part is from another receipt', () {
+      final now = DateTime(2026, 9, 19, 10);
+      String? reason(List<String> parts, String part) =>
+          anotherReceiptReason(parts, part, now: now);
+
+      const top = 'SAVEMORE MARKET\nOfficial Receipt\n09/18/2026\nRice  289.00';
+      const bottom = 'Eggs  240.00\nTOTAL  529.00\nCASH  600.00';
+
+      // Parts of the same receipt, in either order.
+      expect(reason(const [], top), isNull);
+      expect(reason(const [top], bottom), isNull);
+      expect(reason(const [bottom], top), isNull);
+      expect(reason(const [top], 'Eggs  240.00\nMilk  98.50'), isNull);
+
+      expect(
+        reason(const [top], 'JOLLIBEE\nChickenjoy  99.00\nTOTAL  99.00'),
+        'It is from Jollibee, not Savemore Market.',
+      );
+      expect(
+        reason(const [bottom], 'Coke  45.00\nTOTAL  45.00'),
+        'Its total is ₱45, not ₱529.',
+      );
+      expect(
+        reason(const [top], 'Official Receipt\n09/16/2026\nCoke  45.00'),
+        'It is dated Sep 16, 2026, not Sep 18, 2026.',
+      );
+      expect(
+        reason(const [top], 'Official Receipt\nCoke  45.00'),
+        'It starts like a new receipt.',
+      );
+
+      // Overlapping photos belong together, whatever else they show.
+      expect(
+        reason(const [
+          'Official Receipt\nRice  289.00\nEggs  240.00',
+        ], 'Rice  289.00\nEggs  240.00\nTOTAL  529.00'),
+        isNull,
+      );
+    });
+
+    test('a new part goes where it fits among the others', () {
+      const top = 'SM SUPERMARKET\nOfficial Receipt\nRice  289.00';
+      const middle = 'Eggs  240.00\nMilk  98.50';
+      const bottom = 'Bread  72.00\nTOTAL  699.50\nCASH  1,000.00';
+
+      expect(placeForPart(const [], top), 0);
+      expect(placeForPart(const [top], middle), 1, reason: 'nothing to go on');
+      expect(placeForPart(const [bottom], top), 0, reason: 'starts like a top');
+      expect(
+        placeForPart(const [bottom], middle),
+        0,
+        reason: 'no total, so before the part that has it',
+      );
+      expect(placeForPart(const [top, bottom], middle), 1);
+      expect(placeForPart(const [top, middle], bottom), 2);
+
+      // Overlapping photos settle it, even against the other clues.
+      const upper = 'Official Receipt\nRice  289.00\nEggs  240.00\nMilk  98.50';
+      const lower = 'Eggs  240.00\nMilk  98.50\nTOTAL  627.50';
+      expect(placeForPart(const [lower], upper), 0);
+      expect(placeForPart(const [upper], lower), 1);
+    });
+
+    test('parts are joined without the lines where photos overlap', () {
+      expect(joinReceiptParts(const []), '');
+      expect(joinReceiptParts(const ['A\n\nB  ']), 'A\nB');
+      expect(
+        joinReceiptParts(const [
+          'STORE\nRice  50\nEggs  90',
+          'rice 50\nEggs   90\nTOTAL  140',
+        ]),
+        'STORE\nRice  50\nEggs  90\nTOTAL  140',
+        reason: 'case and spacing can differ between photos',
+      );
+      expect(
+        joinReceiptParts(const ['STORE\nCoke  45', 'Coke  45\nTOTAL  90']),
+        'STORE\nCoke  45\nCoke  45\nTOTAL  90',
+        reason: 'one matching line may be a second item, so it stays',
+      );
+      expect(
+        joinReceiptParts(const [
+          'STORE\nInstant Noodles x10  95.00\nCanned Tuna x5  175.00',
+          'Instant Noodles x1e  95.00\nCanned Tuna X5  175.00\nTOTAL  270.00',
+        ]),
+        'STORE\nInstant Noodles x10  95.00\nCanned Tuna x5  175.00\n'
+        'TOTAL  270.00',
+        reason: 'a character misread in one photo is still the same line',
+      );
+      expect(
+        joinReceiptParts(const ['Coke  45\nFries  60', 'Coke  46\nFries  65']),
+        'Coke  45\nFries  60\nCoke  46\nFries  65',
+        reason: 'short lines must match exactly',
+      );
     });
 
     test('receipt text comes back in printed rows, prices beside items', () {
@@ -321,6 +623,38 @@ void main() {
         'Lunch at jollibee',
       );
       expect(fieldText(tester, '0.00'), '', reason: 'the user adds it');
+    });
+
+    testWidgets('an amount said out loud fills the amount and category', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          wallets: Stream.value(const []),
+        ),
+      );
+      await tester.pump();
+      speech.hear!('lunch at jollibee 150 pesos');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Filled in for you'), findsOneWidget);
+      expect(find.text('₱150'), findsOneWidget);
+      expect(find.text('Food'), findsOneWidget);
+
+      await tester.tap(find.text('Use This'));
+      await tester.pumpAndSettle();
+      expect(fieldText(tester, '0.00'), '150');
+      expect(
+        fieldText(tester, 'What did you spend money on?'),
+        'Lunch at jollibee',
+      );
+      expect(find.text('Food'), findsOneWidget);
     });
 
     testWidgets('Stop keeps what was heard so far', (tester) async {
@@ -522,6 +856,71 @@ void main() {
         SpeechProblem.unavailable,
       );
       expect(problemFor('error_busy'), SpeechProblem.failed);
+    });
+  });
+
+  group('Add Expense suggests a category while typing', () {
+    Future<void> type(WidgetTester tester, String text) async {
+      await tester.enterText(
+        find.ancestor(
+          of: find.text('What did you spend money on?'),
+          matching: find.byType(TextField),
+        ),
+        text,
+      );
+      await tester.pump();
+    }
+
+    testWidgets('from the description, until the user picks one', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        AddExpenseScreen(wallets: Stream.value(const [])),
+      );
+
+      await type(tester, 'Grab papunta sa school');
+      expect(find.text('Transportation'), findsOneWidget);
+      expect(
+        find.text("Suggested for you. Change it if it's wrong."),
+        findsOneWidget,
+      );
+
+      // A better match replaces a suggestion.
+      await type(tester, 'Netflix');
+      expect(find.text('Entertainment'), findsOneWidget);
+      expect(find.text('Transportation'), findsNothing);
+
+      // Once the user picks, typing never changes it.
+      await tester.tap(find.text('Entertainment'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Food').last);
+      await tester.pumpAndSettle();
+      await type(tester, 'Meralco bill');
+      expect(find.text('Food'), findsOneWidget);
+      expect(find.text('Bills'), findsNothing);
+      expect(
+        find.text("Suggested for you. Change it if it's wrong."),
+        findsNothing,
+      );
+    });
+
+    testWidgets('never when editing an expense that already has one', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        AddExpenseScreen(
+          wallets: Stream.value(const []),
+          documentId: 'e1',
+          initialAmount: 99,
+          initialCategory: 'Shopping',
+          initialDescription: 'Shirt',
+        ),
+      );
+      await type(tester, 'Jollibee');
+      expect(find.text('Shopping'), findsOneWidget);
+      expect(find.text('Food'), findsNothing);
     });
   });
 }

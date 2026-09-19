@@ -448,6 +448,7 @@ class _MonthGrid extends StatelessWidget {
       case BillUrgency.paid:
         return 1;
       case BillUrgency.skipped:
+      case BillUrgency.moved:
         return 0;
     }
   }
@@ -714,7 +715,8 @@ class _BillRow extends StatelessWidget {
                       color: colors.textPrimary,
                     ),
                   ),
-                  if (instance.status == BillStatus.partial) ...[
+                  if (instance.status == BillStatus.partial &&
+                      !instance.isCarriedForward) ...[
                     const SizedBox(height: 2),
                     MoneyText(
                       instance.remaining,

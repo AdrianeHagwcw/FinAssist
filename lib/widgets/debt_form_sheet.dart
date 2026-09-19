@@ -23,6 +23,7 @@ Future<DebtDirection?> showDebtFormSheet(
   final saved = await showModalBottomSheet<DebtDirection>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: context.appColors.card,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -57,6 +58,7 @@ class DebtDraft {
     required this.frequency,
     required this.firstDueDate,
     required this.payFromWalletId,
+    this.lastPayment = 0,
     required this.movedWalletId,
     required this.note,
   });
@@ -67,6 +69,9 @@ class DebtDraft {
   final double principal;
   final double perPayment;
   final int paymentCount;
+
+  /// The contract's last payment when it differs; zero when it doesn't.
+  final double lastPayment;
   final PaymentFrequency frequency;
 
   /// First payment for an installment; the promised date for money owed.
@@ -114,6 +119,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   final _principalController = TextEditingController();
   final _perPaymentController = TextEditingController();
   final _countController = TextEditingController();
+  final _lastController = TextEditingController();
   final _noteController = TextEditingController();
 
   String? _payFromWalletId;
@@ -133,6 +139,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       _principalController,
       _perPaymentController,
       _countController,
+      _lastController,
     ]) {
       controller.addListener(_refresh);
     }
@@ -147,6 +154,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       _principalController,
       _perPaymentController,
       _countController,
+      _lastController,
       _noteController,
     ]) {
       controller
@@ -159,13 +167,32 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   double _number(TextEditingController controller) =>
       double.tryParse(controller.text.trim().replaceAll(',', '')) ?? 0;
 
+  bool get _countTyped {
+    final typed = int.tryParse(_countController.text.trim());
+    return typed != null && typed > 0;
+  }
+
   /// Payments typed, or worked out from the amounts when left blank.
   int get _paymentCount {
-    final typed = int.tryParse(_countController.text.trim());
-    if (typed != null && typed > 0) return typed;
+    if (_countTyped) return int.parse(_countController.text.trim());
     return paymentsToCover(
       _number(_principalController),
       _number(_perPaymentController),
+    );
+  }
+
+  /// The contract's last payment when it differs: as typed, or, with the
+  /// number of payments left blank, what is left of the amount borrowed
+  /// after the others. Typed terms are the contract, so they are kept as
+  /// they are. Zero means the same as every other payment.
+  double get _lastPayment {
+    final typed = _number(_lastController);
+    if (typed > 0) return typed;
+    if (_countTyped) return 0;
+    return coveringLastPayment(
+      _number(_principalController),
+      _number(_perPaymentController),
+      _paymentCount,
     );
   }
 
@@ -177,6 +204,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     principal: _number(_principalController),
     perPayment: _number(_perPaymentController),
     paymentCount: _paymentCount,
+    lastPayment: _lastPayment,
     frequency: _frequency,
     firstDueDate: _date,
     status: DebtStatus.active,
@@ -225,9 +253,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       problem = 'Enter how many payments.';
     } else if (_iOwe && _date == null) {
       problem = 'Choose when the first payment is due.';
-    } else if (_iOwe && perPayment * _paymentCount + 0.005 < principal) {
+    } else if (_iOwe && _preview.totalPayable + 0.005 < principal) {
       problem =
-          'Those payments add up to ${formatPeso(perPayment * _paymentCount)}, '
+          'Those payments add up to ${formatPeso(_preview.totalPayable)}, '
           'less than the ${formatPeso(principal)} borrowed.';
     } else if (_movedMoney && movedWallet == null) {
       problem = 'Add a wallet first.';
@@ -253,6 +281,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       principal: principal,
       perPayment: perPayment,
       paymentCount: _paymentCount,
+      lastPayment: _preview.hasDifferentLastPayment ? _preview.finalPayment : 0,
       frequency: _frequency,
       firstDueDate: _date,
       payFromWalletId: _payFromWalletId ?? defaultWalletId(wallets),
@@ -269,6 +298,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         principal: draft.principal,
         perPayment: draft.perPayment,
         paymentCount: draft.paymentCount,
+        lastPayment: draft.lastPayment,
         frequency: draft.frequency,
         firstDueDate: draft.firstDueDate!,
         payFromWalletId: draft.payFromWalletId,
@@ -374,11 +404,14 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                     controller: _nameController,
                     textCapitalization: TextCapitalization.sentences,
                     maxLength: 40,
-                    decoration: dialogFieldDecoration(
-                      context,
-                      _iOwe ? 'Name' : 'Who owes you?',
-                      hint: _iOwe ? 'e.g. Phone, SSS loan' : 'e.g. Ana',
-                    ),
+                    decoration:
+                        dialogFieldDecoration(
+                          context,
+                          _iOwe ? 'Name' : 'Who owes you?',
+                          hint: _iOwe ? 'e.g. Phone, SSS loan' : 'e.g. Ana',
+                        ).copyWith(
+                          floatingLabelBehavior: FloatingLabelBehavior.always,
+                        ),
                   ),
                   if (_iOwe) ...[
                     const SizedBox(height: 8),
@@ -401,10 +434,17 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                   AmountField(
                     controller: _principalController,
                     label: _iOwe ? 'Amount borrowed' : 'Amount',
+                    hint: _iOwe ? 'e.g. 12,000' : 'e.g. 500',
+                    helper: _iOwe
+                        ? 'The price or loan amount, before any interest.'
+                        : null,
+                    alwaysShowHint: true,
                     autofocus: false,
                   ),
                   if (_iOwe) ...[
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
+                    const _ContractGuide(),
+                    const SizedBox(height: 14),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -415,10 +455,21 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
-                            decoration: dialogFieldDecoration(
-                              context,
-                              'Each payment',
-                            ).copyWith(prefixText: '₱ ', hintText: '0.00'),
+                            decoration:
+                                dialogFieldDecoration(
+                                  context,
+                                  'Each payment',
+                                  helper: 'Every month or week',
+                                ).copyWith(
+                                  // The peso sign waits for the first digit,
+                                  // so the example isn't taken for an amount.
+                                  prefixText: _perPaymentController.text.isEmpty
+                                      ? null
+                                      : '₱ ',
+                                  hintText: 'e.g. 1,500',
+                                  floatingLabelBehavior:
+                                      FloatingLabelBehavior.always,
+                                ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -427,15 +478,41 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                           child: TextField(
                             controller: _countController,
                             keyboardType: TextInputType.number,
-                            decoration: dialogFieldDecoration(
-                              context,
-                              'Payments',
-                              hint: 'Auto',
-                              helper: 'Blank works it out',
-                            ),
+                            decoration:
+                                dialogFieldDecoration(
+                                  context,
+                                  'Payments',
+                                  hint: 'e.g. 12',
+                                  helper: 'Blank = auto',
+                                ).copyWith(
+                                  floatingLabelBehavior:
+                                      FloatingLabelBehavior.always,
+                                ),
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _lastController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration:
+                          dialogFieldDecoration(
+                            context,
+                            'Last payment (optional)',
+                            helper:
+                                "Only if your contract's last payment is "
+                                'different. Example: a ₱10,000 installment '
+                                'paid as ₱3,000 × 3 months, then ₱1,000 on '
+                                'the 4th month → type 1,000. Leave it blank '
+                                'when all payments are the same.',
+                          ).copyWith(
+                            prefixText: '₱ ',
+                            hintText: 'Same as the rest',
+                            helperMaxLines: 4,
+                          ),
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<PaymentFrequency>(
@@ -481,7 +558,11 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                               onPressed: () => setState(() => _date = null),
                             )
                           else
-                            const Icon(Icons.calendar_today, size: 18),
+                            Image.asset(
+                              'assets/icons/icons8-calendar-96.png',
+                              width: 22,
+                              height: 22,
+                            ),
                         ],
                       ),
                     ),
@@ -571,6 +652,46 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   }
 }
 
+/// Where the numbers come from, with an example, for anyone unsure what
+/// "each payment" and "payments" mean.
+class _ContractGuide extends StatelessWidget {
+  const _ContractGuide();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: colors.primaryTint,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Image.asset('assets/icons/icons8-idea-96.png', width: 20, height: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Copy these from your contract. "₱1,500 a month for 12 months" '
+              'means Each payment 1,500 and Payments 12. No set number of '
+              'payments? Leave Payments blank to pay back just what you '
+              'borrowed.',
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.35,
+                color: colors.textBody,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Updates as the form is filled in: what is borrowed, each payment, how long
 /// it runs, and what it costs on top.
 class _SummaryCard extends StatelessWidget {
@@ -643,7 +764,10 @@ class _SummaryCard extends StatelessWidget {
             if (last != null) ...[
               const SizedBox(height: 4),
               Text(
-                'Last payment ${formatShortDate(last)}',
+                debt.hasDifferentLastPayment
+                    ? 'Last payment ${formatPeso(debt.finalPayment)} on '
+                          '${formatShortDate(last)}'
+                    : 'Last payment ${formatShortDate(last)}',
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ],

@@ -22,6 +22,7 @@ Future<bool> showBillFormSheet(
   final saved = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: context.appColors.card,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -256,7 +257,11 @@ class _BillFormSheetState extends State<BillFormSheet> {
                     child: Row(
                       children: [
                         Expanded(child: Text(formatShortDate(_dueDate))),
-                        const Icon(Icons.calendar_today, size: 18),
+                        Image.asset(
+                          'assets/icons/icons8-calendar-96.png',
+                          width: 22,
+                          height: 22,
+                        ),
                       ],
                     ),
                   ),

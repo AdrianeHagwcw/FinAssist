@@ -106,6 +106,7 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: context.appColors.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -270,7 +271,13 @@ class _InstallmentBody extends StatelessWidget {
                   if (debt.extraCost > 0)
                     _Line('More than you borrowed', formatPeso(debt.extraCost)),
                   if (last != null)
-                    _Line('Last payment', formatShortDate(last)),
+                    _Line(
+                      'Last payment',
+                      debt.hasDifferentLastPayment
+                          ? '${formatPeso(debt.finalPayment)} on '
+                                '${formatShortDate(last)}'
+                          : formatShortDate(last),
+                    ),
                   if (debt.note != null) _Line('Notes', debt.note!),
                 ],
               ),

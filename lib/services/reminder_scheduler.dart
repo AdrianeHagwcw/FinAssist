@@ -143,6 +143,7 @@ class ReminderScheduler {
         goals: _goals,
         cycles: _cycles,
         incomeFrequency: profile['incomeFrequency'] as String?,
+        incomeSource: profile['incomeSource'] as String?,
         transactions: _transactions,
         now: now,
       );

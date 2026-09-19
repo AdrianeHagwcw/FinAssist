@@ -129,6 +129,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       navigator.push(
         MaterialPageRoute(builder: (context) => const AddExpenseScreen()),
       );
+    } else if (payload == 'income') {
+      // Payday: the user confirms the amount; nothing is added by itself.
+      _selectTab(_homeIndex);
+      final saved = await showIncomeWaterfall(context);
+      if (saved && mounted) setState(() => _homeRefreshKey++);
     } else {
       // The leftover notice waits on Home.
       _selectTab(_homeIndex);

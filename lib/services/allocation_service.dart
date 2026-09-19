@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
-import '../models/safe_to_spend.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
 import 'goal_service.dart';
@@ -72,12 +71,18 @@ class AllocationService {
   ///
   /// The income and the bill payments all touch the same wallet, so their
   /// balance changes are added up and written to it once.
+  ///
+  /// The cycle keeps the pay period it belongs to. Pay starts a new one; other
+  /// income, like a gift, joins the period of the pay before it, found among
+  /// [recentCycles].
   static String confirm({
     required AllocationPlan plan,
     required String walletId,
     required String source,
     required DateTime receivedAt,
     String? incomeFrequency,
+    String? usualSource,
+    List<AllocationCycle> recentCycles = const [],
   }) {
     final problems = plan.problems;
 
@@ -146,10 +151,12 @@ class AllocationService {
       );
     }
 
-    final period = payPeriodFor(
-      incomeFrequency,
-      lastIncomeAt: receivedAt,
-      now: receivedAt,
+    final period = periodForIncome(
+      frequency: incomeFrequency,
+      source: source,
+      receivedAt: receivedAt,
+      earlier: recentCycles,
+      usualSource: usualSource,
     );
     batch.set(cycle, {
       'periodStart': Timestamp.fromDate(period.start),

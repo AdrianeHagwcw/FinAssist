@@ -14,6 +14,7 @@ Color billUrgencyColor(BuildContext context, BillUrgency urgency) {
     case BillUrgency.paid:
       return Colors.green;
     case BillUrgency.skipped:
+    case BillUrgency.moved:
     case BillUrgency.upcoming:
       return context.isDarkMode ? Colors.grey.shade500 : Colors.grey;
   }
@@ -29,6 +30,8 @@ String billUrgencyLabel(BillUrgency urgency) {
       return 'Paid';
     case BillUrgency.skipped:
       return 'Skipped';
+    case BillUrgency.moved:
+      return 'Moved to next';
     case BillUrgency.upcoming:
       return 'Upcoming';
   }
@@ -40,6 +43,8 @@ IconData billUrgencyIcon(BillUrgency urgency) {
       return Icons.check_circle;
     case BillUrgency.skipped:
       return Icons.cancel;
+    case BillUrgency.moved:
+      return Icons.redo;
     case BillUrgency.overdue:
       return Icons.error;
     case BillUrgency.dueSoon:
@@ -48,7 +53,8 @@ IconData billUrgencyIcon(BillUrgency urgency) {
   }
 }
 
-/// Paid / Skipped / Overdue / Due soon / Upcoming, as a coloured pill.
+/// Paid / Skipped / Moved to next / Overdue / Due soon / Upcoming, as a
+/// coloured pill.
 ///
 /// A part-paid bill says so, because "Unpaid" would be wrong and "Paid" would
 /// be worse.
@@ -64,7 +70,8 @@ class BillStatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final urgency = instance.urgency(now: now);
     final color = billUrgencyColor(context, urgency);
-    final label = instance.status == BillStatus.partial
+    final label =
+        instance.status == BillStatus.partial && urgency != BillUrgency.moved
         ? 'Partly paid'
         : billUrgencyLabel(urgency);
 

@@ -174,7 +174,11 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
   }) {
     final now = _now;
     final frequency = profile?['incomeFrequency'] as String?;
-    final lastIncome = cycles.isEmpty ? null : cycles.first.receivedAt;
+    // Only pay starts a new period; a gift just adds to this one.
+    final lastIncome = lastPayday(
+      cycles,
+      usualSource: profile?['incomeSource'] as String?,
+    );
     final period = payPeriodFor(frequency, lastIncomeAt: lastIncome, now: now);
     final startOfToday = DateTime(now.year, now.month, now.day);
 
@@ -205,6 +209,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: context.appColors.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

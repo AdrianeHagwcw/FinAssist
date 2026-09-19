@@ -21,6 +21,7 @@ Future<WalletDraft?> showWalletFormSheet(
   return showModalBottomSheet<WalletDraft>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: context.appColors.card,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

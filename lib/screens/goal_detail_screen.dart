@@ -514,6 +514,7 @@ class _PlanLine extends StatelessWidget {
       targetDate: goal.targetDate,
       frequency: goal.frequency,
       now: now,
+      planStartedAt: goal.planStartedAt,
     );
 
     final String text;

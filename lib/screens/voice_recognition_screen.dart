@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../models/expense_guess.dart';
 import '../models/wallet.dart';
 import '../services/speech_input.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/category_options.dart';
+import '../widgets/found_details.dart';
 import 'add_expense_screen.dart';
 
-/// Voice Entry: say an expense, check the words, then carry them into a new
-/// expense. Nothing is saved here; the expense form is where the amount is
-/// added and the expense is saved.
+/// Voice Entry: say an expense, check the words and what was found in them,
+/// then carry them into a new expense. Nothing is saved here; the expense
+/// form is where the user checks everything and saves.
 class VoiceRecognitionScreen extends StatefulWidget {
   const VoiceRecognitionScreen({
     this.autoStart = false,
@@ -115,17 +118,23 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
     });
   }
 
-  /// Opens a new expense with the words as its description. Voice entry is
-  /// finished, so saving or leaving the form goes back to where it began.
+  /// What was said, turned into the amount, category and description,
+  /// suggesting only from [categories].
+  ExpenseGuess _guess(List<String> categories) =>
+      guessFromSpeech(_words, categories: categories);
+
+  /// Opens a new expense started from what was said. Voice entry is finished,
+  /// so saving or leaving the form goes back to where it began.
   void _useWords() {
-    final words = _words.trim();
-    final description = words[0].toUpperCase() + words.substring(1);
+    final guess = _guess(availableCategoriesOf(context));
 
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (context) => AddExpenseScreen(
-          initialDescription: description,
+          initialAmount: guess.amount,
+          initialCategory: guess.category,
+          initialDescription: guess.description,
           wallets: widget.wallets,
         ),
       ),
@@ -172,9 +181,14 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
                           style: TextStyle(color: colors.textBody, height: 1.4),
                         ),
                         const SizedBox(height: 28),
-                        if (_step == _Step.heard)
-                          _WordsCard(words: _words)
-                        else ...[
+                        if (_step == _Step.heard) ...[
+                          _WordsCard(words: _words),
+                          const SizedBox(height: 16),
+                          FoundDetails(
+                            guess: _guess(categoryOptions(context)),
+                            center: true,
+                          ),
+                        ] else ...[
                           _MicButton(
                             listening: listening,
                             pulse: _pulse,
@@ -239,8 +253,8 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
       ),
       _Step.heard => (
         'Is this right?',
-        'It becomes the description of a new expense. You add the amount and '
-            'category, then save.',
+        'Use This starts a new expense from what you said. You check '
+            'everything before saving.',
       ),
       _Step.nothingHeard => (
         "Didn't catch that",

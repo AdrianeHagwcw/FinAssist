@@ -248,33 +248,44 @@ DateTime? projectedCompletion(
 
 /// How much to put in each time to reach [remaining] by [targetDate], or null
 /// without a date. A date already here or past means all of it now.
+///
+/// Counts the real saving days left before the date, on the plan's own
+/// calendar from [planStartedAt] (or from today for a new goal): the same
+/// days the reminders ask on. Averages would say 350 days holds twelve
+/// monthly contributions when only eleven saving days fit.
 double? neededPerContribution({
   required double remaining,
   required DateTime? targetDate,
   required ContributionFrequency frequency,
   required DateTime now,
+  DateTime? planStartedAt,
 }) {
   if (targetDate == null) return null;
   if (remaining <= 0) return 0;
 
   final today = DateTime(now.year, now.month, now.day);
-  final days = targetDate.difference(today).inDays;
-  if (days <= 0) return remaining;
+  final target = DateTime(targetDate.year, targetDate.month, targetDate.day);
+  if (!target.isAfter(today)) return remaining;
 
-  // Rounded rather than floored: a year away is 11.99 average months, and
-  // that is twelve monthly contributions, not eleven. At least one, even when
-  // the date is days away.
-  final contributions = (days / frequency.days).round();
+  final contributions = planDates(
+    planStartedAt ?? today,
+    frequency,
+    from: DateTime(today.year, today.month, today.day + 1),
+    until: target,
+  ).length;
+  // No saving day fits before the date: all of it by then.
   return remaining / (contributions < 1 ? 1 : contributions);
 }
 
 /// When a plan of [amount] each [frequency] reaches [remaining], or null
-/// without a plan.
+/// without a plan: the saving day, on the plan's own calendar, on which the
+/// last amount needed goes in.
 DateTime? reachedByPlan({
   required double remaining,
   required double? amount,
   required ContributionFrequency frequency,
   required DateTime now,
+  DateTime? planStartedAt,
 }) {
   if (amount == null || amount <= 0) return null;
 
@@ -282,8 +293,55 @@ DateTime? reachedByPlan({
   if (remaining <= 0) return today;
 
   final contributions = (remaining / amount - 1e-9).ceil();
+  final dates = planDates(
+    planStartedAt ?? today,
+    frequency,
+    from: DateTime(today.year, today.month, today.day + 1),
+    // Every saving day is at most 31 days after the one before.
+    until: DateTime(today.year, today.month, today.day + 31 * contributions),
+  );
+  if (dates.length >= contributions) return dates[contributions - 1];
+
+  // Further out than the calendar is worked through: the average is close.
   final days = (contributions * frequency.days).round();
   return today.add(Duration(days: days));
+}
+
+/// The days a saving plan asks for money, from [from] up to [until].
+///
+/// Monthly plans land on the day of the month the plan started, moved to the
+/// month's last day when it is shorter. Weekly plans keep the weekday, and
+/// twice-a-month plans fall every 15 days.
+List<DateTime> planDates(
+  DateTime started,
+  ContributionFrequency frequency, {
+  required DateTime from,
+  required DateTime until,
+}) {
+  final start = DateTime(started.year, started.month, started.day);
+  final dates = <DateTime>[];
+
+  // The plan's own start day is when money was first set aside, so reminders
+  // begin with the next one.
+  for (var step = 1; step < 2000; step++) {
+    final DateTime day;
+    if (frequency == ContributionFrequency.monthly) {
+      final lastDay = DateTime(start.year, start.month + step + 1, 0).day;
+      day = DateTime(
+        start.year,
+        start.month + step,
+        start.day < lastDay ? start.day : lastDay,
+      );
+    } else {
+      final days = frequency == ContributionFrequency.weekly ? 7 : 15;
+      day = DateTime(start.year, start.month, start.day + days * step);
+    }
+
+    if (day.isAfter(until)) break;
+    if (!day.isBefore(from)) dates.add(day);
+  }
+
+  return dates;
 }
 
 /// How far behind a goal's plan the saving is. Zero or less means on track.

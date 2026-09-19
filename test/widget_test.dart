@@ -16,6 +16,7 @@ import 'package:testapp/models/onboarding_data.dart';
 import 'package:testapp/models/safe_to_spend.dart';
 import 'package:testapp/models/report.dart';
 import 'package:testapp/models/reminder.dart';
+import 'package:testapp/models/finance_snapshot.dart';
 import 'package:testapp/models/wallet.dart';
 import 'package:testapp/models/transaction_filter.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
@@ -702,11 +703,35 @@ void main() {
   });
 
   group('AI assistant', () {
-    Future<void> pumpChat(WidgetTester tester, Stream<bool> online) async {
+    /// One wallet with ₱3,000 and nothing else recorded yet.
+    final starter = FinanceSnapshot(
+      now: DateTime(2026, 9, 19, 10),
+      wallets: const [
+        Wallet(
+          id: 'cash',
+          name: 'Cash',
+          type: WalletType.cash,
+          balance: 3000,
+          startingBalance: 3000,
+          receivesIncome: true,
+          archived: false,
+          sortOrder: 0,
+        ),
+      ],
+    );
+
+    Future<void> pumpChat(
+      WidgetTester tester,
+      Stream<bool> online, {
+      FinanceSnapshot? records,
+    }) async {
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.light,
-          home: ChatbotScreen(onlineStatus: online),
+          home: ChatbotScreen(
+            onlineStatus: online,
+            records: Stream.value(records ?? starter),
+          ),
         ),
       );
       await tester.pump();
@@ -727,7 +752,7 @@ void main() {
       expect(find.textContaining('Finance questions only'), findsOneWidget);
     });
 
-    testWidgets('switches to offline and warns about limited answers', (
+    testWidgets('offline, it still answers from the records on the phone', (
       tester,
     ) async {
       final online = StreamController<bool>();
@@ -740,12 +765,12 @@ void main() {
 
       expect(find.text('Offline'), findsOneWidget);
       expect(
-        find.textContaining('can only share general tips'),
+        find.textContaining('Answers use the records saved on this phone'),
         findsOneWidget,
       );
 
-      await ask(tester, 'How is my budget doing?');
-      expect(find.textContaining("You're offline right now"), findsOneWidget);
+      await ask(tester, 'How much money do I have?');
+      expect(find.textContaining('₱3,000 across 1 wallet'), findsOneWidget);
     });
 
     testWidgets('politely redirects questions that are not about money', (
@@ -761,7 +786,43 @@ void main() {
 
       await ask(tester, 'How do I save more?');
       expect(
-        find.textContaining('setting a specific monthly savings goal'),
+        find.textContaining('Start by recording every expense'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('asks which one, offers quick replies, then answers', (
+      tester,
+    ) async {
+      await pumpChat(tester, Stream.value(true));
+
+      await ask(tester, 'Can I buy AirPods?');
+      expect(find.textContaining('Which AirPods'), findsOneWidget);
+      expect(find.widgetWithText(ActionChip, 'AirPods Pro'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ActionChip, 'Any brand'));
+      await tester.pump(const Duration(milliseconds: 800));
+      // Nothing is due and nothing is usually spent yet, so all ₱3,000 is
+      // spare before payday (Oct 1, the calendar month's end).
+      expect(
+        find.textContaining(
+          'the most you can spend on the AirPods is about ₱3,000',
+        ),
+        findsOneWidget,
+      );
+      // The earlier choices are gone once answered.
+      expect(find.widgetWithText(ActionChip, 'AirPods Pro'), findsNothing);
+    });
+
+    testWidgets('suggests a goal when something does not fit yet', (
+      tester,
+    ) async {
+      await pumpChat(tester, Stream.value(true));
+
+      await ask(tester, 'Can I buy a laptop for 40000 this month?');
+      expect(find.textContaining("It doesn't fit this month"), findsOneWidget);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Create Goal'),
         findsOneWidget,
       );
     });
@@ -1651,6 +1712,7 @@ void main() {
             wallets: Stream.value([cash]),
             loadBills: () async => bills,
             goals: Stream.value(goals),
+            cycles: Stream.value(const []),
             onConfirm:
                 ({
                   required AllocationPlan plan,
@@ -2373,6 +2435,38 @@ void main() {
 
       expect(find.text('Put this bill back'), findsOneWidget);
       expect(find.text('Mark as Paid'), findsNothing);
+    });
+
+    testWidgets('a bill whose unpaid part moved on cannot be paid again', (
+      tester,
+    ) async {
+      await pumpDetail(
+        tester,
+        current: BillInstance(
+          id: 'b1_20260305',
+          billId: 'b1',
+          name: 'Rent',
+          amount: 3000,
+          category: 'Bills',
+          dueDate: DateTime(2026, 3, 5),
+          status: BillStatus.partial,
+          amountPaid: 1000,
+          carriedInto: 'b1_20260405',
+        ),
+      );
+
+      expect(find.text('Moved to next'), findsWidgets);
+      expect(
+        find.text(
+          'The unpaid ₱2,000 moved to the next due date of this bill, so it '
+          'is paid there.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Rest moved to the next bill'), findsOneWidget);
+      expect(find.text('Mark as Paid'), findsNothing);
+      expect(find.text('Pay part of it'), findsNothing);
+      expect(find.text('Undo payment'), findsNothing);
     });
 
     testWidgets('says when an amount includes an unpaid remainder', (
@@ -3712,6 +3806,59 @@ void main() {
       sortOrder: 0,
     );
 
+    testWidgets('a gift raises the daily limit instead of restarting the '
+        'month', (tester) async {
+      final today = DateTime(2026, 3, 22, 10);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SafeToSpendCard(
+                today: today,
+                wallets: Stream.value([cash]),
+                transactions: Stream.value(const []),
+                profile: Stream.value({
+                  'incomeFrequency': 'Monthly',
+                  'incomeSource': 'Salary',
+                }),
+                // Newest first, as they are read.
+                cycles: Stream.value([
+                  AllocationCycle(
+                    id: 'gift',
+                    income: 1000,
+                    remaining: 1000,
+                    receivedAt: DateTime(2026, 3, 22),
+                    source: 'Gift',
+                  ),
+                  AllocationCycle(
+                    id: 'salary',
+                    income: 8000,
+                    remaining: 8000,
+                    receivedAt: DateTime(2026, 3, 10),
+                    source: 'Salary',
+                  ),
+                ]),
+                loadBills: () async => const [],
+                goals: Stream.value(const []),
+                billSchedules: Stream.value(const []),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      // Still the salary's month, Mar 10 to Apr 10: 5800 over 19 days, not
+      // over a new month from the gift.
+      expect(find.text('19 days left this period'), findsOneWidget);
+      expect(find.text('of ₱305.26 daily limit'), findsOneWidget);
+    });
+
     testWidgets("shows what is left today against the day's limit", (
       tester,
     ) async {
@@ -4118,6 +4265,7 @@ void main() {
             wallets: Stream.value([cash]),
             loadBills: () async => const [],
             goals: Stream.value(const [laptop]),
+            cycles: Stream.value(const []),
             onConfirm:
                 ({
                   required AllocationPlan plan,
@@ -4358,6 +4506,102 @@ void main() {
       expect(saved?.paymentCount, 12);
       expect(saved?.perPayment, 2400);
       expect(saved?.direction, DebtDirection.iOwe);
+    });
+
+    testWidgets(
+      'the installment form shows examples before anything is typed',
+      (tester) async {
+        tall(tester);
+        await tester.pumpWidget(
+          app(
+            Scaffold(
+              body: DebtFormSheet(
+                today: DateTime(2026, 3, 10),
+                wallets: Stream.value([cash]),
+                onSave: (_) {},
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.textContaining('Copy these from your contract'), findsOne);
+        // Grey examples inside the empty fields.
+        expect(find.text('e.g. Phone, SSS loan'), findsOneWidget);
+        expect(find.text('e.g. 12,000'), findsOneWidget);
+        expect(find.text('e.g. 1,500'), findsOneWidget);
+        expect(find.text('e.g. 12'), findsOneWidget);
+        expect(find.text('Every month or week'), findsOneWidget);
+        expect(find.text('Blank = auto'), findsOneWidget);
+        // No peso sign until an amount is typed, so no example looks filled in.
+        final fields = tester
+            .widgetList<TextField>(find.byType(TextField))
+            .toList();
+        expect(fields[1].decoration?.prefixText, isNull, reason: 'borrowed');
+        expect(
+          fields[2].decoration?.prefixText,
+          isNull,
+          reason: 'each payment',
+        );
+        await tester.enterText(find.byType(TextField).at(2), '1500');
+        await tester.pump();
+        expect(
+          tester
+              .widgetList<TextField>(find.byType(TextField))
+              .elementAt(2)
+              .decoration
+              ?.prefixText,
+          '₱ ',
+        );
+      },
+    );
+
+    testWidgets('the contract decides the last payment', (tester) async {
+      tall(tester);
+      DebtDraft? saved;
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtFormSheet(
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value([cash]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'Loan');
+      await tester.enterText(fields.at(1), '10000');
+      await tester.enterText(fields.at(2), '3000');
+      await tester.pump();
+
+      // No count given: pay exactly what was borrowed, the last one smaller.
+      expect(find.text('4'), findsOneWidget, reason: 'payments, worked out');
+      expect(find.textContaining('Total you will pay: ₱10,000'), findsOne);
+      expect(find.textContaining('more than you borrowed'), findsNothing);
+      expect(find.textContaining('Last payment ₱1,000 on'), findsOneWidget);
+
+      // A count from the contract keeps every payment the same.
+      await tester.enterText(fields.at(3), '4');
+      await tester.pump();
+      expect(find.textContaining('Total you will pay: ₱12,000'), findsOne);
+      expect(find.textContaining('₱2,000 more than you borrowed'), findsOne);
+
+      // Unless the contract's last payment is typed in.
+      await tester.enterText(fields.at(4), '1000');
+      await tester.pump();
+      expect(find.textContaining('Total you will pay: ₱10,000'), findsOne);
+
+      await tester.ensureVisible(find.text('Save Installment'));
+      await tester.tap(find.text('Save Installment'));
+      await tester.pumpAndSettle();
+      expect(saved?.paymentCount, 4);
+      expect(saved?.perPayment, 3000);
+      expect(saved?.lastPayment, 1000);
     });
 
     testWidgets('payments that cannot cover the loan are refused', (
@@ -4708,6 +4952,42 @@ void main() {
           now: now,
         ),
         1200,
+      );
+    });
+
+    test('only saving days that fit before the date are counted', () {
+      // 350 days holds eleven monthly saving days, not the twelve an average
+      // month would suggest; asking for twelfths would fall short.
+      expect(
+        neededPerContribution(
+          remaining: 11000,
+          targetDate: DateTime(2027, 2, 23),
+          frequency: ContributionFrequency.monthly,
+          now: now,
+        ),
+        1000,
+      );
+      // 50 days away: one saving day, so all of it then.
+      expect(
+        neededPerContribution(
+          remaining: 3000,
+          targetDate: DateTime(2026, 4, 29),
+          frequency: ContributionFrequency.monthly,
+          now: now,
+        ),
+        3000,
+      );
+      // An existing plan keeps its own saving day: the 25th.
+      expect(
+        neededPerContribution(
+          remaining: 3000,
+          targetDate: DateTime(2026, 6, 1),
+          frequency: ContributionFrequency.monthly,
+          now: now,
+          planStartedAt: DateTime(2026, 1, 25),
+        ),
+        1000,
+        reason: 'Mar 25, Apr 25 and May 25',
       );
     });
 
@@ -5131,6 +5411,12 @@ void main() {
               contributions: Stream.value([
                 GoalContribution(id: '1', amount: 400, date: day),
               ]),
+              records: Stream.value(
+                FinanceSnapshot(
+                  now: DateTime(2026, 9, 17),
+                  transactions: list ?? transactions,
+                ),
+              ),
               today: DateTime(2026, 9, 17),
               onOpenCategory: onOpenCategory,
             ),
@@ -5140,6 +5426,20 @@ void main() {
       await tester.pump();
       await tester.pump();
     }
+
+    testWidgets('Financial tips come from the records, not a placeholder', (
+      tester,
+    ) async {
+      await pumpReports(tester);
+
+      expect(find.text('Financial tips'), findsOneWidget);
+      expect(find.textContaining('trusted sources'), findsNothing);
+      expect(
+        find.byIcon(Icons.tips_and_updates_outlined),
+        findsWidgets,
+        reason: 'at least one tip is always shown',
+      );
+    });
 
     testWidgets('summarizes this month and breaks spending down', (
       tester,
@@ -5534,6 +5834,11 @@ void main() {
         isTrue,
         reason: 'bills are always on',
       );
+      expect(
+        trackerFirst.isOn(ReminderKind.payday),
+        isTrue,
+        reason: 'so is payday',
+      );
       expect(trackerFirst.isOn(ReminderKind.dailyLog), isTrue);
       expect(trackerFirst.isOn(ReminderKind.leftover), isTrue);
       expect(trackerFirst.isOn(ReminderKind.goals), isFalse);
@@ -5753,7 +6058,10 @@ void main() {
 
     test('the leftover question comes as the pay period ends', () {
       final settings = ReminderSettings.fromProfile(
-        profile(const [FinancialPriority.generalSavings]),
+        profile(
+          const [FinancialPriority.generalSavings],
+          reminders: {'payday': false},
+        ),
       );
       final cycle = AllocationCycle(
         id: 'c',
@@ -5778,6 +6086,241 @@ void main() {
       );
       expect(stillWaiting.single.at, DateTime(2026, 10, 4, 9));
       expect(stillWaiting.single.title, 'Your leftover is still waiting');
+    });
+
+    test('only the usual pay starts a new pay period', () {
+      AllocationCycle income(String source, DateTime at) => AllocationCycle(
+        id: '$source-$at',
+        income: 1000,
+        remaining: 1000,
+        receivedAt: at,
+        source: source,
+      );
+      final salary = income('Salary', DateTime(2026, 8, 30));
+      final gift = income('Gift', DateTime(2026, 9, 19));
+      final freelance = income('Freelance', DateTime(2026, 9, 10));
+      final now = DateTime(2026, 9, 19, 14);
+
+      expect(
+        lastPayday([gift, freelance, salary], usualSource: 'Salary'),
+        DateTime(2026, 8, 30),
+      );
+      expect(
+        lastPayday([gift, salary], usualSource: 'Salary', onOrBefore: now),
+        DateTime(2026, 8, 30),
+      );
+      expect(
+        lastPayday([salary], onOrBefore: DateTime(2026, 8, 29)),
+        isNull,
+        reason: 'pay after the moment asked about is left out',
+      );
+
+      // A gift joins the salary's period; the next salary starts its own.
+      final giftPeriod = periodForIncome(
+        frequency: 'Monthly',
+        source: 'Gift',
+        receivedAt: DateTime(2026, 9, 19),
+        earlier: [salary],
+        usualSource: 'Salary',
+      );
+      expect(giftPeriod.start, DateTime(2026, 8, 30));
+      expect(giftPeriod.end, DateTime(2026, 9, 30));
+
+      final nextPay = periodForIncome(
+        frequency: 'Monthly',
+        source: 'Salary',
+        receivedAt: DateTime(2026, 9, 30),
+        earlier: [salary, gift],
+        usualSource: 'Salary',
+      );
+      expect(nextPay.start, DateTime(2026, 9, 30));
+      expect(nextPay.end, DateTime(2026, 10, 30));
+    });
+
+    group('payday', () {
+      final settings = ReminderSettings.fromProfile(profile(const []));
+
+      AllocationCycle pay(DateTime at, {String source = 'Salary'}) =>
+          AllocationCycle(
+            id: '$source-$at',
+            income: 10000,
+            remaining: 8000,
+            receivedAt: at,
+            source: source,
+          );
+
+      List<PlannedReminder> paydays(
+        String frequency, {
+        List<AllocationCycle> cycles = const [],
+        String? source = 'Salary',
+        required DateTime now,
+      }) => planReminders(
+        settings: settings,
+        bills: const [],
+        goals: const [],
+        cycles: cycles,
+        incomeFrequency: frequency,
+        incomeSource: source,
+        transactions: const [],
+        now: now,
+      ).where((r) => r.kind == ReminderKind.payday).toList();
+
+      test('comes on payday at noon, then each day while pay is late', () {
+        final planned = paydays(
+          'Monthly',
+          source: 'Allowance',
+          cycles: [pay(DateTime(2026, 8, 7, 9), source: 'Allowance')],
+          now: DateTime(2026, 9, 1, 10),
+        );
+
+        expect(planned.map((r) => r.at), [
+          DateTime(2026, 9, 7, 12),
+          DateTime(2026, 9, 8, 12),
+          DateTime(2026, 9, 9, 12),
+          DateTime(2026, 9, 10, 12),
+          DateTime(2026, 10, 7, 12),
+          DateTime(2026, 10, 8, 12),
+          DateTime(2026, 10, 9, 12),
+          DateTime(2026, 10, 10, 12),
+        ], reason: 'a month after the last allowance, within six weeks');
+        expect(planned.first.title, 'Payday today?');
+        expect(
+          planned.first.body,
+          "Once your allowance is in, tap to log it. If it's late, you'll get "
+          'another reminder tomorrow.',
+        );
+        expect(planned[1].title, 'Has your allowance come in?');
+        expect(planned[1].body, "Payday was Sep 7. If it's in, tap to log it.");
+        expect(planned.every((r) => r.payload == 'income'), isTrue);
+      });
+
+      test('late pay keeps asking until it is logged', () {
+        final now = DateTime(2026, 9, 16, 10);
+        final august = pay(DateTime(2026, 8, 30));
+
+        final waiting = paydays('Semi-monthly', cycles: [august], now: now);
+        expect(waiting.map((r) => '${r.title} @ ${r.at}').take(4), [
+          'Has your salary come in? @ 2026-09-16 12:00:00.000',
+          'Has your salary come in? @ 2026-09-17 12:00:00.000',
+          'Has your salary come in? @ 2026-09-18 12:00:00.000',
+          'Payday today? @ 2026-09-30 12:00:00.000',
+        ], reason: "the 15th's own reminder has passed");
+
+        // A gift isn't the salary.
+        final gift = pay(DateTime(2026, 9, 16, 9), source: 'Gift');
+        expect(
+          paydays('Semi-monthly', cycles: [august, gift], now: now).first.at,
+          DateTime(2026, 9, 16, 12),
+        );
+
+        final logged = paydays(
+          'Semi-monthly',
+          cycles: [august, pay(DateTime(2026, 9, 16, 9))],
+          now: now,
+        );
+        expect(logged.first.at, DateTime(2026, 9, 30, 12));
+        expect(logged.first.title, 'Payday today?');
+      });
+
+      test('no reminder without a set payday', () {
+        final cycles = [pay(DateTime(2026, 9, 1))];
+        final now = DateTime(2026, 9, 18);
+
+        expect(paydays('Irregular', cycles: cycles, now: now), isEmpty);
+        expect(
+          paydays('Monthly', now: now),
+          isEmpty,
+          reason: 'the day is only known once pay is logged',
+        );
+        expect(
+          paydays('Semi-monthly', now: now).first.at,
+          DateTime(2026, 9, 30, 12),
+          reason: 'twice a month has set days',
+        );
+
+        final off = ReminderSettings.fromProfile(
+          profile(const [], reminders: {'payday': false}),
+        );
+        expect(
+          planReminders(
+            settings: off,
+            bills: const [],
+            goals: const [],
+            cycles: cycles,
+            incomeFrequency: 'Monthly',
+            transactions: const [],
+            now: now,
+          ),
+          isEmpty,
+        );
+      });
+
+      test('the days pay is expected', () {
+        expect(
+          expectedPaydays(
+            'Semi-monthly',
+            lastPay: null,
+            from: DateTime(2027, 2, 1),
+            until: DateTime(2027, 3, 20),
+          ),
+          [DateTime(2027, 2, 15), DateTime(2027, 2, 28), DateTime(2027, 3, 15)],
+        );
+        expect(
+          expectedPaydays(
+            'Semi-monthly',
+            lastPay: DateTime(2026, 9, 13),
+            from: DateTime(2026, 9, 12),
+            until: DateTime(2026, 10, 15),
+          ),
+          [DateTime(2026, 9, 30), DateTime(2026, 10, 15)],
+          reason: 'paid two days early counts for the 15th',
+        );
+        expect(
+          expectedPaydays(
+            'Monthly',
+            lastPay: DateTime(2026, 1, 31, 8),
+            from: DateTime(2026, 2, 1),
+            until: DateTime(2026, 4, 30),
+          ),
+          [DateTime(2026, 2, 28), DateTime(2026, 3, 31), DateTime(2026, 4, 30)],
+          reason: 'the 31st stays the 31st after a short month',
+        );
+        expect(
+          expectedPaydays(
+            'Bi-weekly',
+            lastPay: DateTime(2026, 9, 4),
+            from: DateTime(2026, 9, 10),
+            until: DateTime(2026, 10, 10),
+          ),
+          [DateTime(2026, 9, 18), DateTime(2026, 10, 2)],
+        );
+        expect(
+          expectedPaydays(
+            'Weekly',
+            lastPay: DateTime(2026, 9, 11),
+            from: DateTime(2026, 9, 8),
+            until: DateTime(2026, 9, 30),
+          ),
+          [DateTime(2026, 9, 18), DateTime(2026, 9, 25)],
+        );
+      });
+
+      test('the last payday is from the usual source', () {
+        final salary = pay(DateTime(2026, 9, 1));
+        final freelance = pay(DateTime(2026, 9, 10), source: 'Freelance');
+        final refund = pay(DateTime(2026, 9, 12), source: 'Refund');
+
+        expect(
+          lastPayday([salary, freelance, refund], usualSource: 'salary'),
+          DateTime(2026, 9, 1),
+        );
+        expect(
+          lastPayday([salary, freelance, refund], usualSource: 'Business'),
+          DateTime(2026, 9, 10),
+          reason: 'no usual income on record: the newest that is not a refund',
+        );
+        expect(lastPayday([refund]), isNull);
+      });
     });
 
     test('the same reminder keeps the same id', () {
@@ -5917,10 +6460,36 @@ void main() {
         expect(find.text('Follow priorities'), findsOneWidget);
 
         final switches = find.byType(Switch);
-        // Master, bills, goals, leftover, logging.
-        await tester.tap(switches.at(2));
-        await tester.tap(switches.at(4));
+        // Master, bills, payday, goals, leftover, logging.
+        await tester.tap(switches.at(3));
+        await tester.tap(switches.at(5));
         expect(calls, ['goals=false', 'dailyLog=null']);
+      });
+
+      testWidgets('payday is always suggested and can be turned off', (
+        tester,
+      ) async {
+        final calls = <String>[];
+        await pumpScreen(
+          tester,
+          data: profile(order),
+          onKind: (kind, on) => calls.add('${kind.name}=$on'),
+        );
+
+        expect(find.text('Payday'), findsOneWidget);
+        expect(
+          find.text(
+            'On payday at 12 PM, then daily for 3 days until you log it.',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Always suggested: logged pay keeps Safe to Spend right.'),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byType(Switch).at(2));
+        expect(calls, ['payday=false']);
       });
 
       testWidgets('reminders stay off when Android blocks them', (

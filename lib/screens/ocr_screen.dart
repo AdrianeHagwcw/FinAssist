@@ -1,17 +1,23 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../models/expense_guess.dart';
 import '../models/wallet.dart';
 import '../services/receipt_reader.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/category_options.dart';
+import '../widgets/found_details.dart';
 import 'add_expense_screen.dart';
 
 /// Scan Receipt: take or pick a photo of a receipt, check the text read from
-/// it, then carry the text into a new expense. Nothing is saved here; the
-/// expense form is where the amount is added and the expense is saved.
+/// it and what was found in it, then carry it into a new expense. A receipt
+/// too long for one photo is taken in parts and read as one. Nothing is
+/// saved here; the expense form is where the user checks everything and
+/// saves.
 class OcrScreen extends StatefulWidget {
   const OcrScreen({this.reader, this.wallets, super.key});
 
@@ -27,11 +33,24 @@ class OcrScreen extends StatefulWidget {
 
 enum _Step { ready, reading, found, nothingFound, noCamera, failed }
 
+/// What a new photo is for.
+enum _Photo { newReceipt, nextPart, redoLast }
+
 class _OcrScreenState extends State<OcrScreen> {
   late final ReceiptReader _reader = widget.reader ?? ReceiptReader();
 
   _Step _step = _Step.ready;
-  String _text = '';
+
+  /// The text of each photo, top of the receipt first.
+  final List<String> _parts = [];
+
+  /// Which part came from the latest photo, so Retake redoes that one even
+  /// when it was placed before others.
+  int? _latest;
+
+  /// The receipt's text: every part in order, without the lines repeated
+  /// where one photo overlaps the next.
+  String get _text => joinReceiptParts(_parts);
 
   /// Where the last photo came from, so Retake goes back to the same place.
   ImageSource _source = ImageSource.camera;
@@ -42,8 +61,16 @@ class _OcrScreenState extends State<OcrScreen> {
     super.dispose();
   }
 
-  Future<void> _scan(ImageSource source) async {
+  /// Reads a photo from [source] as a new receipt, as the receipt's next
+  /// part, or in place of its last part.
+  Future<void> _scan(
+    ImageSource source, {
+    _Photo use = _Photo.newReceipt,
+  }) async {
     _source = source;
+    // A photo added to a receipt that goes wrong leaves the parts read so
+    // far, and says so, instead of starting over.
+    final adding = use != _Photo.newReceipt;
     try {
       final path = await _reader.pickPhoto(source);
       // Backing out of the camera or gallery changes nothing.
@@ -52,30 +79,166 @@ class _OcrScreenState extends State<OcrScreen> {
       setState(() => _step = _Step.reading);
       final text = await _reader.readText(path);
       if (!mounted) return;
+
+      if (text.isEmpty) {
+        if (adding) {
+          setState(() => _step = _Step.found);
+          _tell('No text found in that photo, so nothing changed.');
+        } else {
+          setState(() {
+            _parts.clear();
+            _step = _Step.nothingFound;
+          });
+        }
+        return;
+      }
+
+      final redo = _latest ?? _parts.length - 1;
+      // A photo of some other receipt, added by mistake, is asked about
+      // first: each receipt is its own expense.
+      if (adding) {
+        final others = [
+          for (var i = 0; i < _parts.length; i++)
+            if (use == _Photo.nextPart || i != redo) _parts[i],
+        ];
+        final reason = anotherReceiptReason(others, text);
+        if (reason != null) {
+          setState(() => _step = _Step.found);
+          if (!await _addAnyway(reason) || !mounted) return;
+        }
+      }
+
+      final at = switch (use) {
+        _Photo.newReceipt => 0,
+        _Photo.nextPart => placeForPart(_parts, text),
+        _Photo.redoLast => redo,
+      };
       setState(() {
-        _text = text;
-        _step = text.isEmpty ? _Step.nothingFound : _Step.found;
+        switch (use) {
+          case _Photo.newReceipt:
+            _parts
+              ..clear()
+              ..add(text);
+          case _Photo.nextPart:
+            _parts.insert(at, text);
+          case _Photo.redoLast:
+            _parts[at] = text;
+        }
+        _latest = at;
+        _step = _Step.found;
       });
+      // Photos taken out of order are put in order, and the user is told.
+      if (use == _Photo.nextPart && at < _parts.length - 1) {
+        _tell(
+          'Added as part ${at + 1}, where it fits. Use the arrows to change '
+          'the order.',
+        );
+      }
     } on PlatformException catch (error) {
       if (!mounted) return;
-      setState(() {
-        _step = error.code == 'camera_access_denied'
-            ? _Step.noCamera
-            : _Step.failed;
-      });
+      final noCamera = error.code == 'camera_access_denied';
+      if (adding) {
+        setState(() => _step = _Step.found);
+        _tell(
+          noCamera
+              ? "Can't use the camera. Allow it for FinAssist in your phone's "
+                    'Settings.'
+              : "Couldn't read that photo. Try again.",
+        );
+      } else {
+        setState(() => _step = noCamera ? _Step.noCamera : _Step.failed);
+      }
     } catch (_) {
-      if (mounted) setState(() => _step = _Step.failed);
+      if (!mounted) return;
+      if (adding) {
+        setState(() => _step = _Step.found);
+        _tell("Couldn't read that photo. Try again.");
+      } else {
+        setState(() => _step = _Step.failed);
+      }
     }
   }
 
-  /// Opens a new expense with the receipt's text in its notes. The scan is
-  /// finished, so saving or leaving the form goes back to where it began.
+  /// Asks before adding a photo that looks like it is from another receipt.
+  Future<bool> _addAnyway(String reason) async {
+    final add = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('A different receipt?'),
+        content: Text(
+          '$reason Each receipt is its own expense, so add only parts of '
+          'this one.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: cancelTextStyle(context),
+            child: const Text("Don't Add"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: confirmTextStyle(context),
+            child: const Text('Add Anyway'),
+          ),
+        ],
+      ),
+    );
+    return add == true;
+  }
+
+  void _removePart(int index) {
+    setState(() {
+      _parts.removeAt(index);
+      final latest = _latest;
+      if (latest == index) {
+        _latest = null;
+      } else if (latest != null && latest > index) {
+        _latest = latest - 1;
+      }
+    });
+  }
+
+  void _movePartUp(int index) {
+    setState(() {
+      _parts.insert(index - 1, _parts.removeAt(index));
+      if (_latest == index) {
+        _latest = index - 1;
+      } else if (_latest == index - 1) {
+        _latest = index;
+      }
+    });
+  }
+
+  void _tell(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// The receipt's text, turned into the total, store, category and date,
+  /// suggesting only from [categories].
+  ExpenseGuess _guess(List<String> categories) =>
+      guessFromReceipt(_text, categories: categories);
+
+  /// Opens a new expense started from the receipt, with its text in the
+  /// notes. The scan is finished, so saving or leaving the form goes back to
+  /// where it began.
   void _useText() {
+    final guess = _guess(availableCategoriesOf(context));
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            AddExpenseScreen(initialNotes: _text, wallets: widget.wallets),
+        builder: (context) => AddExpenseScreen(
+          initialAmount: guess.amount,
+          initialCategory: guess.category,
+          initialDescription: guess.description,
+          initialDate: guess.date == null
+              ? null
+              : Timestamp.fromDate(guess.date!),
+          initialNotes: _text,
+          wallets: widget.wallets,
+        ),
       ),
     );
   }
@@ -181,10 +344,12 @@ class _OcrScreenState extends State<OcrScreen> {
         ),
         const SizedBox(height: 4),
         Text(
-          'It goes into the notes of a new expense. You add the amount and '
-          'category, then save.',
+          'Use This starts a new expense from this receipt, with its text in '
+          'the notes. You check everything before saving.',
           style: TextStyle(color: colors.textBody, height: 1.4),
         ),
+        const SizedBox(height: 14),
+        FoundDetails(guess: _guess(categoryOptions(context)), showStore: true),
         const SizedBox(height: 14),
         Expanded(
           child: Container(
@@ -192,20 +357,46 @@ class _OcrScreenState extends State<OcrScreen> {
             child: Scrollbar(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
-                child: SelectableText(
-                  _text,
-                  style: TextStyle(color: colors.textBody, height: 1.45),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < _parts.length; i++) ...[
+                      if (i > 0) Divider(height: 24, color: colors.border),
+                      if (_parts.length > 1)
+                        _PartHeading(
+                          number: i + 1,
+                          onMoveUp: i == 0 ? null : () => _movePartUp(i),
+                          onRemove: () => _removePart(i),
+                        ),
+                      SelectableText(
+                        _parts[i],
+                        style: TextStyle(color: colors.textBody, height: 1.45),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
           ),
         ),
         const SizedBox(height: 16),
+        OutlinedButton.icon(
+          onPressed: () => _scan(_source, use: _Photo.nextPart),
+          style: openOutlineStyle(context, height: 52),
+          icon: Icon(
+            fromCamera
+                ? Icons.add_a_photo_outlined
+                : Icons.add_photo_alternate_outlined,
+          ),
+          label: const Text('Add Next Part'),
+        ),
+        const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => _scan(_source),
+                // With several parts, the one from the latest photo.
+                onPressed: () => _scan(_source, use: _Photo.redoLast),
                 style: openOutlineStyle(context, height: 52),
                 icon: Icon(
                   fromCamera
@@ -225,6 +416,54 @@ class _OcrScreenState extends State<OcrScreen> {
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The name over one part of a long receipt, with ways to move it up and
+/// to take it out.
+class _PartHeading extends StatelessWidget {
+  const _PartHeading({
+    required this.number,
+    required this.onMoveUp,
+    required this.onRemove,
+  });
+
+  final int number;
+
+  /// Null for the first part.
+  final VoidCallback? onMoveUp;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            'Part $number',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+        ),
+        if (onMoveUp != null)
+          IconButton(
+            tooltip: 'Move part $number up',
+            onPressed: onMoveUp,
+            color: colors.textBody,
+            icon: const Icon(Icons.arrow_upward, size: 20),
+          ),
+        IconButton(
+          tooltip: 'Remove part $number',
+          onPressed: onRemove,
+          color: colors.textBody,
+          icon: const Icon(Icons.close, size: 20),
         ),
       ],
     );
@@ -311,12 +550,12 @@ class _Tips extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
 
-    Widget tip(IconData icon, String text) {
+    Widget tip(String icon, String text) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: appPrimaryBlue),
+            Image.asset('assets/icons/$icon', width: 22, height: 22),
             const SizedBox(width: 12),
             Expanded(
               child: Text(text, style: TextStyle(color: colors.textBody)),
@@ -340,9 +579,15 @@ class _Tips extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          tip(Icons.crop_free, 'Fit the whole receipt in the photo'),
-          tip(Icons.wb_sunny_outlined, 'Use good light, without shadows'),
-          tip(Icons.pan_tool_outlined, 'Lay it flat and hold the phone still'),
+          tip(
+            'icons8-camera-96.png',
+            'Fit it all in, or take a long one in parts',
+          ),
+          tip('icons8-idea-96.png', 'Use good light, without shadows'),
+          tip(
+            'icons8-mobile-payment-96.png',
+            'Lay it flat and hold the phone still',
+          ),
         ],
       ),
     );

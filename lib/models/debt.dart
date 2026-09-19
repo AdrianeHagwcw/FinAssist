@@ -68,6 +68,7 @@ class Debt {
     required this.status,
     this.perPayment = 0,
     this.paymentCount = 0,
+    this.lastPayment = 0,
     this.frequency = PaymentFrequency.monthly,
     this.firstDueDate,
     this.billId,
@@ -88,6 +89,7 @@ class Debt {
       principal: _asDouble(map['principal']).abs(),
       perPayment: _asDouble(map['perPayment']).abs(),
       paymentCount: _asDouble(map['paymentCount']).toInt(),
+      lastPayment: _asDouble(map['lastPayment']).abs(),
       frequency: PaymentFrequency.fromName(_asString(map['frequency'])),
       firstDueDate: _asDate(map['firstDueDate']),
       billId: _asString(map['billId']),
@@ -114,6 +116,10 @@ class Debt {
 
   final double perPayment;
   final int paymentCount;
+
+  /// The contract's last payment when it differs from the others, such as
+  /// ₱1,000 closing three payments of ₱3,000. Zero means the same as them.
+  final double lastPayment;
   final PaymentFrequency frequency;
   final DateTime? firstDueDate;
 
@@ -131,8 +137,17 @@ class Debt {
   final String? note;
   final DebtStatus status;
 
-  /// Everything the user will have paid once every payment is made.
-  double get totalPayable => perPayment * paymentCount;
+  /// What the last payment is: its own amount, or the usual one.
+  double get finalPayment => lastPayment > 0 ? lastPayment : perPayment;
+
+  /// Whether the contract's last payment differs from the others.
+  bool get hasDifferentLastPayment =>
+      paymentCount > 1 && (finalPayment - perPayment).abs() > 0.005;
+
+  /// Everything the user will have paid once every payment is made: the
+  /// usual payments, then the last one.
+  double get totalPayable =>
+      paymentCount < 1 ? 0 : perPayment * (paymentCount - 1) + finalPayment;
 
   /// What borrowing costs on top of the amount borrowed. This is shown
   /// instead of an interest rate: most students don't know their rate, but
@@ -166,6 +181,15 @@ class Debt {
 int paymentsToCover(double total, double perPayment) {
   if (total <= 0 || perPayment <= 0) return 0;
   return (total / perPayment - 1e-9).ceil();
+}
+
+/// The last of [count] payments that cover exactly [total] at [perPayment]
+/// each, when it comes out smaller: ₱10,000 at ₱3,000 ends with ₱1,000.
+/// Zero when every payment is the same.
+double coveringLastPayment(double total, double perPayment, int count) {
+  if (count < 2 || perPayment <= 0) return 0;
+  final rest = ((total - perPayment * (count - 1)) * 100).round() / 100;
+  return rest > 0 && rest < perPayment - 0.005 ? rest : 0;
 }
 
 /// Where an installment stands, worked out from its bill occurrences.

@@ -117,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             tooltip: 'AI Assistant',
             icon: Image.asset(
-              'assets/icons/icons8-robot-48.png',
+              'assets/icons/assistant-robot-192.png',
               width: 26,
               height: 26,
             ),

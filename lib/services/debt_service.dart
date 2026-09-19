@@ -62,6 +62,7 @@ class DebtService {
     required int paymentCount,
     required PaymentFrequency frequency,
     required DateTime firstDueDate,
+    double lastPayment = 0,
     String? payFromWalletId,
     String? receivedIntoWalletId,
     String? note,
@@ -70,7 +71,7 @@ class DebtService {
     final debt = _debts.doc();
     final bill = BillService.newBillReference();
 
-    final lastDue = Debt(
+    final terms = Debt(
       id: debt.id,
       direction: DebtDirection.iOwe,
       name: name,
@@ -78,10 +79,12 @@ class DebtService {
       principal: principal,
       perPayment: perPayment,
       paymentCount: paymentCount,
+      lastPayment: lastPayment,
       frequency: frequency,
       firstDueDate: firstDueDate,
       status: DebtStatus.active,
-    ).lastDueDate!;
+    );
+    final lastDue = terms.lastDueDate!;
 
     batch.set(debt, {
       'direction': DebtDirection.iOwe.name,
@@ -90,6 +93,7 @@ class DebtService {
       'principal': principal,
       'perPayment': perPayment,
       'paymentCount': paymentCount,
+      if (terms.hasDifferentLastPayment) 'lastPayment': terms.finalPayment,
       'frequency': frequency.name,
       'firstDueDate': Timestamp.fromDate(firstDueDate),
       'billId': bill.id,
@@ -109,6 +113,7 @@ class DebtService {
       walletId: payFromWalletId,
       endDate: lastDue,
       debtId: debt.id,
+      lastAmount: terms.hasDifferentLastPayment ? terms.finalPayment : null,
     );
 
     if (receivedIntoWalletId != null && principal > 0) {

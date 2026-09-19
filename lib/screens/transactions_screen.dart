@@ -78,6 +78,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final chosen = await showModalBottomSheet<TransactionFilter>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: context.appColors.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

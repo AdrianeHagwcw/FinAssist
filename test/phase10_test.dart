@@ -14,15 +14,19 @@ import 'package:testapp/models/allocation.dart';
 import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/cycle_history.dart';
 import 'package:testapp/models/financial_preferences.dart';
+import 'package:testapp/models/wallet.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
 import 'package:testapp/screens/add_expense_screen.dart';
 import 'package:testapp/screens/categories_screen.dart';
 import 'package:testapp/screens/financial_preferences_screen.dart';
 import 'package:testapp/screens/history_screen.dart';
+import 'package:testapp/screens/income_waterfall_screen.dart';
 import 'package:testapp/screens/leftover_review_screen.dart';
 import 'package:testapp/theme/app_theme.dart';
 import 'package:testapp/utils/money_format.dart';
 import 'package:testapp/utils/categories.dart';
+import 'package:testapp/utils/date_format.dart';
+import 'package:testapp/widgets/category_icon.dart';
 
 final _capture = GlobalKey();
 
@@ -415,6 +419,106 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Food'), findsNothing);
     expect(find.text('Pets'), findsWidgets);
+  });
+
+  testWidgets('Add Expense reads top to bottom like Add Income', (
+    tester,
+  ) async {
+    await pumpScreen(tester, AddExpenseScreen(wallets: Stream.value(const [])));
+    double top(String label) => tester.getTopLeft(find.text(label)).dy;
+
+    // The description comes before the category suggested from it.
+    expect(top('Amount'), lessThan(top('Description')));
+    expect(top('Description'), lessThan(top('Category')));
+    expect(top('Category'), lessThan(top('Date')));
+    expect(find.text(formatShortDate(DateTime.now())), findsOneWidget);
+    expect(find.byType(CategoryIcon), findsNothing);
+
+    await tester.enterText(
+      find.ancestor(
+        of: find.text('What did you spend money on?'),
+        matching: find.byType(TextField),
+      ),
+      'date with my girlfriend',
+    );
+    await tester.pump();
+    expect(find.text('Entertainment'), findsOneWidget);
+    expect(
+      tester.widget<CategoryIcon>(find.byType(CategoryIcon)).category,
+      'Entertainment',
+      reason: "the field shows the chosen category's own icon",
+    );
+  });
+
+  testWidgets('an expense over the wallet balance is asked about first', (
+    tester,
+  ) async {
+    const cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 6528,
+      startingBalance: 6528,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    await pumpScreen(tester, AddExpenseScreen(wallets: Stream.value([cash])));
+    await tester.pump();
+
+    Finder field(String hint) =>
+        find.ancestor(of: find.text(hint), matching: find.byType(TextField));
+    await tester.enterText(field('0.00'), '7000');
+    await tester.enterText(field('What did you spend money on?'), 'Groceries');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Save Expense'));
+    await tester.tap(find.text('Save Expense'));
+    await tester.pumpAndSettle();
+
+    expect(find.text("More than what's in Cash"), findsOneWidget);
+    expect(
+      find.text(
+        'This expense is ₱7,000, but Cash has ₱6,528, so it would show '
+        "-₱472. If money came in that isn't logged yet, add it as income "
+        'too.',
+      ),
+      findsOneWidget,
+    );
+
+    // Fixing the amount goes back to the form with nothing saved.
+    await tester.tap(find.text('Fix Amount'));
+    await tester.pumpAndSettle();
+    expect(find.text("More than what's in Cash"), findsNothing);
+    expect(find.byType(AddExpenseScreen), findsOneWidget);
+    expect(find.text('7000'), findsOneWidget);
+  });
+
+  testWidgets('Add Income starts with the usual source, never the amount', (
+    tester,
+  ) async {
+    final settings = AppSettingsProvider()
+      ..updateFinancialProfile({
+        'incomeSource': 'Salary',
+        'incomeFrequency': 'Monthly',
+        'income': 18000,
+      });
+    await pumpScreen(
+      tester,
+      IncomeWaterfallScreen(
+        wallets: Stream.value(const []),
+        loadBills: () async => const [],
+        goals: Stream.value(const []),
+        cycles: Stream.value(const []),
+      ),
+      settings: settings,
+    );
+
+    expect(find.text('Salary'), findsOneWidget);
+    // Typed fresh, so a late or partial pay is never saved as the usual one.
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      isEmpty,
+    );
   });
 
   testWidgets(

@@ -82,7 +82,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Scan Receipt reads the text on a receipt photo, and Voice Entry turns what you say into words. Either way you check the text first, then Use This opens a new expense with it filled in. You add the amount and category and save it yourself; nothing is saved automatically. Receipt photos are not attached to expenses or uploaded anywhere.',
+                'Scan Receipt reads the text on a receipt photo, and Voice Entry turns what you say into words. Either way you check the text first, then Use This opens a new expense with the amount, category and description filled in where they could be found. You check and change anything before saving; nothing is saved automatically. Receipt photos are not attached to expenses or uploaded anywhere.',
               ),
             ),
           ],

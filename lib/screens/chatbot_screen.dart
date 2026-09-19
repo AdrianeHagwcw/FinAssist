@@ -2,7 +2,13 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+
+import '../models/chat_answers.dart';
+import '../models/finance_snapshot.dart';
+import '../services/finance_snapshot_service.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../widgets/goal_sheets.dart';
 
 /// Reports whether the phone has a network connection, now and on change.
 Stream<bool> _deviceOnlineStatus() async* {
@@ -15,10 +21,13 @@ Stream<bool> _deviceOnlineStatus() async* {
 }
 
 class ChatbotScreen extends StatefulWidget {
-  const ChatbotScreen({this.onlineStatus, super.key});
+  const ChatbotScreen({this.onlineStatus, this.records, super.key});
 
   /// Online/offline updates. Tests pass their own stream.
   final Stream<bool>? onlineStatus;
+
+  /// The user's records to answer from. Tests pass their own.
+  final Stream<FinanceSnapshot>? records;
 
   @override
   State<ChatbotScreen> createState() => _ChatbotScreenState();
@@ -33,6 +42,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   bool _isOnline = true;
   StreamSubscription<bool>? _onlineSubscription;
+
+  /// What the answers are worked out from; null while still loading.
+  FinanceSnapshot? _records;
+  StreamSubscription<FinanceSnapshot>? _recordsSubscription;
+
+  /// A "Can I buy it?" question still being worked out.
+  PurchaseQuestion? _pending;
 
   final List<Map<String, dynamic>> _messages = [
     {
@@ -51,11 +67,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       },
       onError: (Object _) {},
     );
+    _recordsSubscription = (widget.records ?? watchFinanceSnapshot()).listen((
+      records,
+    ) {
+      if (mounted) setState(() => _records = records);
+    }, onError: (Object _) {});
   }
 
   @override
   void dispose() {
     _onlineSubscription?.cancel();
+    _recordsSubscription?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -65,8 +87,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // SEND MESSAGE
   // =========================================================
 
-  void _sendMessage() {
-    final text = _messageController.text.trim();
+  /// Sends what was typed, or [tapped] when a quick reply was tapped.
+  void _sendMessage([String? tapped]) {
+    final text = (tapped ?? _messageController.text).trim();
 
     if (text.isEmpty) {
       return;
@@ -75,114 +98,52 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     setState(() {
       _messages.add({'message': text, 'isUser': true});
 
-      _messageController.clear();
+      if (tapped == null) _messageController.clear();
     });
 
     _scrollToBottom();
 
-    // Temporary chatbot response.
-    // Replace this with your AI API/backend later.
+    // A short pause, so the answer reads as a reply.
     Future.delayed(const Duration(milliseconds: 700), () {
       if (!mounted) return;
 
+      final reply = answerChat(
+        text,
+        records: _records?.at(DateTime.now()),
+        pending: _pending,
+      );
       setState(() {
-        _messages.add({'message': _generateResponse(text), 'isUser': false});
+        _pending = reply.pending;
+        _messages.add({
+          'message': reply.text,
+          'isUser': false,
+          'choices': reply.choices,
+          'goal': reply.goal,
+        });
       });
 
       _scrollToBottom();
     });
   }
 
-  // =========================================================
-  // TEMPORARY AI RESPONSE
-  // =========================================================
-
-  String _generateResponse(String message) {
-    final text = message.toLowerCase();
-    final isGreeting = text.contains('hello') || text.contains('hi');
-
-    if (!isGreeting && !_looksFinancial(text)) {
-      return 'Sorry, I can only help with money questions, like budgeting, '
-          'expenses, bills and savings. What would you like to know about '
-          'your finances?';
-    }
-
-    if (!isGreeting && !_isOnline) {
-      return "You're offline right now, so I can only share general tips. "
-          'Reconnect for answers based on your own records.';
-    }
-
-    if (text.contains('budget')) {
-      return 'A good starting point is to create a monthly budget based on your income and regular expenses. I can help you organize your spending into categories.';
-    }
-
-    if (text.contains('save') || text.contains('saving')) {
-      return 'Try setting a specific monthly savings goal. Tracking your expenses can also help you identify areas where you can save.';
-    }
-
-    if (text.contains('expense') || text.contains('spending')) {
-      return 'You can check your Expenses screen to review your transactions. I can also help you understand which categories are taking up most of your budget.';
-    }
-
-    if (text.contains('food')) {
-      return 'Food expenses can add up quickly. Consider setting a weekly food budget and tracking each purchase.';
-    }
-
-    if (text.contains('hello') || text.contains('hi')) {
-      return 'Hello! What would you like to know about your finances?';
-    }
-
-    return 'I understand. Once FinAssist is connected to the AI service, '
-        "I'll be able to analyze your financial data and give you more "
-        'personalized insights.';
-  }
-
-  // Keeps the assistant on finance topics until the real model is wired in.
-  static const _financeWords = [
-    'money',
-    'peso',
-    'budget',
-    'save',
-    'saving',
-    'savings',
-    'spend',
-    'spending',
-    'expense',
-    'expenses',
-    'income',
-    'salary',
-    'allowance',
-    'bill',
-    'bills',
-    'pay',
-    'payment',
-    'debt',
-    'loan',
-    'goal',
-    'wallet',
-    'cash',
-    'gcash',
-    'maya',
-    'bank',
-    'transfer',
-    'balance',
-    'afford',
-    'invest',
-    'price',
-    'cost',
-    'financial',
-    'finance',
-    'baon',
-    'gastos',
-    'ipon',
-    'utang',
-    'sahod',
-    'bayad',
-    'pera',
-  ];
-
-  bool _looksFinancial(String text) {
-    return _financeWords.any((word) => text.contains(word));
+  /// Opens the goal form filled in from the assistant's suggestion.
+  Future<void> _createGoal(GoalOffer goal) async {
+    final saved = await showGoalFormSheet(
+      context,
+      initialName: goal.name,
+      initialTarget: goal.target,
+      initialDate: goal.date,
+    );
+    if (!saved || !mounted) return;
+    setState(() {
+      _messages.add({
+        'message':
+            'Your ${goal.name} goal is saved. You can follow it in '
+            'Goals.',
+        'isUser': false,
+      });
+    });
+    _scrollToBottom();
   }
 
   // =========================================================
@@ -220,19 +181,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
         title: Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.all(6),
-              child: Image.asset(
-                'assets/icons/icons8-robot-48.png',
-                width: 28,
-                height: 28,
-              ),
+            // The assistant's face, straight on the blue bar.
+            Image.asset(
+              'assets/icons/assistant-robot-192.png',
+              width: 36,
+              height: 36,
             ),
 
             const SizedBox(width: 12),
@@ -298,10 +251,50 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               itemCount: _messages.length,
               itemBuilder: (context, index) {
                 final message = _messages[index];
+                final isUser = message['isUser'] as bool;
+                final choices = message['choices'] as List<String>? ?? const [];
+                final goal = message['goal'] as GoalOffer?;
+                // Only the latest answer's quick replies still apply.
+                final isLatest = index == _messages.length - 1;
 
-                return _messageBubble(
-                  message: message['message'],
-                  isUser: message['isUser'],
+                return Column(
+                  crossAxisAlignment: isUser
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
+                  children: [
+                    _messageBubble(message: message['message'], isUser: isUser),
+                    if (goal != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: OutlinedButton.icon(
+                          onPressed: () => _createGoal(goal),
+                          style: openOutlineStyle(context, height: 40),
+                          icon: const Icon(Icons.flag_outlined, size: 18),
+                          label: const Text('Create Goal'),
+                        ),
+                      ),
+                    if (isLatest && choices.isNotEmpty && _messages.length > 1)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final choice in choices)
+                              ActionChip(
+                                label: Text(choice),
+                                backgroundColor: context.appColors.primaryTint,
+                                side: BorderSide.none,
+                                labelStyle: TextStyle(
+                                  color: context.appColors.primaryText,
+                                  fontSize: 12,
+                                ),
+                                onPressed: () => _sendMessage(choice),
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
                 );
               },
             ),
@@ -371,7 +364,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           children: [
             if (!isUser) ...[
               Image.asset(
-                'assets/icons/icons8-robot-48.png',
+                'assets/icons/assistant-robot-192.png',
                 width: 20,
                 height: 20,
               ),
@@ -400,12 +393,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // =========================================================
 
   Widget _suggestedQuestions() {
-    final questions = [
-      'How can I save more money?',
-      'Help me create a budget',
-      'Where am I spending the most?',
-      'How are my expenses doing?',
-    ];
+    const questions = suggestedQuestions;
 
     return Container(
       width: double.infinity,
@@ -444,11 +432,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       fontSize: 11,
                     ),
 
-                    onPressed: () {
-                      _messageController.text = questions[index];
-
-                      _sendMessage();
-                    },
+                    onPressed: () => _sendMessage(questions[index]),
                   ),
                 );
               },
@@ -553,8 +537,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         Expanded(
           child: Text(
             offline
-                ? "You're offline. FinAssist AI can only share general tips "
-                      'until you reconnect.'
+                ? "You're offline. Answers use the records saved on this "
+                      'phone.'
                 : 'Finance questions only, like budgeting, expenses, bills '
                       'and savings.',
             style: const TextStyle(fontSize: 11, color: Colors.grey),
@@ -590,6 +574,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
                   setState(() {
                     _messages.clear();
+                    _pending = null;
 
                     _messages.add({
                       'message':
@@ -611,7 +596,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     applicationName: 'FinAssist',
                     applicationVersion: '1.0.0',
                     applicationIcon: Image.asset(
-                      'assets/icons/icons8-robot-48.png',
+                      'assets/icons/assistant-robot-192.png',
                       width: 40,
                       height: 40,
                     ),

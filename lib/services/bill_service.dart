@@ -172,19 +172,23 @@ class BillService {
     String? walletId,
     DateTime? endDate,
     String? debtId,
+    double? lastAmount,
   }) {
     batch.set(
       reference,
       _billData(
-        name: name,
-        amount: amount,
-        category: category,
-        firstDueDate: firstDueDate,
-        recurrence: recurrence,
-        walletId: walletId,
-        endDate: endDate,
-        debtId: debtId,
-      )..['createdAt'] = FieldValue.serverTimestamp(),
+          name: name,
+          amount: amount,
+          category: category,
+          firstDueDate: firstDueDate,
+          recurrence: recurrence,
+          walletId: walletId,
+          endDate: endDate,
+          debtId: debtId,
+        )
+        ..['createdAt'] = FieldValue.serverTimestamp()
+        // An installment whose last payment differs, set once with its terms.
+        ..addAll({'lastAmount': ?lastAmount}),
     );
   }
 
@@ -289,10 +293,7 @@ class BillService {
   }) async {
     if (bills.isEmpty) return 0;
 
-    final existing = (await loadInstances(
-      year,
-      month,
-    )).map((instance) => instance.id).toSet();
+    final monthInstances = await loadInstances(year, month);
 
     // The previous month decides what is rolled into this one.
     final previousMonth = DateTime(year, month - 1);
@@ -303,48 +304,51 @@ class BillService {
 
     final batch = _firestore.batch();
     var created = 0;
+    var closed = 0;
 
-    for (final bill in bills) {
-      for (final dueDate in bill.occurrencesIn(year, month)) {
-        final id = billInstanceId(bill.id, dueDate);
+    for (final occurrence in newOccurrences(
+      bills: bills,
+      year: year,
+      month: month,
+      existingIds: monthInstances.map((instance) => instance.id).toSet(),
+      previousMonth: previous,
+      now: now,
+    )) {
+      final bill = occurrence.bill;
+      batch.set(_instances.doc(occurrence.id), {
+        'billId': bill.id,
+        'name': bill.name,
+        'amount': occurrence.amount,
+        'category': bill.category,
+        'dueDate': Timestamp.fromDate(occurrence.dueDate),
+        'status': BillStatus.unpaid.name,
+        'amountPaid': 0,
+        'carriedOver': occurrence.carried,
+        'paymentIds': <String>[],
+        'walletId': bill.walletId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      created++;
 
-        if (existing.contains(id)) continue;
-
-        final carried = carryOverFrom(_lastFor(previous, bill.id), now: now);
-
-        batch.set(_instances.doc(id), {
-          'billId': bill.id,
-          'name': bill.name,
-          'amount': bill.amount + carried,
-          'category': bill.category,
-          'dueDate': Timestamp.fromDate(dueDate),
-          'status': BillStatus.unpaid.name,
-          'amountPaid': 0,
-          'carriedOver': carried,
-          'paymentIds': <String>[],
-          'walletId': bill.walletId,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        created++;
+      // The unpaid part is owed in the new occurrence now, so the old one is
+      // closed rather than owed twice.
+      final from = occurrence.from;
+      if (from != null) {
+        batch.update(_instances.doc(from.id), {'carriedInto': occurrence.id});
       }
     }
 
-    if (created > 0) commitFirestoreWrite(batch.commit(), 'add bill dates');
+    // Carried over before this was fixed, and never closed.
+    for (final carry in unclosedCarries(monthInstances, previous)) {
+      batch.update(_instances.doc(carry.from), {'carriedInto': carry.into});
+      closed++;
+    }
+
+    if (created + closed > 0) {
+      commitFirestoreWrite(batch.commit(), 'add bill dates');
+    }
 
     return created;
-  }
-
-  static BillInstance? _lastFor(List<BillInstance> instances, String billId) {
-    BillInstance? latest;
-
-    for (final instance in instances) {
-      if (instance.billId != billId) continue;
-      if (latest == null || instance.dueDate.isAfter(latest.dueDate)) {
-        latest = instance;
-      }
-    }
-
-    return latest;
   }
 
   /// Changes one occurrence without touching the schedule it came from.

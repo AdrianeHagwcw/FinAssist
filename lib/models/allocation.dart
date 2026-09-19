@@ -295,3 +295,66 @@ AllocationCycle? cycleAwaitingReview(
 
   return null;
 }
+
+/// Income that says nothing about when pay comes.
+const _oneOffSources = {'Gift', 'Sold Something', 'Refund'};
+
+/// When the user was last paid: the newest income from their usual source,
+/// or, when none is on record, the newest that isn't a one-off like a gift.
+///
+/// Only pay starts a new pay period. A gift, a refund or a side income adds
+/// money to the period already under way, so it raises Safe to Spend instead
+/// of spreading everything over a fresh month. With [onOrBefore], income
+/// received after it is left out.
+DateTime? lastPayday(
+  Iterable<AllocationCycle> cycles, {
+  String? usualSource,
+  DateTime? onOrBefore,
+}) {
+  final newestFirst =
+      cycles
+          .where(
+            (cycle) =>
+                onOrBefore == null || !cycle.receivedAt.isAfter(onOrBefore),
+          )
+          .toList()
+        ..sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
+  final usual = usualSource?.trim().toLowerCase() ?? '';
+
+  if (usual.isNotEmpty) {
+    for (final cycle in newestFirst) {
+      if (cycle.source.trim().toLowerCase() == usual) return cycle.receivedAt;
+    }
+  }
+  for (final cycle in newestFirst) {
+    if (!_oneOffSources.contains(cycle.source)) return cycle.receivedAt;
+  }
+  return null;
+}
+
+/// The pay period income received at [receivedAt] belongs to: a new one when
+/// it is the user's pay, otherwise the period of the pay before it, found
+/// among the [earlier] income.
+PayPeriod periodForIncome({
+  required String? frequency,
+  required String source,
+  required DateTime receivedAt,
+  Iterable<AllocationCycle> earlier = const [],
+  String? usualSource,
+}) {
+  final lastPay = lastPayday(
+    [
+      ...earlier,
+      AllocationCycle(
+        id: '',
+        income: 0,
+        remaining: 0,
+        receivedAt: receivedAt,
+        source: source,
+      ),
+    ],
+    usualSource: usualSource,
+    onOrBefore: receivedAt,
+  );
+  return payPeriodFor(frequency, lastIncomeAt: lastPay, now: receivedAt);
+}

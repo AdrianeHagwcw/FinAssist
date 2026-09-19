@@ -1,12 +1,17 @@
+import 'dart:async';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_transaction.dart';
+import '../models/finance_snapshot.dart';
 import '../models/goal.dart';
+import '../models/money_tips.dart';
 import '../models/report.dart';
 import '../models/transaction_filter.dart';
 import '../providers/app_settings_provider.dart';
+import '../services/finance_snapshot_service.dart';
 import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
@@ -23,6 +28,7 @@ class ReportsScreen extends StatefulWidget {
   const ReportsScreen({
     this.transactions,
     this.contributions,
+    this.records,
     this.today,
     this.onOpenCategory,
     super.key,
@@ -33,6 +39,9 @@ class ReportsScreen extends StatefulWidget {
 
   /// Replaces the live goal contributions. Used by tests.
   final Stream<List<GoalContribution>>? contributions;
+
+  /// The user's records, for the Financial tips. Tests pass their own.
+  final Stream<FinanceSnapshot>? records;
 
   /// Replaces the clock. Used by tests.
   final DateTime? today;
@@ -52,6 +61,27 @@ class _ReportsScreenState extends State<ReportsScreen> {
       widget.contributions ?? GoalService.watchAllContributions();
 
   DateTime get _now => widget.today ?? DateTime.now();
+
+  /// Kept here rather than read in the list, which drops sections scrolled
+  /// out of view.
+  FinanceSnapshot? _records;
+  StreamSubscription<FinanceSnapshot>? _recordsSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _recordsSubscription = (widget.records ?? watchFinanceSnapshot()).listen((
+      records,
+    ) {
+      if (mounted) setState(() => _records = records);
+    }, onError: (Object _) {});
+  }
+
+  @override
+  void dispose() {
+    _recordsSubscription?.cancel();
+    super.dispose();
+  }
 
   ReportRange _range = ReportRange.month;
   late ReportPeriod _period = ReportPeriod.monthOf(_now);
@@ -292,40 +322,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
               : Column(
                   children: [
                     for (final line in insights)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.lightbulb_outline,
-                              size: 20,
-                              color: appPrimaryBlue,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                line,
-                                style: TextStyle(
-                                  color: colors.textBody,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _Line(icon: Icons.lightbulb_outline, text: line),
                   ],
                 ),
         ),
         const SizedBox(height: 16),
-        const _Section(
+        _Section(
           title: 'Financial tips',
-          child: _EmptyNote(
-            'Money tips from trusted sources will show here once FinAssist '
-            'is connected to them.',
-            icon: Icons.tips_and_updates_outlined,
-          ),
+          subtitle: 'From your recent spending.',
+          child: _records == null
+              ? const _EmptyNote(
+                  'Tips show up once your records load.',
+                  icon: Icons.tips_and_updates_outlined,
+                )
+              : Column(
+                  children: [
+                    for (final tip in moneyTipsFor(_records!.at(_now)))
+                      _Line(icon: Icons.tips_and_updates_outlined, text: tip),
+                  ],
+                ),
         ),
       ],
     );
@@ -628,6 +643,34 @@ class _Section extends StatelessWidget {
           ],
           const SizedBox(height: 12),
           child,
+        ],
+      ),
+    );
+  }
+}
+
+/// One line of Insights or Financial tips: an icon and a sentence.
+class _Line extends StatelessWidget {
+  const _Line({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: appPrimaryBlue),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(color: context.appColors.textBody, height: 1.4),
+            ),
+          ),
         ],
       ),
     );
