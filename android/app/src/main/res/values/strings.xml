@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FinAssist</string>
+    <string name="facebook_app_id">3409990602515172</string>
+    <string name="fb_login_protocol_scheme">fb3409990602515172</string>
+    <string name="facebook_client_token">7ce99edebec5858b1224a9954b88794b</string>
+</resources>

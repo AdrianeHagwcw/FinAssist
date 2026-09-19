@@ -46,3 +46,17 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+val copyReleaseApk = tasks.register("copyReleaseApk") {
+    doLast {
+        val outputDirectory = layout.buildDirectory.dir("outputs/flutter-apk").get().asFile
+        val releaseApk = outputDirectory.resolve("app-release.apk")
+        val namedApk = outputDirectory.resolve("FinAssist.apk")
+
+        releaseApk.copyTo(namedApk, overwrite = true)
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy(copyReleaseApk)
+}
