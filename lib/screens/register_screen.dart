@@ -4,6 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_profile_service.dart';
 import 'financial_setup_screen.dart';
 import 'login_screen.dart';
+import '../theme/app_buttons.dart';
+import '../theme/app_colors.dart';
+import '../widgets/app_logo.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -219,10 +222,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // UI
   // =========================================================
 
+  /// Back to the Log In screen this was opened from, or a fresh one if
+  /// there is nothing to go back to.
+  void _backToLogin() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+      return;
+    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.card,
+
+      appBar: AppBar(
+        backgroundColor: colors.card,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          tooltip: 'Back to Log In',
+          icon: Icon(Icons.arrow_back, color: colors.textBody),
+          onPressed: _isLoading ? null : _backToLogin,
+        ),
+      ),
 
       body: SafeArea(
         child: Center(
@@ -239,23 +268,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 Center(
                   child: Column(
                     children: [
-                      Container(
-                        width: 75,
-                        height: 75,
-
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1976D2),
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-
-                        child: const Icon(
-                          Icons.trending_up,
-                          color: Colors.white,
-                          size: 42,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: const AppLogo(
+                          width: 180,
+                          height: 120,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.topCenter,
                         ),
                       ),
 
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 10),
 
                       const Text(
                         'FinAssist',
@@ -285,13 +308,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 // =================================================
                 // CREATE ACCOUNT
                 // =================================================
-                const Text(
+                Text(
                   'Create Account',
 
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF151515),
+                    color: colors.textPrimary,
                   ),
                 ),
 
@@ -334,13 +357,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -385,13 +408,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -434,6 +457,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
 
                     suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? 'Show password'
+                          : 'Hide password',
                       onPressed: _isLoading
                           ? null
                           : () {
@@ -452,13 +478,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -501,6 +527,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
 
                     suffixIcon: IconButton(
+                      tooltip: _obscureConfirmPassword
+                          ? 'Show confirmed password'
+                          : 'Hide confirmed password',
                       onPressed: _isLoading
                           ? null
                           : () {
@@ -520,13 +549,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -552,19 +581,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _register,
 
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1976D2),
-
-                      foregroundColor: Colors.white,
-
-                      disabledBackgroundColor: Colors.grey.shade400,
-
-                      elevation: 0,
-
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                    style: confirmButtonStyle(),
 
                     child: _isLoading
                         ? const SizedBox(
@@ -602,23 +619,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       children: [
                         WidgetSpan(
                           child: GestureDetector(
-                            onTap: _isLoading
-                                ? null
-                                : () {
-                                    Navigator.pushReplacement(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            const LoginScreen(),
-                                      ),
-                                    );
-                                  },
+                            onTap: _isLoading ? null : _backToLogin,
 
-                            child: const Text(
+                            child: Text(
                               'Log In',
 
                               style: TextStyle(
-                                color: Color(0xFF1976D2),
+                                color: colors.primaryText,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
                               ),

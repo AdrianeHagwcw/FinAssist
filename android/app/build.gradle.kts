@@ -13,6 +13,9 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Needed by flutter_local_notifications to schedule reminders on
+        // older Android versions.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -59,4 +62,8 @@ val copyReleaseApk = tasks.register("copyReleaseApk") {
 
 tasks.matching { it.name == "assembleRelease" }.configureEach {
     finalizedBy(copyReleaseApk)
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

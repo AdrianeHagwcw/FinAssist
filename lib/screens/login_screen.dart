@@ -1,14 +1,16 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../services/user_profile_service.dart';
 import 'financial_setup_screen.dart';
-import 'package:testapp/screens/home_screen.dart';
+import 'main_shell.dart';
 import 'forgot_password_screen.dart';
 import 'register_screen.dart';
+import '../theme/app_buttons.dart';
+import '../theme/app_colors.dart';
+import '../widgets/app_logo.dart';
 
 class _SocialSignInCancelled implements Exception {
   const _SocialSignInCancelled();
@@ -207,66 +209,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // =========================================================
-  // FACEBOOK SIGN IN
-  // =========================================================
-
-  Future<void> _signInWithFacebook() async {
-    if (_isLoading) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final LoginResult result = await FacebookAuth.instance.login(
-        permissions: ['email', 'public_profile'],
-      );
-
-      if (result.status == LoginStatus.cancelled) {
-        throw const _SocialSignInCancelled();
-      }
-
-      if (result.status != LoginStatus.success) {
-        throw _SocialSignInException(
-          result.message ?? 'Facebook sign-in was not completed.',
-        );
-      }
-
-      final AccessToken? accessToken = result.accessToken;
-
-      if (accessToken == null) {
-        throw const _SocialSignInException(
-          'Facebook access token was not received.',
-        );
-      }
-
-      // Create Firebase credential
-      final OAuthCredential credential = FacebookAuthProvider.credential(
-        accessToken.tokenString,
-      );
-
-      // Sign in to Firebase
-      await FirebaseAuth.instance.signInWithCredential(credential);
-
-      await _navigateAfterAuthentication();
-    } on _SocialSignInCancelled {
-      _showMessage('Facebook sign-in was cancelled.');
-    } on _SocialSignInException catch (e) {
-      _showMessage(e.message);
-    } on FirebaseAuthException catch (e) {
-      _showMessage(e.message ?? 'Facebook sign-in failed.');
-    } catch (e) {
-      _showMessage('Facebook sign-in could not be completed.');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  // =========================================================
   // SHOW MESSAGE
   // =========================================================
 
@@ -279,9 +221,8 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => setupCompleted
-              ? const HomeScreen()
-              : const FinancialSetupScreen(),
+          builder: (context) =>
+              setupCompleted ? const MainShell() : const FinancialSetupScreen(),
         ),
       );
     } catch (_) {
@@ -320,8 +261,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.card,
 
       body: SafeArea(
         child: Center(
@@ -340,8 +283,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(22),
-                        child: Image.asset(
-                          'assets/icons/e621696b-4d3b-4ad5-972c-7c96ad3f6c71_removalai_preview.png',
+                        child: const AppLogo(
                           width: 240,
                           height: 160,
                           fit: BoxFit.cover,
@@ -367,13 +309,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 // =================================================
                 // WELCOME
                 // =================================================
-                const Text(
+                Text(
                   'Welcome Back!',
 
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF151515),
+                    color: colors.textPrimary,
                   ),
                 ),
 
@@ -419,13 +361,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -471,6 +413,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
 
                     suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? 'Show password'
+                          : 'Hide password',
                       icon: Icon(
                         _obscurePassword
                             ? Icons.visibility_off_outlined
@@ -489,13 +434,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
 
-                      borderSide: const BorderSide(color: Color(0xFFDADADA)),
+                      borderSide: BorderSide(color: colors.inputBorder),
                     ),
 
                     focusedBorder: OutlineInputBorder(
@@ -524,17 +469,18 @@ class _LoginScreenState extends State<LoginScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) =>
-                                    const ForgotPasswordScreen(),
+                                builder: (context) => ForgotPasswordScreen(
+                                  initialEmail: _emailController.text,
+                                ),
                               ),
                             );
                           },
 
-                    child: const Text(
+                    child: Text(
                       'Forgot Password?',
 
                       style: TextStyle(
-                        color: Color(0xFF1976D2),
+                        color: colors.primaryText,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -553,19 +499,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _login,
 
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1976D2),
-
-                      foregroundColor: Colors.white,
-
-                      disabledBackgroundColor: Colors.grey.shade400,
-
-                      elevation: 0,
-
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                    // Blue like the rest of the app; green is kept for Sign Up,
+                    // which creates something new.
+                    style: openButtonStyle(),
 
                     child: _isLoading
                         ? const SizedBox(
@@ -595,7 +531,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 // =================================================
                 Row(
                   children: [
-                    const Expanded(child: Divider(color: Color(0xFFDADADA))),
+                    Expanded(child: Divider(color: colors.inputBorder)),
 
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 15),
@@ -610,76 +546,43 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
 
-                    const Expanded(child: Divider(color: Color(0xFFDADADA))),
+                    Expanded(child: Divider(color: colors.inputBorder)),
                   ],
                 ),
 
                 const SizedBox(height: 20),
 
                 // =================================================
-                // GOOGLE + FACEBOOK
+                // GOOGLE
                 // =================================================
-                Row(
-                  children: [
-                    // GOOGLE
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isLoading ? null : _signInWithGoogle,
+                SizedBox(
+                  width: double.infinity,
 
-                        icon: const Icon(
-                          Icons.g_mobiledata,
-                          size: 28,
-                          color: Colors.red,
-                        ),
+                  child: OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _signInWithGoogle,
 
-                        label: const Text(
-                          'Google',
-
-                          style: TextStyle(color: Colors.black87),
-                        ),
-
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 50),
-
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-
-                          side: const BorderSide(color: Color(0xFFDADADA)),
-                        ),
-                      ),
+                    icon: const Icon(
+                      Icons.g_mobiledata,
+                      size: 28,
+                      color: Colors.red,
                     ),
 
-                    const SizedBox(width: 12),
+                    label: Text(
+                      'Google',
 
-                    // FACEBOOK
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isLoading ? null : _signInWithFacebook,
-
-                        icon: const Icon(
-                          Icons.facebook,
-                          color: Color(0xFF1877F2),
-                        ),
-
-                        label: const Text(
-                          'Facebook',
-
-                          style: TextStyle(color: Colors.black87),
-                        ),
-
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 50),
-
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-
-                          side: const BorderSide(color: Color(0xFFDADADA)),
-                        ),
-                      ),
+                      style: TextStyle(color: colors.textBody),
                     ),
-                  ],
+
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 50),
+
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+
+                      side: BorderSide(color: colors.inputBorder),
+                    ),
+                  ),
                 ),
 
                 const SizedBox(height: 30),
@@ -709,11 +612,11 @@ class _LoginScreenState extends State<LoginScreen> {
                                     );
                                   },
 
-                            child: const Text(
+                            child: Text(
                               'Sign Up',
 
                               style: TextStyle(
-                                color: Color(0xFF1976D2),
+                                color: colors.primaryText,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
                               ),

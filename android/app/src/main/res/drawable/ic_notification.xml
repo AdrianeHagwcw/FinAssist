@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status bar icon for reminders: a plain wallet. Android draws it in one
+     color, so it is a silhouette rather than the colored app icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M4,5h13a1,1 0,0 1,1 1v1h-12a1,1 0,0 0,0 2h13a1,1 0,0 1,1 1v8a1,1 0,0 1,-1 1h-15a2,2 0,0 1,-2 -2v-10a2,2 0,0 1,2 -2zM15,12.5a1.5,1.5 0,1 0,0 3a1.5,1.5 0,1 0,0 -3z" />
+</vector>
