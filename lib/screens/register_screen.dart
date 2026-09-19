@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/user_profile_service.dart';
-import 'financial_setup_screen.dart';
-import 'login_screen.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_logo.dart';
+import 'email_verification_screen.dart';
+import 'login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -52,7 +52,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // ---------------------------------------------------------
 
     if (name.isEmpty) {
-      _showMessage('Please enter your name.');
+      await _showMessage('Please enter your name.');
       return;
     }
 
@@ -61,7 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // ---------------------------------------------------------
 
     if (email.isEmpty) {
-      _showMessage('Please enter your email.');
+      await _showMessage('Please enter your email.');
       return;
     }
 
@@ -70,7 +70,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // ---------------------------------------------------------
 
     if (password.isEmpty) {
-      _showMessage('Please enter a password.');
+      await _showMessage('Please enter a password.');
       return;
     }
 
@@ -79,7 +79,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // ---------------------------------------------------------
 
     if (password.length < 6) {
-      _showMessage('Password must be at least 6 characters.');
+      await _showMessage('Password must be at least 6 characters.');
       return;
     }
 
@@ -88,7 +88,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // ---------------------------------------------------------
 
     if (confirmPassword.isEmpty) {
-      _showMessage('Please confirm your password.');
+      await _showMessage('Please confirm your password.');
       return;
     }
 
@@ -97,7 +97,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // ---------------------------------------------------------
 
     if (password != confirmPassword) {
-      _showMessage('Passwords do not match.');
+      await _showMessage('Passwords do not match.');
       return;
     }
 
@@ -133,23 +133,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       await UserProfileService.createInitialProfile(user);
 
+      await FirebaseAuth.instance.signOut();
+
       if (!mounted) return;
 
       // -------------------------------------------------------
       // SHOW SUCCESS MESSAGE
       // -------------------------------------------------------
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account created successfully!')),
+      await _showMessage(
+        'Account started. Please verify your email before signing in.',
       );
+      if (!mounted) return;
 
       // -------------------------------------------------------
-      // GO TO HOME SCREEN
+      // SHOW EMAIL VERIFICATION SCREEN TO GUIDE THE USER
       // -------------------------------------------------------
 
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (context) => const FinancialSetupScreen()),
+        MaterialPageRoute(
+          builder: (context) => EmailVerificationScreen(email: email),
+        ),
         (route) => false,
       );
     } on FirebaseAuthException catch (e) {
@@ -176,13 +181,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
           message = 'Network error. Please check your internet connection.';
           break;
 
+        case 'too-many-requests':
+          message = 'Too many registration attempts. Please try again later.';
+          break;
+
         default:
           message = e.message ?? 'Registration failed. Please try again.';
       }
 
-      _showMessage(message);
+      await _showMessage(message);
     } catch (e) {
-      _showMessage('Something went wrong. Please try again.');
+      await _showMessage('Something went wrong. Please try again.');
     } finally {
       if (mounted) {
         setState(() {
@@ -196,12 +205,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // SHOW MESSAGE
   // =========================================================
 
-  void _showMessage(String message) {
+  Future<void> _showMessage(String message) async {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline, color: Color(0xFF1976D2)),
+            SizedBox(width: 10),
+            Text('Create account'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   // =========================================================

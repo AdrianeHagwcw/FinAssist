@@ -4,13 +4,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../services/user_profile_service.dart';
-import 'financial_setup_screen.dart';
-import 'main_shell.dart';
-import 'forgot_password_screen.dart';
-import 'register_screen.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_logo.dart';
+import 'email_verification_screen.dart';
+import 'financial_setup_screen.dart';
+import 'forgot_password_screen.dart';
+import 'main_shell.dart';
+import 'register_screen.dart';
 
 class _SocialSignInCancelled implements Exception {
   const _SocialSignInCancelled();
@@ -85,10 +86,21 @@ class _LoginScreenState extends State<LoginScreen> {
       // FIREBASE LOGIN
       // -------------------------------------------------------
 
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      final userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password);
+
+      final currentUser = userCredential.user;
+      if (currentUser != null && !currentUser.emailVerified) {
+        await FirebaseAuth.instance.signOut();
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => EmailVerificationScreen(email: email),
+          ),
+        );
+        return;
+      }
 
       // -------------------------------------------------------
       // LOGIN SUCCESSFUL
@@ -119,12 +131,12 @@ class _LoginScreenState extends State<LoginScreen> {
           message = 'This account has been disabled.';
           break;
 
-        case 'too-many-requests':
-          message = 'Too many login attempts. Please try again later.';
-          break;
-
         case 'network-request-failed':
           message = 'Network error. Please check your internet connection.';
+          break;
+
+        case 'email-not-verified':
+          message = 'Please verify your email before signing in.';
           break;
 
         default:
@@ -155,11 +167,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      const googleWebClientId =
-          '708244412702-qafbtnlba2pelc94fveoudfm7059ptkj.apps.googleusercontent.com';
       final GoogleSignIn googleSignIn = GoogleSignIn(
         scopes: ['email'],
-        serverClientId: googleWebClientId,
+        signInOption: SignInOption.standard,
       );
 
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
