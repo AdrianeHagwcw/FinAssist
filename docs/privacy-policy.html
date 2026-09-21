@@ -35,87 +35,156 @@
     <h1>FinAssist Privacy Policy</h1>
 
     <p class="updated">
-        Last updated: September 2026
+        Last updated: September 22, 2026
     </p>
 
     <p>
-        FinAssist is an AI-driven financial assistant designed to help users
-        manage their expenses, budgets, and financial information.
-        This Privacy Policy explains how FinAssist collects, uses, and
-        protects information when users use the application.
+        FinAssist is a personal finance app that helps users keep track of
+        their wallets, spending, bills, installments and savings goals.
+        FinAssist is not connected to any bank or e-wallet, and it does not
+        make or receive payments. It only keeps the records that users enter
+        themselves.
+    </p>
+
+    <p>
+        This Privacy Policy explains what information FinAssist collects, how
+        it is used, and how it is protected.
     </p>
 
     <h2>1. Information We Collect</h2>
 
-    <p>FinAssist may collect the following information:</p>
+    <p>FinAssist collects the information users enter or allow:</p>
 
     <ul>
-        <li>Email address used for account authentication.</li>
-        <li>Information provided through Google authentication.</li>
-        <li>Income information provided during financial setup.</li>
-        <li>Income source and income frequency.</li>
-        <li>Budget information.</li>
-        <li>Expense information entered by the user, including amount,
-            category, description, date, payment method, and notes.</li>
+        <li>
+            Account information: email address and name, and the basic
+            profile details Google shares when a user signs in with Google.
+        </li>
+        <li>
+            Financial setup and preferences: income source, how often pay
+            comes, an optional usual income amount, an optional daily
+            spending limit, the preferred choice for leftover money, and the
+            expense categories a user hides.
+        </li>
+        <li>
+            Wallets: the name, type (such as cash, GCash, Maya or bank) and
+            balance of each wallet the user adds.
+        </li>
+        <li>
+            Transactions: income, expenses and transfers between the user's
+            own wallets, including amount, category, description, date,
+            wallet and notes.
+        </li>
+        <li>
+            Bills and bill payments, installments, debts and money lent
+            (including the name of the person a user types in), savings
+            goals and contributions, savings set aside, and pay-cycle
+            history.
+        </li>
     </ul>
 
-    <h2>2. How We Use Information</h2>
+    <h2>2. Receipt Scanning and Voice Entry</h2>
+
+    <ul>
+        <li>
+            Scan Receipt: photos a user takes or picks are read on the phone
+            using Google ML Kit text recognition. The photos are not uploaded
+            and are not saved to the user's account. Only the details the user
+            checks and saves on the expense form are stored.
+        </li>
+        <li>
+            Voice Entry: speech is turned into text by the phone's speech
+            recognition service (on most Android phones, provided by Google),
+            which may process the audio online under its own privacy policy.
+            FinAssist receives only the text, and nothing is saved until the
+            user confirms the expense form.
+        </li>
+        <li>
+            The camera and microphone are used only while the user is using
+            these features.
+        </li>
+    </ul>
+
+    <h2>3. How We Use Information</h2>
 
     <p>
-        The information collected by FinAssist is used to provide and
-        improve the application's financial management features.
-        This includes:
+        The information is used only to provide FinAssist's features:
     </p>
 
     <ul>
         <li>Creating and managing user accounts.</li>
-        <li>Saving financial setup information.</li>
-        <li>Recording and organizing expenses.</li>
-        <li>Calculating budget usage and remaining budget.</li>
-        <li>Generating financial summaries and insights.</li>
-        <li>Providing the features of the FinAssist application.</li>
+        <li>Keeping wallet balances, bills, installments and goals up to date.</li>
+        <li>
+            Working out Safe to Spend, reports, spending summaries and money
+            tips.
+        </li>
+        <li>Answering questions in the in-app assistant.</li>
+        <li>Sending the bill, goal and payday reminders a user turns on.</li>
     </ul>
 
-    <h2>3. Authentication</h2>
+    <p>
+        FinAssist does not show ads, does not include advertising or
+        analytics tools, and does not sell user information.
+    </p>
+
+    <h2>4. The In-App Assistant</h2>
 
     <p>
-        FinAssist uses Firebase Authentication to manage user accounts.
-        Users may authenticate using email and password or Google,
-        depending on the available sign-in options.
+        The assistant answers questions using the records already in the
+        user's account, and the answers are worked out on the phone. Questions
+        are not sent to an outside service, and the conversation is not saved;
+        it is cleared when the chat is closed.
+    </p>
+
+    <h2>5. Reminders</h2>
+
+    <p>
+        Bill, goal and payday reminders are scheduled on the phone as
+        notifications. A payday reminder only opens the income form; FinAssist
+        never records income or payments on its own. Reminders can be changed
+        in the app's Reminders screen or turned off in the phone's settings.
+    </p>
+
+    <h2>6. Authentication</h2>
+
+    <p>
+        FinAssist uses Firebase Authentication to manage user accounts. Users
+        may sign in with an email and password or with Google. Authentication
+        information is processed by the respective providers.
+    </p>
+
+    <h2>7. Data Storage</h2>
+
+    <p>
+        User records are stored in Firebase Cloud Firestore. Database security
+        rules allow each signed-in user to read and change only their own
+        records. A copy is kept on the phone so the app keeps working without
+        an internet connection, and changes are synced when the phone is back
+        online.
     </p>
 
     <p>
-        Authentication information is processed through the respective
-        authentication providers.
+        Display settings, such as the app theme and whether amounts are
+        hidden, are kept only on the phone and are not stored in the user's
+        account.
     </p>
 
-    <h2>4. Data Storage</h2>
+    <h2>8. Third-Party Services</h2>
 
     <p>
-        FinAssist uses Firebase Cloud Firestore to store user profile
-        information and expense records. Access to user data is restricted
-        using authentication and database security rules.
-    </p>
-
-    <h2>5. Third-Party Services</h2>
-
-    <p>
-        FinAssist uses third-party services to provide application
-        functionality. These services may include:
+        FinAssist uses the following services, which process information
+        according to their own privacy policies and terms:
     </p>
 
     <ul>
         <li>Firebase Authentication</li>
         <li>Firebase Cloud Firestore</li>
         <li>Google Sign-In</li>
+        <li>Google ML Kit Text Recognition (runs on the phone)</li>
+        <li>The phone's speech recognition service (for Voice Entry)</li>
     </ul>
 
-    <p>
-        These services may process information according to their own
-        privacy policies and terms.
-    </p>
-
-    <h2>6. User Data and Security</h2>
+    <h2>9. User Data and Security</h2>
 
     <p>
         We take reasonable measures to protect information stored by
@@ -123,31 +192,29 @@
         can be guaranteed to be completely secure.
     </p>
 
-    <h2>7. Data Retention</h2>
+    <h2>10. Data Retention</h2>
 
     <p>
-        User information may be retained while the user's FinAssist account
-        remains active or as necessary to provide the application's
-        features.
+        User information is kept while the user's FinAssist account is active,
+        or until the user asks for it to be deleted.
     </p>
 
-    <h2>8. User Data Deletion</h2>
+    <h2>11. User Data Deletion</h2>
 
     <p>
-        Users may request deletion of their FinAssist account and associated
-        personal information. Instructions for requesting data deletion are
-        available on our Data Deletion page.
+        Users may request deletion of their FinAssist account and all of its
+        records. Instructions are on our
+        <a href="data-deletion.html">Data Deletion page</a>.
     </p>
 
-    <h2>9. Changes to This Privacy Policy</h2>
+    <h2>12. Changes to This Privacy Policy</h2>
 
     <p>
-        This Privacy Policy may be updated when necessary to reflect changes
-        to FinAssist or its features. The updated version will be published
-        on this page.
+        This Privacy Policy may be updated when FinAssist or its features
+        change. The updated version will be published on this page.
     </p>
 
-    <h2>10. Contact</h2>
+    <h2>13. Contact</h2>
 
     <p>
         If you have questions regarding this Privacy Policy or the handling
