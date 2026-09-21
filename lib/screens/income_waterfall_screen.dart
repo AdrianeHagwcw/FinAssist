@@ -397,7 +397,11 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       lastDate: _today,
     );
 
-    if (picked != null) setState(() => _receivedAt = picked);
+    if (picked != null) {
+      setState(() {
+        _receivedAt = keepTimeOfDay(picked, _receivedAt);
+      });
+    }
   }
 
   int get _stepNumber => _steps.indexOf(_step) + 1;

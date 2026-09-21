@@ -46,9 +46,14 @@ class SpeechInput {
   /// again if the problem is only reported after the end.
   ///
   /// Returns why listening could not start, or null once it has.
+  /// [stopOnSilence] ends the listen after a short pause, which suits a
+  /// listen the user did not start by holding the mic. While the mic is held
+  /// the user says when they are done by letting go, so pausing for thought
+  /// must not cut them off.
   Future<SpeechProblem?> start({
     required ValueChanged<String> onWords,
     required ValueChanged<SpeechProblem?> onStopped,
+    bool stopOnSilence = true,
   }) async {
     final engine = _engine;
     _dropCurrent?.call();
@@ -141,7 +146,9 @@ class SpeechInput {
         listenOptions: speech.SpeechListenOptions(
           partialResults: true,
           cancelOnError: true,
-          pauseFor: const Duration(seconds: 3),
+          pauseFor: stopOnSilence
+              ? const Duration(seconds: 3)
+              : const Duration(seconds: 30),
           listenFor: const Duration(seconds: 30),
         ),
       );

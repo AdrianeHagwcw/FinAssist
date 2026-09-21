@@ -117,15 +117,7 @@ class _TransactionEditSheetState extends State<TransactionEditSheet> {
 
     if (picked != null) {
       // Keeps the time of day, so the order within that day is preserved.
-      setState(
-        () => _date = DateTime(
-          picked.year,
-          picked.month,
-          picked.day,
-          _date.hour,
-          _date.minute,
-        ),
-      );
+      setState(() => _date = keepTimeOfDay(picked, _date));
     }
   }
 

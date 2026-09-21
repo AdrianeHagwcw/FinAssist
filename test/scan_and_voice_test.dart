@@ -48,14 +48,20 @@ class FakeSpeech extends SpeechInput {
   var starts = 0;
   var stops = 0;
 
+  /// What the last start asked for, so a test can tell a held listen from a
+  /// tapped one.
+  bool? stopOnSilenceAsked;
+
   @override
   Future<SpeechProblem?> start({
     required ValueChanged<String> onWords,
     required ValueChanged<SpeechProblem?> onStopped,
+    bool stopOnSilence = true,
   }) async {
     starts++;
     hear = onWords;
     end = onStopped;
+    stopOnSilenceAsked = stopOnSilence;
     return startProblem;
   }
 
@@ -582,7 +588,7 @@ void main() {
       expect(find.text('Voice Entry'), findsOneWidget);
       expect(find.text('Say what you spent'), findsOneWidget);
       expect(find.text('“Lunch at Jollibee, 150 pesos”'), findsOneWidget);
-      expect(find.byTooltip('Start speaking'), findsOneWidget);
+      expect(find.byTooltip('Hold to speak'), findsOneWidget);
       expect(speech.starts, 0);
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
       handle.dispose();
@@ -660,7 +666,7 @@ void main() {
     testWidgets('Stop keeps what was heard so far', (tester) async {
       final speech = FakeSpeech();
       await pumpScreen(tester, VoiceRecognitionScreen(input: speech));
-      await tester.tap(find.byTooltip('Start speaking'));
+      await tester.tap(find.byTooltip('Hold to speak'));
       await tester.pump();
 
       speech.hear!('taxi 200');
@@ -673,18 +679,89 @@ void main() {
       expect(find.text('taxi 200'), findsOneWidget);
     });
 
+    testWidgets('holding the mic listens until the finger lifts', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      await pumpScreen(tester, VoiceRecognitionScreen(input: speech));
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byTooltip('Hold to speak')),
+      );
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(speech.starts, 1);
+      // Letting go is how the user says they are done, so a pause for
+      // thought must not end it for them.
+      expect(speech.stopOnSilenceAsked, isFalse);
+      expect(
+        find.text('Keep holding, and let go when you are done.'),
+        findsOneWidget,
+      );
+
+      speech.hear!('taxi 200');
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(speech.stops, 1);
+      expect(find.text('Is this right?'), findsOneWidget);
+      expect(find.text('taxi 200'), findsOneWidget);
+    });
+
+    testWidgets('a quick tap leaves listening on until the next tap', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      await pumpScreen(tester, VoiceRecognitionScreen(input: speech));
+
+      // Too short to be a hold, so lifting off does not end it. Anyone who
+      // cannot hold a button down still gets through the screen this way.
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byTooltip('Hold to speak')),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.up();
+      await tester.pump();
+
+      expect(speech.starts, 1);
+      expect(speech.stops, 0);
+      expect(
+        find.text('Speak now. Tap the mic again when you are done.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byTooltip('Stop listening'));
+      await tester.pump();
+      expect(speech.stops, 1);
+    });
+
+    testWidgets('opened from Home, nothing is held so a pause ends it', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(autoStart: true, input: speech),
+      );
+      await tester.pump();
+
+      expect(speech.starts, 1);
+      expect(speech.stopOnSilenceAsked, isTrue);
+    });
+
     testWidgets('hearing nothing, then the reason arriving late', (
       tester,
     ) async {
       final speech = FakeSpeech();
       await pumpScreen(tester, VoiceRecognitionScreen(input: speech));
-      await tester.tap(find.byTooltip('Start speaking'));
+      await tester.tap(find.byTooltip('Hold to speak'));
       await tester.pump();
 
       speech.end!(null);
       await tester.pump();
       expect(find.text("Didn't catch that"), findsOneWidget);
-      expect(find.byTooltip('Start speaking'), findsOneWidget);
+      expect(find.byTooltip('Hold to speak'), findsOneWidget);
 
       speech.end!(SpeechProblem.offline);
       await tester.pump();
@@ -702,7 +779,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('The microphone is off'), findsOneWidget);
-      expect(find.byTooltip('Start speaking'), findsOneWidget);
+      expect(find.byTooltip('Hold to speak'), findsOneWidget);
     });
 
     group('listening, replaying what Android sent', () {

@@ -204,7 +204,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     if (pickedDate != null) {
       setState(() {
-        _selectedDate = pickedDate;
+        _selectedDate = keepTimeOfDay(pickedDate, _selectedDate);
       });
     }
   }

@@ -217,43 +217,32 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
 
     final totals = inAndOut(shown);
-    final rows = <Widget>[];
-    String? lastDay;
+
+    // The rows grouped by the day they fall under. Only the grouping is
+    // worked out here, never a widget, so it stays cheap however long the
+    // history gets and the rows are built as they are scrolled to.
+    final days = <_Day>[];
+    String? lastLabel;
+
+    // Read once, so every row is headed against the same moment. Reading it
+    // per row would also let a list built across midnight head one day twice.
+    final now = DateTime.now();
 
     for (final transaction in shown) {
-      final day = transactionDateLabel(transaction.date);
+      final label = transactionDateLabel(transaction.date, now: now);
 
-      if (day != lastDay) {
-        rows.add(
-          Padding(
-            padding: EdgeInsets.fromLTRB(4, lastDay == null ? 0 : 18, 4, 8),
-            child: Text(
-              day,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-        );
-        lastDay = day;
+      if (label != lastLabel) {
+        days.add(_Day(label));
+        lastLabel = label;
       }
 
-      rows
-        ..add(
-          TransactionRow(
-            transaction: transaction,
-            wallets: wallets,
-            onTap: () => _open(transaction),
-          ),
-        )
-        ..add(const SizedBox(height: 8));
+      days.last.transactions.add(transaction);
     }
 
-    return ListView(
-      // Room for the bottom bar and the docked "+" button.
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+    // Everything above the list. Stretched, because a list's children fill
+    // the width and a column's do not, and this used to be a list child.
+    final top = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ...header,
         _InOutStrip(
@@ -270,12 +259,108 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey),
             ),
-          )
-        else
-          ...rows,
+          ),
+      ],
+    );
+
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+          sliver: SliverToBoxAdapter(child: top),
+        ),
+        for (final day in days)
+          // Keeps a day's heading with its rows, so the heading can hold the
+          // top of the screen for exactly as long as that day is being read.
+          SliverMainAxisGroup(
+            slivers: [
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _DayHeader(
+                  label: day.label,
+                  background: context.appColors.pageBackground,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                sliver: SliverList.builder(
+                  itemCount: day.transactions.length,
+                  itemBuilder: (context, index) {
+                    final transaction = day.transactions[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: TransactionRow(
+                        transaction: transaction,
+                        wallets: wallets,
+                        onTap: () => _open(transaction),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        // Room for the bottom bar and the docked "+" button.
+        const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ],
     );
   }
+}
+
+/// One day of the transaction list: what to call it, and what falls under
+/// it. Plain data, so the list is grouped without building a single row.
+class _Day {
+  _Day(this.label);
+
+  final String label;
+  final List<AppTransaction> transactions = [];
+}
+
+/// A day's heading, which holds the top of the screen while that day's rows
+/// pass under it. Without it, scrolling into the middle of a busy day leaves
+/// the times on screen with nothing saying which day they belong to.
+class _DayHeader extends SliverPersistentHeaderDelegate {
+  const _DayHeader({required this.label, required this.background});
+
+  final String label;
+
+  /// Opaque, so rows passing underneath do not show through the heading.
+  final Color background;
+
+  /// The gutter the rows use, plus the inset the heading always had.
+  static const _sideInset = 24.0;
+  static const _height = 38.0;
+
+  @override
+  double get minExtent => _height;
+
+  @override
+  double get maxExtent => _height;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Container(
+      color: background,
+      alignment: Alignment.bottomLeft,
+      padding: const EdgeInsets.fromLTRB(_sideInset, 0, _sideInset, 8),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey,
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_DayHeader oldDelegate) =>
+      oldDelegate.label != label || oldDelegate.background != background;
 }
 
 class _InOutStrip extends StatelessWidget {

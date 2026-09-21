@@ -1381,6 +1381,72 @@ void main() {
       );
       expect(formatShortDate(DateTime(2025, 12, 1)), 'Dec 1, 2025');
     });
+
+    test('one expense, read on four different days', () {
+      // The same record, never edited. Only the day it is read on changes.
+      final spent = DateTime(2026, 9, 16, 19, 42);
+
+      expect(
+        transactionDateLabel(spent, now: DateTime(2026, 9, 16, 23, 59)),
+        'Today',
+      );
+      expect(
+        transactionDateLabel(spent, now: DateTime(2026, 9, 17, 0, 1)),
+        'Yesterday',
+      );
+      expect(
+        transactionDateLabel(spent, now: DateTime(2026, 9, 18, 8)),
+        'Sep 16, 2026',
+      );
+      expect(
+        transactionDateLabel(spent, now: DateTime(2027, 1, 5)),
+        'Sep 16, 2026',
+        reason: 'the year keeps it from being read as this September',
+      );
+
+      // The time it was recorded at never moves, whatever day it is read on.
+      expect(formatTransactionTime(spent), '7:42 PM');
+    });
+
+    test('a time is shown only when the record carries one', () {
+      // Midnight is what the calendar picker leaves behind on a back-dated
+      // entry, so it means no time was given rather than 12:00 AM.
+      expect(formatTransactionTime(DateTime(2026, 9, 16)), isNull);
+      expect(formatTransactionTime(DateTime(2026, 9, 16, 0, 0)), isNull);
+
+      expect(formatTransactionTime(DateTime(2026, 9, 16, 0, 30)), '12:30 AM');
+      expect(formatTransactionTime(DateTime(2026, 9, 16, 9, 7)), '9:07 AM');
+      expect(formatTransactionTime(DateTime(2026, 9, 16, 12, 0)), '12:00 PM');
+      expect(formatTransactionTime(DateTime(2026, 9, 16, 13, 5)), '1:05 PM');
+      expect(formatTransactionTime(DateTime(2026, 9, 16, 23, 59)), '11:59 PM');
+    });
+
+    test('choosing a date keeps the time already on the entry', () {
+      // A date picker hands back midnight. Picking today's date just to
+      // check it must not turn 12:30 PM into 12:00 AM.
+      final entry = DateTime(2026, 9, 16, 12, 30);
+
+      expect(
+        keepTimeOfDay(DateTime(2026, 9, 16), entry),
+        DateTime(2026, 9, 16, 12, 30),
+      );
+      expect(
+        keepTimeOfDay(DateTime(2026, 9, 11), entry),
+        DateTime(2026, 9, 11, 12, 30),
+        reason: 'back-dated, same time of day',
+      );
+      // An entry that never had a time keeps not having one.
+      expect(
+        keepTimeOfDay(DateTime(2026, 9, 11), DateTime(2026, 9, 16)),
+        DateTime(2026, 9, 11),
+      );
+      expect(
+        formatTransactionTime(
+          keepTimeOfDay(DateTime(2026, 9, 11), DateTime(2026, 9, 16)),
+        ),
+        isNull,
+      );
+    });
   });
 
   group('choosing a wallet', () {
@@ -3160,8 +3226,13 @@ void main() {
         ),
       ]);
 
-      expect(find.text('Cash · Bill payment · Rent'), findsOneWidget);
-      expect(find.text('Before wallets'), findsOneWidget);
+      // The row now leads with the time it was recorded, which moves with
+      // the clock, so the parts that carry meaning are what is checked.
+      expect(
+        find.textContaining('Cash · Bill payment · Rent'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Before wallets'), findsOneWidget);
     });
 
     testWidgets('tapping a transaction opens it', (tester) async {
@@ -5427,6 +5498,169 @@ void main() {
       await tester.pump();
     }
 
+    /// Four categories rather than two, so a recount is a real sum and not a
+    /// coin flip, and the shares divide cleanly enough to read.
+    final fourCategories = [
+      for (final (id, label, amount) in const [
+        ('g', 'Groceries', 400.0),
+        ('c', 'Commute', 300.0),
+        ('r', 'Rent', 200.0),
+        ('w', 'Clothes', 100.0),
+      ])
+        AppTransaction(
+          id: id,
+          type: TransactionType.expense,
+          amount: amount,
+          label: label,
+          date: day,
+          walletId: 'cash',
+        ),
+    ];
+
+    /// The tappable row for a category, found inside the legend so a mention
+    /// of the same word elsewhere on the screen cannot be hit by mistake.
+    Finder legendRow(String label) => find
+        .ancestor(
+          of: find.descendant(
+            of: find.byType(SpendingLegend),
+            matching: find.text(label),
+          ),
+          matching: find.byType(InkWell),
+        )
+        .first;
+
+    testWidgets('leaving a category out recounts the shares of the rest', (
+      tester,
+    ) async {
+      await pumpReports(tester, list: fourCategories);
+
+      // 400, 300, 200 and 100 of 1000.
+      expect(find.text('40%'), findsOneWidget);
+      expect(find.text('30%'), findsOneWidget);
+      expect(find.text('20%'), findsOneWidget);
+      expect(find.text('10%'), findsOneWidget);
+
+      await tester.tap(legendRow('Groceries'));
+      await tester.pump();
+
+      // 300, 200 and 100 of the 600 still counted.
+      expect(find.text('50%'), findsOneWidget);
+      expect(find.text('33%'), findsOneWidget);
+      expect(find.text('17%'), findsOneWidget);
+      expect(find.text('—'), findsOneWidget, reason: 'the one left out');
+      expect(find.text('40%'), findsNothing);
+      expect(find.textContaining('Counting 3 of 4'), findsOneWidget);
+    });
+
+    testWidgets('a second category left out is counted out too', (
+      tester,
+    ) async {
+      await pumpReports(tester, list: fourCategories);
+
+      await tester.tap(legendRow('Groceries'));
+      await tester.pump();
+      await tester.tap(legendRow('Commute'));
+      await tester.pump();
+
+      // 200 and 100 of the 300 left.
+      expect(find.text('67%'), findsOneWidget);
+      expect(find.text('33%'), findsOneWidget);
+      expect(find.text('—'), findsNWidgets(2));
+      expect(find.textContaining('Counting 2 of 4'), findsOneWidget);
+    });
+
+    testWidgets('tapping a category that was left out counts it again', (
+      tester,
+    ) async {
+      await pumpReports(tester, list: fourCategories);
+
+      await tester.tap(legendRow('Groceries'));
+      await tester.pump();
+      expect(find.text('—'), findsOneWidget);
+
+      await tester.tap(legendRow('Groceries'));
+      await tester.pump();
+
+      expect(find.text('—'), findsNothing);
+      expect(find.text('40%'), findsOneWidget);
+      expect(find.textContaining('Counting'), findsNothing);
+    });
+
+    testWidgets('"Count all again" brings every category back', (
+      tester,
+    ) async {
+      await pumpReports(tester, list: fourCategories);
+
+      await tester.tap(legendRow('Groceries'));
+      await tester.pump();
+      await tester.tap(legendRow('Rent'));
+      await tester.pump();
+      expect(find.text('—'), findsNWidgets(2));
+
+      await tester.tap(find.text('Count all again'));
+      await tester.pump();
+
+      expect(find.text('—'), findsNothing);
+      expect(find.text('40%'), findsOneWidget);
+      expect(find.text('30%'), findsOneWidget);
+      expect(find.text('20%'), findsOneWidget);
+      expect(find.text('10%'), findsOneWidget);
+    });
+
+    testWidgets('every category left out says so instead of drawing nothing', (
+      tester,
+    ) async {
+      await pumpReports(tester, list: fourCategories);
+
+      for (final label in ['Groceries', 'Commute', 'Rent', 'Clothes']) {
+        await tester.tap(legendRow(label));
+        await tester.pump();
+      }
+
+      expect(find.text('Every category is left out.'), findsOneWidget);
+      expect(find.byType(SpendingDonut), findsNothing);
+      expect(find.text('—'), findsNWidgets(4));
+      expect(find.text('Count all again'), findsOneWidget);
+    });
+
+    testWidgets('the arrow still opens the category', (tester) async {
+      TransactionFilter? opened;
+      await pumpReports(
+        tester,
+        list: fourCategories,
+        onOpenCategory: (filter) => opened = filter,
+      );
+
+      await tester.tap(
+        find
+            .descendant(
+              of: find.byType(SpendingLegend),
+              matching: find.byIcon(Icons.chevron_right),
+            )
+            .first,
+      );
+      await tester.pump();
+
+      expect(opened?.category, 'Groceries');
+      // Opening is not leaving out: nothing was set aside by that tap.
+      expect(find.text('—'), findsNothing);
+    });
+
+    testWidgets('the row and its arrow are both comfortable to hit', (
+      tester,
+    ) async {
+      // The row and the arrow sit next to each other and do different
+      // things, so a near miss must not leave a category out when the reader
+      // meant to open it.
+      final handle = tester.ensureSemantics();
+      await pumpReports(tester, list: fourCategories);
+
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+
+      handle.dispose();
+    });
+
     testWidgets('Financial tips come from the records, not a placeholder', (
       tester,
     ) async {
@@ -5458,7 +5692,14 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(find.text('Food'));
+      // The row itself leaves a category out now, so opening one is the
+      // arrow at its end.
+      await tester.tap(
+        find.descendant(
+          of: legendRow('Food'),
+          matching: find.byIcon(Icons.chevron_right),
+        ),
+      );
       await tester.pump();
       expect(opened?.category, 'Food');
       expect(opened?.type, TransactionType.expense);
@@ -5646,6 +5887,196 @@ void main() {
     expect(loans.moneyOut, 500);
     expect(loans.moneyIn, 200);
     expect(inAndOut(list).moneyOut, 100);
+  });
+
+  testWidgets('Transactions shows the time it was recorded, when it has one', (
+    tester,
+  ) async {
+    final today = DateTime.now();
+    final logged = DateTime(today.year, today.month, today.day, 19, 42);
+    final backDated = DateTime(today.year, today.month, today.day);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: TransactionsScreen(
+            key: UniqueKey(),
+            showLegacyImport: false,
+            wallets: Stream.value(const []),
+            transactions: Stream.value([
+              AppTransaction(
+                id: 'logged',
+                type: TransactionType.expense,
+                amount: 100,
+                label: 'Food',
+                date: logged,
+                isLegacy: true,
+              ),
+              AppTransaction(
+                id: 'back',
+                type: TransactionType.expense,
+                amount: 200,
+                label: 'Rent',
+                date: backDated,
+                isLegacy: true,
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('7:42 PM'), findsOneWidget);
+    // Nothing is invented for the one that only ever carried a day.
+    expect(find.textContaining('12:00 AM'), findsNothing);
+  });
+
+  testWidgets('Transactions heads each day once, newest first', (
+    tester,
+  ) async {
+    // The headings are worked out per slot now rather than by walking the
+    // list in order, so a day must still be announced once and only once.
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day, 12);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final older = today.subtract(const Duration(days: 5));
+
+    AppTransaction spend(String id, DateTime date) => AppTransaction(
+      id: id,
+      type: TransactionType.expense,
+      amount: 100,
+      label: 'Food',
+      date: date,
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: TransactionsScreen(
+            key: UniqueKey(),
+            showLegacyImport: false,
+            wallets: Stream.value(const []),
+            transactions: Stream.value([
+              spend('a', today),
+              spend('b', today),
+              spend('c', yesterday),
+              spend('d', older),
+            ]),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Today'), findsOneWidget, reason: 'two rows, one head');
+    expect(find.text('Yesterday'), findsOneWidget);
+    expect(find.text(formatShortDate(older)), findsOneWidget);
+    expect(find.byType(TransactionRow), findsNWidgets(4));
+  });
+
+  testWidgets('Transactions keeps the day heading in view while reading it', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day, 12);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: TransactionsScreen(
+            key: UniqueKey(),
+            showLegacyImport: false,
+            wallets: Stream.value(const []),
+            transactions: Stream.value([
+              for (var i = 0; i < 30; i++)
+                AppTransaction(
+                  id: 'd$i',
+                  type: TransactionType.expense,
+                  amount: 100,
+                  label: 'Food',
+                  date: today.subtract(Duration(minutes: i)),
+                ),
+            ]),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Today'), findsOneWidget);
+
+    // Far enough that an unpinned heading would be long gone.
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -1200));
+    await tester.pump();
+
+    // The block above the list has scrolled away, which is how far we are.
+    expect(find.text('Money in'), findsNothing);
+
+    expect(
+      find.text('Today'),
+      findsOneWidget,
+      reason: 'the heading holds the top while its own rows pass under it',
+    );
+    expect(
+      tester.getTopLeft(find.text('Today')).dy,
+      lessThan(100),
+      reason: 'pinned just under the bar, not somewhere down the list',
+    );
+  });
+
+  testWidgets('Transactions builds only the rows on screen', (tester) async {
+    // A long history must not cost a row for every transaction ever made.
+    // This fails if the list is ever made to lay itself out in full, such as
+    // by a Column or shrinkWrap.
+    final now = DateTime.now();
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: TransactionsScreen(
+            key: UniqueKey(),
+            showLegacyImport: false,
+            wallets: Stream.value(const []),
+            transactions: Stream.value([
+              for (var i = 0; i < 300; i++)
+                AppTransaction(
+                  id: 'n$i',
+                  type: TransactionType.expense,
+                  amount: 100,
+                  label: 'Food',
+                  date: now.subtract(Duration(minutes: i)),
+                ),
+            ]),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(TransactionRow), findsAtLeastNWidgets(1));
+    expect(
+      find.byType(TransactionRow).evaluate().length,
+      lessThan(60),
+      reason: '300 transactions, only a screenful of rows',
+    );
   });
 
   testWidgets('Transactions explains loans left out of the totals', (

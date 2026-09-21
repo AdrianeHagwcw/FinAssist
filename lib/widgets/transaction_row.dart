@@ -5,6 +5,7 @@ import '../models/wallet.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/date_format.dart';
 import 'category_icon.dart';
 import 'money_text.dart';
 
@@ -53,6 +54,9 @@ class TransactionRow extends StatelessWidget {
         : t.label;
 
     final details = [
+      // First, so a run of rows can be scanned down by time when someone is
+      // looking for "the one around seven".
+      ?formatTransactionTime(t.date),
       if (t.type != TransactionType.transfer)
         t.isLegacy ? 'Before wallets' : walletNameFor(wallets, t.walletId),
       if (t.isBillPayment) 'Bill payment',

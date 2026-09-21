@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/expense_guess.dart';
@@ -63,11 +65,12 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
   @override
   void dispose() {
     if (_step == _Step.listening) _input.stop();
+    _holdTimer?.cancel();
     _pulse.dispose();
     super.dispose();
   }
 
-  Future<void> _listen() async {
+  Future<void> _listen({bool stopOnSilence = true}) async {
     setState(() {
       _step = _Step.listening;
       _words = '';
@@ -77,7 +80,11 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
 
     SpeechProblem? problem;
     try {
-      problem = await _input.start(onWords: _onWords, onStopped: _onStopped);
+      problem = await _input.start(
+        onWords: _onWords,
+        onStopped: _onStopped,
+        stopOnSilence: stopOnSilence,
+      );
     } catch (_) {
       problem = SpeechProblem.failed;
     }
@@ -88,6 +95,53 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
   Future<void> _stop() async {
     _finish(null);
     await _input.stop();
+  }
+
+  /// A press shorter than this is a tap, which leaves listening on until the
+  /// next tap. Anything longer is a hold, which ends when the finger lifts.
+  /// Holding suits most people; tapping keeps the screen usable for anyone
+  /// who cannot hold a button down, and is how a screen reader works it.
+  static const _holdThreshold = Duration(milliseconds: 400);
+
+  /// Whether this press started a listen. A press that only turned off a
+  /// listen an earlier tap had left on has nothing to end on the way up.
+  bool _pressBeganListening = false;
+
+  /// Set once the press has lasted long enough to be a hold rather than a
+  /// tap. A timer rather than a reading of the clock, so it keeps the same
+  /// time as the rest of the screen and a test can move it along.
+  bool _heldLongEnough = false;
+  Timer? _holdTimer;
+
+  /// Whether the mic is held right now, so the screen can say to let go
+  /// rather than to tap again.
+  bool _holding = false;
+
+  void _onMicPressStart() {
+    if (_step == _Step.listening) {
+      // An earlier tap left listening on; this press turns it off.
+      _pressBeganListening = false;
+      _stop();
+      return;
+    }
+    _pressBeganListening = true;
+    _heldLongEnough = false;
+    _holdTimer?.cancel();
+    _holdTimer = Timer(_holdThreshold, () => _heldLongEnough = true);
+    setState(() => _holding = true);
+    // Letting go ends this listen, so a pause for thought must not.
+    _listen(stopOnSilence: false);
+  }
+
+  void _onMicPressEnd() {
+    _holdTimer?.cancel();
+    _holdTimer = null;
+    final held = _heldLongEnough;
+    final began = _pressBeganListening;
+    _heldLongEnough = false;
+    _pressBeganListening = false;
+    if (_holding) setState(() => _holding = false);
+    if (began && held && _step == _Step.listening) _stop();
   }
 
   void _onWords(String words) {
@@ -192,7 +246,9 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
                           _MicButton(
                             listening: listening,
                             pulse: _pulse,
-                            onPressed: listening ? _stop : _listen,
+                            onPressStart: _onMicPressStart,
+                            onPressEnd: _onMicPressEnd,
+                            onToggle: listening ? _stop : () => _listen(),
                           ),
                           const SizedBox(height: 28),
                           if (listening)
@@ -245,11 +301,14 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
     return switch (_step) {
       _Step.ready => (
         'Say what you spent',
-        'Tap the mic and speak. You check the words before anything is saved.',
+        'Hold the mic and speak, then let go. You check the words before '
+            'anything is saved.',
       ),
       _Step.listening => (
         'Listening…',
-        'Speak now. It stops when you pause, or tap to stop.',
+        _holding
+            ? 'Keep holding, and let go when you are done.'
+            : 'Speak now. Tap the mic again when you are done.',
       ),
       _Step.heard => (
         'Is this right?',
@@ -258,13 +317,13 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
       ),
       _Step.nothingHeard => (
         "Didn't catch that",
-        'Tap the mic and try again, a little closer to the phone.',
+        'Hold the mic and try again, a little closer to the phone.',
       ),
       _Step.problem => switch (_problem) {
         SpeechProblem.noPermission => (
           'The microphone is off',
           "Allow the microphone for FinAssist in your phone's Settings, then "
-              'tap the mic to try again.',
+              'hold the mic to try again.',
         ),
         SpeechProblem.unavailable => (
           "Voice entry isn't available",
@@ -278,7 +337,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         ),
         _ => (
           'Something went wrong',
-          'Voice entry stopped unexpectedly. Tap the mic to try again.',
+          'Voice entry stopped unexpectedly. Hold the mic to try again.',
         ),
       },
     };
@@ -291,15 +350,26 @@ class _MicButton extends StatelessWidget {
   const _MicButton({
     required this.listening,
     required this.pulse,
-    required this.onPressed,
+    required this.onPressStart,
+    required this.onPressEnd,
+    required this.onToggle,
   });
 
   final bool listening;
   final Animation<double> pulse;
-  final VoidCallback onPressed;
+
+  /// The finger going down on the mic, and lifting off it. Held down is how
+  /// speaking is meant to work, so these carry the press rather than a tap.
+  final VoidCallback onPressStart;
+  final VoidCallback onPressEnd;
+
+  /// Starts or stops listening in one go. Only a screen reader reaches this;
+  /// a finger goes through the press callbacks instead.
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
+    final label = listening ? 'Stop listening' : 'Hold to speak';
     return SizedBox(
       width: 168,
       height: 168,
@@ -321,16 +391,34 @@ class _MicButton extends StatelessWidget {
                 );
               },
             ),
-          IconButton.filled(
-            onPressed: onPressed,
-            tooltip: listening ? 'Stop listening' : 'Start speaking',
-            iconSize: 44,
-            style: IconButton.styleFrom(
-              backgroundColor: appPrimaryBlue,
-              foregroundColor: Colors.white,
-              fixedSize: const Size(96, 96),
+          Semantics(
+            button: true,
+            label: label,
+            onTap: onToggle,
+            child: Tooltip(
+              message: label,
+              // Holding the mic is the whole gesture, so a long press must
+              // not be taken as a request for the tooltip.
+              triggerMode: TooltipTriggerMode.manual,
+              child: GestureDetector(
+                onTapDown: (_) => onPressStart(),
+                onTapUp: (_) => onPressEnd(),
+                onTapCancel: onPressEnd,
+                child: Container(
+                  width: 96,
+                  height: 96,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: appPrimaryBlue,
+                  ),
+                  child: Icon(
+                    listening ? Icons.stop_rounded : Icons.mic,
+                    size: 44,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
             ),
-            icon: Icon(listening ? Icons.stop_rounded : Icons.mic),
           ),
         ],
       ),

@@ -184,6 +184,8 @@ class SpendingLegend extends StatelessWidget {
     required this.spending,
     this.limit,
     this.onTapCategory,
+    this.hidden = const {},
+    this.onToggleCategory,
     super.key,
   });
 
@@ -191,13 +193,28 @@ class SpendingLegend extends StatelessWidget {
 
   /// Shows only the largest few, with the rest summed into one line.
   final int? limit;
+
+  /// Opens a category, from the arrow at the end of its row.
   final ValueChanged<String>? onTapCategory;
+
+  /// Categories left out of the share of spending. They stay in the list,
+  /// dimmed, so the reader can see what was set aside and bring it back.
+  final Set<String> hidden;
+
+  /// Tapping the row itself, which sets a category aside or brings it back.
+  /// Kept apart from [onTapCategory]: going somewhere and leaving something
+  /// out should never be the same tap.
+  final ValueChanged<String>? onToggleCategory;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final entries = foldSpending(spending, limit);
-    final total = spending.fold<double>(0, (sum, e) => sum + e.value);
+    // Shares are of what is still counted, so the ones left in always add up
+    // to a whole.
+    final total = spending
+        .where((e) => !hidden.contains(e.key))
+        .fold<double>(0, (sum, e) => sum + e.value);
     final restCount = limit == null || spending.length <= limit!
         ? 0
         : spending.length - limit!;
@@ -209,12 +226,16 @@ class SpendingLegend extends StatelessWidget {
             context,
             label: entry.key ?? '$restCount more',
             amount: entry.value,
+            isHidden: entry.key != null && hidden.contains(entry.key),
             share: total <= 0 ? 0 : entry.value / total,
             swatch: _entryColor(context, entry.key),
             labelColor: entry.key == null
                 ? colors.textBody
                 : colors.textPrimary,
-            onTap: entry.key == null || onTapCategory == null
+            onTap: entry.key == null || onToggleCategory == null
+                ? null
+                : () => onToggleCategory!(entry.key!),
+            onOpen: entry.key == null || onTapCategory == null
                 ? null
                 : () => onTapCategory!(entry.key!),
           ),
@@ -229,19 +250,31 @@ class SpendingLegend extends StatelessWidget {
     required double share,
     required Color swatch,
     required Color labelColor,
+    bool isHidden = false,
     VoidCallback? onTap,
+    VoidCallback? onOpen,
   }) {
     final colors = context.appColors;
 
-    final content = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 9),
-      child: Row(
+    // A row that can be tapped has to be comfortable to hit, and so does the
+    // arrow inside it: Android asks for 48 in both directions. The arrow's own
+    // box carries that height, so the row does not also add padding on top of
+    // it. A row that only reads out keeps the tighter spacing.
+    final tappable = onTap != null || onOpen != null;
+    final content = ConstrainedBox(
+      constraints: BoxConstraints(minHeight: tappable ? 48 : 0),
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: tappable ? 0 : 9),
+        child: Row(
         children: [
+          // A category left out keeps its color as an outline rather than a
+          // fill, so the row reads as set aside at a glance.
           Container(
             width: 10,
             height: 10,
             decoration: BoxDecoration(
-              color: swatch,
+              color: isHidden ? null : swatch,
+              border: isHidden ? Border.all(color: swatch, width: 1.5) : null,
               borderRadius: BorderRadius.circular(3),
             ),
           ),
@@ -251,14 +284,20 @@ class SpendingLegend extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 14, color: labelColor),
+              style: TextStyle(
+                fontSize: 14,
+                color: isHidden ? colors.textBody : labelColor,
+                decoration: isHidden ? TextDecoration.lineThrough : null,
+                decorationColor: colors.textBody,
+              ),
             ),
           ),
           const SizedBox(width: 8),
           SizedBox(
             width: 40,
             child: Text(
-              '${(share * 100).round()}%',
+              // There is no share to show for a category that is not counted.
+              isHidden ? '—' : '${(share * 100).round()}%',
               textAlign: TextAlign.right,
               style: TextStyle(fontSize: 13, color: colors.textBody),
             ),
@@ -269,22 +308,41 @@ class SpendingLegend extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: colors.textPrimary,
+              color: isHidden ? colors.textBody : colors.textPrimary,
             ),
           ),
-          if (onTap != null) ...[
-            const SizedBox(width: 4),
-            Icon(Icons.chevron_right, size: 18, color: colors.textBody),
+          if (onOpen != null)
+            Tooltip(
+              message: 'See $label expenses',
+              child: InkResponse(
+                onTap: onOpen,
+                radius: 24,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Icon(
+                      Icons.chevron_right,
+                      size: 18,
+                      color: colors.textBody,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
-        ],
+        ),
       ),
     );
 
     if (onTap == null) return content;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: content,
+    return Semantics(
+      label: isHidden ? '$label, left out. Count it again.' : '$label, leave out.',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: content,
+      ),
     );
   }
 }

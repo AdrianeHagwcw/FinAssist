@@ -62,6 +62,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   DateTime get _now => widget.today ?? DateTime.now();
 
+  /// Categories the reader has tapped out of the spending breakdown, so the
+  /// rest can be read on its own. This is how the screen is being looked at,
+  /// not anything about the account, so it is held here and never saved.
+  final Set<String> _setAside = <String>{};
+
+  /// Leaves a category out of the breakdown, or counts it again.
+  void _toggleCategory(String category) {
+    setState(() {
+      if (!_setAside.remove(category)) _setAside.add(category);
+    });
+  }
+
   /// Kept here rather than read in the list, which drops sections scrolled
   /// out of view.
   FinanceSnapshot? _records;
@@ -230,6 +242,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final inPeriod = transactionsIn(transactions, _period);
     final summary = summarize(transactions, contributions, _period);
     final spending = spendingByCategory(inPeriod);
+    final counted = [
+      for (final entry in spending)
+        if (!_setAside.contains(entry.key)) entry,
+    ];
     final points = trend(
       transactions,
       range: _range,
@@ -289,20 +305,38 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const SizedBox(height: 16),
         _Section(
           title: 'Spending by category',
-          subtitle: spending.isEmpty ? null : 'Tap one to see those expenses.',
+          subtitle: spending.isEmpty
+              ? null
+              : counted.length == spending.length
+              ? 'Tap one to leave it out. The arrow opens its expenses.'
+              : 'Counting ${counted.length} of ${spending.length}. '
+                    'Tap a crossed-out one to count it again.',
           child: spending.isEmpty
               ? const _EmptyNote('No spending in this period.')
               : Column(
                   children: [
-                    SpendingDonut(
-                      spending: spending,
-                      onTapCategory: _openCategory,
-                    ),
+                    if (counted.isEmpty)
+                      const _EmptyNote('Every category is left out.')
+                    else
+                      SpendingDonut(
+                        spending: counted,
+                        onTapCategory: _openCategory,
+                      ),
                     const SizedBox(height: 12),
                     SpendingLegend(
                       spending: spending,
+                      hidden: _setAside,
+                      onToggleCategory: _toggleCategory,
                       onTapCategory: _openCategory,
                     ),
+                    if (_setAside.isNotEmpty)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: () => setState(_setAside.clear),
+                          child: const Text('Count all again'),
+                        ),
+                      ),
                   ],
                 ),
         ),
