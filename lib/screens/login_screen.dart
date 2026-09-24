@@ -6,7 +6,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
-import '../utils/auth_errors.dart';
 import '../widgets/app_logo.dart';
 import 'email_verification_screen.dart';
 import 'financial_setup_screen.dart';
@@ -203,7 +202,9 @@ class _LoginScreenState extends State<LoginScreen> {
     } on _SocialSignInException catch (e) {
       _showMessage(e.message);
     } on PlatformException catch (e) {
-      _showMessage(googleSignInMessage(e.code, '${e.message} ${e.details}'));
+      _showMessage(
+        'Google sign-in failed (${e.code}). ${e.message ?? 'Check your Google OAuth configuration.'}',
+      );
     } on FirebaseAuthException catch (e) {
       _showMessage(e.message ?? 'Google sign-in failed.');
     } catch (e) {
