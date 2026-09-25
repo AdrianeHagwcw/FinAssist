@@ -71,8 +71,13 @@ class FakeSpeech extends SpeechInput {
 
 /// Plays Android's side of the speech plugin, sending what a real phone sends.
 class AndroidSpeech {
-  AndroidSpeech(this.tester) {
+  /// [initializeError] is the error code Android answers `initialize` with,
+  /// as a phone without speech recognition does.
+  AndroidSpeech(this.tester, {String? initializeError}) {
     _messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'initialize' && initializeError != null) {
+        throw PlatformException(code: initializeError);
+      }
       return switch (call.method) {
         'initialize' || 'has_permission' || 'listen' => true,
         _ => null,
@@ -709,6 +714,32 @@ void main() {
       expect(find.text('taxi 200'), findsOneWidget);
     });
 
+    testWidgets('a thumb that drifts while held keeps listening', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      await pumpScreen(tester, VoiceRecognitionScreen(input: speech));
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byTooltip('Hold to speak')),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      // Well past the few millimetres that cancel a tap.
+      await gesture.moveBy(const Offset(12, 30));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(speech.stops, 0);
+      expect(find.text('Listening…'), findsOneWidget);
+
+      speech.hear!('taxi 200');
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(speech.stops, 1);
+      expect(find.text('taxi 200'), findsOneWidget);
+    });
+
     testWidgets('a quick tap leaves listening on until the next tap', (
       tester,
     ) async {
@@ -780,6 +811,26 @@ void main() {
 
       expect(find.text('The microphone is off'), findsOneWidget);
       expect(find.byTooltip('Hold to speak'), findsOneWidget);
+    });
+
+    testWidgets('a speech service that is off says what to check', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: FakeSpeech(startProblem: SpeechProblem.unavailable),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text("Voice entry isn't available"), findsOneWidget);
+      expect(
+        find.textContaining('Speech Services by Google'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('error'), findsNothing, reason: 'no codes');
     });
 
     group('listening, replaying what Android sent', () {
@@ -912,6 +963,46 @@ void main() {
         await finish(tester);
       });
 
+      testWidgets('a phone without speech recognition is told so', (
+        tester,
+      ) async {
+        android = AndroidSpeech(
+          tester,
+          initializeError: 'recognizerNotAvailable',
+        );
+        addTearDown(android.dispose);
+        input = SpeechInput(engine: speech.SpeechToText.withMethodChannel());
+
+        final problem = await input.start(onWords: (_) {}, onStopped: (_) {});
+        expect(problem, SpeechProblem.unavailable);
+      });
+
+      testWidgets('a speech service that is off or broken is told so', (
+        tester,
+      ) async {
+        // As sent on the emulator with Speech Services by Google turned off:
+        // Android could not reach the service and called it error 10.
+        await begin(tester);
+        await android.status('listening');
+        await android.status('notListening');
+        await android.status('doneNoResult');
+        await android.error('error_too_many_requests');
+        await tester.pump(const Duration(seconds: 1));
+
+        // "Done" arrives before the reason, which is then passed on.
+        expect(ends, [null, SpeechProblem.unavailable]);
+        await finish(tester);
+      });
+
+      testWidgets('any other refusal to start is a failure', (tester) async {
+        android = AndroidSpeech(tester, initializeError: 'multipleRequests');
+        addTearDown(android.dispose);
+        input = SpeechInput(engine: speech.SpeechToText.withMethodChannel());
+
+        final problem = await input.start(onWords: (_) {}, onStopped: (_) {});
+        expect(problem, SpeechProblem.failed);
+      });
+
       testWidgets('it never listens past the limit', (tester) async {
         await begin(tester);
         await android.status('listening');
@@ -930,6 +1021,10 @@ void main() {
       expect(problemFor('error_server_disconnected'), SpeechProblem.offline);
       expect(
         problemFor('error_language_unavailable'),
+        SpeechProblem.unavailable,
+      );
+      expect(
+        problemFor('error_too_many_requests'),
         SpeechProblem.unavailable,
       );
       expect(problemFor('error_busy'), SpeechProblem.failed);
