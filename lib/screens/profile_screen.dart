@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../widgets/export_transactions_tile.dart';
 import '../widgets/light_dark_toggle.dart';
 import 'login_screen.dart';
 import 'reminders_screen.dart';
@@ -421,6 +422,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           title: 'Manage wallets',
                           onTap: () => _open(const WalletsScreen()),
                         ),
+                        const Divider(height: 1, indent: 65),
+                        const ExportTransactionsTile(),
                       ],
                     ),
                   ),

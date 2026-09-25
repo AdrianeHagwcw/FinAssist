@@ -93,6 +93,17 @@ class WalletService {
     return wallets;
   }
 
+  /// Reads every transaction once, newest first, the same order as
+  /// [watchTransactions]. Returns cached records while offline.
+  static Future<List<AppTransaction>> loadTransactions() async {
+    final snapshot = await _transactionsCollection
+        .orderBy('date', descending: true)
+        .get();
+    return snapshot.docs
+        .map((doc) => AppTransaction.fromMap(doc.id, doc.data()))
+        .toList();
+  }
+
   // ---------------------------------------------------------------- wallets
 
   /// Adds a wallet and returns its id, which is available immediately even

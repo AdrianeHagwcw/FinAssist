@@ -43,12 +43,14 @@ import 'package:testapp/screens/wallets_screen.dart';
 import 'package:testapp/services/legacy_migration.dart';
 import 'package:testapp/services/ledger_service.dart';
 import 'package:testapp/services/budget_service.dart';
+import 'package:testapp/services/transaction_export.dart';
 import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
 import 'package:testapp/theme/app_theme.dart';
 import 'package:testapp/widgets/app_logo.dart';
 import 'package:testapp/widgets/back_to_home.dart';
 import 'package:testapp/widgets/bill_payment_sheet.dart';
+import 'package:testapp/widgets/export_transactions_tile.dart';
 import 'package:testapp/widgets/goal_sheets.dart';
 import 'package:testapp/widgets/legacy_import_card.dart';
 import 'package:testapp/widgets/light_dark_toggle.dart';
@@ -5887,6 +5889,114 @@ void main() {
     expect(loans.moneyOut, 500);
     expect(loans.moneyIn, 200);
     expect(inAndOut(list).moneyOut, 100);
+  });
+
+  group('the Settings row that exports transactions', () {
+    Future<void> pumpTile(
+      WidgetTester tester,
+      Future<ExportResult> Function() onExport,
+    ) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: ExportTransactionsTile(onExport: onExport),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('says what the file is before it is tapped', (tester) async {
+      await pumpTile(
+        tester,
+        () async => const ExportResult(ExportOutcome.cancelled),
+      );
+
+      expect(find.text('Export transactions'), findsOneWidget);
+      expect(
+        find.text(
+          'Save all your records as a CSV file you can open in Excel or '
+          'Google Sheets',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('names the file that was saved', (tester) async {
+      var asked = 0;
+      await pumpTile(tester, () async {
+        asked++;
+        return const ExportResult(
+          ExportOutcome.saved,
+          fileName: 'FinAssist-transactions-2026-09-17.csv',
+        );
+      });
+
+      await tester.tap(find.text('Export transactions'));
+      await tester.pumpAndSettle();
+
+      expect(asked, 1);
+      expect(
+        find.text('Saved FinAssist-transactions-2026-09-17.csv'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('says so when there is nothing recorded yet', (tester) async {
+      await pumpTile(
+        tester,
+        () async => const ExportResult(ExportOutcome.nothingToExport),
+      );
+
+      await tester.tap(find.text('Export transactions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No transactions to export yet.'), findsOneWidget);
+    });
+
+    testWidgets('backing out of the save dialog says nothing', (tester) async {
+      await pumpTile(
+        tester,
+        () async => const ExportResult(ExportOutcome.cancelled),
+      );
+
+      await tester.tap(find.text('Export transactions'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('a failed save asks the user to try again', (tester) async {
+      await pumpTile(tester, () async => throw Exception('no space'));
+
+      await tester.tap(find.text('Export transactions'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('The file could not be saved. Please try again.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('one tap opens one save dialog', (tester) async {
+      var asked = 0;
+      await pumpTile(tester, () async {
+        asked++;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        return const ExportResult(ExportOutcome.cancelled);
+      });
+
+      await tester.tap(find.text('Export transactions'));
+      await tester.pump();
+      await tester.tap(find.text('Export transactions'));
+      await tester.pumpAndSettle();
+
+      expect(asked, 1);
+    });
   });
 
   testWidgets('Transactions shows the time it was recorded, when it has one', (
