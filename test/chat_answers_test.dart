@@ -91,11 +91,13 @@ FinanceSnapshot records() => FinanceSnapshot(
   debts: const [
     Debt(
       id: 'ana',
-      direction: DebtDirection.owedToMe,
+      direction: DebtDirection.iOwe,
       name: 'Ana',
       category: DebtCategory.familyFriend,
       principal: 500,
       status: DebtStatus.active,
+      perPayment: 250,
+      paymentCount: 2,
     ),
     Debt(
       id: 'phone',
@@ -216,19 +218,18 @@ void main() {
       expect(reply.text, contains('₱1,000 as savings'));
     });
 
-    test('debts both ways', () {
+    test('the debts the user is paying', () {
       final reply = ask('May utang ba ako?');
       expect(reply.text, contains('Phone: ₱1,500 every month'));
-      expect(reply.text, contains('People owe you ₱500'));
+      expect(reply.text, isNot(contains('owe you')));
     });
 
     test('Tagalog word forms, and a debt asked about by name', () {
-      // "Napautang" is "utang" with a Tagalog affix.
+      // "Nautangan" is "utang" with a Tagalog affix.
       expect(
-        ask('ilan Yung napautang ko kay ana?').text,
-        'You lent Ana ₱500, and all of it is still owed to you.',
+        ask('ilan Yung nautangan ko kay ana?').text,
+        'For Ana, you pay ₱250 every month, 2 payments in all.',
       );
-      expect(ask('Magkano pinautang ko?').text, contains('People owe you'));
       expect(ask('may hiniram ba ako?').text, contains('Phone'));
       expect(
         ask('Magkano ang hulog ko sa phone?').text,
@@ -241,32 +242,31 @@ void main() {
       );
     });
 
-    test('a question naming someone is about their debt, repaid part too', () {
+    test('a question naming someone is about the debt owed to them', () {
       final partly = FinanceSnapshot(
         now: now,
         wallets: [wallet('cash', 'Cash', 1000)],
         debts: [
           Debt(
             id: 'ana',
-            direction: DebtDirection.owedToMe,
+            direction: DebtDirection.iOwe,
             name: 'Ana',
             category: DebtCategory.familyFriend,
             principal: 500,
             status: DebtStatus.active,
-            received: 200,
+            perPayment: 250,
+            paymentCount: 2,
             dueDate: DateTime(2026, 9, 30),
           ),
         ],
       );
-      const answer =
-          'You lent Ana ₱500. ₱200 is back, so ₱300 is still owed to you. It '
-          'is due back on Sep 30.';
+      const answer = 'For Ana, you pay ₱250 every month, 2 payments in all.';
       expect(ask('Nagbayad na ba si Ana?', from: partly).text, answer);
-      expect(ask('Has Ana paid me back?', from: partly).text, answer);
+      expect(ask('Has Ana been paid?', from: partly).text, answer);
       // No one by that name: not taken as a debt question.
       expect(
         ask('Nagbayad na ba si Ben?', from: partly).text,
-        isNot(contains('lent')),
+        isNot(contains('For Ben')),
       );
     });
 

@@ -142,7 +142,12 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                 );
               }
 
-              final walletId = _walletId ?? defaultWalletId(wallets);
+              // A bill is paid out of the money already set aside for bills,
+              // unless the user picks another wallet.
+              final walletId =
+                  _walletId ??
+                  WalletService.walletFor(wallets, WalletPurpose.bills)?.id ??
+                  defaultWalletId(wallets);
 
               return Form(
                 key: _formKey,

@@ -57,8 +57,6 @@ Stream<FinanceSnapshot> watchFinanceSnapshot() {
           usualSource: profile?['incomeSource'] as String?,
         ),
         savingsReserve: savingsReserveFrom(profile),
-        plannedBills: plannedAllocationFrom(profile, 'bills') ?? 0,
-        plannedSavings: plannedAllocationFrom(profile, 'savings') ?? 0,
         customDailyLimit: customDailyLimitFrom(profile),
         periodBudget: plannedAllocationFrom(profile, 'others'),
       ),

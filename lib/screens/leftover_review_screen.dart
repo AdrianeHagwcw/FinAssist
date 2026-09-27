@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import '../providers/app_settings_provider.dart';
 
 import '../models/allocation.dart';
+import '../models/wallet.dart';
 import '../services/budget_service.dart';
+import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -150,9 +152,18 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
   String? _error;
   bool _resolved = false;
 
+  /// Read once, so saving a leftover can move it into the savings wallet in
+  /// the same write. Empty while it loads, or when there are no wallets.
+  List<Wallet> _wallets = const [];
+
   @override
   void initState() {
     super.initState();
+    WalletService.loadWallets()
+        .then((wallets) {
+          if (mounted) _wallets = wallets;
+        })
+        .catchError((Object _) {});
     final suggested =
         widget.initialDecision ??
         context.read<AppSettingsProvider?>()?.financial.leftover;
@@ -187,6 +198,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
           decision: decision,
           saved: saved,
           spent: spent,
+          wallets: _wallets,
         );
       } catch (_) {
         // Already settled somewhere else, or the amounts no longer add up.

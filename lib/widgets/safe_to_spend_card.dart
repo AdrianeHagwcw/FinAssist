@@ -36,6 +36,7 @@ class SafeToSpendInputs {
     this.now,
     this.plannedBills,
     this.plannedSavings,
+    this.setAside = 0,
   });
 
   final SafeToSpend safeToSpend;
@@ -47,6 +48,9 @@ class SafeToSpendInputs {
   final DateTime? now;
   final double? plannedBills;
   final double? plannedSavings;
+
+  /// What is held in the bills and savings wallets right now.
+  final double setAside;
   final PayPeriod period;
   final String? frequency;
   final List<AllocationCycle> cycles;
@@ -191,8 +195,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         walletBalance: totalWalletBalance(wallets),
         billsDue: billsDueBefore(_bills, period.end),
         savingsReserve: savingsReserveFrom(profile),
-        plannedBills: plannedAllocationFrom(profile, 'bills') ?? 0,
-        plannedSavings: plannedAllocationFrom(profile, 'savings') ?? 0,
+        billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
         goalSavings: _goalSavings,
         spentToday: discretionarySpending(
           transactions,
@@ -217,6 +220,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       now: now,
       plannedBills: plannedAllocationFrom(profile, 'bills'),
       plannedSavings: plannedAllocationFrom(profile, 'savings'),
+      setAside: setAsideWalletBalance(wallets),
     );
   }
 

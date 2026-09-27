@@ -2,7 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/allocation.dart';
+import '../models/app_transaction.dart';
+import '../models/wallet.dart';
 import 'firestore_write.dart';
+import 'wallet_service.dart';
 
 /// The daily limit, the savings set aside, and the leftover decisions that
 /// feed the Safe-to-Spend card.
@@ -73,14 +76,17 @@ class BudgetService {
 
   /// Records what the user decided about a cycle's leftover.
   ///
-  /// Whatever is saved is added to the savings set aside in the same batch,
-  /// so the Safe-to-Spend figure stops counting it as spendable at the same
-  /// moment the cycle is marked saved.
+  /// Whatever is saved is moved into the savings wallet in the same batch, so
+  /// it leaves the spending balance at the very moment the cycle is marked
+  /// saved. [wallets] is the current list, used to find that wallet or create
+  /// it; without a wallet to take the money from, the amount is only recorded
+  /// against the cycle.
   static void resolveLeftover({
     required AllocationCycle cycle,
     required LeftoverDecision decision,
     double saved = 0,
     double spent = 0,
+    List<Wallet> wallets = const [],
   }) {
     if (cycle.isResolved) {
       throw StateError('This cycle has already been reviewed.');
@@ -101,15 +107,44 @@ class BudgetService {
       SetOptions(merge: true),
     );
 
-    if (saved > 0) {
-      batch.set(_profile, {
-        'savingsReserve': FieldValue.increment(saved),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    final from = cycle.walletId ?? _spendingWalletId(wallets);
+
+    if (saved > 0 && from != null) {
+      final savingsWalletId = WalletService.addPurposeWalletToBatch(
+        batch,
+        purpose: WalletPurpose.savings,
+        wallets: wallets,
+      );
+
+      WalletService.addTransactionToBatch(
+        batch,
+        type: TransactionType.transfer,
+        amount: saved,
+        label: TransactionType.transfer.label,
+        walletId: from,
+        toWalletId: savingsWalletId,
+        note: 'Saved from leftover',
+        date: DateTime.now(),
+      );
     }
 
     commitFirestoreWrite(batch.commit(), 'resolve leftover');
   }
+}
+
+/// The wallet a leftover is saved out of when the cycle no longer names one:
+/// the wallet income is paid into, else the first wallet the user can spend
+/// from. Never the bills or savings wallet, which hold committed money.
+String? _spendingWalletId(List<Wallet> wallets) {
+  for (final wallet in wallets) {
+    if (!wallet.archived && !wallet.isSetAside && wallet.receivesIncome) {
+      return wallet.id;
+    }
+  }
+  for (final wallet in wallets) {
+    if (!wallet.archived && !wallet.isSetAside) return wallet.id;
+  }
+  return null;
 }
 
 /// The daily limit a profile has chosen, or null to use the recommendation.

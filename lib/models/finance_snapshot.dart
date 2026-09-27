@@ -19,8 +19,6 @@ class FinanceSnapshot {
     this.usualIncome,
     this.lastIncomeAt,
     this.savingsReserve = 0,
-    this.plannedBills = 0,
-    this.plannedSavings = 0,
     this.customDailyLimit,
     this.periodBudget,
   });
@@ -43,8 +41,6 @@ class FinanceSnapshot {
   final DateTime? lastIncomeAt;
 
   final double savingsReserve;
-  final double plannedBills;
-  final double plannedSavings;
   final double? customDailyLimit;
   final double? periodBudget;
 
@@ -63,8 +59,6 @@ class FinanceSnapshot {
     usualIncome: usualIncome,
     lastIncomeAt: lastIncomeAt,
     savingsReserve: savingsReserve,
-    plannedBills: plannedBills,
-    plannedSavings: plannedSavings,
     customDailyLimit: customDailyLimit,
     periodBudget: periodBudget,
   );
@@ -84,8 +78,7 @@ class FinanceSnapshot {
       walletBalance: walletBalance,
       billsDue: billsDueBefore(bills, period.end),
       savingsReserve: savingsReserve,
-      plannedBills: plannedBills,
-      plannedSavings: plannedSavings,
+      billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
       goalSavings: goalSavings,
       spentToday: spentToday,
       daysLeft: period.daysLeft(now),

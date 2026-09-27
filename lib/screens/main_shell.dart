@@ -235,13 +235,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             color: appPrimaryBlue,
             onSelected: () => _addDebt(DebtDirection.iOwe),
           ),
-          QuickAddAction(
-            icon: Icons.handshake_outlined,
-            iconAsset: 'assets/icons/lend-96.png',
-            label: 'Lend',
-            color: appPrimaryBlue,
-            onSelected: () => _addDebt(DebtDirection.owedToMe),
-          ),
         ];
   }
 

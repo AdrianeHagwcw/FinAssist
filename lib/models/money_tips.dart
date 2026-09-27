@@ -1,6 +1,5 @@
 import '../utils/money_format.dart';
 import 'app_transaction.dart';
-import 'debt.dart';
 import 'finance_snapshot.dart';
 import 'goal.dart';
 import 'report.dart';
@@ -19,7 +18,6 @@ List<String> moneyTipsFor(FinanceSnapshot records, {int limit = 2}) {
     ?_smallBuys(records),
     ?_overLimit(records),
     ?_payday(records),
-    ?_owedToYou(records),
     ?_biggestShare(records),
     ?_emergencyFund(records),
   ];
@@ -91,25 +89,6 @@ String? _payday(FinanceSnapshot records) {
 
   return 'Payday tip: set aside your savings today, before spending starts. '
       'Saving first makes it automatic.';
-}
-
-/// Money lent out and not yet back.
-String? _owedToYou(FinanceSnapshot records) {
-  final owed = records.debts
-      .where(
-        (d) =>
-            d.status == DebtStatus.active &&
-            d.direction == DebtDirection.owedToMe &&
-            d.stillOwedToMe > 0,
-      )
-      .toList();
-  if (owed.isEmpty) return null;
-
-  final who = owed.length == 1
-      ? '${owed.first.name} still owes you ${formatPeso(owed.first.stillOwedToMe)}'
-      : '${formatPeso(owed.fold<double>(0, (sum, d) => sum + d.stillOwedToMe))} '
-            'is still owed to you';
-  return '$who. A friendly reminder now is easier than later.';
 }
 
 /// What to do about the category taking most of this month's day-to-day

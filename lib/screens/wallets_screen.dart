@@ -115,6 +115,11 @@ class _WalletsScreenState extends State<WalletsScreen> {
             );
           }
 
+          // Bills and savings money is shown apart from spending money, so
+          // the balance at the top is only what the user may spend.
+          final spending = wallets.where((w) => !w.isSetAside).toList();
+          final setAside = wallets.where((w) => w.isSetAside).toList();
+
           return StreamBuilder<String?>(
             stream: _incomeSource,
             builder: (context, incomeSnapshot) {
@@ -125,7 +130,8 @@ class _WalletsScreenState extends State<WalletsScreen> {
                   const LegacyImportCard(),
                   _TotalBalanceCard(
                     total: totalWalletBalance(wallets),
-                    walletCount: wallets.length,
+                    walletCount: spending.length,
+                    setAside: setAsideWalletBalance(wallets),
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -137,7 +143,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  for (final wallet in wallets) ...[
+                  for (final wallet in spending) ...[
                     _WalletCard(
                       wallet: wallet,
                       incomeSource: incomeSnapshot.data,
@@ -155,6 +161,42 @@ class _WalletsScreenState extends State<WalletsScreen> {
                     ),
                     const SizedBox(height: 12),
                   ],
+                  if (setAside.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Set aside',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Money already promised to bills and savings. It is kept '
+                      'out of your total balance.',
+                      style: TextStyle(fontSize: 12, color: colors.textBody),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final wallet in setAside) ...[
+                      _WalletCard(
+                        wallet: wallet,
+                        incomeSource: incomeSnapshot.data,
+                        onTap: () => _openWallet(wallet),
+                        onTransfer: () =>
+                            showTransferSheet(context, fromWalletId: wallet.id),
+                        onAddIncome: () =>
+                            showIncomeWaterfall(context, walletId: wallet.id),
+                        onEdit: () => editWallet(context, wallet),
+                        onSetIncomeWallet: () => WalletService.setIncomeWallet(
+                          wallet.id,
+                          currentWallets: wallets,
+                        ),
+                        onRemove: () => removeWallet(context, wallet),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                  ],
                   const SizedBox(height: 4),
                   _AddWalletButton(onPressed: () => _addWallet(wallets)),
                 ],
@@ -168,10 +210,18 @@ class _WalletsScreenState extends State<WalletsScreen> {
 }
 
 class _TotalBalanceCard extends StatelessWidget {
-  const _TotalBalanceCard({required this.total, required this.walletCount});
+  const _TotalBalanceCard({
+    required this.total,
+    required this.walletCount,
+    this.setAside = 0,
+  });
 
   final double total;
   final int walletCount;
+
+  /// Held in the bills and savings wallets, shown underneath so the money is
+  /// still accounted for even though it is not spendable.
+  final double setAside;
 
   @override
   Widget build(BuildContext context) {
@@ -210,6 +260,25 @@ class _TotalBalanceCard extends StatelessWidget {
             'Across $walletCount wallet${walletCount == 1 ? '' : 's'}',
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
+          if (setAside > 0) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Text(
+                  'Set aside for bills and savings: ',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+                MoneyText(
+                  setAside,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

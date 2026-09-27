@@ -9,7 +9,12 @@ import 'dialog_kit.dart';
 String? defaultWalletId(List<Wallet> wallets) {
   if (wallets.isEmpty) return null;
 
-  return incomeWallet(wallets)?.id ?? wallets.first.id;
+  // Never the bills or savings wallet: an entry starts on money the user can
+  // actually spend, and set-aside money is only moved on purpose.
+  final spending = wallets.where((wallet) => !wallet.isSetAside).toList();
+  if (spending.isEmpty) return wallets.first.id;
+
+  return incomeWallet(spending)?.id ?? spending.first.id;
 }
 
 /// Dropdown for choosing which wallet money moves in or out of.

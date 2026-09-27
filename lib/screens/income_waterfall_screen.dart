@@ -366,18 +366,24 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           required String walletId,
           required String source,
           required DateTime receivedAt,
-        }) => AllocationService.confirm(
-          incomeFrequency: context
-              .read<AppSettingsProvider?>()
-              ?.financial
-              .frequency,
-          usualSource: context.read<AppSettingsProvider?>()?.financial.source,
-          recentCycles: _recentCycles,
-          plan: plan,
-          walletId: walletId,
-          source: source,
-          receivedAt: receivedAt,
-        );
+        }) {
+          final financial = context.read<AppSettingsProvider?>()?.financial;
+
+          AllocationService.confirm(
+            incomeFrequency: financial?.frequency,
+            usualSource: financial?.source,
+            recentCycles: _recentCycles,
+            plan: plan,
+            walletId: walletId,
+            source: source,
+            receivedAt: receivedAt,
+            // Moves the planned amounts into the bills and savings wallets,
+            // so the balance left is only what may be spent.
+            wallets: _walletList,
+            plannedBills: financial?.plannedBills ?? 0,
+            plannedSavings: financial?.plannedSavings ?? 0,
+          );
+        };
 
     save(
       plan: plan,

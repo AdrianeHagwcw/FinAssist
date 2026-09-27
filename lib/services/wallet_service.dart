@@ -115,6 +115,7 @@ class WalletService {
     double startingBalance = 0,
     bool receivesIncome = false,
     List<Wallet>? currentWallets,
+    WalletPurpose purpose = WalletPurpose.spending,
   }) async {
     final wallets = currentWallets ?? await loadWallets();
     final trimmedName = name.trim();
@@ -129,6 +130,7 @@ class WalletService {
         'receivesIncome': receivesIncome,
         'archived': false,
         'sortOrder': nextWalletSortOrder(wallets),
+        'purpose': purpose.name,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -139,6 +141,43 @@ class WalletService {
     }
 
     commitFirestoreWrite(batch.commit(), 'add wallet');
+    return reference.id;
+  }
+
+  /// The wallet kept for [purpose], or null when there is none yet.
+  static Wallet? walletFor(List<Wallet> wallets, WalletPurpose purpose) {
+    for (final wallet in wallets) {
+      if (!wallet.archived && wallet.purpose == purpose) return wallet;
+    }
+    return null;
+  }
+
+  /// Adds the wallet the app keeps for [purpose] to [batch] and returns its
+  /// id, or returns the id of the one that already exists.
+  ///
+  /// Creating it inside the caller's batch means the money moved into it in
+  /// the same write can never land in a wallet that was not created.
+  static String addPurposeWalletToBatch(
+    WriteBatch batch, {
+    required WalletPurpose purpose,
+    required List<Wallet> wallets,
+  }) {
+    final existing = walletFor(wallets, purpose);
+    if (existing != null) return existing.id;
+
+    final reference = _walletsCollection.doc();
+    batch.set(reference, {
+      'name': purpose.defaultName ?? WalletType.other.label,
+      'type': WalletType.other.name,
+      'balance': 0,
+      'startingBalance': 0,
+      'receivesIncome': false,
+      'archived': false,
+      'sortOrder': nextWalletSortOrder(wallets),
+      'purpose': purpose.name,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
     return reference.id;
   }
 

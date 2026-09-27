@@ -34,16 +34,6 @@ const emergencyFund = Goal(
   kind: GoalKind.emergencyFund,
 );
 
-Debt owed(String name, double lent, {double back = 0}) => Debt(
-  id: name,
-  direction: DebtDirection.owedToMe,
-  name: name,
-  category: DebtCategory.familyFriend,
-  principal: lent,
-  status: DebtStatus.active,
-  received: back,
-);
-
 List<String> tipsFor({
   List<AppTransaction> transactions = const [],
   List<Goal> goals = const [emergencyFund],
@@ -117,21 +107,6 @@ void main() {
     expect(tips.first, startsWith('Payday tip: set aside your savings today'));
   });
 
-  test('money still owed to the user', () {
-    expect(
-      tipsFor(debts: [owed('Ana', 500, back: 200)]).first,
-      'Ana still owes you ₱300. A friendly reminder now is easier than later.',
-    );
-    expect(
-      tipsFor(debts: [owed('Ana', 500), owed('Ben', 250)]).first,
-      startsWith('₱750 is still owed to you.'),
-    );
-    expect(
-      tipsFor(debts: [owed('Ana', 500, back: 500)]),
-      isNot(contains(contains('owes you'))),
-    );
-  });
-
   test('what to do about the biggest share, without repeating Insights', () {
     final tips = tipsFor(
       transactions: [
@@ -176,11 +151,10 @@ void main() {
           spend('Food', 60, DateTime(2026, 9, 14 + i % 4, 8 + i)),
       ],
       goals: const [],
-      debts: [owed('Ana', 500)],
     );
     expect(tips, hasLength(2));
     expect(tips[0], startsWith('Small buys add up'));
-    expect(tips[1], startsWith('Ana still owes you'));
+    expect(tips[1], startsWith('No emergency fund yet'));
 
     // Something recorded, but no rule applies.
     expect(tipsFor(transactions: [spend('Food', 120, DateTime(2026, 9, 3))]), [

@@ -109,7 +109,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
 
-  late DebtDirection _direction = widget.initialDirection;
+  // Only what the user owes is recorded now; money they lend out was taken
+  // out of the app.
+  final DebtDirection _direction = DebtDirection.iOwe;
   DebtCategory _category = DebtCategory.gadget;
   PaymentFrequency _frequency = PaymentFrequency.monthly;
   late final DateTime _today = widget.today ?? DateTime.now();
@@ -125,7 +127,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   String? _payFromWalletId;
   // Lent money almost always leaves a wallet, so that starts on. An
   // installment is often a gadget bought on credit, where no cash arrives.
-  late bool _movedMoney = widget.initialDirection == DebtDirection.owedToMe;
+  bool _movedMoney = false;
   String? _movedWalletId;
   String? _error;
 
@@ -366,35 +368,6 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: SegmentedButton<DebtDirection>(
-                      segments: const [
-                        ButtonSegment(
-                          value: DebtDirection.iOwe,
-                          label: Text('I owe'),
-                        ),
-                        ButtonSegment(
-                          value: DebtDirection.owedToMe,
-                          label: Text('Owed to me'),
-                        ),
-                      ],
-                      selected: {_direction},
-                      showSelectedIcon: false,
-                      onSelectionChanged: (value) => setState(() {
-                        _direction = value.first;
-                        _error = null;
-                        _movedMoney = !_iOwe;
-                        _date = _iOwe
-                            ? DateTime(
-                                _today.year,
-                                _today.month + 1,
-                                _today.day,
-                              )
-                            : null;
-                      }),
-                    ),
-                  ),
                   const SizedBox(height: 16),
                   if (_iOwe) ...[
                     _SummaryCard(debt: _preview),

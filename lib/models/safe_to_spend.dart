@@ -1,6 +1,9 @@
 import 'app_transaction.dart';
 import 'bill.dart';
 
+/// How long pay twice a month is meant to last, whichever day it arrives.
+const int semiMonthlyDays = 15;
+
 /// The stretch of time one pay is meant to last.
 class PayPeriod {
   const PayPeriod({required this.start, required this.end});
@@ -46,12 +49,15 @@ PayPeriod payPeriodFor(
 
   switch (frequency) {
     case 'Semi-monthly':
+      // Pay twice a month has to last fifteen days whenever it lands. Counted
+      // from the payday itself, a pay logged late still gets its full fifteen
+      // days rather than the few left before the next calendar boundary.
       final anchor = lastIncomeAt == null
-          ? today.day >= 15
-                ? DateTime(today.year, today.month, 15)
-                : DateTime(today.year, today.month, 0)
+          ? _lastSemiMonthlyPayday(today)
           : _dateOnly(lastIncomeAt);
-      return _rollForward(anchor, today, _nextSemiMonthlyBoundary);
+      return _rollForward(anchor, today, (start) {
+        return DateTime(start.year, start.month, start.day + semiMonthlyDays);
+      });
 
     case 'Weekly':
     case 'Bi-weekly':
@@ -74,11 +80,27 @@ PayPeriod payPeriodFor(
   }
 }
 
-DateTime _nextSemiMonthlyBoundary(DateTime start) {
-  final monthEnd = DateTime(start.year, start.month + 1, 0);
-  if (start.day < 15) return DateTime(start.year, start.month, 15);
-  if (start.day < monthEnd.day) return monthEnd;
-  return DateTime(start.year, start.month + 1, 15);
+/// The most recent scheduled payday for pay twice a month: the 15th or the
+/// 30th, used until the user has logged a pay of their own. A month that ends
+/// before the 30th pays on its last day instead.
+DateTime _lastSemiMonthlyPayday(DateTime today) {
+  final secondPayday = _secondPaydayOf(today.year, today.month);
+
+  if (today.day >= secondPayday) {
+    return DateTime(today.year, today.month, secondPayday);
+  }
+  if (today.day >= 15) return DateTime(today.year, today.month, 15);
+
+  return DateTime(
+    today.year,
+    today.month - 1,
+    _secondPaydayOf(today.year, today.month - 1),
+  );
+}
+
+int _secondPaydayOf(int year, int month) {
+  final lastDay = DateTime(year, month + 1, 0).day;
+  return lastDay < 30 ? lastDay : 30;
 }
 
 /// Monthly periods counted from the day income arrived. Each boundary is
@@ -181,8 +203,7 @@ class SafeToSpend {
     this.periodBudget,
     this.periodSpent = 0,
     this.periodLengthDays,
-    this.plannedBills = 0,
-    this.plannedSavings = 0,
+    this.billsWalletBalance = 0,
   });
 
   /// Everything in the user's wallets right now.
@@ -194,10 +215,9 @@ class SafeToSpend {
   /// Money the user chose to set aside as savings.
   final double savingsReserve;
 
-  /// Planned amounts for this pay period that should be reserved before the
-  /// remaining budget is split across the days left.
-  final double plannedBills;
-  final double plannedSavings;
+  /// What is already waiting in the bills wallet. Bills covered by it are not
+  /// taken out of spending money a second time.
+  final double billsWalletBalance;
 
   /// Money set aside for goals, which stays in the wallets but isn't
   /// spendable.
@@ -226,13 +246,15 @@ class SafeToSpend {
   /// of today. Today's own spending is added back, because the balance has
   /// already dropped by it and it is counted separately below.
   double get spendableThisPeriod {
+    // Bills already funded from the bills wallet are not taken out of
+    // spending money again; only what that wallet cannot cover is.
+    final billsShortfall = billsDue - billsWalletBalance;
+
     final walletAmount =
         walletBalance +
         spentToday -
-        billsDue -
+        (billsShortfall > 0 ? billsShortfall : 0) -
         savingsReserve -
-        plannedBills -
-        plannedSavings -
         goalSavings;
     final availableFromWallet = walletAmount > 0 ? walletAmount : 0.0;
     final budget = periodBudget;

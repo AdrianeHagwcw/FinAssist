@@ -10,6 +10,7 @@ import '../models/transaction_filter.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_colors.dart';
+import '../utils/money_format.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/money_text.dart';
@@ -547,11 +548,18 @@ class _BalanceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final list = wallets;
-    final count = list?.length ?? 0;
+    // Bills and savings wallets hold money that is already promised, so they
+    // are named separately rather than counted into the balance.
+    final spending = list?.where((wallet) => !wallet.isSetAside).toList();
+    final count = spending?.length ?? 0;
+    final setAside = list == null ? 0.0 : setAsideWalletBalance(list);
     final caption = list == null
         ? 'Loading your wallets…'
         : count == 0
         ? 'Add a wallet to start tracking your money'
+        : setAside > 0
+        ? 'Across $count wallet${count == 1 ? '' : 's'} · '
+              '${formatPeso(setAside)} set aside'
         : 'Across $count wallet${count == 1 ? '' : 's'}';
 
     return Material(

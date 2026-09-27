@@ -22,6 +22,32 @@ enum WalletType {
   }
 }
 
+/// What a wallet is for.
+///
+/// Money kept for bills and for savings sits in its own wallet, so the balance
+/// the user sees is only what is theirs to spend. Those two are left out of
+/// the total balance and out of Safe to Spend.
+enum WalletPurpose {
+  spending,
+  bills('Bills', 'assets/icons/icons8-receipt-96.png'),
+  savings('Savings', 'assets/icons/icons8-money-box-96.png');
+
+  const WalletPurpose([this.defaultName, this.iconAsset]);
+
+  /// The name given to the wallet the app creates for this purpose.
+  final String? defaultName;
+
+  /// Icon shown instead of the wallet type's own.
+  final String? iconAsset;
+
+  static WalletPurpose fromName(String? name) {
+    return WalletPurpose.values.firstWhere(
+      (purpose) => purpose.name == name,
+      orElse: () => WalletPurpose.spending,
+    );
+  }
+}
+
 /// A wallet the user is adding during onboarding, before it is saved.
 class WalletDraft {
   const WalletDraft({
@@ -61,6 +87,7 @@ class Wallet {
     required this.receivesIncome,
     required this.archived,
     required this.sortOrder,
+    this.purpose = WalletPurpose.spending,
   });
 
   /// Reads a stored wallet document.
@@ -81,6 +108,7 @@ class Wallet {
       receivesIncome: map['receivesIncome'] == true,
       archived: map['archived'] == true,
       sortOrder: _asDouble(map['sortOrder']).toInt(),
+      purpose: WalletPurpose.fromName(_asString(map['purpose'])),
     );
   }
 
@@ -104,7 +132,15 @@ class Wallet {
   /// Position in the wallet list, lowest first.
   final int sortOrder;
 
-  String get iconAsset => type.iconAsset;
+  /// What the wallet holds money for. Bills and savings wallets are money the
+  /// user has already committed, so they are shown apart from spending money.
+  final WalletPurpose purpose;
+
+  /// True for the bills and savings wallets, whose money is no longer the
+  /// user's to spend.
+  bool get isSetAside => purpose != WalletPurpose.spending;
+
+  String get iconAsset => purpose.iconAsset ?? type.iconAsset;
 
   static String? _asString(Object? value) => value is String ? value : null;
 
@@ -122,10 +158,28 @@ void sortWallets(List<Wallet> wallets) {
   });
 }
 
-/// Combined balance of every wallet that isn't archived.
+/// The money the user still has to spend: every wallet that isn't archived,
+/// leaving out the bills and savings wallets, whose money is already
+/// committed. This is the figure shown as the total balance.
 double totalWalletBalance(Iterable<Wallet> wallets) {
   return wallets
-      .where((wallet) => !wallet.archived)
+      .where((wallet) => !wallet.archived && !wallet.isSetAside)
+      .fold<double>(0, (sum, wallet) => sum + wallet.balance);
+}
+
+/// What is held in the bills and savings wallets, shown beside the total
+/// balance so the user can still see it is there.
+double setAsideWalletBalance(Iterable<Wallet> wallets) {
+  return wallets
+      .where((wallet) => !wallet.archived && wallet.isSetAside)
+      .fold<double>(0, (sum, wallet) => sum + wallet.balance);
+}
+
+/// The balance of the wallet kept for [purpose], or zero when the user has
+/// none yet.
+double walletBalanceFor(Iterable<Wallet> wallets, WalletPurpose purpose) {
+  return wallets
+      .where((wallet) => !wallet.archived && wallet.purpose == purpose)
       .fold<double>(0, (sum, wallet) => sum + wallet.balance);
 }
 

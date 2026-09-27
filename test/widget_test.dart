@@ -903,6 +903,7 @@ void main() {
       bool receivesIncome = false,
       bool archived = false,
       int sortOrder = 0,
+      WalletPurpose purpose = WalletPurpose.spending,
     }) {
       return Wallet(
         id: id,
@@ -913,8 +914,61 @@ void main() {
         receivesIncome: receivesIncome,
         archived: archived,
         sortOrder: sortOrder,
+        purpose: purpose,
       );
     }
+
+    test('bills and savings wallets are kept out of the total balance', () {
+      final wallets = [
+        wallet(id: 'cash', balance: 3000),
+        wallet(id: 'bills', balance: 5000, purpose: WalletPurpose.bills),
+        wallet(id: 'savings', balance: 2000, purpose: WalletPurpose.savings),
+      ];
+
+      // ₱10,000 came in and ₱7,000 of it is promised: the user has ₱3,000.
+      expect(totalWalletBalance(wallets), 3000);
+      expect(setAsideWalletBalance(wallets), 7000);
+      expect(walletBalanceFor(wallets, WalletPurpose.bills), 5000);
+      expect(walletBalanceFor(wallets, WalletPurpose.savings), 2000);
+    });
+
+    test('an archived set-aside wallet counts nowhere', () {
+      final wallets = [
+        wallet(id: 'cash', balance: 1000),
+        wallet(
+          id: 'old',
+          balance: 500,
+          purpose: WalletPurpose.savings,
+          archived: true,
+        ),
+      ];
+
+      expect(totalWalletBalance(wallets), 1000);
+      expect(setAsideWalletBalance(wallets), 0);
+    });
+
+    test('a purpose is read back, and an unknown one is spending money', () {
+      final bills = Wallet.fromMap('w1', {'name': 'Bills', 'purpose': 'bills'});
+      final odd = Wallet.fromMap('w2', {'name': 'Odd', 'purpose': 'mystery'});
+
+      expect(bills.purpose, WalletPurpose.bills);
+      expect(bills.isSetAside, isTrue);
+      expect(bills.iconAsset, WalletPurpose.bills.iconAsset);
+      expect(odd.purpose, WalletPurpose.spending);
+      expect(odd.isSetAside, isFalse);
+    });
+
+    test('an entry starts on spending money, never on the set-aside wallets',
+        () {
+      final wallets = [
+        wallet(id: 'bills', balance: 5000, purpose: WalletPurpose.bills),
+        wallet(id: 'cash', balance: 300),
+        wallet(id: 'gcash', balance: 900, receivesIncome: true),
+      ];
+
+      expect(defaultWalletId(wallets), 'gcash');
+      expect(defaultWalletId([wallets.first, wallets[1]]), 'cash');
+    });
 
     test('a stored wallet is read back with its saved values', () {
       final saved = Wallet.fromMap('w1', {
@@ -3441,16 +3495,32 @@ void main() {
       expect(april.end.difference(april.start).inDays, 30);
     });
 
-    test('semi-monthly periods follow the 15th and month-end schedule', () {
+    test('semi-monthly starts on the 15th or 30th until pay is logged', () {
       final early = payPeriodFor('Semi-monthly', now: DateTime(2026, 3, 10));
       final late = payPeriodFor('Semi-monthly', now: DateTime(2026, 3, 20));
 
+      // February pays on the 28th, the nearest it has to the 30th.
       expect(early.start, DateTime(2026, 2, 28));
       expect(early.end, DateTime(2026, 3, 15));
       expect(early.daysLeft(DateTime(2026, 3, 10)), 5);
       expect(late.start, DateTime(2026, 3, 15));
-      expect(late.end, DateTime(2026, 3, 31));
-      expect(late.end.difference(late.start).inDays, 16);
+      expect(late.end, DateTime(2026, 3, 30));
+      expect(late.end.difference(late.start).inDays, 15);
+    });
+
+    test('pay twice a month lasts fifteen days from the day it is logged', () {
+      // Logged four days late: the period still runs a full fifteen days
+      // rather than the few left before the next scheduled payday.
+      final period = payPeriodFor(
+        'Semi-monthly',
+        lastIncomeAt: DateTime(2026, 3, 19),
+        now: DateTime(2026, 3, 20),
+      );
+
+      expect(period.start, DateTime(2026, 3, 19));
+      expect(period.end, DateTime(2026, 4, 3));
+      expect(period.end.difference(period.start).inDays, semiMonthlyDays);
+      expect(period.daysLeft(DateTime(2026, 3, 20)), 14);
     });
 
     test('semi-monthly payday anchors advance to scheduled dates', () {
@@ -3465,7 +3535,7 @@ void main() {
       expect(period.daysLeft(DateTime(2026, 3, 27)), 4);
     });
 
-    test('semi-monthly dates do not drift through February', () {
+    test('semi-monthly periods keep their length through February', () {
       final february = payPeriodFor(
         'Semi-monthly',
         lastIncomeAt: DateTime(2026, 1, 31),
@@ -3473,7 +3543,7 @@ void main() {
       );
 
       expect(february.start, DateTime(2026, 2, 15));
-      expect(february.end, DateTime(2026, 2, 28));
+      expect(february.end, DateTime(2026, 3, 2));
 
       final march = payPeriodFor(
         'Semi-monthly',
@@ -3481,7 +3551,7 @@ void main() {
         now: DateTime(2026, 3, 20),
       );
       expect(march.start, DateTime(2026, 3, 15));
-      expect(march.end, DateTime(2026, 3, 31));
+      expect(march.end, DateTime(2026, 3, 30));
     });
 
     test('a monthly income runs from the day it arrived', () {
@@ -3581,26 +3651,39 @@ void main() {
       expect(later.recommendedDailyLimit, 200);
     });
 
-    test(
-      'planned bills and savings are reserved before the remaining days are split',
-      () {
-        const s = SafeToSpend(
-          walletBalance: 10000,
-          billsDue: 0,
-          savingsReserve: 0,
-          plannedBills: 5000,
-          plannedSavings: 2000,
-          spentToday: 0,
-          daysLeft: 15,
-          periodBudget: 3000,
-          periodLengthDays: 15,
-        );
+    test('money moved to the bills and savings wallets is already gone', () {
+      // ₱10,000 came in, ₱5,000 went to the bills wallet and ₱2,000 to
+      // savings, so only ₱3,000 is left in the spending wallets.
+      const s = SafeToSpend(
+        walletBalance: 3000,
+        billsDue: 5000,
+        billsWalletBalance: 5000,
+        savingsReserve: 0,
+        spentToday: 0,
+        daysLeft: 15,
+        periodBudget: 3000,
+        periodLengthDays: 15,
+      );
 
-        expect(s.spendableThisPeriod, 3000);
-        expect(s.recommendedDailyLimit, 200);
-        expect(s.leftToday, 200);
-      },
-    );
+      expect(s.spendableThisPeriod, 3000);
+      expect(s.recommendedDailyLimit, 200);
+      expect(s.leftToday, 200);
+    });
+
+    test('only the part of a bill the bills wallet cannot cover is taken out', () {
+      const s = SafeToSpend(
+        walletBalance: 3000,
+        billsDue: 5000,
+        billsWalletBalance: 4000,
+        savingsReserve: 0,
+        spentToday: 0,
+        daysLeft: 10,
+      );
+
+      // ₱1,000 of the bill is still unfunded, so it comes out of spending.
+      expect(s.spendableThisPeriod, 2000);
+      expect(s.recommendedDailyLimit, 200);
+    });
 
     test('custom daily limit cannot exceed the remaining period budget', () {
       const s = SafeToSpend(
@@ -4153,12 +4236,13 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // 5800 + 200 spent today, over the 9 days left in the 15-day period.
+      // 5800 + 200 spent today, over the 8 days left of the period that
+      // started on the 15th and runs fifteen days.
       expect(find.text('Safe to Spend Today'), findsOneWidget);
-      expect(find.text('₱466.67'), findsOneWidget);
-      expect(find.text('of ₱666.67 daily limit'), findsOneWidget);
+      expect(find.text('₱550'), findsOneWidget);
+      expect(find.text('of ₱750 daily limit'), findsOneWidget);
       expect(find.text('Today spent: ₱200'), findsOneWidget);
-      expect(find.text('9 days left this period'), findsOneWidget);
+      expect(find.text('8 days left this period'), findsOneWidget);
     });
   });
 
@@ -4891,87 +4975,15 @@ void main() {
       expect(saved, isNull);
     });
 
-    testWidgets('money owed to me needs only who and how much', (tester) async {
-      tall(tester);
-      DebtDraft? saved;
-
-      await tester.pumpWidget(
-        app(
-          Scaffold(
-            body: DebtFormSheet(
-              initialDirection: DebtDirection.owedToMe,
-              wallets: Stream.value([cash]),
-              onSave: (draft) => saved = draft,
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Ana');
-      await tester.enterText(fields.at(1), '500');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-
-      expect(saved?.direction, DebtDirection.owedToMe);
-      expect(saved?.principal, 500);
-      expect(
-        saved?.movedWalletId,
-        'cash',
-        reason: 'lent money leaves a wallet unless the user says otherwise',
-      );
-    });
-
-    testWidgets('money lent before using the app can skip the wallet', (
+    testWidgets('lending records made before it was dropped are not listed', (
       tester,
     ) async {
       tall(tester);
-      DebtDraft? saved;
-
-      await tester.pumpWidget(
-        app(
-          Scaffold(
-            body: DebtFormSheet(
-              initialDirection: DebtDirection.owedToMe,
-              wallets: Stream.value([cash]),
-              onSave: (draft) => saved = draft,
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Ana');
-      await tester.enterText(fields.at(1), '9000');
-      await tester.tap(find.text('Save'));
-      await tester.pump();
-
-      expect(find.text('Cash only holds ₱5,000.'), findsOneWidget);
-      expect(saved, isNull);
-
-      await tester.tap(find.byType(Switch));
-      await tester.pump();
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-
-      expect(saved?.principal, 9000);
-      expect(saved?.movedWalletId, isNull);
-    });
-
-    testWidgets('switches to the list something was just saved to', (
-      tester,
-    ) async {
-      tall(tester);
-      final showing = ValueNotifier(DebtDirection.iOwe);
-      addTearDown(showing.dispose);
 
       await tester.pumpWidget(
         app(
           Scaffold(
             body: DebtsView(
-              showing: showing,
               debts: Stream.value(const [
                 Debt(
                   id: 'a',
@@ -4988,11 +5000,11 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('Ana'), findsNothing);
 
-      showing.value = DebtDirection.owedToMe;
-      await tester.pump();
-      expect(find.text('Ana'), findsOneWidget);
+      expect(find.text('Ana'), findsNothing);
+      expect(find.text('Owed to me'), findsNothing);
+      expect(find.text('Nothing to pay off'), findsOneWidget);
+      expect(find.text('Add Installment'), findsOneWidget);
     });
 
     testWidgets('lists installments with their progress', (tester) async {
@@ -5039,41 +5051,6 @@ void main() {
       expect(find.text('Phone'), findsOneWidget);
       expect(find.text(' of ₱24,000 paid'), findsOneWidget);
       expect(find.textContaining('11 payments left'), findsOneWidget);
-    });
-
-    testWidgets('shows how much is still to come back', (tester) async {
-      tall(tester);
-
-      await tester.pumpWidget(
-        app(
-          Scaffold(
-            body: DebtsView(
-              debts: Stream.value(const [
-                Debt(
-                  id: 'a',
-                  direction: DebtDirection.owedToMe,
-                  name: 'Ana',
-                  category: DebtCategory.familyFriend,
-                  principal: 500,
-                  received: 200,
-                  status: DebtStatus.active,
-                ),
-              ]),
-              onOpen: (_) {},
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      expect(find.text('Nothing to pay off'), findsOneWidget);
-
-      await tester.tap(find.text('Owed to me'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Still to come back to you'), findsOneWidget);
-      expect(find.text('₱300'), findsOneWidget);
-      expect(find.text(' of ₱500 back'), findsOneWidget);
     });
 
     testWidgets('a repayment cannot be more than is owed', (tester) async {

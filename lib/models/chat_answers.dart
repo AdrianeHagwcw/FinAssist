@@ -670,23 +670,6 @@ List<Debt> _namedDebts(String text, FinanceSnapshot records) {
 
 /// Where one debt stands.
 String _aboutDebt(Debt debt) {
-  if (debt.direction == DebtDirection.owedToMe) {
-    final due = debt.dueDate == null
-        ? ''
-        : ' It is due back on ${formatMonthDay(debt.dueDate!)}.';
-    if (debt.status == DebtStatus.settled || debt.stillOwedToMe <= 0) {
-      return '${debt.name} has paid back the ${formatPeso(debt.principal)} '
-          'you lent in full.';
-    }
-    if (debt.received > 0) {
-      return 'You lent ${debt.name} ${formatPeso(debt.principal)}. '
-          '${formatPeso(debt.received)} is back, so '
-          '${formatPeso(debt.stillOwedToMe)} is still owed to you.$due';
-    }
-    return 'You lent ${debt.name} ${formatPeso(debt.principal)}, and all of '
-        'it is still owed to you.$due';
-  }
-
   if (debt.status == DebtStatus.settled) {
     return 'Your ${debt.name} debt is paid off.';
   }

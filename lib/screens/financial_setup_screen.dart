@@ -720,7 +720,9 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           const SizedBox(height: 4),
           _noteRow(
             Icons.info_outline,
-            'Set a plan for each pay. This does not move money between wallets.',
+            'Each time you record your pay, these amounts move to your Bills '
+            'and Savings wallets, so your balance shows only what is left to '
+            'spend.',
           ),
           const SizedBox(height: 12),
           _allocationField(

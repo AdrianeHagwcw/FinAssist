@@ -9,6 +9,14 @@ const incomeFrequencies = {
   'Irregular': 'Irregular (no fixed payday)',
 };
 
+/// One planned amount from the profile's `plannedAllocations`, or zero.
+double _planned(Map<String, dynamic>? data, String key) {
+  final allocations = data?['plannedAllocations'];
+  if (allocations is! Map) return 0;
+  final amount = allocations[key];
+  return amount is num && amount.isFinite && amount > 0 ? amount.toDouble() : 0;
+}
+
 /// Account preferences, separate from the device's appearance settings.
 class FinancialPreferences {
   const FinancialPreferences({
@@ -18,6 +26,8 @@ class FinancialPreferences {
     this.leftover = LeftoverDecision.pending,
     this.customCategories = const [],
     this.hiddenCategories = const [],
+    this.plannedBills = 0,
+    this.plannedSavings = 0,
   });
 
   factory FinancialPreferences.fromMap(Map<String, dynamic>? data) {
@@ -38,6 +48,8 @@ class FinancialPreferences {
           LeftoverDecision.pending,
       customCategories: strings('customCategories'),
       hiddenCategories: strings('hiddenCategories'),
+      plannedBills: _planned(data, 'bills'),
+      plannedSavings: _planned(data, 'savings'),
     );
   }
 
@@ -51,6 +63,11 @@ class FinancialPreferences {
   /// and automatic categorisation later can only suggest from a set list.
   final List<String> customCategories;
   final List<String> hiddenCategories;
+
+  /// What the user plans to set aside from each pay. The amounts are moved
+  /// into the bills and savings wallets when income is recorded.
+  final double plannedBills;
+  final double plannedSavings;
 
   List<String> get allCategories =>
       {...expenseCategories, ...customCategories}.toList();

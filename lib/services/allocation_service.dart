@@ -4,10 +4,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
+import '../models/wallet.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
 import 'goal_service.dart';
 import 'wallet_service.dart';
+
+/// [amount] kept within zero and [ceiling], so money set aside can never be
+/// more than the pay it is taken from.
+double _within(double amount, double ceiling) {
+  if (!amount.isFinite || amount <= 0) return 0;
+  if (!ceiling.isFinite || ceiling <= 0) return 0;
+  return amount < ceiling ? amount : ceiling;
+}
 
 /// Saves what the user decided to do with new income: the income itself, the
 /// bills paid from it, the bills skipped, and a record of the whole cycle.
@@ -83,6 +92,9 @@ class AllocationService {
     String? incomeFrequency,
     String? usualSource,
     List<AllocationCycle> recentCycles = const [],
+    List<Wallet> wallets = const [],
+    double plannedBills = 0,
+    double plannedSavings = 0,
   }) {
     final problems = plan.problems;
 
@@ -105,6 +117,68 @@ class AllocationService {
       collectDeltasInto: deltas,
     );
 
+    // Money meant for bills and savings is moved out of the wallet the pay
+    // landed in, so what stays is only what the user may spend. The bills
+    // wallet is topped up to cover the bills being paid right now, in case
+    // the plan set aside less than they cost.
+    final billsHeld = WalletService.walletFor(wallets, WalletPurpose.bills)
+        ?.balance;
+    final needed = plan.toBills - (billsHeld ?? 0);
+    final toBillsWallet = _within(
+      needed > plannedBills ? needed : plannedBills,
+      plan.income,
+    );
+    final toSavingsWallet = _within(
+      plannedSavings,
+      plan.income - toBillsWallet,
+    );
+
+    String? billsWalletId;
+    if (toBillsWallet > 0 || plan.toBills > 0) {
+      billsWalletId = WalletService.addPurposeWalletToBatch(
+        batch,
+        purpose: WalletPurpose.bills,
+        wallets: wallets,
+      );
+    }
+
+    if (billsWalletId != null && toBillsWallet > 0) {
+      WalletService.addTransactionToBatch(
+        batch,
+        type: TransactionType.transfer,
+        amount: toBillsWallet,
+        label: TransactionType.transfer.label,
+        walletId: walletId,
+        toWalletId: billsWalletId,
+        note: 'Set aside for bills',
+        date: receivedAt,
+        collectDeltasInto: deltas,
+      );
+    }
+
+    if (toSavingsWallet > 0) {
+      final savingsWalletId = WalletService.addPurposeWalletToBatch(
+        batch,
+        purpose: WalletPurpose.savings,
+        wallets: wallets,
+      );
+
+      WalletService.addTransactionToBatch(
+        batch,
+        type: TransactionType.transfer,
+        amount: toSavingsWallet,
+        label: TransactionType.transfer.label,
+        walletId: walletId,
+        toWalletId: savingsWalletId,
+        note: 'Set aside for savings',
+        date: receivedAt,
+        collectDeltasInto: deltas,
+      );
+    }
+
+    // Bills are paid out of the money already set aside for them.
+    final billsPaidFrom = billsWalletId ?? walletId;
+
     final payments = <Map<String, dynamic>>[];
     final skipped = <String>[];
 
@@ -120,7 +194,7 @@ class AllocationService {
       final paymentId = BillService.addPaymentToBatch(
         batch,
         instance: bill.instance,
-        walletId: walletId,
+        walletId: billsPaidFrom,
         amount: bill.amount,
         date: receivedAt,
         collectDeltasInto: deltas,
@@ -169,6 +243,8 @@ class AllocationService {
       'billPayments': payments,
       'skippedInstanceIds': skipped,
       'toBills': plan.toBills,
+      'toBillsWallet': toBillsWallet,
+      'toSavingsWallet': toSavingsWallet,
       'goalId': plan.toGoal > 0 ? goal?.id : null,
       'goalName': plan.toGoal > 0 ? goal?.name : null,
       'toGoal': plan.toGoal,
