@@ -327,8 +327,9 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         ),
         SpeechProblem.unavailable => (
           "Voice entry isn't available",
-          "This phone can't recognise speech in its language. You can type "
-              'the expense instead.',
+          "Your phone can't turn speech into text right now. Try updating "
+              'Speech Services by Google in the Play Store, or type the '
+              'expense instead.',
         ),
         SpeechProblem.offline => (
           'No connection',
@@ -400,10 +401,13 @@ class _MicButton extends StatelessWidget {
               // Holding the mic is the whole gesture, so a long press must
               // not be taken as a request for the tooltip.
               triggerMode: TooltipTriggerMode.manual,
-              child: GestureDetector(
-                onTapDown: (_) => onPressStart(),
-                onTapUp: (_) => onPressEnd(),
-                onTapCancel: onPressEnd,
+              // Raw touches rather than a tap: a tap is cancelled once the
+              // finger drifts a few millimetres, which a thumb held on a
+              // real phone while talking always does.
+              child: Listener(
+                onPointerDown: (_) => onPressStart(),
+                onPointerUp: (_) => onPressEnd(),
+                onPointerCancel: (_) => onPressEnd(),
                 child: Container(
                   width: 96,
                   height: 96,

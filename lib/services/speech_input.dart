@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart' as speech;
 
 /// Why voice entry could not listen.
@@ -8,7 +9,8 @@ enum SpeechProblem {
   /// The microphone is not allowed for FinAssist.
   noPermission,
 
-  /// The phone has no speech recognition, or none for its language.
+  /// The phone's speech recognition is missing, turned off or not working,
+  /// or has nothing for its language.
   unavailable,
 
   /// Speech recognition needs a connection on this phone, and there isn't one.
@@ -63,7 +65,17 @@ class SpeechInput {
     bool current() => listen == _listens && !dropped;
 
     // Asks for the microphone the first time.
-    if (!await engine.initialize()) {
+    final bool ready;
+    try {
+      ready = await engine.initialize(debugLogging: kDebugMode);
+    } on PlatformException catch (error) {
+      // A phone with no speech recognition, or with it turned off, is
+      // reported as an error rather than as a plain "no".
+      return error.code == 'recognizerNotAvailable'
+          ? SpeechProblem.unavailable
+          : SpeechProblem.failed;
+    }
+    if (!ready) {
       return await engine.hasPermission
           ? SpeechProblem.unavailable
           : SpeechProblem.noPermission;
@@ -187,6 +199,9 @@ SpeechProblem? problemFor(String errorMsg) {
       return SpeechProblem.offline;
     case 'error_language_not_supported':
     case 'error_language_unavailable':
+    // Android's code when it cannot reach the phone's speech service, as
+    // when that service is turned off or broken.
+    case 'error_too_many_requests':
       return SpeechProblem.unavailable;
     default:
       return SpeechProblem.failed;
