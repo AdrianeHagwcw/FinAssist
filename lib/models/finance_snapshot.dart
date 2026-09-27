@@ -19,7 +19,10 @@ class FinanceSnapshot {
     this.usualIncome,
     this.lastIncomeAt,
     this.savingsReserve = 0,
+    this.plannedBills = 0,
+    this.plannedSavings = 0,
     this.customDailyLimit,
+    this.periodBudget,
   });
 
   final DateTime now;
@@ -40,7 +43,10 @@ class FinanceSnapshot {
   final DateTime? lastIncomeAt;
 
   final double savingsReserve;
+  final double plannedBills;
+  final double plannedSavings;
   final double? customDailyLimit;
+  final double? periodBudget;
 
   DateTime get today => DateTime(now.year, now.month, now.day);
 
@@ -57,7 +63,10 @@ class FinanceSnapshot {
     usualIncome: usualIncome,
     lastIncomeAt: lastIncomeAt,
     savingsReserve: savingsReserve,
+    plannedBills: plannedBills,
+    plannedSavings: plannedSavings,
     customDailyLimit: customDailyLimit,
+    periodBudget: periodBudget,
   );
 
   /// The pay period today falls in; its end is the next payday.
@@ -75,10 +84,19 @@ class FinanceSnapshot {
       walletBalance: walletBalance,
       billsDue: billsDueBefore(bills, period.end),
       savingsReserve: savingsReserve,
+      plannedBills: plannedBills,
+      plannedSavings: plannedSavings,
       goalSavings: goalSavings,
       spentToday: spentToday,
       daysLeft: period.daysLeft(now),
       customDailyLimit: customDailyLimit,
+      periodBudget: periodBudget,
+      periodSpent: discretionarySpending(
+        transactions,
+        from: period.start,
+        until: today.add(const Duration(days: 1)),
+      ),
+      periodLengthDays: period.end.difference(period.start).inDays,
     );
   }
 

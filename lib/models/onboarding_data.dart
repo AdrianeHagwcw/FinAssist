@@ -23,6 +23,9 @@ class OnboardingData {
     required this.dailyBudget,
     required this.priorities,
     required this.wallets,
+    this.plannedBills = 0,
+    this.plannedSavings = 0,
+    this.plannedOthers = 0,
   });
 
   final String name;
@@ -40,4 +43,9 @@ class OnboardingData {
   /// Most important first.
   final List<FinancialPriority> priorities;
   final List<WalletDraft> wallets;
+
+  /// Per-pay amounts the user plans to direct toward each category.
+  final double plannedBills;
+  final double plannedSavings;
+  final double plannedOthers;
 }

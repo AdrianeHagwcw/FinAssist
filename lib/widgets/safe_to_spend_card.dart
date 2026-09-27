@@ -34,6 +34,8 @@ class SafeToSpendInputs {
     required this.transactions,
     this.bills = const [],
     this.now,
+    this.plannedBills,
+    this.plannedSavings,
   });
 
   final SafeToSpend safeToSpend;
@@ -43,6 +45,8 @@ class SafeToSpendInputs {
 
   /// The moment the figure was worked out for.
   final DateTime? now;
+  final double? plannedBills;
+  final double? plannedSavings;
   final PayPeriod period;
   final String? frequency;
   final List<AllocationCycle> cycles;
@@ -187,6 +191,8 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         walletBalance: totalWalletBalance(wallets),
         billsDue: billsDueBefore(_bills, period.end),
         savingsReserve: savingsReserveFrom(profile),
+        plannedBills: plannedAllocationFrom(profile, 'bills') ?? 0,
+        plannedSavings: plannedAllocationFrom(profile, 'savings') ?? 0,
         goalSavings: _goalSavings,
         spentToday: discretionarySpending(
           transactions,
@@ -195,6 +201,13 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         ),
         daysLeft: period.daysLeft(now),
         customDailyLimit: customDailyLimitFrom(profile),
+        periodBudget: plannedAllocationFrom(profile, 'others'),
+        periodSpent: discretionarySpending(
+          transactions,
+          from: period.start,
+          until: startOfToday.add(const Duration(days: 1)),
+        ),
+        periodLengthDays: period.end.difference(period.start).inDays,
       ),
       period: period,
       frequency: frequency,
@@ -202,6 +215,8 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       transactions: transactions,
       bills: _bills,
       now: now,
+      plannedBills: plannedAllocationFrom(profile, 'bills'),
+      plannedSavings: plannedAllocationFrom(profile, 'savings'),
     );
   }
 

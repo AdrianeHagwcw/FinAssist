@@ -87,6 +87,11 @@ class UserProfileService {
       'notificationsEnabled': data.notificationsEnabled,
       'incomeSource': data.incomeSource,
       'incomeFrequency': data.incomeFrequency,
+      'plannedAllocations': {
+        'bills': data.plannedBills,
+        'savings': data.plannedSavings,
+        'others': data.plannedOthers,
+      },
       'priorities': data.priorities.map((priority) => priority.name).toList(),
       'setupCompleted': true,
       'onboardingVersion': 2,

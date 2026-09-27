@@ -75,6 +75,9 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   final _nameController = TextEditingController();
   final _incomeController = TextEditingController();
   final _dailyBudgetController = TextEditingController();
+  final _plannedBillsController = TextEditingController();
+  final _plannedSavingsController = TextEditingController();
+  final _plannedOthersController = TextEditingController();
 
   int _step = _welcomeStep;
   bool _notificationsEnabled = false;
@@ -104,6 +107,9 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
     _nameController.dispose();
     _incomeController.dispose();
     _dailyBudgetController.dispose();
+    _plannedBillsController.dispose();
+    _plannedSavingsController.dispose();
+    _plannedOthersController.dispose();
     super.dispose();
   }
 
@@ -157,6 +163,9 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
       dailyBudget: dailyBudgetText.isEmpty
           ? null
           : _parseAmount(dailyBudgetText),
+      plannedBills: _parseAmount(_plannedBillsController.text) ?? 0,
+      plannedSavings: _parseAmount(_plannedSavingsController.text) ?? 0,
+      plannedOthers: _parseAmount(_plannedOthersController.text) ?? 0,
       priorities: List.unmodifiable(_priorities),
       wallets: List.unmodifiable(_wallets),
     );
@@ -706,9 +715,78 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
                 ),
             ],
           ),
+          const SizedBox(height: 24),
+          _title('How would you like to split each payment?', size: 18),
+          const SizedBox(height: 4),
+          _noteRow(
+            Icons.info_outline,
+            'Set a plan for each pay. This does not move money between wallets.',
+          ),
+          const SizedBox(height: 12),
+          _allocationField(
+            controller: _plannedBillsController,
+            label: 'Bills',
+            key: const Key('allocation-bills'),
+          ),
+          const SizedBox(height: 12),
+          _allocationField(
+            controller: _plannedSavingsController,
+            label: 'Savings',
+            key: const Key('allocation-savings'),
+          ),
+          const SizedBox(height: 12),
+          _allocationField(
+            controller: _plannedOthersController,
+            label: 'Others',
+            key: const Key('allocation-others'),
+            validateTotal: true,
+          ),
         ],
       ),
     );
+  }
+
+  Widget _allocationField({
+    required TextEditingController controller,
+    required String label,
+    required Key key,
+    bool validateTotal = false,
+  }) {
+    return TextFormField(
+      key: key,
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: _inputDecoration(
+        '0.00',
+        prefixText: '₱ ',
+      ).copyWith(labelText: label),
+      validator: (value) {
+        if ((value?.trim() ?? '').isEmpty) {
+          return validateTotal ? _validatePlannedTotal() : null;
+        }
+        final amount = _parseAmount(value!);
+        if (amount == null || !amount.isFinite || amount < 0) {
+          return 'Enter a valid amount, or leave it blank.';
+        }
+        return validateTotal ? _validatePlannedTotal() : null;
+      },
+    );
+  }
+
+  String? _validatePlannedTotal() {
+    final income = _parseAmount(_incomeController.text);
+    if (income == null) return null;
+    final planned =
+        [
+          _plannedBillsController,
+          _plannedSavingsController,
+          _plannedOthersController,
+        ].fold<double>(0, (total, controller) {
+          return total + (_parseAmount(controller.text) ?? 0);
+        });
+    return planned > income + 0.005
+        ? 'Your split cannot be more than your income.'
+        : null;
   }
 
   void _movePriority(int oldIndex, int newIndex) {
@@ -908,6 +986,13 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
                 'Wallets',
                 '${_wallets.length} wallet${_wallets.length == 1 ? '' : 's'}'
                     ' · ${formatPeso(walletTotal)} total',
+              ),
+              _summaryRow(
+                'assets/icons/icons8-expenses-64.png',
+                'Per-pay plan',
+                'Bills ${formatPeso(_parseAmount(_plannedBillsController.text) ?? 0)} · '
+                    'Savings ${formatPeso(_parseAmount(_plannedSavingsController.text) ?? 0)} · '
+                    'Others ${formatPeso(_parseAmount(_plannedOthersController.text) ?? 0)}',
               ),
               _summaryRow(
                 'assets/icons/icons8-goal-96.png',

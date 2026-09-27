@@ -91,6 +91,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// The bills the Safe to Spend card loaded, reused by the tip so the screen
   /// doesn't read them twice.
   List<BillInstance> _bills = const [];
+  double? _plannedBills;
+  double? _plannedSavings;
 
   String get _name {
     if (widget.userName != null) return widget.userName!;
@@ -187,6 +189,28 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         const SizedBox(height: 16),
         _BalanceCard(wallets: wallets, onTap: widget.onOpenWallets),
+        if (_plannedBills != null || _plannedSavings != null) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _PlannedAllocationCard(
+                  title: 'Bills',
+                  amount: _plannedBills ?? 0,
+                  icon: Icons.receipt_long_outlined,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _PlannedAllocationCard(
+                  title: 'Savings',
+                  amount: _plannedSavings ?? 0,
+                  icon: Icons.savings_outlined,
+                ),
+              ),
+            ],
+          ),
+        ],
 
         const SizedBox(height: 25),
         _SectionTitle('Quick Actions'),
@@ -305,40 +329,23 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// The buttons under the Safe to Spend figure. "Daily Limit" opens the
-  /// same editor as the card's pencil.
-  Widget _overviewButtons(BuildContext context, VoidCallback openLimitEditor) {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: () async {
-              final saved = await showIncomeWaterfall(context);
-              if (saved && mounted) setState(() => _refreshKey++);
-            },
-            icon: Image.asset(
-              'assets/icons/icons8-money-transfer-96.png',
-              width: 18,
-              height: 18,
-            ),
-            label: const Text('Add Income'),
-            style: _overviewButtonStyle,
-          ),
+  /// The full-width action under the Safe to Spend figure.
+  Widget _overviewButtons(BuildContext context, VoidCallback _) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: () async {
+          final saved = await showIncomeWaterfall(context);
+          if (saved && mounted) setState(() => _refreshKey++);
+        },
+        icon: Image.asset(
+          'assets/icons/icons8-money-transfer-96.png',
+          width: 18,
+          height: 18,
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: openLimitEditor,
-            icon: Image.asset(
-              'assets/icons/icons8-calendar-96.png',
-              width: 18,
-              height: 18,
-            ),
-            label: const Text('Daily Limit'),
-            style: _overviewButtonStyle,
-          ),
-        ),
-      ],
+        label: const Text('Add Income'),
+        style: _overviewButtonStyle,
+      ),
     );
   }
 
@@ -347,9 +354,17 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Bills due soon, then the leftover decision when one is waiting.
   Widget _belowCard(BuildContext context, SafeToSpendInputs inputs) {
     // Kept for the tip above, which is built before this runs.
-    if (!identical(_bills, inputs.bills)) {
+    if (!identical(_bills, inputs.bills) ||
+        _plannedBills != inputs.plannedBills ||
+        _plannedSavings != inputs.plannedSavings) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _bills = inputs.bills);
+        if (mounted) {
+          setState(() {
+            _bills = inputs.bills;
+            _plannedBills = inputs.plannedBills;
+            _plannedSavings = inputs.plannedSavings;
+          });
+        }
       });
     }
 
@@ -400,6 +415,65 @@ class _HomeScreenState extends State<HomeScreen> {
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     textStyle: const TextStyle(fontWeight: FontWeight.w600),
   );
+}
+
+class _PlannedAllocationCard extends StatelessWidget {
+  const _PlannedAllocationCard({
+    required this.title,
+    required this.amount,
+    required this.icon,
+  });
+
+  final String title;
+  final double amount;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 92),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: colors.primaryText),
+              const SizedBox(width: 7),
+              Text(
+                title,
+                style: TextStyle(
+                  color: colors.textBody,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          MoneyText(
+            amount,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            'planned per pay',
+            style: TextStyle(color: colors.textBody, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SectionTitle extends StatelessWidget {

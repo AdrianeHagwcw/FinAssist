@@ -34,8 +34,9 @@ class PayPeriod {
 /// received on the 7th runs 7th to 7th, not 1st to 1st. Without it, weekly
 /// periods start on Monday and monthly ones on the 1st.
 ///
-/// Semi-monthly always splits on the 15th, as onboarding describes it, and an
-/// irregular income is treated month by month.
+/// Semi-monthly periods end on the 15th and the last day of each month.
+/// Without a logged payday, the most recent scheduled payday is used as the
+/// start; an irregular income is treated month by month.
 PayPeriod payPeriodFor(
   String? frequency, {
   DateTime? lastIncomeAt,
@@ -45,16 +46,12 @@ PayPeriod payPeriodFor(
 
   switch (frequency) {
     case 'Semi-monthly':
-      if (today.day <= 15) {
-        return PayPeriod(
-          start: DateTime(today.year, today.month),
-          end: DateTime(today.year, today.month, 16),
-        );
-      }
-      return PayPeriod(
-        start: DateTime(today.year, today.month, 16),
-        end: DateTime(today.year, today.month + 1),
-      );
+      final anchor = lastIncomeAt == null
+          ? today.day >= 15
+                ? DateTime(today.year, today.month, 15)
+                : DateTime(today.year, today.month, 0)
+          : _dateOnly(lastIncomeAt);
+      return _rollForward(anchor, today, _nextSemiMonthlyBoundary);
 
     case 'Weekly':
     case 'Bi-weekly':
@@ -75,6 +72,13 @@ PayPeriod payPeriodFor(
     default:
       return _calendarMonth(today);
   }
+}
+
+DateTime _nextSemiMonthlyBoundary(DateTime start) {
+  final monthEnd = DateTime(start.year, start.month + 1, 0);
+  if (start.day < 15) return DateTime(start.year, start.month, 15);
+  if (start.day < monthEnd.day) return monthEnd;
+  return DateTime(start.year, start.month + 1, 15);
 }
 
 /// Monthly periods counted from the day income arrived. Each boundary is
@@ -174,6 +178,11 @@ class SafeToSpend {
     required this.daysLeft,
     this.goalSavings = 0,
     this.customDailyLimit,
+    this.periodBudget,
+    this.periodSpent = 0,
+    this.periodLengthDays,
+    this.plannedBills = 0,
+    this.plannedSavings = 0,
   });
 
   /// Everything in the user's wallets right now.
@@ -185,6 +194,11 @@ class SafeToSpend {
   /// Money the user chose to set aside as savings.
   final double savingsReserve;
 
+  /// Planned amounts for this pay period that should be reserved before the
+  /// remaining budget is split across the days left.
+  final double plannedBills;
+  final double plannedSavings;
+
   /// Money set aside for goals, which stays in the wallets but isn't
   /// spendable.
   final double goalSavings;
@@ -194,24 +208,62 @@ class SafeToSpend {
 
   final int daysLeft;
 
-  /// A daily limit the user typed in, replacing the recommendation.
+  /// A daily limit the user typed in. A period budget still caps it so the
+  /// plan lasts until the next payday.
   final double? customDailyLimit;
+
+  /// The user's planned spending amount for this whole pay period.
+  final double? periodBudget;
+
+  /// Discretionary spending so far this period, including today's spending.
+  final double periodSpent;
+
+  /// Full configured pay-period length. Defaults to [daysLeft] for callers
+  /// without period-budget inputs.
+  final int? periodLengthDays;
 
   /// What can be spent across the rest of the period, measured from the start
   /// of today. Today's own spending is added back, because the balance has
   /// already dropped by it and it is counted separately below.
   double get spendableThisPeriod {
-    final amount =
-        walletBalance + spentToday - billsDue - savingsReserve - goalSavings;
-    return amount > 0 ? amount : 0;
+    final walletAmount =
+        walletBalance +
+        spentToday -
+        billsDue -
+        savingsReserve -
+        plannedBills -
+        plannedSavings -
+        goalSavings;
+    final availableFromWallet = walletAmount > 0 ? walletAmount : 0.0;
+    final budget = periodBudget;
+    if (budget == null) return availableFromWallet;
+
+    final remainingBudget = budget - periodSpent + spentToday;
+    final availableFromPlan = remainingBudget > 0 ? remainingBudget : 0.0;
+    return availableFromWallet < availableFromPlan
+        ? availableFromWallet
+        : availableFromPlan;
   }
 
-  /// The period's spendable money shared evenly over the days left.
-  double get recommendedDailyLimit => spendableThisPeriod / daysLeft;
+  /// The period's spendable money shared evenly over the days left, capped at
+  /// the per-day amount in the user's configured period budget.
+  double get recommendedDailyLimit {
+    final remainingPerDay = spendableThisPeriod / daysLeft;
+    final budget = periodBudget;
+    if (budget == null) return remainingPerDay;
+
+    final plannedPerDay = budget / (periodLengthDays ?? daysLeft);
+    return remainingPerDay < plannedPerDay ? remainingPerDay : plannedPerDay;
+  }
 
   bool get usesCustomLimit => customDailyLimit != null;
 
-  double get dailyLimit => customDailyLimit ?? recommendedDailyLimit;
+  double get dailyLimit {
+    final custom = customDailyLimit;
+    if (custom == null) return recommendedDailyLimit;
+    if (periodBudget == null || custom <= recommendedDailyLimit) return custom;
+    return recommendedDailyLimit;
+  }
 
   /// Still safe to spend today. Negative once today's limit is passed.
   double get leftToday => dailyLimit - spentToday;

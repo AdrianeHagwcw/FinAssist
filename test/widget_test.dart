@@ -567,8 +567,27 @@ void main() {
         matching: find.byType(IconButton),
       );
       expect(tester.widget<IconButton>(moveUpButton).onPressed, isNull);
-      await tester.tap(find.byTooltip('Move "Pay bills on time" down'));
+      final moveDown = find.byTooltip('Move "Pay bills on time" down');
+      final moveDownButton = find.ancestor(
+        of: moveDown,
+        matching: find.byType(IconButton),
+      );
+      await tester.ensureVisible(moveDownButton);
+      await tester.tap(moveDownButton);
       await tester.pump();
+
+      await tester.ensureVisible(find.byKey(const Key('allocation-bills')));
+      await tester.enterText(find.byKey(const Key('allocation-bills')), '2000');
+      await tester.ensureVisible(find.byKey(const Key('allocation-savings')));
+      await tester.enterText(
+        find.byKey(const Key('allocation-savings')),
+        '1500',
+      );
+      await tester.ensureVisible(find.byKey(const Key('allocation-others')));
+      await tester.enterText(
+        find.byKey(const Key('allocation-others')),
+        '1500',
+      );
 
       await tapText(tester, 'Next');
 
@@ -615,6 +634,9 @@ void main() {
       expect(saved!.incomeFrequency, 'Semi-monthly');
       expect(saved!.income, 5000);
       expect(saved!.dailyBudget, isNull);
+      expect(saved!.plannedBills, 2000);
+      expect(saved!.plannedSavings, 1500);
+      expect(saved!.plannedOthers, 1500);
       expect(saved!.priorities.take(2), [
         FinancialPriority.saveForGoal,
         FinancialPriority.payBills,
@@ -3097,10 +3119,11 @@ void main() {
         ),
       ]);
 
-      expect(result.map((e) => '${e.key}=${e.value}'), [
-        'Bills=900.0',
-        'Food=250.0',
-      ], reason: 'money lent out is not spending');
+      expect(
+        result.map((e) => '${e.key}=${e.value}'),
+        ['Bills=900.0', 'Food=250.0'],
+        reason: 'money lent out is not spending',
+      );
     });
   });
 
@@ -3228,10 +3251,7 @@ void main() {
 
       // The row now leads with the time it was recorded, which moves with
       // the clock, so the parts that carry meaning are what is checked.
-      expect(
-        find.textContaining('Cash · Bill payment · Rent'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Cash · Bill payment · Rent'), findsOneWidget);
       expect(find.textContaining('Before wallets'), findsOneWidget);
     });
 
@@ -3404,15 +3424,62 @@ void main() {
   });
 
   group('pay periods', () {
-    test('semi-monthly splits on the 15th', () {
+    test('period lengths follow weekly, semi-monthly and calendar months', () {
+      final weekly = payPeriodFor('Weekly', now: DateTime(2026, 3, 4));
+      final semiMonthly = payPeriodFor(
+        'Semi-monthly',
+        now: DateTime(2026, 3, 3),
+      );
+      final march = payPeriodFor('Monthly', now: DateTime(2026, 3, 3));
+      final april = payPeriodFor('Monthly', now: DateTime(2026, 4, 3));
+
+      expect(weekly.end.difference(weekly.start).inDays, 7);
+      expect(semiMonthly.end.difference(semiMonthly.start).inDays, 15);
+      expect(march.end.difference(march.start).inDays, 31);
+      expect(april.end.difference(april.start).inDays, 30);
+    });
+
+    test('semi-monthly periods follow the 15th and month-end schedule', () {
       final early = payPeriodFor('Semi-monthly', now: DateTime(2026, 3, 10));
       final late = payPeriodFor('Semi-monthly', now: DateTime(2026, 3, 20));
 
-      expect(early.start, DateTime(2026, 3, 1));
-      expect(early.end, DateTime(2026, 3, 16));
-      expect(early.daysLeft(DateTime(2026, 3, 10)), 6);
-      expect(late.start, DateTime(2026, 3, 16));
-      expect(late.end, DateTime(2026, 4, 1));
+      expect(early.start, DateTime(2026, 2, 28));
+      expect(early.end, DateTime(2026, 3, 15));
+      expect(early.daysLeft(DateTime(2026, 3, 10)), 5);
+      expect(late.start, DateTime(2026, 3, 15));
+      expect(late.end, DateTime(2026, 3, 31));
+      expect(late.end.difference(late.start).inDays, 16);
+    });
+
+    test('semi-monthly payday anchors advance to scheduled dates', () {
+      final period = payPeriodFor(
+        'Semi-monthly',
+        lastIncomeAt: DateTime(2026, 3, 16),
+        now: DateTime(2026, 3, 27),
+      );
+
+      expect(period.start, DateTime(2026, 3, 16));
+      expect(period.end, DateTime(2026, 3, 31));
+      expect(period.daysLeft(DateTime(2026, 3, 27)), 4);
+    });
+
+    test('semi-monthly dates do not drift through February', () {
+      final february = payPeriodFor(
+        'Semi-monthly',
+        lastIncomeAt: DateTime(2026, 1, 31),
+        now: DateTime(2026, 2, 20),
+      );
+
+      expect(february.start, DateTime(2026, 2, 15));
+      expect(february.end, DateTime(2026, 2, 28));
+
+      final march = payPeriodFor(
+        'Semi-monthly',
+        lastIncomeAt: DateTime(2026, 2, 28),
+        now: DateTime(2026, 3, 20),
+      );
+      expect(march.start, DateTime(2026, 3, 15));
+      expect(march.end, DateTime(2026, 3, 31));
     });
 
     test('a monthly income runs from the day it arrived', () {
@@ -3480,6 +3547,72 @@ void main() {
       expect(s.spendableThisPeriod, 6000);
       expect(s.recommendedDailyLimit, 600);
       expect(s.leftToday, 600);
+    });
+
+    test('period budget is shared across days and reduces as spent', () {
+      const s = SafeToSpend(
+        walletBalance: 10000,
+        billsDue: 0,
+        savingsReserve: 0,
+        spentToday: 0,
+        daysLeft: 15,
+        periodBudget: 3000,
+        periodLengthDays: 15,
+      );
+
+      expect(s.spendableThisPeriod, 3000);
+      expect(s.recommendedDailyLimit, 200);
+      expect(s.walletBalance, 10000);
+
+      const later = SafeToSpend(
+        walletBalance: 9500,
+        billsDue: 0,
+        savingsReserve: 0,
+        spentToday: 100,
+        daysLeft: 10,
+        periodBudget: 3000,
+        periodSpent: 500,
+        periodLengthDays: 15,
+      );
+
+      expect(later.spendableThisPeriod, 2600);
+      expect(later.recommendedDailyLimit, 200);
+    });
+
+    test(
+      'planned bills and savings are reserved before the remaining days are split',
+      () {
+        const s = SafeToSpend(
+          walletBalance: 10000,
+          billsDue: 0,
+          savingsReserve: 0,
+          plannedBills: 5000,
+          plannedSavings: 2000,
+          spentToday: 0,
+          daysLeft: 15,
+          periodBudget: 3000,
+          periodLengthDays: 15,
+        );
+
+        expect(s.spendableThisPeriod, 3000);
+        expect(s.recommendedDailyLimit, 200);
+        expect(s.leftToday, 200);
+      },
+    );
+
+    test('custom daily limit cannot exceed the remaining period budget', () {
+      const s = SafeToSpend(
+        walletBalance: 10000,
+        billsDue: 0,
+        savingsReserve: 0,
+        spentToday: 0,
+        daysLeft: 15,
+        periodBudget: 3000,
+        periodLengthDays: 15,
+        customDailyLimit: 2500,
+      );
+
+      expect(s.dailyLimit, 200);
     });
 
     test("spending today doesn't shrink today's own limit", () {
@@ -3877,6 +4010,56 @@ void main() {
       sortOrder: 0,
     );
 
+    testWidgets('keeps the planned daily amount with four days left', (
+      tester,
+    ) async {
+      final payday = DateTime(2026, 3, 16, 10);
+      final today = DateTime(2026, 3, 27, 10);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SafeToSpendCard(
+                today: today,
+                wallets: Stream.value([cash]),
+                transactions: Stream.value(const []),
+                profile: Stream.value({
+                  'incomeFrequency': 'Semi-monthly',
+                  'incomeSource': 'Salary',
+                  'plannedAllocations': {
+                    'bills': 5000,
+                    'savings': 2000,
+                    'others': 3000,
+                  },
+                }),
+                cycles: Stream.value([
+                  AllocationCycle(
+                    id: 'pay',
+                    income: 10000,
+                    remaining: 10000,
+                    receivedAt: payday,
+                    source: 'Salary',
+                  ),
+                ]),
+                loadBills: () async => const [],
+                goals: Stream.value(const []),
+                billSchedules: Stream.value(const []),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('4 days left this period'), findsOneWidget);
+      expect(find.text('of ₱200 daily limit'), findsOneWidget);
+    });
+
     testWidgets('a gift raises the daily limit instead of restarting the '
         'month', (tester) async {
       final today = DateTime(2026, 3, 22, 10);
@@ -3968,12 +4151,12 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // 5800 + 200 spent today, over the 10 days from the 22nd to month end.
+      // 5800 + 200 spent today, over the 9 days left in the 15-day period.
       expect(find.text('Safe to Spend Today'), findsOneWidget);
-      expect(find.text('₱400'), findsOneWidget);
-      expect(find.text('of ₱600 daily limit'), findsOneWidget);
+      expect(find.text('₱466.67'), findsOneWidget);
+      expect(find.text('of ₱666.67 daily limit'), findsOneWidget);
       expect(find.text('Today spent: ₱200'), findsOneWidget);
-      expect(find.text('10 days left this period'), findsOneWidget);
+      expect(find.text('9 days left this period'), findsOneWidget);
     });
   });
 
@@ -5586,9 +5769,7 @@ void main() {
       expect(find.textContaining('Counting'), findsNothing);
     });
 
-    testWidgets('"Count all again" brings every category back', (
-      tester,
-    ) async {
+    testWidgets('"Count all again" brings every category back', (tester) async {
       await pumpReports(tester, list: fourCategories);
 
       await tester.tap(legendRow('Groceries'));
@@ -5935,9 +6116,7 @@ void main() {
     expect(find.textContaining('12:00 AM'), findsNothing);
   });
 
-  testWidgets('Transactions heads each day once, newest first', (
-    tester,
-  ) async {
+  testWidgets('Transactions heads each day once, newest first', (tester) async {
     // The headings are worked out per slot now rather than by walking the
     // list in order, so a day must still be announced once and only once.
     final now = DateTime.now();
@@ -6346,11 +6525,15 @@ void main() {
         ],
       );
 
-      expect(planned.map((r) => '${r.title} @ ${r.at}'), [
-        'Water is due today @ 2026-09-19 09:00:00.000',
-        'Internet is due in 3 days @ 2026-09-22 09:00:00.000',
-        'Internet is due today @ 2026-09-25 09:00:00.000',
-      ], reason: "Water's early reminder was this morning, already past");
+      expect(
+        planned.map((r) => '${r.title} @ ${r.at}'),
+        [
+          'Water is due today @ 2026-09-19 09:00:00.000',
+          'Internet is due in 3 days @ 2026-09-22 09:00:00.000',
+          'Internet is due today @ 2026-09-25 09:00:00.000',
+        ],
+        reason: "Water's early reminder was this morning, already past",
+      );
       expect(planned.first.body, '₱1,000 to pay. Tap to pay it now.');
       expect(planned.first.payload, 'bill:Water');
     });
@@ -6419,9 +6602,11 @@ void main() {
         ],
       );
 
-      expect(planned.map((r) => r.at), [
-        DateTime(2026, 10, 17, 9),
-      ], reason: 'monthly from Sep 17, within six weeks; a reached goal waits');
+      expect(
+        planned.map((r) => r.at),
+        [DateTime(2026, 10, 17, 9)],
+        reason: 'monthly from Sep 17, within six weeks; a reached goal waits',
+      );
       expect(planned.single.title, 'Time to save for Laptop');
       expect(
         planned.single.body,
@@ -6604,16 +6789,20 @@ void main() {
           now: DateTime(2026, 9, 1, 10),
         );
 
-        expect(planned.map((r) => r.at), [
-          DateTime(2026, 9, 7, 12),
-          DateTime(2026, 9, 8, 12),
-          DateTime(2026, 9, 9, 12),
-          DateTime(2026, 9, 10, 12),
-          DateTime(2026, 10, 7, 12),
-          DateTime(2026, 10, 8, 12),
-          DateTime(2026, 10, 9, 12),
-          DateTime(2026, 10, 10, 12),
-        ], reason: 'a month after the last allowance, within six weeks');
+        expect(
+          planned.map((r) => r.at),
+          [
+            DateTime(2026, 9, 7, 12),
+            DateTime(2026, 9, 8, 12),
+            DateTime(2026, 9, 9, 12),
+            DateTime(2026, 9, 10, 12),
+            DateTime(2026, 10, 7, 12),
+            DateTime(2026, 10, 8, 12),
+            DateTime(2026, 10, 9, 12),
+            DateTime(2026, 10, 10, 12),
+          ],
+          reason: 'a month after the last allowance, within six weeks',
+        );
         expect(planned.first.title, 'Payday today?');
         expect(
           planned.first.body,
@@ -6630,12 +6819,16 @@ void main() {
         final august = pay(DateTime(2026, 8, 30));
 
         final waiting = paydays('Semi-monthly', cycles: [august], now: now);
-        expect(waiting.map((r) => '${r.title} @ ${r.at}').take(4), [
-          'Has your salary come in? @ 2026-09-16 12:00:00.000',
-          'Has your salary come in? @ 2026-09-17 12:00:00.000',
-          'Has your salary come in? @ 2026-09-18 12:00:00.000',
-          'Payday today? @ 2026-09-30 12:00:00.000',
-        ], reason: "the 15th's own reminder has passed");
+        expect(
+          waiting.map((r) => '${r.title} @ ${r.at}').take(4),
+          [
+            'Has your salary come in? @ 2026-09-16 12:00:00.000',
+            'Has your salary come in? @ 2026-09-17 12:00:00.000',
+            'Has your salary come in? @ 2026-09-18 12:00:00.000',
+            'Payday today? @ 2026-09-30 12:00:00.000',
+          ],
+          reason: "the 15th's own reminder has passed",
+        );
 
         // A gift isn't the salary.
         final gift = pay(DateTime(2026, 9, 16, 9), source: 'Gift');

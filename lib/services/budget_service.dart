@@ -90,12 +90,16 @@ class BudgetService {
     }
     final batch = FirebaseFirestore.instance.batch();
 
-    batch.set(_profile.collection('allocationCycles').doc(cycle.id), {
-      'leftoverDecision': decision.name,
-      'leftoverSaved': saved,
-      'leftoverSpent': spent,
-      'leftoverDecidedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    batch.set(
+      _profile.collection('allocationCycles').doc(cycle.id),
+      {
+        'leftoverDecision': decision.name,
+        'leftoverSaved': saved,
+        'leftoverSpent': spent,
+        'leftoverDecidedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
 
     if (saved > 0) {
       batch.set(_profile, {
@@ -125,4 +129,13 @@ double? customDailyLimitFrom(Map<String, dynamic>? profile) {
 double savingsReserveFrom(Map<String, dynamic>? profile) {
   final value = profile?['savingsReserve'];
   return value is num && value > 0 ? value.toDouble() : 0;
+}
+
+double? plannedAllocationFrom(Map<String, dynamic>? profile, String key) {
+  final allocations = profile?['plannedAllocations'];
+  if (allocations is! Map) return null;
+  final amount = allocations[key];
+  return amount is num && amount.isFinite && amount >= 0
+      ? amount.toDouble()
+      : null;
 }
