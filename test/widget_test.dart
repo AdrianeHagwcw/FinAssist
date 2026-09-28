@@ -346,6 +346,7 @@ void main() {
             pages: const [
               Text('Home page'),
               Text('Transactions page'),
+              Text('Bills page'),
               Text('Wallet page'),
             ],
             quickAddActions: actions,
@@ -354,10 +355,10 @@ void main() {
       );
     }
 
-    testWidgets('has three tabs that switch in place', (tester) async {
+    testWidgets('has four tabs that switch in place', (tester) async {
       await pumpShell(tester, actions: const []);
 
-      for (final label in ['Home', 'Transactions', 'Wallet']) {
+      for (final label in ['Home', 'Transactions', 'Bills', 'Wallet']) {
         expect(find.text(label), findsOneWidget);
       }
       // Savings and debts are opened from Home, not from the bar.
@@ -394,6 +395,7 @@ void main() {
             pages: [
               const Text('Home page'),
               tab('Transactions page'),
+              tab('Bills page'),
               tab('Wallet page'),
             ],
             quickAddActions: const [],
@@ -409,6 +411,47 @@ void main() {
       await tester.tap(back);
       await tester.pump();
       expect(find.text('Home page').hitTestable(), findsOneWidget);
+    });
+
+    testWidgets('Bill Planner on Home opens the tab rather than a screen', (
+      tester,
+    ) async {
+      var opened = 0;
+      tester.view.physicalSize = const Size(800, 3200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: HomeScreen(
+              userName: 'Dave',
+              wallets: Stream.value(const []),
+              transactions: Stream.value(const []),
+              safeToSpend: const SizedBox(height: 40),
+              today: DateTime(2026, 9, 28),
+              onOpenBills: () => opened++,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final tile = find
+          .ancestor(
+            of: find.text('Bill Planner'),
+            matching: find.byType(InkWell),
+          )
+          .first;
+      await tester.ensureVisible(tile);
+      await tester.tap(tile);
+      await tester.pump();
+
+      expect(opened, 1);
     });
 
     testWidgets('a tab shown on its own has no back arrow', (tester) async {
@@ -2544,6 +2587,39 @@ void main() {
       await tester.pump();
     }
 
+    testWidgets('changing just this one closes cleanly, saved or cancelled', (
+      tester,
+    ) async {
+      await pumpDetail(tester, current: instance());
+
+      Future<void> openMenu() async {
+        await tester.tap(find.byTooltip('Bill options'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text("Change this date's amount"));
+        await tester.pumpAndSettle();
+      }
+
+      await openMenu();
+      expect(find.text('This date only'), findsOneWidget);
+
+      // Backing out tears the dialog down while its text field is still on
+      // screen, which is where it used to fall over.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('This date only'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      // Leaving it blank closes the dialog without saving anything, which
+      // tears it down the same way a real save does.
+      await openMenu();
+      await tester.enterText(find.byType(TextField).last, '');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('This date only'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('shows what is owed, when, and how it repeats', (tester) async {
       await pumpDetail(tester, current: instance());
 
@@ -3488,6 +3564,89 @@ void main() {
       await tester.tap(find.text('Delete').last);
       await tester.pumpAndSettle();
       expect(deleted, isTrue);
+    });
+  });
+
+  group('which wallets an entry may come from', () {
+    Wallet holding(String id, WalletPurpose purpose) => Wallet(
+      id: id,
+      name: purpose.defaultName ?? id,
+      type: WalletType.other,
+      balance: 1000,
+      startingBalance: 0,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+      purpose: purpose,
+    );
+
+    final cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 500,
+      startingBalance: 500,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+
+    Future<void> pumpPicker(
+      WidgetTester tester, {
+      Set<WalletPurpose>? allowed,
+    }) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: WalletPicker(
+                wallets: [
+                  cash,
+                  holding('b', WalletPurpose.bills),
+                  holding('s', WalletPurpose.savings),
+                ],
+                selectedId: 'cash',
+                onChanged: (_) {},
+                allowed: allowed ?? const {WalletPurpose.spending},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('spending money only, by default', (tester) async {
+      await pumpPicker(tester);
+
+      expect(find.text('Cash'), findsWidgets);
+      expect(find.text('Savings'), findsNothing);
+      expect(find.text('Bills'), findsNothing);
+    });
+
+    testWidgets('paying a bill may come from the bills wallet, never savings', (
+      tester,
+    ) async {
+      await pumpPicker(
+        tester,
+        allowed: const {WalletPurpose.spending, WalletPurpose.bills},
+      );
+
+      expect(find.text('Bills'), findsOneWidget);
+      expect(find.text('Savings'), findsNothing);
+    });
+
+    testWidgets('a transfer may move money in and out of either', (
+      tester,
+    ) async {
+      await pumpPicker(tester, allowed: WalletPurpose.values.toSet());
+
+      expect(find.text('Bills'), findsOneWidget);
+      expect(find.text('Savings'), findsOneWidget);
     });
   });
 

@@ -17,6 +17,7 @@ import '../services/goal_service.dart';
 import '../services/reminder_scheduler.dart';
 import '../services/reminder_service.dart';
 import 'add_expense_screen.dart';
+import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
 import 'goal_detail_screen.dart';
 import 'goals_screen.dart';
@@ -43,7 +44,8 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static const _homeIndex = 0;
   static const _transactionsIndex = 1;
-  static const _walletIndex = 2;
+  static const _billsIndex = 2;
+  static const _walletIndex = 3;
 
   /// Opens the Goals tab on savings or on a debts list.
   final _goalsTab = GoalsTabController();
@@ -183,11 +185,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             key: ValueKey(_homeRefreshKey),
             onOpenTransactions: () => _selectTab(_transactionsIndex),
             onOpenWallets: () => _selectTab(_walletIndex),
+            onOpenBills: () => _selectTab(_billsIndex),
             // Savings on Home opens the savings balance; the goals behind it
             // are one tap further in.
             onOpenDebts: () => _openDebts(DebtDirection.iOwe),
           ),
           const TransactionsScreen(),
+          const BillCalendarScreen(),
           const WalletsScreen(),
         ];
   }
@@ -294,6 +298,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               ),
               // Space for the "+" button docked in the middle.
               const SizedBox(width: 72),
+              _NavItem(
+                iconAsset: 'assets/icons/icons8-calendar-96.png',
+                label: 'Bills',
+                selected: _currentIndex == _billsIndex,
+                onTap: () => _selectTab(_billsIndex),
+              ),
               _NavItem(
                 iconAsset: 'assets/icons/icons8-wallet-96.png',
                 label: 'Wallet',

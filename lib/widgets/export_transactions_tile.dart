@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../services/transaction_export.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_theme.dart';
 
 /// The Settings row that writes the user's records out as a spreadsheet.
 ///
@@ -66,11 +65,10 @@ class _ExportTransactionsTileState extends State<ExportTransactionsTile> {
           color: context.appColors.primaryTint,
           borderRadius: BorderRadius.circular(10),
         ),
-        child: const Icon(
-          Icons.file_download_outlined,
-          size: 24,
-          color: appPrimaryBlue,
-        ),
+        // The same drawn icon the rows around it use, rather than a flat
+        // Material one.
+        padding: const EdgeInsets.all(9),
+        child: Image.asset('assets/icons/icons8-transactions-96.png'),
       ),
       title: const Text(
         'Export transactions',

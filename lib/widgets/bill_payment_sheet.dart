@@ -210,6 +210,12 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                         wallets: wallets,
                         selectedId: walletId,
                         label: 'Paid from',
+                        // The bills wallet is exactly what this is for; the
+                        // savings wallet is not offered.
+                        allowed: const {
+                          WalletPurpose.spending,
+                          WalletPurpose.bills,
+                        },
                         onChanged: (value) => setState(() => _walletId = value),
                       ),
                       const SizedBox(height: 20),

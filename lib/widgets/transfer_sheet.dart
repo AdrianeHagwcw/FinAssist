@@ -140,6 +140,9 @@ class _TransferSheetState extends State<TransferSheet> {
                         wallets: wallets,
                         selectedId: from,
                         label: 'From',
+                        // Moving money on purpose is the one place every
+                        // wallet may be picked, in either direction.
+                        allowed: WalletPurpose.values.toSet(),
                         onChanged: (value) => setState(() {
                           _fromId = value;
                           if (_toId == value) _toId = null;
@@ -151,6 +154,7 @@ class _TransferSheetState extends State<TransferSheet> {
                         selectedId: _toId,
                         label: 'To',
                         excludeId: from,
+                        allowed: WalletPurpose.values.toSet(),
                         onChanged: (value) => setState(() => _toId = value),
                       ),
                       const SizedBox(height: 16),

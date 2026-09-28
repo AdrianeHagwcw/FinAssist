@@ -40,6 +40,7 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     this.onOpenTransactions,
     this.onOpenWallets,
+    this.onOpenBills,
     this.onOpenSavings,
     this.onOpenDebts,
     this.userName,
@@ -57,6 +58,9 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback? onOpenWallets;
 
   /// Switch the app to the Goals tab, on savings or on debts.
+  /// Opens the Bill Planner. The shell switches to its tab; on its own the
+  /// screen is pushed instead.
+  final VoidCallback? onOpenBills;
   final VoidCallback? onOpenSavings;
   final VoidCallback? onOpenDebts;
 
@@ -290,7 +294,7 @@ class _HomeScreenState extends State<HomeScreen> {
             tile(
               'assets/icons/icons8-calendar-96.png',
               'Bill Planner',
-              () => _push(const BillCalendarScreen()),
+              widget.onOpenBills ?? () => _push(const BillCalendarScreen()),
             ),
             const SizedBox(width: 12),
             tile(
