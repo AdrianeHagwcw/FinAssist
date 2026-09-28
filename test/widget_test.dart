@@ -2013,6 +2013,34 @@ void main() {
       expect(find.text('₱3,200'), findsOneWidget);
     });
 
+    testWidgets('one tap unticks every bill, and another brings them back', (
+      tester,
+    ) async {
+      await pumpWaterfall(
+        tester,
+        bills: [bill('Rent', 1500), bill('Load', 300)],
+      );
+
+      await fillIncome(tester, '5000');
+      await next(tester);
+
+      expect(find.text('2 bills'), findsOneWidget);
+      expect(find.text('₱3,200'), findsOneWidget);
+
+      await tester.tap(find.text('Uncheck all'));
+      await tester.pump();
+
+      // Nothing is paid now, so the whole ₱5,000 is left.
+      expect(find.text('₱5,000'), findsWidgets);
+      expect(find.text('Check all'), findsOneWidget);
+
+      await tester.tap(find.text('Check all'));
+      await tester.pump();
+
+      expect(find.text('₱3,200'), findsOneWidget);
+      expect(find.text('Uncheck all'), findsOneWidget);
+    });
+
     testWidgets('a bill cannot be paid more than it owes', (tester) async {
       await pumpWaterfall(tester, bills: [bill('Rent', 1500)]);
 
