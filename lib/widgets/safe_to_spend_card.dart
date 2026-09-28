@@ -183,10 +183,12 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
     final now = _now;
     final frequency = profile?['incomeFrequency'] as String?;
     // Only pay starts a new period; a gift just adds to this one.
-    final lastIncome = lastPayday(
-      cycles,
-      usualSource: profile?['incomeSource'] as String?,
-    );
+    final lastIncome =
+        lastPayday(
+          cycles,
+          usualSource: profile?['incomeSource'] as String?,
+        ) ??
+        setupPaydayFrom(profile);
     final period = payPeriodFor(frequency, lastIncomeAt: lastIncome, now: now);
     final startOfToday = DateTime(now.year, now.month, now.day);
 

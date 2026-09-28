@@ -23,6 +23,7 @@ import 'package:testapp/providers/app_settings_provider.dart';
 import 'package:testapp/screens/bill_calendar_screen.dart';
 import 'package:testapp/screens/bill_detail_screen.dart';
 import 'package:testapp/screens/chatbot_screen.dart';
+import 'package:testapp/screens/set_aside_screen.dart';
 import 'package:testapp/screens/debt_detail_screen.dart';
 import 'package:testapp/screens/debts_screen.dart';
 import 'package:testapp/screens/financial_setup_screen.dart';
@@ -346,6 +347,7 @@ void main() {
               Text('Home page'),
               Text('Transactions page'),
               Text('Goals page'),
+              Text('Set aside page'),
               Text('Wallet page'),
             ],
             quickAddActions: actions,
@@ -354,10 +356,16 @@ void main() {
       );
     }
 
-    testWidgets('has four tabs that switch in place', (tester) async {
+    testWidgets('has five tabs that switch in place', (tester) async {
       await pumpShell(tester, actions: const []);
 
-      for (final label in ['Home', 'Transactions', 'Goals', 'Wallet']) {
+      for (final label in [
+        'Home',
+        'Transactions',
+        'Goals',
+        'Set aside',
+        'Wallet',
+      ]) {
         expect(find.text(label), findsOneWidget);
       }
 
@@ -392,6 +400,7 @@ void main() {
               const Text('Home page'),
               tab('Transactions page'),
               tab('Goals page'),
+              tab('Set aside page'),
               tab('Wallet page'),
             ],
             quickAddActions: const [],
@@ -561,6 +570,15 @@ void main() {
       );
       await tester.enterText(find.byType(TextFormField).at(0), '5,000');
 
+      // The pay period is counted from the day the user last got paid, so
+      // setup asks for it with a calendar.
+      await tester.ensureVisible(find.byKey(const Key('last-payday')));
+      await tester.tap(find.byKey(const Key('last-payday')));
+      await tester.pumpAndSettle();
+      expect(find.text('When did you last get paid?'), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
       // The first priority can't move up; moving it down swaps it.
       final moveUp = find.byTooltip('Move "Pay bills on time" up');
       await tester.ensureVisible(moveUp);
@@ -634,6 +652,7 @@ void main() {
       expect(saved!.notificationsEnabled, isTrue);
       expect(saved!.incomeSource, 'Allowance');
       expect(saved!.incomeFrequency, 'Semi-monthly');
+      expect(saved!.lastPaydayAt, isNotNull);
       expect(saved!.income, 5000);
       expect(saved!.dailyBudget, isNull);
       expect(saved!.plannedBills, 2000);
@@ -3479,6 +3498,147 @@ void main() {
     });
   });
 
+  group('the Set aside tab', () {
+    Wallet holding(String id, double balance, WalletPurpose purpose) {
+      return Wallet(
+        id: id,
+        name: purpose.defaultName ?? id,
+        type: WalletType.other,
+        balance: balance,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: purpose,
+      );
+    }
+
+    BillInstance unpaid(String name, double amount, DateTime due) {
+      return BillInstance(
+        id: 'i_$name',
+        billId: 'b_$name',
+        name: name,
+        amount: amount,
+        category: 'Bills',
+        dueDate: due,
+        status: BillStatus.unpaid,
+      );
+    }
+
+    Future<void> pumpSetAside(
+      WidgetTester tester, {
+      List<Wallet> wallets = const [],
+      List<Goal> goals = const [],
+      List<BillInstance> bills = const [],
+      SetAsidePart part = SetAsidePart.savings,
+    }) async {
+      tester.view.physicalSize = const Size(800, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: SetAsideScreen(
+              wallets: Stream.value(wallets),
+              goals: Stream.value(goals),
+              loadBills: () async => bills,
+              today: DateTime(2026, 9, 28),
+              initialPart: part,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('savings opens with its own total balance', (tester) async {
+      await pumpSetAside(
+        tester,
+        wallets: [
+          holding('s', 2000, WalletPurpose.savings),
+          holding('b', 5000, WalletPurpose.bills),
+        ],
+        goals: const [
+          Goal(
+            id: 'e',
+            name: 'Emergency fund',
+            targetAmount: 10000,
+            savedAmount: 1500,
+            priority: 0,
+            status: GoalStatus.active,
+          ),
+        ],
+      );
+
+      expect(find.text('Savings'), findsWidgets);
+      expect(find.text('Total balance'), findsOneWidget);
+      expect(find.text('₱2,000'), findsOneWidget);
+      expect(find.text('Emergency fund'), findsOneWidget);
+      expect(find.text('₱1,500'), findsOneWidget);
+      // ₱2,000 saved, ₱1,500 of it promised to the goal.
+      expect(find.text('Not promised to a goal yet'), findsOneWidget);
+      expect(find.text('₱500'), findsOneWidget);
+    });
+
+    testWidgets('savings says when the goals count more than is saved', (
+      tester,
+    ) async {
+      await pumpSetAside(
+        tester,
+        wallets: [holding('s', 1000, WalletPurpose.savings)],
+        goals: const [
+          Goal(
+            id: 'e',
+            name: 'Emergency fund',
+            targetAmount: 10000,
+            savedAmount: 2500,
+            priority: 0,
+            status: GoalStatus.active,
+          ),
+        ],
+      );
+
+      expect(find.text('Still to move into savings'), findsOneWidget);
+      expect(find.text('₱1,500'), findsOneWidget);
+    });
+
+    testWidgets('bills opens with its total and what is still to pay', (
+      tester,
+    ) async {
+      await pumpSetAside(
+        tester,
+        part: SetAsidePart.bills,
+        wallets: [holding('b', 1200, WalletPurpose.bills)],
+        bills: [
+          unpaid('Rent', 1000, DateTime(2026, 9, 20)),
+          unpaid('Water', 700, DateTime(2026, 10, 2)),
+        ],
+      );
+
+      expect(find.text('Bills'), findsWidgets);
+      expect(find.text('Total balance'), findsOneWidget);
+      expect(find.text('₱1,200'), findsOneWidget);
+      expect(find.text('Rent'), findsOneWidget);
+      expect(find.textContaining('Overdue'), findsOneWidget);
+      expect(find.text('Water'), findsOneWidget);
+      // ₱1,700 owed against ₱1,200 held.
+      expect(find.text('Still to set aside'), findsOneWidget);
+      expect(find.text('₱500'), findsOneWidget);
+    });
+
+    testWidgets('an account with nothing set aside says so', (tester) async {
+      await pumpSetAside(tester);
+
+      expect(find.text('₱0'), findsOneWidget);
+      expect(find.text('No savings goal yet'), findsOneWidget);
+    });
+  });
+
   group('pay periods', () {
     test('period lengths follow weekly, semi-monthly and calendar months', () {
       final weekly = payPeriodFor('Weekly', now: DateTime(2026, 3, 4));
@@ -3506,6 +3666,19 @@ void main() {
       expect(late.start, DateTime(2026, 3, 15));
       expect(late.end, DateTime(2026, 3, 30));
       expect(late.end.difference(late.start).inDays, 15);
+    });
+
+    test('the day given at setup starts the first period', () {
+      // Right after setup, someone paid today has the whole fifteen days.
+      final today = DateTime(2026, 9, 28);
+      final period = payPeriodFor(
+        'Semi-monthly',
+        lastIncomeAt: setupPaydayFrom({'lastPaydayAt': Timestamp.fromDate(today)}),
+        now: today,
+      );
+
+      expect(period.start, today);
+      expect(period.daysLeft(today), 15);
     });
 
     test('pay twice a month lasts fifteen days from the day it is logged', () {

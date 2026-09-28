@@ -8,6 +8,7 @@ import '../services/reminder_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../utils/date_format.dart';
 import '../theme/app_theme.dart';
 import '../utils/money_format.dart';
 import '../widgets/app_logo.dart';
@@ -83,6 +84,10 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   bool _notificationsEnabled = false;
   String? _incomeSource;
   String? _incomeFrequency;
+
+  /// The day the user last got paid. It anchors the first pay period, so the
+  /// days left on Home are right as soon as setup is finished.
+  DateTime? _lastPaydayAt;
   final List<FinancialPriority> _priorities = FinancialPriority.values.toList();
   final List<WalletDraft> _wallets = [];
   bool _showWalletError = false;
@@ -159,6 +164,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
       notificationsEnabled: _notificationsEnabled,
       incomeSource: _incomeSource!,
       incomeFrequency: _incomeFrequency!,
+      lastPaydayAt: _lastPaydayAt,
       income: _parseAmount(_incomeController.text),
       dailyBudget: dailyBudgetText.isEmpty
           ? null
@@ -579,6 +585,68 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
               Icons.lightbulb_outline,
               "No fixed payday? No problem. Each time you add income, you'll "
               'choose how long it should last.',
+            ),
+          ] else ...[
+            const SizedBox(height: 20),
+            _label('When did you last receive it?'),
+            FormField<DateTime>(
+              initialValue: _lastPaydayAt,
+              validator: (_) => _incomeFrequency == null || _lastPaydayAt != null
+                  ? null
+                  : 'Choose the day your last pay came in.',
+              builder: (field) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  InkWell(
+                    key: const Key('last-payday'),
+                    onTap: () async {
+                      final today = DateTime.now();
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _lastPaydayAt ?? today,
+                        firstDate: DateTime(today.year - 1),
+                        lastDate: today,
+                        helpText: 'When did you last get paid?',
+                      );
+                      if (picked == null) return;
+                      setState(() => _lastPaydayAt = picked);
+                      field.didChange(picked);
+                    },
+                    child: InputDecorator(
+                      decoration: _inputDecoration(
+                        'Select the date',
+                      ).copyWith(errorText: field.errorText),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _lastPaydayAt == null
+                                  ? 'Select the date'
+                                  : formatShortDate(_lastPaydayAt!),
+                              style: TextStyle(
+                                color: _lastPaydayAt == null
+                                    ? colors.textBody
+                                    : colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          Image.asset(
+                            'assets/icons/icons8-calendar-96.png',
+                            width: 22,
+                            height: 22,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _noteRow(
+                    Icons.info_outline,
+                    'Your pay period is counted from this day, so Home can '
+                    'show how many days it still has to last.',
+                  ),
+                ],
+              ),
             ),
           ],
           const SizedBox(height: 20),

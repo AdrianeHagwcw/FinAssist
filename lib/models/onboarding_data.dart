@@ -19,6 +19,7 @@ class OnboardingData {
     required this.notificationsEnabled,
     required this.incomeSource,
     required this.incomeFrequency,
+    this.lastPaydayAt,
     required this.income,
     required this.dailyBudget,
     required this.priorities,
@@ -32,6 +33,10 @@ class OnboardingData {
   final bool notificationsEnabled;
   final String incomeSource;
   final String incomeFrequency;
+
+  /// The day the user last received their pay. It starts the first pay
+  /// period, so the days left are right from the moment setup is finished.
+  final DateTime? lastPaydayAt;
 
   /// Usual income per pay period. For irregular income this is an optional
   /// rough monthly estimate, and null when the user left it blank.

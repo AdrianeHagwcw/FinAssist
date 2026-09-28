@@ -52,10 +52,12 @@ Stream<FinanceSnapshot> watchFinanceSnapshot() {
         debts: debts,
         incomeFrequency: profile?['incomeFrequency'] as String?,
         usualIncome: income is num && income > 0 ? income.toDouble() : null,
-        lastIncomeAt: lastPayday(
-          cycles,
-          usualSource: profile?['incomeSource'] as String?,
-        ),
+        lastIncomeAt:
+            lastPayday(
+              cycles,
+              usualSource: profile?['incomeSource'] as String?,
+            ) ??
+            setupPaydayFrom(profile),
         savingsReserve: savingsReserveFrom(profile),
         customDailyLimit: customDailyLimitFrom(profile),
         periodBudget: plannedAllocationFrom(profile, 'others'),

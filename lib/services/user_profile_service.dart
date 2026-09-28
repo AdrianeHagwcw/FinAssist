@@ -98,6 +98,10 @@ class UserProfileService {
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
+    if (data.lastPaydayAt != null) {
+      profileData['lastPaydayAt'] = Timestamp.fromDate(data.lastPaydayAt!);
+    }
+
     if (data.income != null) {
       profileData['income'] = data.income;
     }

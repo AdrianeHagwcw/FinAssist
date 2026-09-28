@@ -161,6 +161,17 @@ double? customDailyLimitFrom(Map<String, dynamic>? profile) {
   return amount;
 }
 
+/// The payday the user gave during setup, before any income is recorded.
+///
+/// Without it a fresh account has nothing to count a pay period from, and
+/// Home would fall back to the calendar instead of the user's own payday.
+DateTime? setupPaydayFrom(Map<String, dynamic>? profile) {
+  final value = profile?['lastPaydayAt'];
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  return null;
+}
+
 double savingsReserveFrom(Map<String, dynamic>? profile) {
   final value = profile?['savingsReserve'];
   return value is num && value > 0 ? value.toDouble() : 0;

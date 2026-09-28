@@ -115,10 +115,9 @@ class _WalletsScreenState extends State<WalletsScreen> {
             );
           }
 
-          // Bills and savings money is shown apart from spending money, so
-          // the balance at the top is only what the user may spend.
+          // Bills and savings money has its own tab, so only spending
+          // wallets are listed here; their total is named underneath.
           final spending = wallets.where((w) => !w.isSetAside).toList();
-          final setAside = wallets.where((w) => w.isSetAside).toList();
 
           return StreamBuilder<String?>(
             stream: _incomeSource,
@@ -160,42 +159,6 @@ class _WalletsScreenState extends State<WalletsScreen> {
                       onRemove: () => removeWallet(context, wallet),
                     ),
                     const SizedBox(height: 12),
-                  ],
-                  if (setAside.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'Set aside',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: colors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Money already promised to bills and savings. It is kept '
-                      'out of your total balance.',
-                      style: TextStyle(fontSize: 12, color: colors.textBody),
-                    ),
-                    const SizedBox(height: 12),
-                    for (final wallet in setAside) ...[
-                      _WalletCard(
-                        wallet: wallet,
-                        incomeSource: incomeSnapshot.data,
-                        onTap: () => _openWallet(wallet),
-                        onTransfer: () =>
-                            showTransferSheet(context, fromWalletId: wallet.id),
-                        onAddIncome: () =>
-                            showIncomeWaterfall(context, walletId: wallet.id),
-                        onEdit: () => editWallet(context, wallet),
-                        onSetIncomeWallet: () => WalletService.setIncomeWallet(
-                          wallet.id,
-                          currentWallets: wallets,
-                        ),
-                        onRemove: () => removeWallet(context, wallet),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
                   ],
                   const SizedBox(height: 4),
                   _AddWalletButton(onPressed: () => _addWallet(wallets)),
