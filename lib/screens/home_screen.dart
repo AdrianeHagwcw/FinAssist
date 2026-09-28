@@ -26,12 +26,12 @@ import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
 import 'chatbot_screen.dart';
 import 'debts_screen.dart';
-import 'goals_screen.dart';
 import 'income_waterfall_screen.dart';
 import 'leftover_review_screen.dart';
 import 'ocr_screen.dart';
 import 'profile_screen.dart';
 import 'reports_screen.dart';
+import 'set_aside_screen.dart';
 import 'voice_recognition_screen.dart';
 
 /// The landing screen: what is safe to spend today, what the wallets hold,
@@ -92,8 +92,6 @@ class _HomeScreenState extends State<HomeScreen> {
   /// The bills the Safe to Spend card loaded, reused by the tip so the screen
   /// doesn't read them twice.
   List<BillInstance> _bills = const [];
-  double? _plannedBills;
-  double? _plannedSavings;
 
   String get _name {
     if (widget.userName != null) return widget.userName!;
@@ -190,28 +188,28 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         const SizedBox(height: 16),
         _BalanceCard(wallets: wallets, onTap: widget.onOpenWallets),
-        if (_plannedBills != null || _plannedSavings != null) ...[
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _PlannedAllocationCard(
-                  title: 'Bills',
-                  amount: _plannedBills ?? 0,
-                  icon: Icons.receipt_long_outlined,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _PlannedAllocationCard(
-                  title: 'Savings',
-                  amount: _plannedSavings ?? 0,
-                  icon: Icons.savings_outlined,
-                ),
-              ),
-            ],
-          ),
-        ],
+        const SizedBox(height: 12),
+        // Bills and savings money sits in its own wallet, so each has its own
+        // balance here rather than being counted into the one above.
+        _SetAsideBalanceCard(
+          title: 'Bills Total Balance',
+          note: 'Money reserved for your bills',
+          iconAsset: 'assets/icons/icons8-receipt-96.png',
+          amount: wallets == null
+              ? null
+              : walletBalanceFor(wallets, WalletPurpose.bills),
+          onTap: () => _openSetAside(SetAsidePart.bills),
+        ),
+        const SizedBox(height: 12),
+        _SetAsideBalanceCard(
+          title: 'Savings Total Balance',
+          note: 'Money set aside for your goals',
+          iconAsset: 'assets/icons/icons8-money-box-96.png',
+          amount: wallets == null
+              ? null
+              : walletBalanceFor(wallets, WalletPurpose.savings),
+          onTap: () => _openSetAside(SetAsidePart.savings),
+        ),
 
         const SizedBox(height: 25),
         _SectionTitle('Quick Actions'),
@@ -268,6 +266,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Opens the balance the user tapped: the bills wallet or the savings one.
+  void _openSetAside(SetAsidePart part) =>
+      _push(SetAsideScreen(initialPart: part));
+
   Widget _quickActions() {
     Widget tile(String asset, String title, VoidCallback onTap) {
       return Expanded(
@@ -294,7 +296,7 @@ class _HomeScreenState extends State<HomeScreen> {
             tile(
               'assets/icons/icons8-money-box-96.png',
               'Savings',
-              widget.onOpenSavings ?? () => _push(const GoalsScreen()),
+              widget.onOpenSavings ?? () => _openSetAside(SetAsidePart.savings),
             ),
             const SizedBox(width: 12),
             tile(
@@ -355,17 +357,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Bills due soon, then the leftover decision when one is waiting.
   Widget _belowCard(BuildContext context, SafeToSpendInputs inputs) {
     // Kept for the tip above, which is built before this runs.
-    if (!identical(_bills, inputs.bills) ||
-        _plannedBills != inputs.plannedBills ||
-        _plannedSavings != inputs.plannedSavings) {
+    if (!identical(_bills, inputs.bills)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _bills = inputs.bills;
-            _plannedBills = inputs.plannedBills;
-            _plannedSavings = inputs.plannedSavings;
-          });
-        }
+        if (mounted) setState(() => _bills = inputs.bills);
       });
     }
 
@@ -418,60 +412,86 @@ class _HomeScreenState extends State<HomeScreen> {
   );
 }
 
-class _PlannedAllocationCard extends StatelessWidget {
-  const _PlannedAllocationCard({
+/// A balance the user has already promised: what is kept for bills, and what
+/// is kept as savings. Tapping one opens where that money is going.
+class _SetAsideBalanceCard extends StatelessWidget {
+  const _SetAsideBalanceCard({
     required this.title,
+    required this.note,
+    required this.iconAsset,
     required this.amount,
-    required this.icon,
+    required this.onTap,
   });
 
   final String title;
-  final double amount;
-  final IconData icon;
+  final String note;
+  final String iconAsset;
+
+  /// Null while the wallets are still loading.
+  final double? amount;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 92),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+
+    return Material(
+      color: colors.card,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.border),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Row(
             children: [
-              Icon(icon, size: 18, color: colors.primaryText),
-              const SizedBox(width: 7),
-              Text(
-                title,
-                style: TextStyle(
-                  color: colors.textBody,
-                  fontWeight: FontWeight.w600,
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: colors.primaryTint,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.all(9),
+                child: Image.asset(iconAsset),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(color: colors.textBody, fontSize: 13),
+                    ),
+                    const SizedBox(height: 2),
+                    MoneyText(
+                      amount ?? 0,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      note,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: colors.textBody, fontSize: 12),
+                    ),
+                  ],
                 ),
               ),
+              Icon(Icons.chevron_right, color: colors.textBody),
             ],
           ),
-          const SizedBox(height: 8),
-          MoneyText(
-            amount,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          Text(
-            'planned per pay',
-            style: TextStyle(color: colors.textBody, fontSize: 11),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -583,7 +603,7 @@ class _BalanceCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Total Balance',
+                      'Wallet Total Balance',
                       style: TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                     const SizedBox(height: 2),

@@ -346,8 +346,6 @@ void main() {
             pages: const [
               Text('Home page'),
               Text('Transactions page'),
-              Text('Goals page'),
-              Text('Set aside page'),
               Text('Wallet page'),
             ],
             quickAddActions: actions,
@@ -356,25 +354,22 @@ void main() {
       );
     }
 
-    testWidgets('has five tabs that switch in place', (tester) async {
+    testWidgets('has three tabs that switch in place', (tester) async {
       await pumpShell(tester, actions: const []);
 
-      for (final label in [
-        'Home',
-        'Transactions',
-        'Goals',
-        'Set aside',
-        'Wallet',
-      ]) {
+      for (final label in ['Home', 'Transactions', 'Wallet']) {
         expect(find.text(label), findsOneWidget);
       }
+      // Savings and debts are opened from Home, not from the bar.
+      expect(find.text('Goals'), findsNothing);
+      expect(find.text('Set aside'), findsNothing);
 
-      await tester.tap(find.text('Goals'));
+      await tester.tap(find.text('Wallet'));
       await tester.pump();
       expect(
-        find.text('Goals page').hitTestable(),
+        find.text('Wallet page').hitTestable(),
         findsOneWidget,
-        reason: 'Goals tab should be visible after tapping it',
+        reason: 'Wallet tab should be visible after tapping it',
       );
       expect(find.text('Home page').hitTestable(), findsNothing);
     });
@@ -399,8 +394,6 @@ void main() {
             pages: [
               const Text('Home page'),
               tab('Transactions page'),
-              tab('Goals page'),
-              tab('Set aside page'),
               tab('Wallet page'),
             ],
             quickAddActions: const [],
@@ -6084,10 +6077,23 @@ void main() {
       sortOrder: 1,
     );
 
+    Wallet holding(String id, double balance, WalletPurpose purpose) => Wallet(
+      id: id,
+      name: purpose.defaultName ?? id,
+      type: WalletType.other,
+      balance: balance,
+      startingBalance: 0,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 2,
+      purpose: purpose,
+    );
+
     Future<void> pumpHome(
       WidgetTester tester,
-      List<AppTransaction> transactions,
-    ) async {
+      List<AppTransaction> transactions, {
+      List<Wallet>? wallets,
+    }) async {
       tester.view.physicalSize = const Size(800, 3200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -6100,7 +6106,7 @@ void main() {
             theme: AppTheme.light,
             home: HomeScreen(
               userName: 'Hayato',
-              wallets: Stream.value([cash, gcash]),
+              wallets: Stream.value(wallets ?? [cash, gcash]),
               transactions: Stream.value(transactions),
               safeToSpend: const SizedBox(
                 height: 80,
@@ -6116,6 +6122,41 @@ void main() {
       await tester.pump();
       await tester.pump();
     }
+
+    testWidgets('shows a balance for spending, bills and savings', (
+      tester,
+    ) async {
+      await pumpHome(
+        tester,
+        const [],
+        wallets: [
+          cash,
+          gcash,
+          holding('b', 5000, WalletPurpose.bills),
+          holding('s', 8000, WalletPurpose.savings),
+        ],
+      );
+
+      expect(find.text('Wallet Total Balance'), findsOneWidget);
+      expect(find.text('Bills Total Balance'), findsOneWidget);
+      expect(find.text('Savings Total Balance'), findsOneWidget);
+
+      // ₱15,000 to spend; the ₱5,000 for bills and ₱8,000 saved are named
+      // on their own and never counted into it.
+      expect(find.text('₱15,000'), findsOneWidget);
+      expect(find.text('₱5,000'), findsOneWidget);
+      expect(find.text('₱8,000'), findsOneWidget);
+    });
+
+    testWidgets('the bills and savings balances read zero when empty', (
+      tester,
+    ) async {
+      await pumpHome(tester, const []);
+
+      expect(find.text('Bills Total Balance'), findsOneWidget);
+      expect(find.text('Savings Total Balance'), findsOneWidget);
+      expect(find.text('₱0'), findsNWidgets(2));
+    });
 
     testWidgets('reads the wallet ledger, with Safe to Spend first', (
       tester,
@@ -6158,7 +6199,7 @@ void main() {
       }
 
       final safeTop = tester.getTopLeft(find.text('Safe to Spend placeholder'));
-      final balanceTop = tester.getTopLeft(find.text('Total Balance'));
+      final balanceTop = tester.getTopLeft(find.text('Wallet Total Balance'));
       expect(safeTop.dy, lessThan(balanceTop.dy));
 
       // The bill payment is spending; the loan to Ana isn't.

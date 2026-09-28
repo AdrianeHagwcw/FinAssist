@@ -22,7 +22,6 @@ import 'goal_detail_screen.dart';
 import 'goals_screen.dart';
 import 'home_screen.dart';
 import 'income_waterfall_screen.dart';
-import 'set_aside_screen.dart';
 import 'transactions_screen.dart';
 import 'wallets_screen.dart';
 
@@ -44,9 +43,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static const _homeIndex = 0;
   static const _transactionsIndex = 1;
-  static const _goalsIndex = 2;
-  static const _setAsideIndex = 3;
-  static const _walletIndex = 4;
+  static const _walletIndex = 2;
 
   /// Opens the Goals tab on savings or on a debts list.
   final _goalsTab = GoalsTabController();
@@ -142,14 +139,24 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     }
   }
 
+  /// Goals and debts have no tab of their own any more, so they open as a
+  /// screen on top of Home.
+  void _openGoals() {
+    _selectTab(_homeIndex);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => GoalsScreen(controller: _goalsTab)),
+    );
+  }
+
   void _openSavings() {
-    _selectTab(_goalsIndex);
     _goalsTab.openSavings();
+    _openGoals();
   }
 
   void _openDebts(DebtDirection direction) {
-    _selectTab(_goalsIndex);
     _goalsTab.openDebts(direction);
+    _openGoals();
   }
 
   /// Adds an installment or a loan, then shows the list it went to.
@@ -176,12 +183,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             key: ValueKey(_homeRefreshKey),
             onOpenTransactions: () => _selectTab(_transactionsIndex),
             onOpenWallets: () => _selectTab(_walletIndex),
-            onOpenSavings: _openSavings,
+            // Savings on Home opens the savings balance; the goals behind it
+            // are one tap further in.
             onOpenDebts: () => _openDebts(DebtDirection.iOwe),
           ),
           const TransactionsScreen(),
-          GoalsScreen(controller: _goalsTab),
-          const SetAsideScreen(),
           const WalletsScreen(),
         ];
   }
@@ -289,18 +295,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               // Space for the "+" button docked in the middle.
               const SizedBox(width: 72),
               _NavItem(
-                iconAsset: 'assets/icons/icons8-goal-96.png',
-                label: 'Goals',
-                selected: _currentIndex == _goalsIndex,
-                onTap: () => _selectTab(_goalsIndex),
-              ),
-              _NavItem(
-                iconAsset: 'assets/icons/icons8-money-box-96.png',
-                label: 'Set aside',
-                selected: _currentIndex == _setAsideIndex,
-                onTap: () => _selectTab(_setAsideIndex),
-              ),
-              _NavItem(
                 iconAsset: 'assets/icons/icons8-wallet-96.png',
                 label: 'Wallet',
                 selected: _currentIndex == _walletIndex,
@@ -348,7 +342,7 @@ class _NavItem extends StatelessWidget {
               // with a highlight pill and a bold blue label instead.
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
+                  horizontal: 14,
                   vertical: 2,
                 ),
                 decoration: BoxDecoration(
@@ -367,10 +361,8 @@ class _NavItem extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                // Five tabs share the bar, so the labels are a size down to
-                // keep the longest one whole.
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 11,
                   color: color,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
                 ),

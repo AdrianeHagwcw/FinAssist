@@ -6,6 +6,7 @@ import '../models/wallet.dart';
 import '../services/allocation_service.dart';
 import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
@@ -13,6 +14,7 @@ import '../utils/money_format.dart';
 import '../widgets/bill_payment_sheet.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/money_text.dart';
+import 'goals_screen.dart';
 
 /// Which half of the screen is being read.
 enum SetAsidePart { savings, bills }
@@ -103,7 +105,6 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
         backgroundColor: appPrimaryBlue,
         foregroundColor: Colors.white,
         elevation: 0,
-        automaticallyImplyLeading: false,
       ),
       body: StreamBuilder<List<Wallet>>(
         stream: _wallets,
@@ -167,12 +168,23 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               .toList();
 
           if (goals.isEmpty) {
-            return const EmptyStateView(
-              iconAsset: 'assets/icons/icons8-money-box-96.png',
-              title: 'No savings goal yet',
-              message:
-                  'Add a goal in the Goals tab, such as an emergency fund or '
-                  'school money, and your savings are counted towards it here.',
+            return Column(
+              children: [
+                const EmptyStateView(
+                  iconAsset: 'assets/icons/icons8-money-box-96.png',
+                  title: 'No savings goal yet',
+                  message:
+                      'Add a goal such as an emergency fund or school money, '
+                      'and your savings are counted towards it here.',
+                ),
+                const SizedBox(height: 16),
+                _ManageGoalsButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const GoalsScreen()),
+                  ),
+                ),
+              ],
             );
           }
 
@@ -191,6 +203,13 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                 _GoalRow(goal: goal),
                 const SizedBox(height: 10),
               ],
+              _ManageGoalsButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const GoalsScreen()),
+                ),
+              ),
+              const SizedBox(height: 10),
               _NoteRow(
                 label: spare >= 0
                     ? 'Not promised to a goal yet'
@@ -309,6 +328,26 @@ class _TotalCard extends StatelessWidget {
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Opens the goals themselves, where they are added and edited.
+class _ManageGoalsButton extends StatelessWidget {
+  const _ManageGoalsButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.flag_outlined, size: 18),
+        label: const Text('Manage goals'),
+        style: openOutlineStyle(context),
       ),
     );
   }
