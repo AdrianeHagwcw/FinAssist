@@ -144,7 +144,7 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                     value: 'income-in',
                     label: 'Add income',
                     icon: Icons.add_card,
-                    color: appPrimaryBlue,
+                    color: confirmColorOn(context),
                   ),
                   menuItem(
                     value: 'transfer',

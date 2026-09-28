@@ -384,7 +384,7 @@ class _WalletCard extends StatelessWidget {
                         value: 'income-in',
                         label: 'Add income',
                         icon: Icons.add_card,
-                        color: appPrimaryBlue,
+                        color: confirmColorOn(context),
                       ),
                       menuItem(
                         value: 'transfer',
