@@ -9,6 +9,7 @@ import '../models/report.dart';
 import '../models/transaction_filter.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../utils/money_format.dart';
 import '../theme/app_theme.dart';
@@ -406,8 +407,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Same blue as the + button in both light and dark mode, so these
   /// buttons keep one look across themes.
+  // Green for money coming in, the way amounts and Mark as Paid are green.
   static final ButtonStyle _overviewButtonStyle = ElevatedButton.styleFrom(
-    backgroundColor: appPrimaryBlue,
+    backgroundColor: appConfirmGreen,
     foregroundColor: Colors.white,
     elevation: 0,
     minimumSize: const Size(0, 46),

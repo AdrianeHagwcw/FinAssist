@@ -8,7 +8,6 @@ import '../models/debt.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/back_to_home.dart';
-import '../widgets/debt_form_sheet.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
@@ -23,6 +22,8 @@ import 'goal_detail_screen.dart';
 import 'goals_screen.dart';
 import 'home_screen.dart';
 import 'income_waterfall_screen.dart';
+import 'ocr_screen.dart';
+import 'voice_recognition_screen.dart';
 import 'transactions_screen.dart';
 import 'wallets_screen.dart';
 
@@ -161,12 +162,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _openGoals();
   }
 
-  /// Adds an installment or a loan, then shows the list it went to.
-  Future<void> _addDebt(DebtDirection direction) async {
-    final saved = await showDebtFormSheet(context, direction: direction);
-    if (saved != null && mounted) _openDebts(saved);
-  }
-
   int _currentIndex = _homeIndex;
 
   // Changing this key rebuilds Home so its balance cards reload after income
@@ -241,12 +236,32 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               if (saved && mounted) _openSavings();
             },
           ),
+          // Scanning a receipt and speaking an expense are ways of recording
+          // one, so they belong here rather than only on Home. Adding an
+          // installment is set up once and becomes bills afterwards, so it
+          // lives with the debts instead.
           QuickAddAction(
-            icon: Icons.receipt_long_outlined,
-            iconAsset: 'assets/icons/icons8-receipt-96.png',
-            label: 'Installment',
+            icon: Icons.photo_camera_outlined,
+            iconAsset: 'assets/icons/icons8-camera-96.png',
+            label: 'Scan Receipt',
             color: appPrimaryBlue,
-            onSelected: () => _addDebt(DebtDirection.iOwe),
+            onSelected: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const OcrScreen()),
+            ),
+          ),
+          QuickAddAction(
+            icon: Icons.mic_none_outlined,
+            iconAsset: 'assets/icons/icons8-microphone-96.png',
+            label: 'Voice Entry',
+            color: appPrimaryBlue,
+            onSelected: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    const VoiceRecognitionScreen(autoStart: true),
+              ),
+            ),
           ),
         ];
   }

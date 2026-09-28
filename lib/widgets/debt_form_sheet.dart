@@ -360,7 +360,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _iOwe ? 'Add Installment' : 'Add Money Owed to You',
+                    'Add loan or installment',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,

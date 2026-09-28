@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../models/bill.dart';
 import '../models/wallet.dart';
+import 'transfer_sheet.dart';
 import '../services/bill_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
 import '../utils/money_format.dart';
 import 'dialog_kit.dart';
-import 'wallet_picker.dart';
+import 'money_text.dart';
 
 /// Records a payment against a bill. Returns true when one was made.
 ///
@@ -62,6 +63,82 @@ class BillPaymentSheet extends StatefulWidget {
   State<BillPaymentSheet> createState() => _BillPaymentSheetState();
 }
 
+/// Shown in place of the form when there is no bills wallet yet.
+class _NothingSetAside extends StatelessWidget {
+  const _NothingSetAside({required this.onMove, required this.message});
+
+  final VoidCallback onMove;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          message,
+          style: const TextStyle(fontSize: 14, color: Colors.grey),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: onMove,
+            icon: const Icon(Icons.swap_horiz, size: 18),
+            label: const Text('Move money to Bills'),
+            style: openOutlineStyle(context),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// What the bills wallet holds, so the user can see what a payment has to
+/// fit inside before typing an amount.
+class _HeldForBills extends StatelessWidget {
+  const _HeldForBills({required this.amount});
+
+  final double amount;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.primaryTint,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Image.asset(
+            'assets/icons/icons8-receipt-96.png',
+            width: 22,
+            height: 22,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Set aside for bills',
+              style: TextStyle(fontSize: 13, color: colors.textBody),
+            ),
+          ),
+          MoneyText(
+            amount,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _BillPaymentSheetState extends State<BillPaymentSheet> {
   final _formKey = GlobalKey<FormState>();
 
@@ -72,13 +149,9 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
 
-  String? _walletId;
-
-  @override
-  void initState() {
-    super.initState();
-    _walletId = widget.instance.walletId;
-  }
+  /// How much more than the bills wallet holds the user just tried to pay.
+  /// Shown under the amount until they lower it or move money across.
+  double? _shortfall;
 
   @override
   void dispose() {
@@ -86,12 +159,25 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
     super.dispose();
   }
 
-  void _pay(String? walletId) {
+  /// Opens the transfer sheet so the user can put money into their bills
+  /// wallet without losing the payment they were in the middle of.
+  Future<void> _moveToBills(List<Wallet> wallets) async {
+    final bills = WalletService.walletFor(wallets, WalletPurpose.bills);
+    await showTransferSheet(context, toWalletId: bills?.id);
+  }
+
+  void _pay(String? walletId, double held) {
     if (walletId == null || !_formKey.currentState!.validate()) return;
 
     final amount = double.parse(
       _amountController.text.trim().replaceAll(',', ''),
     );
+
+    if (amount > held + 0.005) {
+      setState(() => _shortfall = amount - held);
+      _formKey.currentState!.validate();
+      return;
+    }
 
     final pay =
         widget.onPay ??
@@ -114,6 +200,12 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
     if (amount > widget.instance.remaining + 0.005) {
       return 'This bill only needs '
           '${formatPeso(widget.instance.remaining)}.';
+    }
+
+    final short = _shortfall;
+    if (short != null && short > 0) {
+      return 'Your Bills wallet is ${formatPeso(short)} short. Move money '
+          'across, or pay part of it.';
     }
 
     return null;
@@ -142,12 +234,15 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                 );
               }
 
-              // A bill is paid out of the money already set aside for bills,
-              // unless the user picks another wallet.
-              final walletId =
-                  _walletId ??
-                  WalletService.walletFor(wallets, WalletPurpose.bills)?.id ??
-                  defaultWalletId(wallets);
+              // Bills are paid out of the money set aside for them, and
+              // nowhere else, so spending money is never quietly used up by a
+              // bill the user thought was already covered.
+              final billsWallet = WalletService.walletFor(
+                wallets,
+                WalletPurpose.bills,
+              );
+              final walletId = billsWallet?.id;
+              final held = billsWallet?.balance ?? 0;
 
               return Form(
                 key: _formKey,
@@ -180,13 +275,17 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                       style: const TextStyle(fontSize: 13, color: Colors.grey),
                     ),
                     const SizedBox(height: 20),
-                    if (wallets.isEmpty)
-                      const Text(
-                        'Add a wallet first, so the payment comes out of '
-                        'somewhere.',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                    if (billsWallet == null)
+                      _NothingSetAside(
+                        onMove: () => _moveToBills(wallets),
+                        message:
+                            'You have not set money aside for bills yet. Move '
+                            'some into a Bills wallet first, then pay from '
+                            'there.',
                       )
                     else ...[
+                      _HeldForBills(amount: held),
+                      const SizedBox(height: 16),
                       TextFormField(
                         controller: _amountController,
                         autofocus: true,
@@ -204,26 +303,19 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                               'Pay less than this to record a part payment.',
                         ).copyWith(prefixText: '₱ ', hintText: '0.00'),
                         validator: _validateAmount,
+                        onChanged: (_) {
+                          if (_shortfall != null) {
+                            setState(() => _shortfall = null);
+                          }
+                        },
                       ),
                       const SizedBox(height: 16),
-                      WalletPicker(
-                        wallets: wallets,
-                        selectedId: walletId,
-                        label: 'Paid from',
-                        // The bills wallet is exactly what this is for; the
-                        // savings wallet is not offered.
-                        allowed: const {
-                          WalletPurpose.spending,
-                          WalletPurpose.bills,
-                        },
-                        onChanged: (value) => setState(() => _walletId = value),
-                      ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 4),
                       SizedBox(
                         width: double.infinity,
                         height: 52,
                         child: ElevatedButton(
-                          onPressed: () => _pay(walletId),
+                          onPressed: () => _pay(walletId, held),
                           style: confirmButtonStyle(),
                           child: const Text(
                             'Record Payment',
@@ -237,8 +329,15 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                       const SizedBox(height: 10),
                       const Text(
                         'This records the payment and takes the money out of '
-                        'that wallet. It does not pay anyone for real.',
+                        'your Bills wallet. It does not pay anyone for real.',
                         style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 10),
+                      Center(
+                        child: TextButton(
+                          onPressed: () => _moveToBills(wallets),
+                          child: const Text('Move money to Bills'),
+                        ),
                       ),
                     ],
                   ],

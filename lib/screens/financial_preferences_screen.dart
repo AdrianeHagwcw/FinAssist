@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../models/allocation.dart';
@@ -6,6 +7,7 @@ import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 
 /// Account-backed preferences. Stream/callback overrides keep the form testable.
@@ -78,11 +80,29 @@ class _PreferencesFormState extends State<_PreferencesForm> {
   late String _frequency = widget.initial.frequency;
   late LeftoverDecision _leftover = widget.initial.leftover;
 
+  /// The day the user says their pay last came in. Changing it starts the pay
+  /// period again from that day, so the days left on Home are theirs to
+  /// correct when a payday moves.
+  late DateTime? _lastPayday = widget.initial.lastPaydayAt;
+
   @override
   void dispose() {
     _source.dispose();
     _amount.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickLastPayday() async {
+    final today = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _lastPayday ?? today,
+      firstDate: DateTime(today.year - 1),
+      lastDate: today,
+      helpText: 'When did you last get paid?',
+    );
+
+    if (picked != null && mounted) setState(() => _lastPayday = picked);
   }
 
   /// Accepts what people type, such as `10,000`.
@@ -96,6 +116,8 @@ class _PreferencesFormState extends State<_PreferencesForm> {
         'incomeFrequency': _frequency,
         'income': double.tryParse(_clean(_amount.text)),
         'defaultLeftover': _leftover.name,
+        if (_lastPayday != null)
+          'lastPaydayAt': Timestamp.fromDate(_lastPayday!),
       });
       final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context);
@@ -156,8 +178,47 @@ class _PreferencesFormState extends State<_PreferencesForm> {
             for (final entry in incomeFrequencies.entries)
               DropdownMenuItem(value: entry.key, child: Text(entry.value)),
           ],
-          onChanged: (value) => setState(() => _frequency = value!),
+          onChanged: (value) => setState(() {
+            if (value == null || value == _frequency) return;
+            _frequency = value;
+            // A new cadence starts now unless the user says otherwise: the
+            // app cannot tell when the pay they are switching to began.
+            _lastPayday = DateTime.now();
+          }),
         ),
+        if (_frequency != 'Irregular') ...[
+          const SizedBox(height: 16),
+          InkWell(
+            key: const Key('last-payday'),
+            onTap: _pickLastPayday,
+            borderRadius: BorderRadius.circular(4),
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'When did you last receive it?',
+                helperText:
+                    'Your pay period is counted from this day, and the days '
+                    'left on Home follow it.',
+                border: OutlineInputBorder(),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _lastPayday == null
+                          ? 'Not set yet'
+                          : formatShortDate(_lastPayday!),
+                    ),
+                  ),
+                  Image.asset(
+                    'assets/icons/icons8-calendar-96.png',
+                    width: 22,
+                    height: 22,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
         TextFormField(
           key: const Key('usual-income'),

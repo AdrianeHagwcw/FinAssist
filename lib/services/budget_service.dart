@@ -161,6 +161,26 @@ double? customDailyLimitFrom(Map<String, dynamic>? profile) {
   return amount;
 }
 
+/// The day the current pay period starts.
+///
+/// Whichever is later: the last pay the user actually logged, or the payday
+/// they told the app about in setup or in Financial preferences. Saying "I was
+/// paid today" therefore starts a fresh period, and so does logging a new pay.
+DateTime? periodAnchor(
+  Iterable<AllocationCycle> cycles,
+  Map<String, dynamic>? profile,
+) {
+  final logged = lastPayday(
+    cycles,
+    usualSource: profile?['incomeSource'] as String?,
+  );
+  final given = setupPaydayFrom(profile);
+
+  if (logged == null) return given;
+  if (given == null) return logged;
+  return given.isAfter(logged) ? given : logged;
+}
+
 /// The payday the user gave during setup, before any income is recorded.
 ///
 /// Without it a fresh account has nothing to count a pay period from, and

@@ -339,6 +339,45 @@ class WalletService {
     }
   }
 
+  /// Moves money into the wallet kept for [purpose], creating that wallet in
+  /// the same write when the user has none yet.
+  ///
+  /// Without this, nothing could be set aside for bills until a wallet for
+  /// them happened to exist, and paying a bill would have nowhere to draw on.
+  static String transferToPurpose({
+    required String fromWalletId,
+    required WalletPurpose purpose,
+    required double amount,
+    required List<Wallet> wallets,
+    String? note,
+    DateTime? date,
+  }) {
+    final batch = _firestore.batch();
+    final toWalletId = addPurposeWalletToBatch(
+      batch,
+      purpose: purpose,
+      wallets: wallets,
+    );
+
+    if (fromWalletId == toWalletId) {
+      throw ArgumentError('A transfer needs two different wallets.');
+    }
+
+    final id = addTransactionToBatch(
+      batch,
+      type: TransactionType.transfer,
+      amount: amount,
+      label: TransactionType.transfer.label,
+      walletId: fromWalletId,
+      toWalletId: toWalletId,
+      note: note,
+      date: date,
+    );
+
+    commitFirestoreWrite(batch.commit(), 'set money aside');
+    return id;
+  }
+
   /// Moves money between two wallets: one transaction, two balance changes,
   /// one batch. Returns the new transaction's id.
   static String recordTransfer({

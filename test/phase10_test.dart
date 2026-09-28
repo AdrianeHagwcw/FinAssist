@@ -369,6 +369,75 @@ void main() {
     });
   });
 
+  testWidgets('the payday can be corrected, which restarts the period', (
+    tester,
+  ) async {
+    Map<String, dynamic>? saved;
+    await pumpScreen(
+      tester,
+      FinancialPreferencesScreen(
+        profile: Stream.value({
+          'incomeSource': 'Salary',
+          'incomeFrequency': 'Semi-monthly',
+        }),
+        onSave: (values) => saved = values,
+      ),
+    );
+
+    await scrollTo(tester, find.byKey(const Key('last-payday')));
+    expect(find.text('Not set yet'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('last-payday')));
+    await tester.pumpAndSettle();
+    expect(find.text('When did you last get paid?'), findsOneWidget);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    await scrollTo(tester, find.text('Save preferences'));
+    await tester.tap(find.text('Save preferences'));
+    await tester.pumpAndSettle();
+
+    expect(saved?['lastPaydayAt'], isA<Timestamp>());
+  });
+
+  testWidgets('changing how often pay comes in starts the period today', (
+    tester,
+  ) async {
+    Map<String, dynamic>? saved;
+    await pumpScreen(
+      tester,
+      FinancialPreferencesScreen(
+        profile: Stream.value({
+          'incomeSource': 'Allowance',
+          'incomeFrequency': 'Weekly',
+        }),
+        onSave: (values) => saved = values,
+      ),
+    );
+
+    await scrollTo(tester, find.byKey(const Key('last-payday')));
+    expect(find.text('Not set yet'), findsOneWidget);
+
+    await tester.tap(find.text('Weekly'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Twice a month (15th & month end)').last);
+    await tester.pumpAndSettle();
+
+    // The new cadence has to start somewhere, so it starts today.
+    expect(find.text('Not set yet'), findsNothing);
+
+    await scrollTo(tester, find.text('Save preferences'));
+    await tester.tap(find.text('Save preferences'));
+    await tester.pumpAndSettle();
+
+    final stored = (saved?['lastPaydayAt'] as Timestamp?)?.toDate();
+    final today = DateTime.now();
+    expect(stored, isNotNull);
+    expect(stored!.year, today.year);
+    expect(stored.month, today.month);
+    expect(stored.day, today.day);
+  });
+
   testWidgets('hiding a category saves it and adding one is not offered', (
     tester,
   ) async {
