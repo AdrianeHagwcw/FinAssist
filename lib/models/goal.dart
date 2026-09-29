@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' show IconData, Icons;
 
+import 'wallet.dart';
+
 /// What a goal is for. Only a label and an icon; the saving works the same.
 enum GoalKind {
   regular('Regular goal', Icons.flag_outlined),
@@ -88,6 +90,7 @@ class Goal {
     this.note,
     this.planStartedAt,
     this.startingSaved = 0,
+    this.savedByWallet = const {},
   });
 
   factory Goal.fromMap(String id, Map<String, dynamic>? data) {
@@ -122,6 +125,7 @@ class Goal {
           ? (map['planStartedAt'] as Timestamp).toDate()
           : null,
       startingSaved: _asDouble(map['startingSaved']),
+      savedByWallet: _walletAmounts(map['savedByWallet']),
     );
   }
 
@@ -154,6 +158,9 @@ class Goal {
   /// Already saved before the goal was added to the app.
   final double startingSaved;
 
+  /// Net amount assigned to this goal from each wallet.
+  final Map<String, double> savedByWallet;
+
   double get shownSaved => savedAmount > 0 ? savedAmount : 0;
 
   double get remaining {
@@ -173,6 +180,15 @@ class Goal {
   double get setAside => status == GoalStatus.used ? 0 : shownSaved;
 
   static double _asDouble(Object? value) => value is num ? value.toDouble() : 0;
+
+  static Map<String, double> _walletAmounts(Object? value) {
+    if (value is! Map) return const {};
+    return {
+      for (final entry in value.entries)
+        if (entry.key is String && entry.value is num)
+          entry.key as String: (entry.value as num).toDouble(),
+    };
+  }
 }
 
 /// One amount put into, or taken back out of, a goal.
@@ -219,6 +235,53 @@ List<Goal> sortGoals(Iterable<Goal> goals) {
 /// Money set aside across every goal that hasn't been used yet.
 double totalSetAside(Iterable<Goal> goals) =>
     goals.fold<double>(0, (total, goal) => total + goal.setAside);
+
+/// Goal money in spending wallets still needs to be removed from Safe to
+/// Spend. Money already in the Savings wallet is excluded from spending by
+/// the wallet balance itself, so counting it again would subtract it twice.
+double totalSetAsideInSpendingWallets(
+  Iterable<Goal> goals,
+  Iterable<Wallet> wallets,
+) {
+  final byId = {for (final wallet in wallets) wallet.id: wallet};
+  return goals.fold<double>(0, (total, goal) {
+    if (goal.status == GoalStatus.used) return total;
+    if (goal.savedByWallet.isNotEmpty) {
+      return total + goal.savedByWallet.entries.fold<double>(
+        0,
+        (subtotal, entry) => byId[entry.key]?.purpose == WalletPurpose.savings
+            ? subtotal
+            : subtotal + entry.value,
+      );
+    }
+    final wallet = byId[goal.walletId];
+    return wallet?.purpose == WalletPurpose.savings
+        ? total
+        : total + goal.shownSaved;
+  });
+}
+
+double totalSetAsideInPurposeWallets(
+  Iterable<Goal> goals,
+  Iterable<Wallet> wallets,
+  WalletPurpose purpose,
+) {
+  final byId = {for (final wallet in wallets) wallet.id: wallet};
+  return goals.fold<double>(0, (total, goal) {
+    if (goal.status == GoalStatus.used) return total;
+    if (goal.savedByWallet.isNotEmpty) {
+      return total + goal.savedByWallet.entries.fold<double>(
+        0,
+        (subtotal, entry) => byId[entry.key]?.purpose == purpose
+            ? subtotal + entry.value
+            : subtotal,
+      );
+    }
+    return byId[goal.walletId]?.purpose == purpose
+        ? total + goal.shownSaved
+        : total;
+  });
+}
 
 /// When the goal will be reached at the pace the user has been saving, or
 /// null when there isn't enough history to say.

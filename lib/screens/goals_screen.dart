@@ -14,7 +14,6 @@ import '../widgets/empty_state_view.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/money_text.dart';
 import '../widgets/savings_guide.dart';
-import 'debts_screen.dart';
 import 'goal_detail_screen.dart';
 
 /// The Goals tab: what the user is saving toward, in the order money reaches
@@ -99,29 +98,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
       UserProfileService.watchProfile().map((snapshot) => snapshot.data());
 
   bool _showFinished = false;
-
-  /// Savings goals, or debts. Both live in this one tab so the bottom bar
-  /// stays at the plan's four tabs.
-  late bool _showDebts = widget.controller?.showDebts ?? false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.controller?.addListener(_follow);
-  }
-
-  @override
-  void dispose() {
-    widget.controller?.removeListener(_follow);
-    super.dispose();
-  }
-
-  void _follow() {
-    final controller = widget.controller;
-    if (controller != null && mounted) {
-      setState(() => _showDebts = controller.showDebts);
-    }
-  }
 
   void _move(List<Goal> active, int index, int direction) {
     final ordered = [...active];
@@ -279,39 +255,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         // back arrow.
         leading: backToHomeButton(context),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-            child: SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(
-                    value: false,
-                    icon: Icon(Icons.savings_outlined),
-                    label: Text('Savings'),
-                  ),
-                  ButtonSegment(
-                    value: true,
-                    icon: Icon(Icons.receipt_long_outlined),
-                    label: Text('Debts'),
-                  ),
-                ],
-                selected: {_showDebts},
-                showSelectedIcon: false,
-                onSelectionChanged: (value) =>
-                    setState(() => _showDebts = value.first),
-              ),
-            ),
-          ),
-          Expanded(
-            child: _showDebts
-                ? DebtsView(showing: widget.controller?.debtsList)
-                : _buildSavings(context),
-          ),
-        ],
-      ),
+      body: _buildSavings(context),
     );
   }
 }

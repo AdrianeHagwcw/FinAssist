@@ -12,6 +12,7 @@ import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/money_text.dart';
+import 'debts_screen.dart';
 
 const List<String> _weekdayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const List<String> _monthNames = [
@@ -36,6 +37,7 @@ class BillCalendarScreen extends StatefulWidget {
     this.instancesFor,
     this.ensureInstances,
     this.today,
+    this.initialShowDebts = false,
     super.key,
   });
 
@@ -52,6 +54,9 @@ class BillCalendarScreen extends StatefulWidget {
   /// Injectable so tests don't depend on the clock.
   final DateTime? today;
 
+  /// Opens the combined Bills and Debts page on the debt list.
+  final bool initialShowDebts;
+
   @override
   State<BillCalendarScreen> createState() => _BillCalendarScreenState();
 }
@@ -65,6 +70,7 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
   late DateTime? _selectedDay = _today;
 
   bool _showAsList = false;
+  late bool _showDebts = widget.initialShowDebts;
 
   /// Months already filled in, so scrolling back and forth doesn't ask
   /// Firestore to do the same work over and over.
@@ -118,9 +124,9 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
     return Scaffold(
       backgroundColor: colors.pageBackground,
       appBar: AppBar(
-        title: const Text(
-          'Bill Planner',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        title: Text(
+          _showDebts ? 'Debts' : 'Bill Planner',
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         backgroundColor: appPrimaryBlue,
@@ -129,15 +135,62 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
         // As a tab it goes back to Home; opened from Home's Quick Actions it
         // keeps the usual back arrow.
         leading: backToHomeButton(context),
-        actions: [
-          IconButton(
-            tooltip: _showAsList ? 'Show calendar' : 'Show list',
-            icon: Icon(_showAsList ? Icons.calendar_month : Icons.view_list),
-            onPressed: () => setState(() => _showAsList = !_showAsList),
+        actions: _showDebts
+            ? const []
+            : [
+                IconButton(
+                  tooltip: _showAsList ? 'Show calendar' : 'Show list',
+                  icon: Icon(
+                    _showAsList ? Icons.calendar_month : Icons.view_list,
+                  ),
+                  onPressed: () => setState(() => _showAsList = !_showAsList),
+                ),
+              ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(
+                    value: false,
+                    icon: Icon(Icons.receipt_long_outlined),
+                    label: Text('Bills'),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    icon: Icon(Icons.account_balance_outlined),
+                    label: Text('Debts'),
+                  ),
+                ],
+                selected: {_showDebts},
+                showSelectedIcon: false,
+                onSelectionChanged: (value) =>
+                    setState(() => _showDebts = value.first),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _showDebts ? const DebtsView() : _buildBills(),
           ),
         ],
       ),
-      body: StreamBuilder<List<Bill>>(
+      floatingActionButton: _showDebts
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _addBill,
+              backgroundColor: appPrimaryBlue,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Bill'),
+            ),
+    );
+  }
+
+  Widget _buildBills() => StreamBuilder<List<Bill>>(
         stream: _bills,
         builder: (context, billsSnapshot) {
           final bills = billsSnapshot.data ?? const <Bill>[];
@@ -187,16 +240,7 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
             },
           );
         },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addBill,
-        backgroundColor: appPrimaryBlue,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Bill'),
-      ),
-    );
-  }
+      );
 }
 
 class _MonthHeader extends StatelessWidget {

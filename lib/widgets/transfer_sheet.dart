@@ -33,6 +33,8 @@ Future<bool> showTransferSheet(
 }
 
 class TransferSheet extends StatefulWidget {
+  static const newSavingsWalletId = 'new:savings';
+
   const TransferSheet({
     this.wallets,
     this.initialFromWalletId,
@@ -79,7 +81,7 @@ class _TransferSheetState extends State<TransferSheet> {
   /// Placeholder ids for a bills or savings wallet the user has not made yet.
   /// Choosing one creates it as the money moves in.
   static const _newBills = 'new:bills';
-  static const _newSavings = 'new:savings';
+  static const _newSavings = TransferSheet.newSavingsWalletId;
 
   void _save(String? fromId, List<Wallet> wallets) {
     if (fromId == null || !_formKey.currentState!.validate()) return;

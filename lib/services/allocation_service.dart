@@ -93,8 +93,6 @@ class AllocationService {
     String? usualSource,
     List<AllocationCycle> recentCycles = const [],
     List<Wallet> wallets = const [],
-    double plannedBills = 0,
-    double plannedSavings = 0,
   }) {
     final problems = plan.problems;
 
@@ -117,21 +115,15 @@ class AllocationService {
       collectDeltasInto: deltas,
     );
 
-    // Money meant for bills and savings is moved out of the wallet the pay
-    // landed in, so what stays is only what the user may spend. The bills
-    // wallet is topped up to cover the bills being paid right now, in case
-    // the plan set aside less than they cost.
-    final billsHeld = WalletService.walletFor(wallets, WalletPurpose.bills)
-        ?.balance;
+    // Only top up the bills wallet for bills the user chose to pay now.
+    final billsHeld = WalletService.walletFor(
+      wallets,
+      WalletPurpose.bills,
+    )?.balance;
     final needed = plan.toBills - (billsHeld ?? 0);
-    final toBillsWallet = _within(
-      needed > plannedBills ? needed : plannedBills,
-      plan.income,
-    );
-    final toSavingsWallet = _within(
-      plannedSavings,
-      plan.income - toBillsWallet,
-    );
+    final toBillsWallet = plan.billsSetAside == null
+        ? _within(needed, plan.income)
+        : plan.toBills;
 
     String? billsWalletId;
     if (toBillsWallet > 0 || plan.toBills > 0) {
@@ -156,70 +148,78 @@ class AllocationService {
       );
     }
 
-    if (toSavingsWallet > 0) {
-      final savingsWalletId = WalletService.addPurposeWalletToBatch(
+    String? savingsWalletId;
+    if (plan.toGoal > 0) {
+      savingsWalletId = WalletService.addPurposeWalletToBatch(
         batch,
         purpose: WalletPurpose.savings,
         wallets: wallets,
       );
-
       WalletService.addTransactionToBatch(
         batch,
         type: TransactionType.transfer,
-        amount: toSavingsWallet,
+        amount: plan.toGoal,
         label: TransactionType.transfer.label,
         walletId: walletId,
         toWalletId: savingsWalletId,
-        note: 'Set aside for savings',
+        note: 'Set aside for a savings goal',
         date: receivedAt,
         collectDeltasInto: deltas,
       );
     }
-
-    // Bills are paid out of the money already set aside for them.
-    final billsPaidFrom = billsWalletId ?? walletId;
 
     final payments = <Map<String, dynamic>>[];
     final skipped = <String>[];
 
-    for (final bill in plan.bills) {
-      if (bill.skipped) {
-        BillService.addSkipToBatch(batch, bill.instance.id);
-        skipped.add(bill.instance.id);
-        continue;
+    // Salary allocations only move the chosen amount into the Bills wallet;
+    // the user pays individual upcoming bills from that wallet when ready.
+    // Other income keeps the existing bill-by-bill payment flow.
+    if (plan.billsSetAside == null) {
+      // Bills are paid only from the money set aside for bills.
+      final billsPaidFrom = billsWalletId;
+
+      for (final bill in plan.bills) {
+        if (bill.skipped) {
+          BillService.addSkipToBatch(batch, bill.instance.id);
+          skipped.add(bill.instance.id);
+          continue;
+        }
+
+        if (!bill.pays) continue;
+        if (billsPaidFrom == null) {
+          throw StateError('A Bills wallet is required to pay a bill.');
+        }
+
+        final paymentId = BillService.addPaymentToBatch(
+          batch,
+          instance: bill.instance,
+          walletId: billsPaidFrom,
+          amount: bill.amount,
+          date: receivedAt,
+          collectDeltasInto: deltas,
+        );
+
+        payments.add({
+          'instanceId': bill.instance.id,
+          'billId': bill.instance.billId,
+          'name': bill.instance.name,
+          'amount': bill.amount,
+          'transactionId': paymentId,
+        });
       }
-
-      if (!bill.pays) continue;
-
-      final paymentId = BillService.addPaymentToBatch(
-        batch,
-        instance: bill.instance,
-        walletId: billsPaidFrom,
-        amount: bill.amount,
-        date: receivedAt,
-        collectDeltasInto: deltas,
-      );
-
-      payments.add({
-        'instanceId': bill.instance.id,
-        'billId': bill.instance.billId,
-        'name': bill.instance.name,
-        'amount': bill.amount,
-        'transactionId': paymentId,
-      });
     }
 
     WalletService.applyDeltasToBatch(batch, deltas);
 
-    // Setting money aside for a goal moves nothing between wallets, so it
-    // adds no balance change; it only marks part of this income as saved.
+    // Goal contributions are recorded in the Savings wallet created or found
+    // above, so they never leave income in a spending wallet by mistake.
     final goal = plan.goal;
-    if (goal != null && plan.toGoal > 0) {
+    if (goal != null && plan.toGoal > 0 && savingsWalletId != null) {
       GoalService.addContributionToBatch(
         batch,
         goal: goal,
         amount: plan.toGoal,
-        walletId: walletId,
+        walletId: savingsWalletId,
         date: receivedAt,
         cycleId: cycle.id,
       );
@@ -244,7 +244,6 @@ class AllocationService {
       'skippedInstanceIds': skipped,
       'toBills': plan.toBills,
       'toBillsWallet': toBillsWallet,
-      'toSavingsWallet': toSavingsWallet,
       'goalId': plan.toGoal > 0 ? goal?.id : null,
       'goalName': plan.toGoal > 0 ? goal?.name : null,
       'toGoal': plan.toGoal,

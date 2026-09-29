@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../providers/app_settings_provider.dart';
 import '../services/user_profile_service.dart';
 
-import '../models/debt.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/back_to_home.dart';
@@ -48,7 +47,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static const _billsIndex = 2;
   static const _walletIndex = 3;
 
-  /// Opens the Goals tab on savings or on a debts list.
+  /// Preserves the legacy controller for saved Goals screen routes.
   final _goalsTab = GoalsTabController();
 
   /// Keeps phone reminders in step with the data. Not run by tests, which
@@ -157,12 +156,18 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _openGoals();
   }
 
-  void _openDebts(DebtDirection direction) {
-    _goalsTab.openDebts(direction);
-    _openGoals();
+  void _openBills() {
+    setState(() => _billsShowDebts = false);
+    _selectTab(_billsIndex);
+  }
+
+  void _openDebts() {
+    setState(() => _billsShowDebts = true);
+    _selectTab(_billsIndex);
   }
 
   int _currentIndex = _homeIndex;
+  bool _billsShowDebts = false;
 
   // Changing this key rebuilds Home so its balance cards reload after income
   // is added from the "+" sheet.
@@ -180,13 +185,16 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             key: ValueKey(_homeRefreshKey),
             onOpenTransactions: () => _selectTab(_transactionsIndex),
             onOpenWallets: () => _selectTab(_walletIndex),
-            onOpenBills: () => _selectTab(_billsIndex),
+            onOpenBills: _openBills,
             // Savings on Home opens the savings balance; the goals behind it
             // are one tap further in.
-            onOpenDebts: () => _openDebts(DebtDirection.iOwe),
+            onOpenDebts: _openDebts,
           ),
           const TransactionsScreen(),
-          const BillCalendarScreen(),
+          BillCalendarScreen(
+            key: ValueKey(_billsShowDebts),
+            initialShowDebts: _billsShowDebts,
+          ),
           const WalletsScreen(),
         ];
   }

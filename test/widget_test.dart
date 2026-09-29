@@ -1053,17 +1053,19 @@ void main() {
       expect(odd.isSetAside, isFalse);
     });
 
-    test('an entry starts on spending money, never on the set-aside wallets',
-        () {
-      final wallets = [
-        wallet(id: 'bills', balance: 5000, purpose: WalletPurpose.bills),
-        wallet(id: 'cash', balance: 300),
-        wallet(id: 'gcash', balance: 900, receivesIncome: true),
-      ];
+    test(
+      'an entry starts on spending money, never on the set-aside wallets',
+      () {
+        final wallets = [
+          wallet(id: 'bills', balance: 5000, purpose: WalletPurpose.bills),
+          wallet(id: 'cash', balance: 300),
+          wallet(id: 'gcash', balance: 900, receivesIncome: true),
+        ];
 
-      expect(defaultWalletId(wallets), 'gcash');
-      expect(defaultWalletId([wallets.first, wallets[1]]), 'cash');
-    });
+        expect(defaultWalletId(wallets), 'gcash');
+        expect(defaultWalletId([wallets.first, wallets[1]]), 'cash');
+      },
+    );
 
     test('a stored wallet is read back with its saved values', () {
       final saved = Wallet.fromMap('w1', {
@@ -1949,6 +1951,7 @@ void main() {
       WidgetTester tester, {
       List<BillInstance> bills = const [],
       List<Goal> goals = const [],
+      List<Wallet>? wallets,
       void Function(AllocationPlan plan, String walletId, String source)?
       onConfirm,
     }) async {
@@ -1962,7 +1965,7 @@ void main() {
           theme: AppTheme.light,
           home: IncomeWaterfallScreen(
             today: today,
-            wallets: Stream.value([cash]),
+            wallets: Stream.value(wallets ?? [cash]),
             loadBills: () async => bills,
             goals: Stream.value(goals),
             cycles: Stream.value(const []),
@@ -2049,6 +2052,43 @@ void main() {
       expect(find.text('Confirm'), findsOneWidget);
     });
 
+    testWidgets('defaults income to the first spending wallet', (tester) async {
+      final first = Wallet(
+        id: 'first',
+        name: 'First',
+        type: WalletType.cash,
+        balance: 500,
+        startingBalance: 500,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+      );
+      final incomeWallet = Wallet(
+        id: 'income',
+        name: 'Income wallet',
+        type: WalletType.bank,
+        balance: 0,
+        startingBalance: 0,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 1,
+      );
+      String? savedWallet;
+
+      await pumpWaterfall(
+        tester,
+        wallets: [first, incomeWallet],
+        onConfirm: (plan, walletId, source) => savedWallet = walletId,
+      );
+
+      await fillIncome(tester, '2000');
+      await next(tester);
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(savedWallet, 'first');
+    });
+
     testWidgets('each bill starts on its full amount, with a running total', (
       tester,
     ) async {
@@ -2061,9 +2101,14 @@ void main() {
       await next(tester);
 
       expect(find.text('Step 2 of 3'), findsOneWidget);
+      expect(find.text('Left after these bills'), findsOneWidget);
+      expect(find.text('Check all'), findsOneWidget);
+      expect(find.text('₱5,000'), findsOneWidget);
+
+      await tester.tap(find.text('Check all'));
+      await tester.pumpAndSettle();
       expect(find.text('1500'), findsOneWidget);
       expect(find.text('300'), findsOneWidget);
-      expect(find.text('Left after these bills'), findsOneWidget);
       expect(find.text('₱3,200'), findsOneWidget);
     });
 
@@ -2078,21 +2123,20 @@ void main() {
       await fillIncome(tester, '5000');
       await next(tester);
 
-      expect(find.text('2 bills'), findsOneWidget);
-      expect(find.text('₱3,200'), findsOneWidget);
-
-      await tester.tap(find.text('Uncheck all'));
-      await tester.pump();
-
-      // Nothing is paid now, so the whole ₱5,000 is left.
-      expect(find.text('₱5,000'), findsWidgets);
       expect(find.text('Check all'), findsOneWidget);
+      expect(find.text('₱5,000'), findsOneWidget);
 
       await tester.tap(find.text('Check all'));
       await tester.pump();
 
       expect(find.text('₱3,200'), findsOneWidget);
       expect(find.text('Uncheck all'), findsOneWidget);
+
+      await tester.tap(find.text('Uncheck all'));
+      await tester.pump();
+
+      expect(find.text('₱5,000'), findsWidgets);
+      expect(find.text('Check all'), findsOneWidget);
     });
 
     testWidgets('a bill cannot be paid more than it owes', (tester) async {
@@ -2101,6 +2145,8 @@ void main() {
       await fillIncome(tester, '5000');
       await next(tester);
 
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '1500'), '2000');
       await next(tester);
 
@@ -2128,8 +2174,7 @@ void main() {
       await fillIncome(tester, '5000');
       await next(tester);
 
-      // Leave Load for later instead of paying it.
-      await tester.tap(find.byType(Checkbox).last);
+      await tester.tap(find.byType(Checkbox).first);
       await tester.pumpAndSettle();
       await next(tester);
 
@@ -2152,6 +2197,8 @@ void main() {
       await fillIncome(tester, '1000');
       await next(tester);
 
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
       expect(find.text('Short by'), findsOneWidget);
       await next(tester);
 
@@ -4012,7 +4059,9 @@ void main() {
       final today = DateTime(2026, 9, 28);
       final period = payPeriodFor(
         'Semi-monthly',
-        lastIncomeAt: setupPaydayFrom({'lastPaydayAt': Timestamp.fromDate(today)}),
+        lastIncomeAt: setupPaydayFrom({
+          'lastPaydayAt': Timestamp.fromDate(today),
+        }),
         now: today,
       );
 
@@ -4182,20 +4231,23 @@ void main() {
       expect(s.leftToday, 200);
     });
 
-    test('only the part of a bill the bills wallet cannot cover is taken out', () {
-      const s = SafeToSpend(
-        walletBalance: 3000,
-        billsDue: 5000,
-        billsWalletBalance: 4000,
-        savingsReserve: 0,
-        spentToday: 0,
-        daysLeft: 10,
-      );
+    test(
+      'only the part of a bill the bills wallet cannot cover is taken out',
+      () {
+        const s = SafeToSpend(
+          walletBalance: 3000,
+          billsDue: 5000,
+          billsWalletBalance: 4000,
+          savingsReserve: 0,
+          spentToday: 0,
+          daysLeft: 10,
+        );
 
-      // ₱1,000 of the bill is still unfunded, so it comes out of spending.
-      expect(s.spendableThisPeriod, 2000);
-      expect(s.recommendedDailyLimit, 200);
-    });
+        // ₱1,000 of the bill is still unfunded, so it comes out of spending.
+        expect(s.spendableThisPeriod, 2000);
+        expect(s.recommendedDailyLimit, 200);
+      },
+    );
 
     test('custom daily limit cannot exceed the remaining period budget', () {
       const s = SafeToSpend(
@@ -4607,7 +4659,7 @@ void main() {
       sortOrder: 0,
     );
 
-    testWidgets('keeps the planned daily amount with four days left', (
+    testWidgets('uses the spendable wallet balance with four days left', (
       tester,
     ) async {
       final payday = DateTime(2026, 3, 16, 10);
@@ -4654,7 +4706,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('4 days left this period'), findsOneWidget);
-      expect(find.text('of ₱200 daily limit'), findsOneWidget);
+      expect(find.text('of ₱1,450 daily limit'), findsOneWidget);
     });
 
     testWidgets('a gift raises the daily limit instead of restarting the '
@@ -4674,6 +4726,7 @@ void main() {
                 profile: Stream.value({
                   'incomeFrequency': 'Monthly',
                   'incomeSource': 'Salary',
+                  'plannedAllocations': {'others': 100},
                 }),
                 // Newest first, as they are read.
                 cycles: Stream.value([
@@ -6619,9 +6672,7 @@ void main() {
           create: (_) => AppSettingsProvider(),
           child: MaterialApp(
             theme: AppTheme.light,
-            home: Scaffold(
-              body: ExportTransactionsTile(onExport: onExport),
-            ),
+            home: Scaffold(body: ExportTransactionsTile(onExport: onExport)),
           ),
         ),
       );

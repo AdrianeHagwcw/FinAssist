@@ -71,6 +71,9 @@ class FinanceSnapshot {
 
   double get goalSavings => totalSetAside(goals);
 
+  double get goalSavingsInSpendingWallets =>
+      totalSetAsideInSpendingWallets(goals, wallets);
+
   /// Today's Safe to Spend, worked out exactly as the Home card does.
   SafeToSpend get safeToSpend {
     final period = this.period;
@@ -79,7 +82,7 @@ class FinanceSnapshot {
       billsDue: billsDueBefore(bills, period.end),
       savingsReserve: savingsReserve,
       billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
-      goalSavings: goalSavings,
+      goalSavings: goalSavingsInSpendingWallets,
       spentToday: spentToday,
       daysLeft: period.daysLeft(now),
       customDailyLimit: customDailyLimit,

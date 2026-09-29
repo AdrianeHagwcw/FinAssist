@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 import 'dialog_kit.dart';
+import 'transfer_sheet.dart';
 import 'wallet_picker.dart';
 
 Future<T?> _showSheet<T>(BuildContext context, Widget child) {
@@ -361,7 +362,6 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
   late ContributionFrequency _frequency =
       _existing?.frequency ?? ContributionFrequency.monthly;
   late DateTime? _date = _existing?.targetDate ?? widget.initialDate;
-  late String? _walletId = _existing?.walletId;
   String? _error;
 
   /// Optional fields start folded away; an edited goal that already uses
@@ -476,7 +476,11 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     final name = _nameController.text.trim();
     final target = _number(_targetController);
     final saved = _isEditing ? 0.0 : _number(_savedController);
-    final walletId = _walletId ?? defaultWalletId(wallets);
+    final savingsWallet = WalletService.walletFor(
+      wallets,
+      WalletPurpose.savings,
+    );
+    final walletId = savingsWallet?.id;
 
     final String? problem;
     if (name.isEmpty) {
@@ -484,7 +488,9 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     } else if (target <= 0) {
       problem = 'Enter how much you want to save.';
     } else if (saved > 0 && walletId == null) {
-      problem = 'Add a wallet first, so your savings have somewhere to be.';
+      problem = 'Add a Savings wallet before recording money already saved.';
+    } else if (saved > (savingsWallet?.balance ?? 0) + 0.005) {
+      problem = 'Your Savings wallet does not hold that much yet.';
     } else {
       problem = null;
     }
@@ -564,6 +570,10 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
             stream: _wallets,
             builder: (context, snapshot) {
               final wallets = snapshot.data ?? const <Wallet>[];
+              final savingsWallet = WalletService.walletFor(
+                wallets,
+                WalletPurpose.savings,
+              );
 
               return Column(
                 mainAxisSize: MainAxisSize.min,
@@ -712,13 +722,14 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                         helper: 'Leave blank to follow the target date.',
                       ).copyWith(prefixText: '₱ ', hintText: 'e.g. 1500'),
                     ),
-                    if (wallets.isNotEmpty) ...[
+                    if (savingsWallet != null) ...[
                       sectionTitle('Wallet'),
                       WalletPicker(
-                        wallets: wallets,
-                        selectedId: _walletId ?? defaultWalletId(wallets),
-                        label: 'Usually kept in',
-                        onChanged: (value) => setState(() => _walletId = value),
+                        wallets: [savingsWallet],
+                        selectedId: savingsWallet.id,
+                        label: 'Savings wallet',
+                        allowed: const {WalletPurpose.savings},
+                        onChanged: (_) {},
                       ),
                     ],
                     const SizedBox(height: 16),
@@ -864,6 +875,7 @@ class ContributionSheet extends StatefulWidget {
     required this.goal,
     this.takeOut = false,
     this.wallets,
+    this.goals,
     this.onSave,
     super.key,
   });
@@ -876,6 +888,9 @@ class ContributionSheet extends StatefulWidget {
   /// Replaces the live wallet list. Used by tests.
   final Stream<List<Wallet>>? wallets;
 
+  /// Replaces the live goals when checking unassigned Savings wallet money.
+  final Stream<List<Goal>>? goals;
+
   /// Replaces saving; the amount is negative when taking out. Used by tests.
   final void Function(double amount, String walletId)? onSave;
 
@@ -886,6 +901,8 @@ class ContributionSheet extends StatefulWidget {
 class _ContributionSheetState extends State<ContributionSheet> {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
+  late final Stream<List<Goal>> _goals =
+      widget.goals ?? GoalService.watchGoals();
 
   late final _amountController = TextEditingController(
     // Suggests finishing the goal, which is the most common thing to do.
@@ -893,7 +910,6 @@ class _ContributionSheetState extends State<ContributionSheet> {
         ? ''
         : formatAmountInput(widget.goal.remaining),
   );
-  String? _walletId;
   String? _error;
 
   @override
@@ -902,19 +918,36 @@ class _ContributionSheetState extends State<ContributionSheet> {
     super.dispose();
   }
 
-  void _save(List<Wallet> wallets) {
+  void _save(List<Wallet> wallets, List<Goal> goals) {
     final amount = double.tryParse(
       _amountController.text.trim().replaceAll(',', ''),
     );
-    final walletId = _walletId ?? defaultWalletId(wallets);
+    final savingsWallet = WalletService.walletFor(
+      wallets,
+      WalletPurpose.savings,
+    );
+    final walletId = savingsWallet?.id;
     final goal = widget.goal;
+    final alreadyAssigned = totalSetAsideInPurposeWallets(
+      goals,
+      wallets,
+      WalletPurpose.savings,
+    );
+    final savedInSavings = totalSetAsideInPurposeWallets(
+      [goal],
+      wallets,
+      WalletPurpose.savings,
+    );
+    final available = (savingsWallet?.balance ?? 0) - alreadyAssigned;
 
     final problem = amount == null || amount <= 0
         ? 'Enter an amount.'
         : walletId == null
-        ? 'Add a wallet first.'
-        : widget.takeOut && amount > goal.shownSaved + 0.005
-        ? 'Only ${formatPeso(goal.shownSaved)} is set aside for this goal.'
+        ? 'Add a Savings wallet and move money into it first.'
+        : widget.takeOut && amount > savedInSavings + 0.005
+        ? 'Only ${formatPeso(savedInSavings)} is in your Savings wallet for this goal.'
+        : !widget.takeOut && amount > available + 0.005
+        ? 'Only ${formatPeso(available > 0 ? available : 0)} is available in your Savings wallet.'
         : null;
 
     if (problem != null) {
@@ -946,67 +979,103 @@ class _ContributionSheetState extends State<ContributionSheet> {
             stream: _wallets,
             builder: (context, snapshot) {
               final wallets = snapshot.data ?? const <Wallet>[];
+              return StreamBuilder<List<Goal>>(
+                stream: _goals,
+                builder: (context, goalsSnapshot) {
+                  final goals = goalsSnapshot.data ?? [widget.goal];
+                  final savingsWallet = WalletService.walletFor(
+                    wallets,
+                    WalletPurpose.savings,
+                  );
 
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SheetHeader(
-                    widget.takeOut
-                        ? 'Take money out of ${goal.name}'
-                        : 'Save toward ${goal.name}',
-                  ),
-                  DialogNote(
-                    text: widget.takeOut
-                        ? 'It becomes spendable again. Nothing moves between '
-                              'wallets.'
-                        : 'The money stays in the wallet you choose, marked as '
-                              'set aside, so it stops counting as money you '
-                              'can spend.',
-                  ),
-                  const SizedBox(height: 16),
-                  AmountField(
-                    controller: _amountController,
-                    label: widget.takeOut ? 'Amount to take out' : 'Amount',
-                  ),
-                  const SizedBox(height: 16),
-                  if (wallets.isNotEmpty)
-                    WalletPicker(
-                      wallets: wallets,
-                      selectedId: _walletId ?? defaultWalletId(wallets),
-                      label: widget.takeOut
-                          ? 'From which wallet?'
-                          : 'Kept in which wallet?',
-                      onChanged: (value) => setState(() => _walletId = value),
-                    ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      _error!,
-                      style: TextStyle(
-                        color: dangerColorOn(context),
-                        fontWeight: FontWeight.w600,
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SheetHeader(
+                        widget.takeOut
+                            ? 'Take money out of ${goal.name}'
+                            : 'Save toward ${goal.name}',
                       ),
-                    ),
-                  ],
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _save(wallets),
-                      style: widget.takeOut
-                          ? dangerButtonStyle()
-                          : confirmButtonStyle(),
-                      child: Text(
-                        widget.takeOut ? 'Take It Out' : 'Set Aside',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                      DialogNote(
+                        text: widget.takeOut
+                            ? 'It is no longer reserved for this goal. The money '
+                                  'stays in your Savings wallet.'
+                            : 'The money stays in your Savings wallet and is '
+                                  'marked for this goal.',
+                      ),
+                      const SizedBox(height: 16),
+                      AmountField(
+                        controller: _amountController,
+                        label: widget.takeOut ? 'Amount to take out' : 'Amount',
+                      ),
+                      const SizedBox(height: 16),
+                      if (savingsWallet != null)
+                        WalletPicker(
+                          wallets: [savingsWallet],
+                          selectedId: savingsWallet.id,
+                          allowed: const {WalletPurpose.savings},
+                          label: widget.takeOut
+                              ? 'Savings wallet'
+                              : 'Save in the Savings wallet',
+                          onChanged: (_) {},
+                        ),
+                      if (savingsWallet == null) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Add a Savings wallet and move money into it before '
+                          'contributing to a goal.',
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: () => showTransferSheet(
+                            context,
+                            toWalletId: TransferSheet.newSavingsWalletId,
+                          ),
+                          icon: const Icon(Icons.swap_horiz),
+                          label: const Text('Move money to Savings'),
+                        ),
+                      ] else ...[
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: () => showTransferSheet(
+                            context,
+                            toWalletId: savingsWallet.id,
+                          ),
+                          icon: const Icon(Icons.swap_horiz),
+                          label: const Text('Move money to Savings'),
+                        ),
+                      ],
+                      if (_error != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          _error!,
+                          style: TextStyle(
+                            color: dangerColorOn(context),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => _save(wallets, goals),
+                          style: widget.takeOut
+                              ? dangerButtonStyle()
+                              : confirmButtonStyle(),
+                          child: Text(
+                            widget.takeOut ? 'Take It Out' : 'Set Aside',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  );
+                },
               );
             },
           ),

@@ -87,6 +87,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       widget.wallets ?? WalletService.watchWallets();
 
   final _amountController = TextEditingController();
+  final _billsAmountController = TextEditingController(text: '0');
   final _otherSourceController = TextEditingController();
 
   /// One amount box per bill, kept so typing isn't lost between rebuilds.
@@ -134,6 +135,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     }
     _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
+    _billsAmountController.addListener(_refresh);
     // Start looking up bills straight away, so they're ready by step 2.
     _loadBills();
     _goalSubscription = (widget.goals ?? GoalService.watchGoals()).listen(
@@ -165,6 +167,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     _amountController
       ..removeListener(_refresh)
       ..dispose();
+    _billsAmountController
+      ..removeListener(_refresh)
+      ..dispose();
     _otherSourceController.dispose();
     _goalSubscription?.cancel();
     _cycleSubscription?.cancel();
@@ -186,6 +191,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
       setState(() {
         _allocations = [for (final bill in bills) BillAllocation.full(bill)];
+        _leftAlone.addAll(bills.map((bill) => bill.id));
         for (final bill in bills) {
           _billControllers[bill.id] = TextEditingController(
             text: formatAmountInput(bill.remaining),
@@ -202,6 +208,34 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   double get _income =>
       double.tryParse(_amountController.text.trim().replaceAll(',', '')) ?? 0;
 
+  bool get _salaryIncome => _resolvedSource.trim().toLowerCase() == 'salary';
+
+  double get _billsAmount =>
+      double.tryParse(
+        _billsAmountController.text.trim().replaceAll(',', ''),
+      ) ??
+      -1;
+
+  List<BillAllocation> get _upcomingBills {
+    final today = DateTime(_today.year, _today.month, _today.day);
+    return (_allocations ?? const <BillAllocation>[])
+        .where((bill) => !bill.instance.dueDate.isBefore(today))
+        .toList();
+  }
+
+  double get _upcomingBillsTotal => _upcomingBills.fold<double>(
+    0,
+    (sum, bill) => sum + bill.instance.remaining,
+  );
+
+  double get _billsWalletBalance =>
+      WalletService.walletFor(_walletList, WalletPurpose.bills)?.balance ?? 0;
+
+  double get _upcomingBillsShortfall {
+    final short = _upcomingBillsTotal - _billsWalletBalance - _billsAmount;
+    return short > 0 ? short : 0;
+  }
+
   String get _resolvedSource {
     if (_source != otherIncomeSource) return _source ?? '';
 
@@ -209,7 +243,13 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     return typed.isEmpty ? otherIncomeSource : typed;
   }
 
-  String? get _selectedWalletId => _walletId ?? defaultWalletId(_walletList);
+  String? get _selectedWalletId {
+    if (_walletId != null) return _walletId;
+    for (final wallet in _walletList) {
+      if (!wallet.archived && !wallet.isSetAside) return wallet.id;
+    }
+    return defaultWalletId(_walletList);
+  }
 
   Wallet? get _selectedWallet {
     for (final wallet in _walletList) {
@@ -220,21 +260,30 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
   /// The plan as it stands, read from what is typed on screen.
   AllocationPlan get _plan {
-    final bills = <BillAllocation>[];
-
-    for (final allocation in _allocations ?? const <BillAllocation>[]) {
-      final id = allocation.instance.id;
-
-      if (_leftAlone.contains(id)) continue;
-
-      final typed = double.tryParse(
-        (_billControllers[id]?.text ?? '').trim().replaceAll(',', ''),
+    final AllocationPlan withBills;
+    if (_salaryIncome) {
+      withBills = AllocationPlan(
+        income: _income,
+        billsSetAside: _billsAmount,
       );
+    } else {
+      final bills = <BillAllocation>[];
 
-      bills.add(allocation.copyWith(amount: typed ?? -1));
+      for (final allocation in _allocations ?? const <BillAllocation>[]) {
+        final id = allocation.instance.id;
+
+        if (_leftAlone.contains(id)) continue;
+
+        final typed = double.tryParse(
+          (_billControllers[id]?.text ?? '').trim().replaceAll(',', ''),
+        );
+
+        bills.add(allocation.copyWith(amount: typed ?? -1));
+      }
+
+      withBills = AllocationPlan(income: _income, bills: bills);
     }
 
-    final withBills = AllocationPlan(income: _income, bills: bills);
     final goal = _toGoal ? _selectedGoal : null;
     if (goal == null) return withBills;
 
@@ -253,7 +302,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
     return AllocationPlan(
       income: _income,
-      bills: bills,
+      bills: withBills.bills,
+      billsSetAside: withBills.billsSetAside,
       goal: goal,
       goalAmount: amount,
     );
@@ -273,7 +323,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// there are none to ask about, so the step count is honest.
   List<_Step> get _steps => [
     _Step.income,
-    if (_allocations?.isNotEmpty ?? true) _Step.bills,
+    if (_salaryIncome || (_allocations?.isNotEmpty ?? true)) _Step.bills,
     if (_goals?.isNotEmpty ?? false) _Step.goal,
     _Step.summary,
   ];
@@ -377,11 +427,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             walletId: walletId,
             source: source,
             receivedAt: receivedAt,
-            // Moves the planned amounts into the bills and savings wallets,
-            // so the balance left is only what may be spent.
             wallets: _walletList,
-            plannedBills: financial?.plannedBills ?? 0,
-            plannedSavings: financial?.plannedSavings ?? 0,
           );
         };
 
@@ -476,7 +522,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       case _Step.income:
         return 'What came in?';
       case _Step.bills:
-        return 'Pay any bills from it?';
+        return _salaryIncome
+            ? 'Set aside for bills?'
+            : 'Pay any bills from it?';
       case _Step.goal:
         return 'Save some toward a goal?';
       case _Step.summary:
@@ -554,6 +602,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   // ------------------------------------------------------------ step 2
 
   Widget _buildBillsStep(BuildContext context) {
+    if (_salaryIncome) return _buildSalaryBillsStep(context);
+
     final allocations = _allocations;
 
     if (allocations == null) {
@@ -570,8 +620,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'These are unpaid or due within the month. Each starts on the full '
-          'amount; lower it to pay part, or leave a bill for later.',
+          'Bills stay unpaid unless you choose to pay them. Tap a bill to '
+          'include it, or lower its amount to pay part.',
           style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
         ),
         if (allocations.length > 1) ...[
@@ -627,6 +677,97 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     );
   }
 
+  Widget _buildSalaryBillsStep(BuildContext context) {
+    if (_allocations == null) {
+      return const Padding(
+        padding: EdgeInsets.all(32),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final colors = context.appColors;
+    final upcoming = _upcomingBills;
+    final shortfall = _upcomingBillsShortfall;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'How much from this salary do you want to move into your Bills '
+          'wallet? You can pay bills from that wallet when you are ready.',
+          style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
+        ),
+        const SizedBox(height: 16),
+        AmountField(
+          controller: _billsAmountController,
+          label: 'Put aside for bills',
+          helper: 'This moves money to Bills; it does not mark bills as paid.',
+        ),
+        const SizedBox(height: 16),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: colors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                upcoming.isEmpty
+                    ? 'No upcoming bills in the next 31 days'
+                    : 'Bills due in the next 31 days',
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Already in Bills wallet',
+                      style: TextStyle(color: colors.textBody, fontSize: 13),
+                    ),
+                  ),
+                  Text(formatPeso(_billsWalletBalance)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Upcoming bills',
+                      style: TextStyle(color: colors.textBody, fontSize: 13),
+                    ),
+                  ),
+                  Text(formatPeso(_upcomingBillsTotal)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                shortfall > 0
+                    ? 'Still needed for these bills: ${formatPeso(shortfall)}'
+                    : 'Your Bills wallet will cover the upcoming bills.',
+                style: TextStyle(
+                  color: shortfall > 0
+                      ? dangerColorOn(context)
+                      : colors.textBody,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   /// True when every bill on the list is ticked to be paid now.
   bool _allPaid(List<BillAllocation> allocations) {
     return allocations.every(
@@ -646,7 +787,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         _leftAlone.clear();
         _allocations = [
           for (final allocation in allocations)
-            allocation.skipped ? allocation.copyWith(skipped: false) : allocation,
+            allocation.skipped
+                ? allocation.copyWith(skipped: false)
+                : allocation,
         ];
       } else {
         _leftAlone.addAll(
@@ -780,6 +923,13 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               amount: formatPeso(plan.income, sign: '+'),
               color: confirmColorOn(context),
             ),
+            if (plan.billsSetAside != null && plan.toBills > 0)
+              _SummaryLine(
+                label: 'Bills wallet',
+                detail: 'Set aside for upcoming bills',
+                amount: formatPeso(plan.toBills, sign: '-'),
+                color: appPrimaryBlue,
+              ),
             for (final bill in paying)
               _SummaryLine(
                 label: bill.instance.name,
@@ -805,6 +955,22 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               ),
           ],
         ),
+        if (plan.billsSetAside != null && _upcomingBillsTotal > 0) ...[
+          const SizedBox(height: 12),
+          Text(
+            _upcomingBillsShortfall > 0
+                ? 'After this salary, ${formatPeso(_upcomingBillsShortfall)} '
+                      'will still be needed for bills due in the next 31 days.'
+                : 'The Bills wallet will cover bills due in the next 31 days.',
+            style: TextStyle(
+              color: _upcomingBillsShortfall > 0
+                  ? dangerColorOn(context)
+                  : colors.textBody,
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         Container(
           width: double.infinity,
@@ -841,9 +1007,14 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               if (plan.dipsIntoSavings) ...[
                 const SizedBox(height: 6),
                 Text(
-                  'The bills you chose cost more than this income. The '
-                  'difference will come out of what was already in '
-                  '${wallet?.name ?? 'the wallet'}.',
+                  plan.billsSetAside != null
+                      ? 'The amount set aside for bills and goals is more '
+                            'than this income. The difference will come out '
+                            'of what was already in ${wallet?.name ?? 'the '
+                            'wallet'}.'
+                      : 'The bills you chose cost more than this income. The '
+                            'difference will come out of what was already in '
+                            '${wallet?.name ?? 'the wallet'}.',
                   style: TextStyle(
                     fontSize: 12,
                     color: colors.textBody,
@@ -854,7 +1025,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             ],
           ),
         ),
-        if (_allocations?.isEmpty ?? false) ...[
+        if (!_salaryIncome && (_allocations?.isEmpty ?? false)) ...[
           const SizedBox(height: 12),
           const Text(
             'No unpaid bills right now, so there was nothing to pay from this.',

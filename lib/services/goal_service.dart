@@ -221,6 +221,11 @@ class GoalService {
           walletId: walletId ?? goal.walletId,
           note: note,
         ),
+        'savedByWallet': goal.savedByWallet.isNotEmpty
+            ? goal.savedByWallet
+            : goal.shownSaved > 0
+            ? {goal.walletId ?? '': goal.shownSaved}
+            : const <String, double>{},
         if (planChanged) ...{
           'planStartedAt': Timestamp.fromDate(DateTime.now()),
           'startingSaved': goal.shownSaved,
@@ -302,6 +307,21 @@ class GoalService {
     final newTotal = goal.shownSaved + amount;
     final reached =
         goal.targetAmount > 0 && newTotal + 0.005 >= goal.targetAmount;
+    final savedByWallet = goal.savedByWallet.isNotEmpty
+        ? Map<String, double>.from(goal.savedByWallet)
+        : <String, double>{
+            if (goal.shownSaved > 0)
+              (goal.walletId ?? walletId): goal.shownSaved,
+          };
+    final walletAmount = (savedByWallet[walletId] ?? 0) + amount;
+    if (amount < 0 && walletAmount < -0.005) {
+      throw ArgumentError('This wallet does not hold that much for the goal.');
+    }
+    if (walletAmount.abs() < 0.005) {
+      savedByWallet.remove(walletId);
+    } else {
+      savedByWallet[walletId] = walletAmount;
+    }
 
     batch.set(reference.collection('contributions').doc(), {
       'amount': amount,
@@ -313,6 +333,7 @@ class GoalService {
 
     batch.set(reference, {
       'savedAmount': FieldValue.increment(amount),
+      'savedByWallet': savedByWallet,
       if (goal.status != GoalStatus.used)
         'status': (reached ? GoalStatus.completed : GoalStatus.active).name,
       if (reached && goal.status == GoalStatus.active)

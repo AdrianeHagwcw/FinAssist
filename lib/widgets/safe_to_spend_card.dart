@@ -86,10 +86,8 @@ class SafeToSpendCard extends StatefulWidget {
   final Stream<List<Bill>>? billSchedules;
   final DateTime? today;
 
-  /// Buttons shown under the figure. Given a way to open the limit editor so
-  /// an outside "Daily Limit" button opens the same sheet as the pencil.
-  final Widget Function(BuildContext context, VoidCallback openEditor)?
-  footerBuilder;
+  /// Buttons shown under the figure.
+  final Widget Function(BuildContext context)? footerBuilder;
 
   /// Shown below the card with the same inputs, such as the leftover notice.
   final Widget Function(BuildContext context, SafeToSpendInputs inputs)?
@@ -112,7 +110,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
 
   /// Money set aside for goals. Held here rather than in another nested
   /// builder, since only its total matters.
-  double _goalSavings = 0;
+  List<Goal> _goalsData = const [];
   StreamSubscription<List<Goal>>? _goalSubscription;
 
   /// Bumped whenever a bill is added, edited or deleted, so the bills due are
@@ -127,7 +125,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
     super.initState();
     _goalSubscription = (widget.goals ?? GoalService.watchGoals()).listen(
       (goals) {
-        if (mounted) setState(() => _goalSavings = totalSetAside(goals));
+        if (mounted) setState(() => _goalsData = goals);
       },
       // Unreachable goals are left out rather than blocking the card.
       onError: (Object _) {},
@@ -193,7 +191,10 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         billsDue: billsDueBefore(_bills, period.end),
         savingsReserve: savingsReserveFrom(profile),
         billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
-        goalSavings: _goalSavings,
+        goalSavings: totalSetAsideInSpendingWallets(
+          _goalsData,
+          wallets,
+        ),
         spentToday: discretionarySpending(
           transactions,
           from: startOfToday,
@@ -201,13 +202,6 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         ),
         daysLeft: period.daysLeft(now),
         customDailyLimit: customDailyLimitFrom(profile),
-        periodBudget: plannedAllocationFrom(profile, 'others'),
-        periodSpent: discretionarySpending(
-          transactions,
-          from: period.start,
-          until: startOfToday.add(const Duration(days: 1)),
-        ),
-        periodLengthDays: period.end.difference(period.start).inDays,
       ),
       period: period,
       frequency: frequency,
@@ -218,19 +212,6 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       plannedBills: plannedAllocationFrom(profile, 'bills'),
       plannedSavings: plannedAllocationFrom(profile, 'savings'),
       setAside: setAsideWalletBalance(wallets),
-    );
-  }
-
-  Future<void> _openEditor(SafeToSpend safeToSpend) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: context.appColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => EditSafeToSpendSheet(safeToSpend: safeToSpend),
     );
   }
 
@@ -304,12 +285,8 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                         _HeroCard(
                           inputs: inputs,
                           now: _now,
-                          onEdit: () => _openEditor(inputs.safeToSpend),
                           onExplain: () => _explain(inputs),
-                          footer: widget.footerBuilder?.call(
-                            context,
-                            () => _openEditor(inputs.safeToSpend),
-                          ),
+                          footer: widget.footerBuilder?.call(context),
                         ),
                         if (widget.belowCard != null)
                           widget.belowCard!(context, inputs),
@@ -330,14 +307,12 @@ class _HeroCard extends StatelessWidget {
   const _HeroCard({
     required this.inputs,
     required this.now,
-    required this.onEdit,
     required this.onExplain,
     required this.footer,
   });
 
   final SafeToSpendInputs inputs;
   final DateTime now;
-  final VoidCallback onEdit;
   final VoidCallback onExplain;
   final Widget? footer;
 
@@ -394,12 +369,6 @@ class _HeroCard extends StatelessWidget {
                 ),
                 onPressed: () =>
                     context.read<AppSettingsProvider>().toggleAmountsMasked(),
-              ),
-              IconButton(
-                tooltip: 'Edit daily limit',
-                color: appPrimaryBlue,
-                icon: const Icon(Icons.edit_outlined, size: 20),
-                onPressed: onEdit,
               ),
               PopupMenuButton<String>(
                 tooltip: 'More',

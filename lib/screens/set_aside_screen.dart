@@ -121,11 +121,11 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                   segments: const [
                     ButtonSegment(
                       value: SetAsidePart.savings,
-                      label: Text('Savings'),
+                      label: Text('Savings wallet'),
                     ),
                     ButtonSegment(
                       value: SetAsidePart.bills,
-                      label: Text('Bills'),
+                      label: Text('Bills wallet'),
                     ),
                   ],
                   selected: {_part},
@@ -151,27 +151,39 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
   // ------------------------------------------------------------- savings
 
   List<Widget> _savings(List<Wallet> wallets) {
-    final total = walletBalanceFor(wallets, WalletPurpose.savings);
+    final walletTotal = walletBalanceFor(wallets, WalletPurpose.savings);
 
     return [
-      _TotalCard(
-        title: 'Savings',
-        total: total,
-        iconAsset: 'assets/icons/icons8-money-box-96.png',
-        note: 'Money you have already saved. It is kept out of your spending '
-            'balance.',
-      ),
-      const SizedBox(height: 20),
       StreamBuilder<List<Goal>>(
         stream: _goals,
         builder: (context, snapshot) {
-          final goals = (snapshot.data ?? const <Goal>[])
-              .where((goal) => goal.status == GoalStatus.active)
+          final allGoals = snapshot.data ?? const <Goal>[];
+          final goals = allGoals
+              .where((goal) => goal.status != GoalStatus.used)
               .toList();
+          final assignedToGoals = totalSetAsideInPurposeWallets(
+            allGoals,
+            wallets,
+            WalletPurpose.savings,
+          );
+          // Contributions remain part of the Savings wallet's real balance,
+          // but are already held inside their goals. Show only the amount
+          // that is still free in the wallet here. A withdrawal reduces the
+          // goal's savedByWallet amount, returning it to this total.
+          final available = (walletTotal - assignedToGoals)
+              .clamp(0.0, double.infinity)
+              .toDouble();
 
           if (goals.isEmpty) {
             return Column(
               children: [
+                _TotalCard(
+                  title: 'Savings wallet',
+                  total: available,
+                  iconAsset: 'assets/icons/icons8-money-box-96.png',
+                  note: 'Money you have saved and have not put towards a goal.',
+                ),
+                const SizedBox(height: 20),
                 const EmptyStateView(
                   iconAsset: 'assets/icons/icons8-money-box-96.png',
                   title: 'No savings goal yet',
@@ -190,15 +202,16 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
             );
           }
 
-          final forGoals = goals.fold<double>(
-            0,
-            (sum, goal) => sum + goal.savedAmount,
-          );
-          final spare = total - forGoals;
-
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _TotalCard(
+                title: 'Savings wallet',
+                total: available,
+                iconAsset: 'assets/icons/icons8-money-box-96.png',
+                note: 'Money you have saved and have not put towards a goal.',
+              ),
+              const SizedBox(height: 20),
               _SectionTitle('What it is for'),
               const SizedBox(height: 10),
               for (final goal in goals) ...[
@@ -213,14 +226,9 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               ),
               const SizedBox(height: 10),
               _NoteRow(
-                label: spare >= 0
-                    ? 'Not promised to a goal yet'
-                    : 'Still to move into savings',
-                amount: spare.abs(),
-                hint: spare >= 0
-                    ? 'Yours to put towards any goal.'
-                    : 'Your goals count more than the savings wallet holds. '
-                          'The rest is still in your spending wallets.',
+                label: 'Not promised to a goal yet',
+                amount: available,
+                hint: 'Yours to put towards any goal.',
               ),
             ],
           );
@@ -238,7 +246,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
 
     return [
       _TotalCard(
-        title: 'Bills',
+        title: 'Bills wallet',
         total: total,
         iconAsset: 'assets/icons/icons8-receipt-96.png',
         note: 'Money waiting for your bills. Paying a bill takes it from here '

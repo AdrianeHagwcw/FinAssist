@@ -15,8 +15,8 @@ import '../widgets/app_logo.dart';
 import '../widgets/light_dark_toggle.dart';
 import 'main_shell.dart';
 
-/// First-time setup wizard: Welcome, Name, Reminders, Income & priorities,
-/// Starting wallets, then a "You're ready" recap.
+/// First-time setup wizard: Welcome, Name, Income, pay plan, wallets,
+/// reminders, then a "You're ready" recap.
 class FinancialSetupScreen extends StatefulWidget {
   const FinancialSetupScreen({
     this.initialName,
@@ -45,10 +45,11 @@ class FinancialSetupScreen extends StatefulWidget {
 class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   static const _welcomeStep = 0;
   static const _nameStep = 1;
-  static const _remindersStep = 2;
-  static const _incomeStep = 3;
+  static const _incomeStep = 2;
+  static const _planStep = 3;
   static const _walletsStep = 4;
-  static const _readyStep = 5;
+  static const _remindersStep = 5;
+  static const _readyStep = 6;
 
   /// Steps that show "Step X of 5"; the recap comes after them.
   static const _numberedSteps = 5;
@@ -73,6 +74,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
 
   final _nameFormKey = GlobalKey<FormState>();
   final _incomeFormKey = GlobalKey<FormState>();
+  final _planFormKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _incomeController = TextEditingController();
   final _dailyBudgetController = TextEditingController();
@@ -133,6 +135,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         if (!_nameFormKey.currentState!.validate()) return;
       case _incomeStep:
         if (!_incomeFormKey.currentState!.validate()) return;
+      case _planStep:
+        if (!_planFormKey.currentState!.validate()) return;
       case _walletsStep:
         if (_wallets.isEmpty) {
           setState(() => _showWalletError = true);
@@ -147,7 +151,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
     // sense. Saying no to Android keeps reminders off rather than pretending.
     _notificationsEnabled = enabled && await widget.requestReminderPermission();
     if (!mounted) return;
-    _goTo(_incomeStep);
+    _goTo(_readyStep);
   }
 
   double? _parseAmount(String text) {
@@ -332,12 +336,14 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         return _buildWelcome();
       case _nameStep:
         return _buildName();
-      case _remindersStep:
-        return _buildReminders();
       case _incomeStep:
         return _buildIncome();
+      case _planStep:
+        return _buildPlan();
       case _walletsStep:
         return _buildWallets();
+      case _remindersStep:
+        return _buildReminders();
       default:
         return _buildReady();
     }
@@ -527,7 +533,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   }
 
   // =========================================================
-  // STEP 4 - INCOME & PRIORITIES
+  // STEP 3 - INCOME
   // =========================================================
 
   Widget _buildIncome() {
@@ -699,6 +705,30 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             "Not sure? Leave it blank. FinAssist will suggest a daily amount "
             'later.',
           ),
+        ],
+      ),
+    );
+  }
+
+  // =========================================================
+  // STEP 4 - PAY PLAN
+  // =========================================================
+
+  Widget _buildPlan() {
+    final colors = context.appColors;
+
+    return Form(
+      key: _planFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          _title('Plan each payment'),
+          const SizedBox(height: 8),
+          _subtitle(
+            'Choose what to set aside for bills and savings whenever income '
+            'is added.',
+          ),
           const SizedBox(height: 24),
           _title('What matters most to you?', size: 18),
           const SizedBox(height: 6),
@@ -829,14 +859,19 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
       decoration: _inputDecoration(
         '0.00',
         prefixText: '₱ ',
-      ).copyWith(labelText: label),
+      ).copyWith(
+        labelText: label == 'Bills' || label == 'Savings' ? '$label *' : label,
+      ),
       validator: (value) {
         if ((value?.trim() ?? '').isEmpty) {
+          if (label == 'Bills' || label == 'Savings') {
+            return 'Enter an amount, or 0 if you do not need to set money aside.';
+          }
           return validateTotal ? _validatePlannedTotal() : null;
         }
         final amount = _parseAmount(value!);
         if (amount == null || !amount.isFinite || amount < 0) {
-          return 'Enter a valid amount, or leave it blank.';
+          return 'Enter a valid amount.';
         }
         return validateTotal ? _validatePlannedTotal() : null;
       },

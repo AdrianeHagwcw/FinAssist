@@ -941,7 +941,7 @@ ChatReply _purchaseAnswer(PurchaseQuestion q, FinanceSnapshot records) {
       records.walletBalance -
       bills -
       records.savingsReserve -
-      records.goalSavings;
+      records.goalSavingsInSpendingWallets;
 
   final daily = records.usualDailySpending;
   // Today's spending is already out of the wallets; only the rest of today
@@ -965,7 +965,8 @@ ChatReply _purchaseAnswer(PurchaseQuestion q, FinanceSnapshot records) {
   ];
   // What the spare money is worked out after, naming only what there is:
   // no "bills (₱0)" for someone with no bills.
-  final setAside = records.savingsReserve + records.goalSavings;
+  final setAside =
+      records.savingsReserve + records.goalSavingsInSpendingWallets;
   final coveredParts = [
     if (bills > 0) 'bills (${formatPeso(bills)})',
     if (setAside > 0) 'money set aside (${formatPeso(setAside)})',

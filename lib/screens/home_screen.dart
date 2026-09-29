@@ -5,9 +5,11 @@ import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
 import '../models/dashboard_tip.dart';
+import '../models/goal.dart';
 import '../models/report.dart';
 import '../models/transaction_filter.dart';
 import '../models/wallet.dart';
+import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/money_format.dart';
@@ -25,7 +27,6 @@ import 'history_screen.dart';
 import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
 import 'chatbot_screen.dart';
-import 'debts_screen.dart';
 import 'income_waterfall_screen.dart';
 import 'leftover_review_screen.dart';
 import 'ocr_screen.dart';
@@ -45,6 +46,7 @@ class HomeScreen extends StatefulWidget {
     this.onOpenDebts,
     this.userName,
     this.wallets,
+    this.goals,
     this.transactions,
     this.safeToSpend,
     this.today,
@@ -70,6 +72,9 @@ class HomeScreen extends StatefulWidget {
   /// Replaces the live wallets. Used by tests.
   final Stream<List<Wallet>>? wallets;
 
+  /// Replaces the live savings goals. Used by tests.
+  final Stream<List<Goal>>? goals;
+
   /// Replaces the live transactions. Used by tests.
   final Stream<List<AppTransaction>>? transactions;
 
@@ -87,6 +92,11 @@ class _HomeScreenState extends State<HomeScreen> {
   // Held here so a rebuild doesn't start a second listener.
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
+  late final Stream<List<Goal>> _goals =
+      widget.goals ??
+      (FirebaseAuth.instance.currentUser == null
+          ? Stream.value(const <Goal>[])
+          : GoalService.watchGoals());
   late final Stream<List<AppTransaction>> _transactions =
       widget.transactions ?? WalletService.watchTransactions();
 
@@ -145,10 +155,14 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context, walletSnapshot) {
           return StreamBuilder<List<AppTransaction>>(
             stream: _transactions,
-            builder: (context, snapshot) => _buildBody(
-              context,
-              wallets: walletSnapshot.data,
-              transactions: snapshot.data,
+            builder: (context, snapshot) => StreamBuilder<List<Goal>>(
+              stream: _goals,
+              builder: (context, goalSnapshot) => _buildBody(
+                context,
+                wallets: walletSnapshot.data,
+                transactions: snapshot.data,
+                goals: goalSnapshot.data,
+              ),
             ),
           );
         },
@@ -160,6 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
     BuildContext context, {
     required List<Wallet>? wallets,
     required List<AppTransaction>? transactions,
+    required List<Goal>? goals,
   }) {
     final colors = context.appColors;
     final now = widget.today ?? DateTime.now();
@@ -207,11 +222,18 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 12),
         _SetAsideBalanceCard(
           title: 'Savings Total Balance',
-          note: 'Money set aside for your goals',
+          note: _savingsGoalCaption(wallets, goals),
           iconAsset: 'assets/icons/icons8-money-box-96.png',
-          amount: wallets == null
+          amount: wallets == null || goals == null
               ? null
-              : walletBalanceFor(wallets, WalletPurpose.savings),
+              : (walletBalanceFor(wallets, WalletPurpose.savings) -
+                      totalSetAsideInPurposeWallets(
+                        goals,
+                        wallets,
+                        WalletPurpose.savings,
+                      ))
+                  .clamp(0.0, double.infinity)
+                  .toDouble(),
           onTap: () => _openSetAside(SetAsidePart.savings),
         ),
 
@@ -250,6 +272,31 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ],
     );
+  }
+
+  String _savingsGoalCaption(List<Wallet>? wallets, List<Goal>? goals) {
+    if (wallets == null || goals == null) return 'Loading your savings goals…';
+
+    final assigned = totalSetAsideInPurposeWallets(
+      goals,
+      wallets,
+      WalletPurpose.savings,
+    );
+    final goalCount = goals
+        .where(
+          (goal) =>
+              totalSetAsideInPurposeWallets(
+                [goal],
+                wallets,
+                WalletPurpose.savings,
+              ) >
+              0,
+        )
+        .length;
+
+    if (goalCount == 0) return 'No money set aside for goals';
+    return 'Across $goalCount goal${goalCount == 1 ? '' : 's'} · '
+        '${formatPeso(assigned)} set aside';
   }
 
   /// The tip needs the bills the Safe to Spend card already loaded, so it is
@@ -306,7 +353,8 @@ class _HomeScreenState extends State<HomeScreen> {
             tile(
               'assets/icons/lend-96.png',
               'Debts',
-              widget.onOpenDebts ?? () => _push(const DebtsScreen()),
+              widget.onOpenDebts ??
+                  () => _push(const BillCalendarScreen(initialShowDebts: true)),
             ),
           ],
         ),
@@ -337,7 +385,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// The full-width action under the Safe to Spend figure.
-  Widget _overviewButtons(BuildContext context, VoidCallback _) {
+  Widget _overviewButtons(BuildContext context) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(

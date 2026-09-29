@@ -47,12 +47,18 @@ class AllocationPlan {
   const AllocationPlan({
     required this.income,
     this.bills = const [],
+    this.billsSetAside,
     this.goal,
     this.goalAmount = 0,
   });
 
   final double income;
   final List<BillAllocation> bills;
+
+  /// Money to transfer into the Bills wallet without paying bill instances.
+  /// Used by salary income, where the user chooses one amount for upcoming
+  /// bills instead of making a payment decision for every bill.
+  final double? billsSetAside;
 
   /// The goal some of this income is set aside for, if any.
   final Goal? goal;
@@ -66,9 +72,11 @@ class AllocationPlan {
   double get afterBills => income - toBills;
 
   /// Total going to bills this cycle.
-  double get toBills => bills
-      .where((bill) => bill.pays)
-      .fold<double>(0, (total, bill) => total + bill.amount);
+  double get toBills =>
+      billsSetAside ??
+      bills
+          .where((bill) => bill.pays)
+          .fold<double>(0, (total, bill) => total + bill.amount);
 
   /// What is left of the income after bills. Negative means the bills chosen
   /// cost more than came in, and the difference comes out of money already in
@@ -98,6 +106,15 @@ class AllocationPlan {
       }
     }
 
+    final setAside = billsSetAside;
+    if (setAside != null) {
+      if (!setAside.isFinite || setAside < 0) {
+        problems.add('Enter a valid amount to put into the Bills wallet.');
+      } else if (setAside > income + 0.005) {
+        problems.add('You cannot set aside more than this income.');
+      }
+    }
+
     final goal = this.goal;
     if (goal != null) {
       if (!goalAmount.isFinite || goalAmount < 0) {
@@ -116,6 +133,7 @@ class AllocationPlan {
     return AllocationPlan(
       income: income ?? this.income,
       bills: bills ?? this.bills,
+      billsSetAside: billsSetAside,
       goal: goal,
       goalAmount: goalAmount,
     );

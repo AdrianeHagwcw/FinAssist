@@ -92,6 +92,8 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     AppTransaction payment,
     String walletName,
   ) async {
+    if (!_canUndo(instance)) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -122,6 +124,8 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   }
 
   Future<void> _undoPayments(BillInstance instance) async {
+    if (!_canUndo(instance)) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -195,6 +199,24 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   }
 
   String _money(double amount) => formatPeso(amount);
+
+  /// Only an advance for the next calendar month can be reversed. The
+  /// current month's payment stays final from this screen.
+  bool _canUndo(BillInstance instance) {
+    final now = widget.today ?? DateTime.now();
+    final nextMonth = DateTime(now.year, now.month + 1);
+    return instance.dueDate.year == nextMonth.year &&
+        instance.dueDate.month == nextMonth.month;
+  }
+
+  void _openCycle(BillInstance instance) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BillDetailScreen(instance: instance, today: widget.today),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -274,12 +296,25 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                   const SizedBox(height: 20),
                   _BillActions(
                     instance: instance,
+                    canUndo: _canUndo(instance),
                     onPayFull: () => _pay(instance, inFull: true),
                     onPayPartial: () => _pay(instance, inFull: false),
                     onUndo: () => _undoPayments(instance),
                     onSkip: () => BillService.skipInstance(instance.id),
                     onUnskip: () => BillService.unskipInstance(instance.id),
                   ),
+                  if (instance.amountPaid > 0 && !_canUndo(instance)) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'The current due payment is final. Open next month’s '
+                      'due date to undo an advance payment.',
+                      style: TextStyle(
+                        color: context.appColors.textBody,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
                   if (instance.paymentIds.isNotEmpty) ...[
                     const SizedBox(height: 24),
                     Text(
@@ -302,6 +337,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                                   payments: paymentsSnapshot.data ?? const [],
                                   wallets:
                                       walletSnapshot.data ?? const <Wallet>[],
+                                  canUndo: _canUndo(instance),
                                   onUndo: (payment, walletName) =>
                                       _undoOnePayment(
                                         instance,
@@ -314,7 +350,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                   ],
                   const SizedBox(height: 24),
                   Text(
-                    'Past cycles',
+                    'Other due dates',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -328,6 +364,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                       instances: historySnapshot.data ?? const [],
                       currentId: instance.id,
                       today: widget.today,
+                      onOpen: _openCycle,
                     ),
                   ),
                 ],
@@ -588,6 +625,7 @@ class _BillHeader extends StatelessWidget {
 class _BillActions extends StatelessWidget {
   const _BillActions({
     required this.instance,
+    required this.canUndo,
     required this.onPayFull,
     required this.onPayPartial,
     required this.onUndo,
@@ -596,6 +634,7 @@ class _BillActions extends StatelessWidget {
   });
 
   final BillInstance instance;
+  final bool canUndo;
   final VoidCallback onPayFull;
   final VoidCallback onPayPartial;
   final VoidCallback onUndo;
@@ -659,7 +698,7 @@ class _BillActions extends StatelessWidget {
             ],
           ),
         ],
-        if (instance.amountPaid > 0) ...[
+        if (instance.amountPaid > 0 && canUndo) ...[
           if (instance.remaining > 0) const SizedBox(height: 10),
           OutlinedButton.icon(
             onPressed: onUndo,
@@ -682,11 +721,13 @@ class _BillHistory extends StatelessWidget {
     required this.instances,
     required this.currentId,
     required this.today,
+    required this.onOpen,
   });
 
   final List<BillInstance> instances;
   final String currentId;
   final DateTime? today;
+  final ValueChanged<BillInstance> onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -709,41 +750,47 @@ class _BillHistory extends StatelessWidget {
     return Column(
       children: [
         for (final instance in others) ...[
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: colors.card,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: colors.border),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        formatShortDate(instance.dueDate),
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textPrimary,
+          InkWell(
+            onTap: () => onOpen(instance),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: colors.card,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: colors.border),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          formatShortDate(instance.dueDate),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: colors.textPrimary,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 5),
-                      BillStatusBadge(instance: instance, now: today),
-                    ],
+                        const SizedBox(height: 5),
+                        BillStatusBadge(instance: instance, now: today),
+                      ],
+                    ),
                   ),
-                ),
-                MoneyText(
-                  instance.amount,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: colors.textPrimary,
+                  MoneyText(
+                    instance.amount,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: colors.textPrimary,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  Icon(Icons.chevron_right, color: colors.textBody),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -762,11 +809,13 @@ class _PaymentBreakdown extends StatelessWidget {
   const _PaymentBreakdown({
     required this.payments,
     required this.wallets,
+    required this.canUndo,
     required this.onUndo,
   });
 
   final List<AppTransaction> payments;
   final List<Wallet> wallets;
+  final bool canUndo;
   final void Function(AppTransaction payment, String walletName) onUndo;
 
   String _walletName(String? walletId) {
@@ -846,13 +895,14 @@ class _PaymentBreakdown extends StatelessWidget {
                     color: colors.textPrimary,
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Undo this payment',
-                  color: dangerColorOn(context),
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () =>
-                      onUndo(payment, _walletName(payment.walletId)),
-                ),
+                if (canUndo)
+                  IconButton(
+                    tooltip: 'Undo this payment',
+                    color: dangerColorOn(context),
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () =>
+                        onUndo(payment, _walletName(payment.walletId)),
+                  ),
               ],
             ),
           ),

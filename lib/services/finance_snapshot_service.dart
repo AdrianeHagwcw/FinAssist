@@ -55,7 +55,6 @@ Stream<FinanceSnapshot> watchFinanceSnapshot() {
         lastIncomeAt: periodAnchor(cycles, profile),
         savingsReserve: savingsReserveFrom(profile),
         customDailyLimit: customDailyLimitFrom(profile),
-        periodBudget: plannedAllocationFrom(profile, 'others'),
       ),
     );
   }
