@@ -6,13 +6,16 @@ import '../models/wallet.dart';
 import '../services/allocation_service.dart';
 import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 import '../widgets/bill_payment_sheet.dart';
+import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/money_text.dart';
+import 'goals_screen.dart';
 
 /// Which half of the screen is being read.
 enum SetAsidePart { savings, bills }
@@ -103,7 +106,6 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
         backgroundColor: appPrimaryBlue,
         foregroundColor: Colors.white,
         elevation: 0,
-        automaticallyImplyLeading: false,
       ),
       body: StreamBuilder<List<Wallet>>(
         stream: _wallets,
@@ -155,6 +157,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
       _TotalCard(
         title: 'Savings',
         total: total,
+        iconAsset: 'assets/icons/icons8-money-box-96.png',
         note: 'Money you have already saved. It is kept out of your spending '
             'balance.',
       ),
@@ -167,12 +170,23 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               .toList();
 
           if (goals.isEmpty) {
-            return const EmptyStateView(
-              iconAsset: 'assets/icons/icons8-money-box-96.png',
-              title: 'No savings goal yet',
-              message:
-                  'Add a goal in the Goals tab, such as an emergency fund or '
-                  'school money, and your savings are counted towards it here.',
+            return Column(
+              children: [
+                const EmptyStateView(
+                  iconAsset: 'assets/icons/icons8-money-box-96.png',
+                  title: 'No savings goal yet',
+                  message:
+                      'Add a goal such as an emergency fund or school money, '
+                      'and your savings are counted towards it here.',
+                ),
+                const SizedBox(height: 16),
+                _ManageGoalsButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const GoalsScreen()),
+                  ),
+                ),
+              ],
             );
           }
 
@@ -191,6 +205,13 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                 _GoalRow(goal: goal),
                 const SizedBox(height: 10),
               ],
+              _ManageGoalsButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const GoalsScreen()),
+                ),
+              ),
+              const SizedBox(height: 10),
               _NoteRow(
                 label: spare >= 0
                     ? 'Not promised to a goal yet'
@@ -219,6 +240,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
       _TotalCard(
         title: 'Bills',
         total: total,
+        iconAsset: 'assets/icons/icons8-receipt-96.png',
         note: 'Money waiting for your bills. Paying a bill takes it from here '
             'first.',
       ),
@@ -256,11 +278,15 @@ class _TotalCard extends StatelessWidget {
     required this.title,
     required this.total,
     required this.note,
+    required this.iconAsset,
   });
 
   final String title;
   final double total;
   final String note;
+
+  /// The same icon this money carries on Home, so the two read as one thing.
+  final String iconAsset;
 
   @override
   Widget build(BuildContext context) {
@@ -281,13 +307,28 @@ class _TotalCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.all(8),
+                child: Image.asset(iconAsset),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           const Text(
@@ -309,6 +350,30 @@ class _TotalCard extends StatelessWidget {
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Opens the goals themselves, where they are added and edited.
+class _ManageGoalsButton extends StatelessWidget {
+  const _ManageGoalsButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Image.asset(
+          'assets/icons/icons8-goal-96.png',
+          width: 18,
+          height: 18,
+        ),
+        label: const Text('Manage goals'),
+        style: openOutlineStyle(context),
       ),
     );
   }
@@ -354,6 +419,8 @@ class _GoalRow extends StatelessWidget {
         children: [
           Row(
             children: [
+              Icon(goal.kind.icon, size: 20, color: appPrimaryBlue),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   goal.name,
@@ -418,6 +485,17 @@ class _BillRow extends StatelessWidget {
       ),
       child: Row(
         children: [
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.primaryTint,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: CategoryIcon(bill.category, size: 22),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

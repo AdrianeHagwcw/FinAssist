@@ -100,7 +100,14 @@ PopupMenuItem<T> menuItem<T>({
       children: [
         Icon(icon, size: 18, color: color),
         const SizedBox(width: 10),
-        Text(label, style: color == null ? null : TextStyle(color: color)),
+        // The label wraps rather than running past the menu's edge, which a
+        // long entry did on a narrow screen or at a large text size.
+        Flexible(
+          child: Text(
+            label,
+            style: color == null ? null : TextStyle(color: color),
+          ),
+        ),
       ],
     ),
   );

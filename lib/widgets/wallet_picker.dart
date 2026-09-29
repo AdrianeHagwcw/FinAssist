@@ -28,6 +28,7 @@ class WalletPicker extends StatelessWidget {
     required this.onChanged,
     this.label = 'Wallet',
     this.excludeId,
+    this.allowed = const {WalletPurpose.spending},
     super.key,
   });
 
@@ -39,10 +40,20 @@ class WalletPicker extends StatelessWidget {
   /// Wallet to leave out, so a transfer can't pick the same one twice.
   final String? excludeId;
 
+  /// Which kinds of wallet may be chosen. Spending money only by default:
+  /// the bills and savings wallets hold money that is already promised, so
+  /// they are offered only where spending them is the point, such as paying a
+  /// bill, or moving money on purpose with a transfer.
+  final Set<WalletPurpose> allowed;
+
   @override
   Widget build(BuildContext context) {
     final choices = wallets
-        .where((wallet) => wallet.id != excludeId)
+        .where(
+          (wallet) =>
+              wallet.id != excludeId &&
+              (allowed.contains(wallet.purpose) || wallet.id == selectedId),
+        )
         .toList(growable: false);
     final value = choices.any((wallet) => wallet.id == selectedId)
         ? selectedId

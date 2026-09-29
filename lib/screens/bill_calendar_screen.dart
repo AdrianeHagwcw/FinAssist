@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/bill.dart';
 import '../services/bill_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/back_to_home.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import 'bill_detail_screen.dart';
@@ -125,6 +126,9 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
         backgroundColor: appPrimaryBlue,
         foregroundColor: Colors.white,
         elevation: 0,
+        // As a tab it goes back to Home; opened from Home's Quick Actions it
+        // keeps the usual back arrow.
+        leading: backToHomeButton(context),
         actions: [
           IconButton(
             tooltip: _showAsList ? 'Show calendar' : 'Show list',

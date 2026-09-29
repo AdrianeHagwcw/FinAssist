@@ -574,6 +574,33 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           'amount; lower it to pay part, or leave a bill for later.',
           style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
         ),
+        if (allocations.length > 1) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${allocations.length} bills',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => _setAllPaid(!_allPaid(allocations)),
+                style: TextButton.styleFrom(
+                  foregroundColor: colors.primaryText,
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: Text(
+                  _allPaid(allocations) ? 'Uncheck all' : 'Check all',
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 14),
         for (final allocation in allocations) ...[
           _BillChoice(
@@ -598,6 +625,35 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         _RunningTotal(plan: plan),
       ],
     );
+  }
+
+  /// True when every bill on the list is ticked to be paid now.
+  bool _allPaid(List<BillAllocation> allocations) {
+    return allocations.every(
+      (allocation) =>
+          !allocation.skipped && !_leftAlone.contains(allocation.instance.id),
+    );
+  }
+
+  /// Ticks or unticks every bill at once. Ticking one that was skipped brings
+  /// it back, so "Check all" really does cover the whole list.
+  void _setAllPaid(bool pay) {
+    final allocations = _allocations;
+    if (allocations == null) return;
+
+    setState(() {
+      if (pay) {
+        _leftAlone.clear();
+        _allocations = [
+          for (final allocation in allocations)
+            allocation.skipped ? allocation.copyWith(skipped: false) : allocation,
+        ];
+      } else {
+        _leftAlone.addAll(
+          allocations.map((allocation) => allocation.instance.id),
+        );
+      }
+    });
   }
 
   void _setSkipped(BillAllocation allocation, bool skipped) {

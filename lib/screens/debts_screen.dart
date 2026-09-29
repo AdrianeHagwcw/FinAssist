@@ -165,7 +165,7 @@ class _DebtsViewState extends State<DebtsView> {
                 style: openButtonStyle(),
                 icon: const Icon(Icons.add),
                 label: const Text(
-                  'Add Installment',
+                  'Add loan or installment',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),

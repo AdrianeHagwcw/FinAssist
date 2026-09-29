@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../utils/categories.dart';
 import 'allocation.dart';
 
@@ -8,6 +10,14 @@ const incomeFrequencies = {
   'Monthly': 'Monthly',
   'Irregular': 'Irregular (no fixed payday)',
 };
+
+/// A stored date, whether it came back as a Firestore timestamp or already
+/// as a date.
+DateTime? _date(Object? value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  return null;
+}
 
 /// One planned amount from the profile's `plannedAllocations`, or zero.
 double _planned(Map<String, dynamic>? data, String key) {
@@ -28,6 +38,7 @@ class FinancialPreferences {
     this.hiddenCategories = const [],
     this.plannedBills = 0,
     this.plannedSavings = 0,
+    this.lastPaydayAt,
   });
 
   factory FinancialPreferences.fromMap(Map<String, dynamic>? data) {
@@ -50,6 +61,7 @@ class FinancialPreferences {
       hiddenCategories: strings('hiddenCategories'),
       plannedBills: _planned(data, 'bills'),
       plannedSavings: _planned(data, 'savings'),
+      lastPaydayAt: _date(data?['lastPaydayAt']),
     );
   }
 
@@ -68,6 +80,10 @@ class FinancialPreferences {
   /// into the bills and savings wallets when income is recorded.
   final double plannedBills;
   final double plannedSavings;
+
+  /// The day the user says their pay last came in. It starts the pay period
+  /// when it is later than anything they have logged.
+  final DateTime? lastPaydayAt;
 
   List<String> get allCategories =>
       {...expenseCategories, ...customCategories}.toList();

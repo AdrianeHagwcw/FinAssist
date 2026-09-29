@@ -152,61 +152,12 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   }
 
   Future<void> _editOccurrence(BillInstance instance) async {
-    final amountController = TextEditingController(
-      text: formatAmountInput(instance.amount),
-    );
-
-    final saved = await showDialog<bool>(
+    final amount = await showDialog<double>(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(18)),
-        ),
-        title: const Text('Just this one'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Change what this month costs without touching the schedule.',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: amountController,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(
-                labelText: 'Amount',
-                prefixText: '₱ ',
-                hintText: '0.00',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: cancelTextStyle(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: confirmTextStyle(context),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+      builder: (context) => _OccurrenceAmountDialog(amount: instance.amount),
     );
 
-    final amount = double.tryParse(
-      amountController.text.trim().replaceAll(',', ''),
-    );
-    amountController.dispose();
-
-    if (saved != true || amount == null || amount <= 0) return;
+    if (amount == null || amount <= 0) return;
 
     BillService.updateInstance(instanceId: instance.id, amount: amount);
   }
@@ -290,14 +241,14 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                     itemBuilder: (context) => [
                       menuItem(
                         value: 'occurrence',
-                        label: 'Change just this one',
+                        label: "Change this date's amount",
                         icon: Icons.edit_calendar,
                         color: appPrimaryBlue,
                       ),
                       if (bill != null) ...[
                         menuItem(
                           value: 'schedule',
-                          label: 'Edit the schedule',
+                          label: 'Edit the bill and next dates',
                           icon: Icons.edit,
                           color: appPrimaryBlue,
                         ),
@@ -396,6 +347,85 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     }
 
     return null;
+  }
+}
+
+/// Asks for what this one occurrence costs.
+///
+/// The text controller lives here rather than in the caller, so it is only
+/// disposed once the dialog itself is gone. Disposing it the moment the
+/// dialog returned tore it away while the closing animation still read it.
+class _OccurrenceAmountDialog extends StatefulWidget {
+  const _OccurrenceAmountDialog({required this.amount});
+
+  final double amount;
+
+  @override
+  State<_OccurrenceAmountDialog> createState() =>
+      _OccurrenceAmountDialogState();
+}
+
+class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: formatAmountInput(widget.amount),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final amount = double.tryParse(
+      _controller.text.trim().replaceAll(',', ''),
+    );
+    Navigator.pop(context, amount);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(18)),
+      ),
+      title: const Text('This date only'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Change what this one costs. The bill itself and the dates '
+            'after it stay as they are.',
+            style: TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Amount',
+              prefixText: '₱ ',
+              hintText: '0.00',
+            ),
+            onSubmitted: (_) => _save(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          style: cancelTextStyle(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: _save,
+          style: confirmTextStyle(context),
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }
 

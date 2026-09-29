@@ -12,6 +12,7 @@ Future<bool> showTransferSheet(
   BuildContext context, {
   Stream<List<Wallet>>? wallets,
   String? fromWalletId,
+  String? toWalletId,
 }) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
@@ -21,15 +22,23 @@ Future<bool> showTransferSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) =>
-        TransferSheet(wallets: wallets, initialFromWalletId: fromWalletId),
+    builder: (context) => TransferSheet(
+      wallets: wallets,
+      initialFromWalletId: fromWalletId,
+      initialToWalletId: toWalletId,
+    ),
   );
 
   return saved ?? false;
 }
 
 class TransferSheet extends StatefulWidget {
-  const TransferSheet({this.wallets, this.initialFromWalletId, super.key});
+  const TransferSheet({
+    this.wallets,
+    this.initialFromWalletId,
+    this.initialToWalletId,
+    super.key,
+  });
 
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
@@ -37,6 +46,10 @@ class TransferSheet extends StatefulWidget {
   /// The wallet the money starts in. Set when the sheet is opened from a
   /// particular wallet, so the user doesn't have to pick it again.
   final String? initialFromWalletId;
+
+  /// The wallet the money is headed for, set when the sheet is opened to top
+  /// one up, such as the bills wallet before paying a bill.
+  final String? initialToWalletId;
 
   @override
   State<TransferSheet> createState() => _TransferSheetState();
@@ -51,7 +64,7 @@ class _TransferSheetState extends State<TransferSheet> {
   final _noteController = TextEditingController();
 
   late String? _fromId = widget.initialFromWalletId;
-  String? _toId;
+  late String? _toId = widget.initialToWalletId;
 
   @override
   void dispose() {
@@ -63,17 +76,62 @@ class _TransferSheetState extends State<TransferSheet> {
   double? get _amount =>
       double.tryParse(_amountController.text.trim().replaceAll(',', ''));
 
-  void _save(String? fromId) {
+  /// Placeholder ids for a bills or savings wallet the user has not made yet.
+  /// Choosing one creates it as the money moves in.
+  static const _newBills = 'new:bills';
+  static const _newSavings = 'new:savings';
+
+  void _save(String? fromId, List<Wallet> wallets) {
     if (fromId == null || !_formKey.currentState!.validate()) return;
 
-    WalletService.recordTransfer(
-      fromWalletId: fromId,
-      toWalletId: _toId!,
-      amount: _amount!,
-      note: _noteController.text,
-    );
+    final purpose = switch (_toId) {
+      _newBills => WalletPurpose.bills,
+      _newSavings => WalletPurpose.savings,
+      _ => null,
+    };
+
+    if (purpose == null) {
+      WalletService.recordTransfer(
+        fromWalletId: fromId,
+        toWalletId: _toId!,
+        amount: _amount!,
+        note: _noteController.text,
+      );
+    } else {
+      WalletService.transferToPurpose(
+        fromWalletId: fromId,
+        purpose: purpose,
+        amount: _amount!,
+        wallets: wallets,
+        note: _noteController.text,
+      );
+    }
 
     Navigator.pop(context, true);
+  }
+
+  /// The wallets the money can go to: the real ones, plus a bills or savings
+  /// wallet the user can start here rather than having to make first.
+  List<Wallet> _destinations(List<Wallet> wallets) {
+    Wallet placeholder(String id, WalletPurpose purpose) => Wallet(
+      id: id,
+      name: purpose.defaultName ?? 'Set aside',
+      type: WalletType.other,
+      balance: 0,
+      startingBalance: 0,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1000,
+      purpose: purpose,
+    );
+
+    return [
+      ...wallets,
+      if (WalletService.walletFor(wallets, WalletPurpose.bills) == null)
+        placeholder(_newBills, WalletPurpose.bills),
+      if (WalletService.walletFor(wallets, WalletPurpose.savings) == null)
+        placeholder(_newSavings, WalletPurpose.savings),
+    ];
   }
 
   @override
@@ -140,6 +198,9 @@ class _TransferSheetState extends State<TransferSheet> {
                         wallets: wallets,
                         selectedId: from,
                         label: 'From',
+                        // Moving money on purpose is the one place every
+                        // wallet may be picked, in either direction.
+                        allowed: WalletPurpose.values.toSet(),
                         onChanged: (value) => setState(() {
                           _fromId = value;
                           if (_toId == value) _toId = null;
@@ -147,10 +208,11 @@ class _TransferSheetState extends State<TransferSheet> {
                       ),
                       const SizedBox(height: 16),
                       WalletPicker(
-                        wallets: wallets,
+                        wallets: _destinations(wallets),
                         selectedId: _toId,
                         label: 'To',
                         excludeId: from,
+                        allowed: WalletPurpose.values.toSet(),
                         onChanged: (value) => setState(() => _toId = value),
                       ),
                       const SizedBox(height: 16),
@@ -193,7 +255,7 @@ class _TransferSheetState extends State<TransferSheet> {
                         width: double.infinity,
                         height: 52,
                         child: ElevatedButton(
-                          onPressed: () => _save(from),
+                          onPressed: () => _save(from, wallets),
                           style: confirmButtonStyle(),
                           child: const Text(
                             'Transfer',

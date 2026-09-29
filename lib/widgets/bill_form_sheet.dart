@@ -270,7 +270,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
                 DropdownButtonFormField<BillRecurrence>(
                   initialValue: _recurrence,
                   isExpanded: true,
-                  decoration: dialogFieldDecoration(context, 'Repeats'),
+                  decoration: dialogFieldDecoration(context, 'Does this repeat?'),
                   items: [
                     for (final recurrence in BillRecurrence.values)
                       DropdownMenuItem(
@@ -301,6 +301,10 @@ class _BillFormSheetState extends State<BillFormSheet> {
                           wallets: wallets,
                           selectedId: _walletId,
                           label: 'Usually paid from (optional)',
+                          allowed: const {
+                            WalletPurpose.spending,
+                            WalletPurpose.bills,
+                          },
                           onChanged: (value) =>
                               setState(() => _walletId = value),
                         ),
