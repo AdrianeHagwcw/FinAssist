@@ -431,6 +431,7 @@ void main() {
               userName: 'Dave',
               wallets: Stream.value(const []),
               transactions: Stream.value(const []),
+              goals: Stream.value(const <Goal>[]),
               safeToSpend: const SizedBox(height: 40),
               today: DateTime(2026, 9, 28),
               onOpenBills: () => opened++,
@@ -595,6 +596,34 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    /// Answers the income, pay plan and wallet steps, leaving the Reminders
+    /// step on screen. The name has already been entered.
+    Future<void> walkToReminders(WidgetTester tester) async {
+      await chooseDropdown(tester, 'Select your income source', 'Salary');
+      await chooseDropdown(tester, 'Select how often', 'Monthly');
+      await tester.enterText(find.byType(TextFormField).at(0), '10,000');
+
+      // Regular income is counted from the last payday, so it is required.
+      await tester.ensureVisible(find.byKey(const Key('last-payday')));
+      await tester.tap(find.byKey(const Key('last-payday')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Next');
+
+      // Bills and savings are answered even when nothing is set aside.
+      await tester.ensureVisible(find.byKey(const Key('allocation-bills')));
+      await tester.enterText(find.byKey(const Key('allocation-bills')), '0');
+      await tester.ensureVisible(find.byKey(const Key('allocation-savings')));
+      await tester.enterText(find.byKey(const Key('allocation-savings')), '0');
+      await tapText(tester, 'Next');
+
+      await tapText(tester, 'Add a Wallet');
+      await tester.enterText(find.byType(TextFormField).last, '500');
+      await tapText(tester, 'Add Wallet');
+      await tapText(tester, 'Next');
+    }
+
     testWidgets('a blocked notification prompt still moves on', (tester) async {
       await pumpOnboarding(
         tester,
@@ -605,9 +634,11 @@ void main() {
       await tapText(tester, 'Get Started');
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
+      await walkToReminders(tester);
       await tapText(tester, 'Allow Reminders');
 
-      expect(find.text('Step 4 of 5'), findsOneWidget);
+      // Android refused, so reminders stay off and setup still finishes.
+      expect(find.text("You're ready, Dave!"), findsOneWidget);
     });
 
     testWidgets('walks through every step and saves the answers', (
@@ -622,7 +653,7 @@ void main() {
       );
 
       // Step 1: Welcome
-      expect(find.text('Step 1 of 5'), findsOneWidget);
+      expect(find.text('Step 1 of 6'), findsOneWidget);
       await tapText(tester, 'Get Started');
 
       // Step 2: Name is required
@@ -632,12 +663,8 @@ void main() {
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
 
-      // Step 3: Reminders
-      expect(find.text('Never miss a bill'), findsOneWidget);
-      await tapText(tester, 'Allow Reminders');
-
-      // Step 4: Income
-      expect(find.text('Step 4 of 5'), findsOneWidget);
+      // Step 3: Income
+      expect(find.text('Step 3 of 6'), findsOneWidget);
       await chooseDropdown(tester, 'Select your income source', 'Allowance');
       await chooseDropdown(
         tester,
@@ -654,6 +681,11 @@ void main() {
       expect(find.text('When did you last get paid?'), findsOneWidget);
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
+
+      await tapText(tester, 'Next');
+
+      // Step 4: The pay plan
+      expect(find.text('Plan each payment'), findsOneWidget);
 
       // The first priority can't move up; moving it down swaps it.
       final moveUp = find.byTooltip('Move "Pay bills on time" up');
@@ -688,6 +720,7 @@ void main() {
       await tapText(tester, 'Next');
 
       // Step 5: Wallets are required
+      expect(find.text('Step 5 of 6'), findsOneWidget);
       expect(find.text('Your starting wallets'), findsOneWidget);
       await tapText(tester, 'Next');
       expect(find.text('Please add at least one wallet.'), findsOneWidget);
@@ -710,6 +743,10 @@ void main() {
       await tester.tap(find.text('Receives my Allowance').last);
       await tester.pump();
       await tapText(tester, 'Next');
+
+      // Step 6: Reminders
+      expect(find.text('Never miss a bill'), findsOneWidget);
+      await tapText(tester, 'Allow Reminders');
 
       // Recap
       expect(find.text("You're ready, Dave!"), findsOneWidget);
@@ -750,11 +787,11 @@ void main() {
       await pumpOnboarding(tester, save: (_) async {});
 
       await tapText(tester, 'Get Started');
-      expect(find.text('Step 2 of 5'), findsOneWidget);
+      expect(find.text('Step 2 of 6'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Back'));
       await tester.pumpAndSettle();
-      expect(find.text('Step 1 of 5'), findsOneWidget);
+      expect(find.text('Step 1 of 6'), findsOneWidget);
     });
 
     testWidgets('irregular income makes the amount an optional estimate', (
@@ -766,7 +803,6 @@ void main() {
       await tapText(tester, 'Get Started');
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
-      await tapText(tester, 'Skip for now');
       await chooseDropdown(
         tester,
         'Select how often',
@@ -783,12 +819,24 @@ void main() {
       // The amount can stay blank for irregular income.
       await chooseDropdown(tester, 'Select your income source', 'Freelance');
       await tapText(tester, 'Next');
+
+      // Nothing set aside, which the pay plan still asks about.
+      expect(find.text('Plan each payment'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('allocation-bills')));
+      await tester.enterText(find.byKey(const Key('allocation-bills')), '0');
+      await tester.ensureVisible(find.byKey(const Key('allocation-savings')));
+      await tester.enterText(find.byKey(const Key('allocation-savings')), '0');
+      await tapText(tester, 'Next');
+
       expect(find.text('Your starting wallets'), findsOneWidget);
 
       await tapText(tester, 'Add a Wallet');
       await tester.enterText(find.byType(TextFormField).last, '500');
       await tapText(tester, 'Add Wallet');
       await tapText(tester, 'Next');
+
+      // Reminders can be turned down.
+      await tapText(tester, 'Skip for now');
 
       expect(
         find.textContaining('Varies · Irregular (no fixed payday)'),
@@ -811,7 +859,6 @@ void main() {
       await tapText(tester, 'Get Started');
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
-      await tapText(tester, 'Skip for now');
       await chooseDropdown(tester, 'Select your income source', 'Salary');
       await chooseDropdown(tester, 'Select how often', 'Monthly');
       await tapText(tester, 'Next');
@@ -2774,7 +2821,13 @@ void main() {
       expect(find.text('Paid ₱1,200'), findsOneWidget);
       expect(find.text('₱1,800 to go'), findsOneWidget);
       expect(find.text('Partly paid'), findsOneWidget);
-      expect(find.text('Undo payment'), findsOneWidget);
+      // What is paid on the current due date stands; only a payment made
+      // ahead, on next month's due date, can be taken back.
+      expect(find.text('Undo payment'), findsNothing);
+      expect(
+        find.textContaining('The current due payment is final'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a fully paid bill offers no way to pay it again', (
@@ -2788,7 +2841,27 @@ void main() {
       expect(find.text('Mark as Paid'), findsNothing);
       expect(find.text('Pay part of it'), findsNothing);
       expect(find.text('Fully paid'), findsOneWidget);
+      expect(find.text('Undo payment'), findsNothing);
+    });
+
+    testWidgets('a bill paid ahead for next month can be undone', (
+      tester,
+    ) async {
+      await pumpDetail(
+        tester,
+        current: instance(
+          id: 'b1_20260405',
+          amountPaid: 3000,
+          status: BillStatus.paid,
+          dueDate: DateTime(2026, 4, 5),
+        ),
+      );
+
       expect(find.text('Undo payment'), findsOneWidget);
+      expect(
+        find.textContaining('The current due payment is final'),
+        findsNothing,
+      );
     });
 
     testWidgets('a skipped bill can be put back', (tester) async {
@@ -2844,10 +2917,17 @@ void main() {
       );
     });
 
-    testWidgets('undoing a payment warns the money goes back', (tester) async {
+    testWidgets('undoing an advance payment warns the money goes back', (
+      tester,
+    ) async {
       await pumpDetail(
         tester,
-        current: instance(amountPaid: 3000, status: BillStatus.paid),
+        current: instance(
+          id: 'b1_20260405',
+          amountPaid: 3000,
+          status: BillStatus.paid,
+          dueDate: DateTime(2026, 4, 5),
+        ),
       );
 
       await tester.tap(find.text('Undo payment'));
@@ -3069,6 +3149,20 @@ void main() {
       paymentIds: const ['t1', 't2'],
     );
 
+    // The same bill paid ahead, on next month's due date: the only payment
+    // the screen lets the user take back.
+    final paidAhead = BillInstance(
+      id: 'b1_20260405',
+      billId: 'b1',
+      name: 'Rent',
+      amount: 3000,
+      category: 'Bills',
+      dueDate: DateTime(2026, 4, 5),
+      status: BillStatus.partial,
+      amountPaid: 1800,
+      paymentIds: const ['t1', 't2'],
+    );
+
     AppTransaction payment({
       required String id,
       required double amount,
@@ -3086,7 +3180,11 @@ void main() {
       );
     }
 
-    Future<void> pumpDetail(WidgetTester tester) async {
+    Future<void> pumpDetail(
+      WidgetTester tester, {
+      BillInstance? current,
+    }) async {
+      final shown = current ?? partlyPaid;
       tester.view.physicalSize = const Size(600, 1900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -3098,9 +3196,9 @@ void main() {
           child: MaterialApp(
             theme: AppTheme.light,
             home: BillDetailScreen(
-              instance: partlyPaid,
+              instance: shown,
               today: today,
-              liveInstance: Stream.value(partlyPaid),
+              liveInstance: Stream.value(shown),
               history: Stream.value([partlyPaid]),
               bills: Stream.value(const []),
               wallets: Stream.value([cash, gcash]),
@@ -3151,7 +3249,7 @@ void main() {
     testWidgets('one payment can be undone without touching the other', (
       tester,
     ) async {
-      await pumpDetail(tester);
+      await pumpDetail(tester, current: paidAhead);
 
       await tester.tap(find.byTooltip('Undo this payment').first);
       await tester.pumpAndSettle();
@@ -3904,7 +4002,7 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('savings opens with its own total balance', (tester) async {
+    testWidgets('savings opens with what is free of the goals', (tester) async {
       await pumpSetAside(
         tester,
         wallets: [
@@ -3919,21 +4017,22 @@ void main() {
             savedAmount: 1500,
             priority: 0,
             status: GoalStatus.active,
+            savedByWallet: {'s': 1500},
           ),
         ],
       );
 
-      expect(find.text('Savings'), findsWidgets);
+      expect(find.text('Savings wallet'), findsWidgets);
       expect(find.text('Total balance'), findsOneWidget);
-      expect(find.text('₱2,000'), findsOneWidget);
       expect(find.text('Emergency fund'), findsOneWidget);
       expect(find.text('₱1,500'), findsOneWidget);
-      // ₱2,000 saved, ₱1,500 of it promised to the goal.
+      // ₱2,000 in the wallet, ₱1,500 of it held inside the goal, so ₱500 is
+      // free: the card and the note both say so.
       expect(find.text('Not promised to a goal yet'), findsOneWidget);
-      expect(find.text('₱500'), findsOneWidget);
+      expect(find.text('₱500'), findsNWidgets(2));
     });
 
-    testWidgets('savings says when the goals count more than is saved', (
+    testWidgets('savings reads zero when the goals hold it all', (
       tester,
     ) async {
       await pumpSetAside(
@@ -3947,12 +4046,14 @@ void main() {
             savedAmount: 2500,
             priority: 0,
             status: GoalStatus.active,
+            savedByWallet: {'s': 2500},
           ),
         ],
       );
 
-      expect(find.text('Still to move into savings'), findsOneWidget);
-      expect(find.text('₱1,500'), findsOneWidget);
+      // Goal money never shows as a negative balance here.
+      expect(find.text('Not promised to a goal yet'), findsOneWidget);
+      expect(find.text('₱0'), findsNWidgets(2));
     });
 
     testWidgets('bills opens with its total and what is still to pay', (
@@ -3968,7 +4069,7 @@ void main() {
         ],
       );
 
-      expect(find.text('Bills'), findsWidgets);
+      expect(find.text('Bills wallet'), findsWidgets);
       expect(find.text('Total balance'), findsOneWidget);
       expect(find.text('₱1,200'), findsOneWidget);
       expect(find.text('Rent'), findsOneWidget);
@@ -4016,7 +4117,7 @@ void main() {
       expect(late.end.difference(late.start).inDays, 15);
     });
 
-    test('the later of the logged pay and the day the user gave wins', () {
+    test('the payday the user saved starts the period, not logged income', () {
       final cycles = [
         AllocationCycle(
           id: 'pay',
@@ -4028,30 +4129,42 @@ void main() {
       ];
       const profile = {'incomeSource': 'Salary'};
 
-      // Nothing said in settings: the period runs from the logged pay.
-      expect(periodAnchor(cycles, profile), DateTime(2026, 9, 21));
+      // Recording income adds to the balance but does not restart the
+      // countdown, so a profile with no saved payday has nothing to count
+      // from and Home falls back to the calendar.
+      expect(periodAnchor(cycles, profile), isNull);
 
-      // Saying the pay came in today moves the period to today.
-      final corrected = {
+      // The payday saved at setup, or changed in Financial preferences, is
+      // what the period runs from.
+      final saved = {
         ...profile,
         'lastPaydayAt': Timestamp.fromDate(DateTime(2026, 9, 29)),
       };
-      expect(periodAnchor(cycles, corrected), DateTime(2026, 9, 29));
+      expect(periodAnchor(cycles, saved), DateTime(2026, 9, 29));
       expect(
         payPeriodFor(
           'Semi-monthly',
-          lastIncomeAt: periodAnchor(cycles, corrected),
+          lastIncomeAt: periodAnchor(cycles, saved),
           now: DateTime(2026, 9, 29),
         ).daysLeft(DateTime(2026, 9, 29)),
         15,
       );
 
-      // An older date in settings does not drag the period backwards.
-      final stale = {
+      // An older saved payday keeps its schedule: the period rolls forward in
+      // fifteen-day steps instead of jumping to the day pay was logged.
+      final earlier = {
         ...profile,
         'lastPaydayAt': Timestamp.fromDate(DateTime(2026, 9, 1)),
       };
-      expect(periodAnchor(cycles, stale), DateTime(2026, 9, 21));
+      expect(periodAnchor(cycles, earlier), DateTime(2026, 9, 1));
+      expect(
+        payPeriodFor(
+          'Semi-monthly',
+          lastIncomeAt: periodAnchor(cycles, earlier),
+          now: DateTime(2026, 9, 29),
+        ).start,
+        DateTime(2026, 9, 16),
+      );
     });
 
     test('the day given at setup starts the first period', () {
@@ -4678,6 +4791,8 @@ void main() {
                 profile: Stream.value({
                   'incomeFrequency': 'Semi-monthly',
                   'incomeSource': 'Salary',
+                  // The period is counted from the payday on the profile.
+                  'lastPaydayAt': Timestamp.fromDate(payday),
                   'plannedAllocations': {
                     'bills': 5000,
                     'savings': 2000,
@@ -4726,6 +4841,8 @@ void main() {
                 profile: Stream.value({
                   'incomeFrequency': 'Monthly',
                   'incomeSource': 'Salary',
+                  // Paid on the 10th, which is what the period runs from.
+                  'lastPaydayAt': Timestamp.fromDate(DateTime(2026, 3, 10)),
                   'plannedAllocations': {'others': 100},
                 }),
                 // Newest first, as they are read.
@@ -4808,6 +4925,46 @@ void main() {
       expect(find.text('of ₱750 daily limit'), findsOneWidget);
       expect(find.text('Today spent: ₱200'), findsOneWidget);
       expect(find.text('8 days left this period'), findsOneWidget);
+    });
+
+    testWidgets('the card still offers a way to set your own daily limit', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SafeToSpendCard(
+                today: DateTime(2026, 3, 22, 10),
+                wallets: Stream.value([cash]),
+                transactions: Stream.value(const []),
+                profile: Stream.value({'incomeFrequency': 'Semi-monthly'}),
+                cycles: Stream.value(const []),
+                loadBills: () async => const [],
+                goals: Stream.value(const []),
+                billSchedules: Stream.value(const []),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Set my daily limit'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Your daily limit'), findsOneWidget);
     });
   });
 
@@ -5085,6 +5242,18 @@ void main() {
       archived: false,
       sortOrder: 0,
     );
+    // Goal money is held in the Savings wallet, so the sheet needs one.
+    final savings = Wallet(
+      id: 'savings',
+      name: 'Savings',
+      type: WalletType.other,
+      balance: 5000,
+      startingBalance: 0,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+      purpose: WalletPurpose.savings,
+    );
     const laptop = Goal(
       id: 'g',
       name: 'Laptop',
@@ -5092,6 +5261,7 @@ void main() {
       savedAmount: 1200,
       priority: 0,
       status: GoalStatus.active,
+      savedByWallet: {'savings': 1200},
     );
 
     Future<void> pumpSheet(
@@ -5111,7 +5281,8 @@ void main() {
             body: ContributionSheet(
               goal: laptop,
               takeOut: takeOut,
-              wallets: Stream.value([cash]),
+              wallets: Stream.value([cash, savings]),
+              goals: Stream.value(const [laptop]),
               onSave: onSave,
             ),
           ),
@@ -5142,7 +5313,7 @@ void main() {
       await tester.pump();
 
       expect(
-        find.text('Only ₱1,200 is set aside for this goal.'),
+        find.text('Only ₱1,200 is in your Savings wallet for this goal.'),
         findsOneWidget,
       );
       expect(saved, isNull);
@@ -5862,6 +6033,20 @@ void main() {
       sortOrder: 0,
     );
 
+    // Goal money is kept in the Savings wallet, so money already saved has
+    // to be there before a goal can claim it.
+    final savings = Wallet(
+      id: 'savings',
+      name: 'Savings',
+      type: WalletType.other,
+      balance: 5000,
+      startingBalance: 0,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+      purpose: WalletPurpose.savings,
+    );
+
     testWidgets('shows what to save and records money already saved', (
       tester,
     ) async {
@@ -5880,7 +6065,7 @@ void main() {
               initialName: 'Emergency Fund',
               initialKind: GoalKind.emergencyFund,
               today: DateTime(2026, 3, 10),
-              wallets: Stream.value([cash]),
+              wallets: Stream.value([cash, savings]),
               onSave: (draft) => saved = draft,
             ),
           ),
@@ -5923,7 +6108,7 @@ void main() {
       expect(saved?.alreadySaved, 2000);
       expect(saved?.planAmount, 2500);
       expect(saved?.kind, GoalKind.emergencyFund);
-      expect(saved?.walletId, 'cash');
+      expect(saved?.walletId, 'savings');
     });
   });
 
@@ -6507,6 +6692,7 @@ void main() {
               userName: 'Hayato',
               wallets: Stream.value(wallets ?? [cash, gcash]),
               transactions: Stream.value(transactions),
+              goals: Stream.value(const <Goal>[]),
               safeToSpend: const SizedBox(
                 height: 80,
                 child: Text('Safe to Spend placeholder'),

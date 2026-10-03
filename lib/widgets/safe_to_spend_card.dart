@@ -215,6 +215,21 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
     );
   }
 
+  /// The daily limit sheet. Reached from the card's More menu, which is the
+  /// only way to set a limit of one's own.
+  Future<void> _openEditor(SafeToSpend safeToSpend) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: context.appColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => EditSafeToSpendSheet(safeToSpend: safeToSpend),
+    );
+  }
+
   void _explain(SafeToSpendInputs inputs) {
     final s = inputs.safeToSpend;
 
@@ -286,6 +301,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                           inputs: inputs,
                           now: _now,
                           onExplain: () => _explain(inputs),
+                          onEditLimit: () => _openEditor(inputs.safeToSpend),
                           footer: widget.footerBuilder?.call(context),
                         ),
                         if (widget.belowCard != null)
@@ -308,12 +324,14 @@ class _HeroCard extends StatelessWidget {
     required this.inputs,
     required this.now,
     required this.onExplain,
+    required this.onEditLimit,
     required this.footer,
   });
 
   final SafeToSpendInputs inputs;
   final DateTime now;
   final VoidCallback onExplain;
+  final VoidCallback onEditLimit;
   final Widget? footer;
 
   @override
@@ -375,8 +393,15 @@ class _HeroCard extends StatelessWidget {
                 icon: const Icon(Icons.more_vert, size: 20),
                 onSelected: (value) {
                   if (value == 'explain') onExplain();
+                  if (value == 'limit') onEditLimit();
                 },
                 itemBuilder: (context) => [
+                  menuItem(
+                    value: 'limit',
+                    label: 'Set my daily limit',
+                    icon: Icons.edit_outlined,
+                    color: appPrimaryBlue,
+                  ),
                   menuItem(
                     value: 'explain',
                     label: 'How this is worked out',

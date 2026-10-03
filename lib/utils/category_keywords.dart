@@ -390,7 +390,6 @@ const Map<String, List<String>> occasionKeywords = {
     'dinate',
     'date namin',
     'date kami',
-    'date',
     'gimik',
     'outing',
     'marathon',

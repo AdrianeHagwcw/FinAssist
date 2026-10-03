@@ -51,8 +51,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   static const _remindersStep = 5;
   static const _readyStep = 6;
 
-  /// Steps that show "Step X of 5"; the recap comes after them.
-  static const _numberedSteps = 5;
+  /// Steps that show "Step X of 6"; the recap comes after them.
+  static const _numberedSteps = 6;
 
   static const _incomeSources = [
     'Allowance',
