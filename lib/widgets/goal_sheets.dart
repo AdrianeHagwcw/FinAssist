@@ -304,6 +304,7 @@ class GoalFormSheet extends StatefulWidget {
     this.initialDate,
     this.wallets,
     this.today,
+    this.allowAlreadySaved = true,
     this.onSave,
     super.key,
   });
@@ -323,6 +324,7 @@ class GoalFormSheet extends StatefulWidget {
   /// Replaces the live wallet list. Used by tests.
   final Stream<List<Wallet>>? wallets;
   final DateTime? today;
+  final bool allowAlreadySaved;
 
   /// Replaces saving. Used by tests.
   final void Function(GoalDraft draft)? onSave;
@@ -475,7 +477,9 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
   void _save(List<Wallet> wallets) {
     final name = _nameController.text.trim();
     final target = _number(_targetController);
-    final saved = _isEditing ? 0.0 : _number(_savedController);
+    final saved = _isEditing || !widget.allowAlreadySaved
+        ? 0.0
+        : _number(_savedController);
     final savingsWallet = WalletService.walletFor(
       wallets,
       WalletPurpose.savings,
@@ -670,6 +674,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     sectionTitle('Goal type'),
                     Wrap(
                       spacing: 8,
+                      runSpacing: 8,
                       children: [
                         for (final kind in GoalKind.values)
                           ChoiceChip(
@@ -680,7 +685,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                           ),
                       ],
                     ),
-                    if (!_isEditing) ...[
+                    if (!_isEditing && widget.allowAlreadySaved) ...[
                       const SizedBox(height: 16),
                       TextField(
                         controller: _savedController,

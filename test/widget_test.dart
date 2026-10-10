@@ -31,10 +31,12 @@ import 'package:testapp/screens/forgot_password_screen.dart';
 import 'package:testapp/screens/goals_screen.dart';
 import 'package:testapp/screens/income_waterfall_screen.dart';
 import 'package:testapp/screens/leftover_review_screen.dart';
+import 'package:testapp/screens/login_screen.dart';
 import 'package:testapp/screens/main_shell.dart';
 import 'package:testapp/screens/home_screen.dart';
 import 'package:testapp/screens/reports_screen.dart';
 import 'package:testapp/screens/reminders_screen.dart';
+import 'package:testapp/screens/register_screen.dart';
 import 'package:testapp/widgets/quick_add_sheet.dart';
 import 'package:testapp/screens/splash_screen.dart';
 import 'package:testapp/services/launch_screen.dart';
@@ -70,6 +72,83 @@ import 'package:testapp/widgets/transfer_sheet.dart';
 import 'package:testapp/widgets/wallet_picker.dart';
 
 void main() {
+  testWidgets('login screen can prefill email from verification recovery', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: LoginScreen(initialEmail: 'ada@example.com'),
+      ),
+    );
+
+    expect(
+      tester
+          .widgetList<TextField>(find.byType(TextField))
+          .first
+          .controller
+          ?.text,
+      'ada@example.com',
+    );
+  });
+
+  testWidgets('create account shows inline required field errors', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const RegisterScreen()),
+    );
+
+    await tester.ensureVisible(find.text('Create Account').last);
+    await tester.tap(find.text('Create Account').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('This field is required.'), findsNWidgets(4));
+    expect(find.byType(AlertDialog), findsNothing);
+
+    final errorFields = tester
+        .widgetList<TextField>(find.byType(TextField))
+        .where(
+          (field) =>
+              field.decoration?.errorText != null ||
+              field.decoration?.error != null,
+        );
+    expect(errorFields, hasLength(4));
+
+    await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
+    await tester.pump();
+    expect(find.text('This field is required.'), findsNWidgets(3));
+  });
+
+  testWidgets('password policy errors appear beneath the password field', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const RegisterScreen()),
+    );
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Ada Lovelace');
+    await tester.enterText(fields.at(1), 'ada@example.com');
+    await tester.enterText(fields.at(2), 'abc');
+    await tester.ensureVisible(find.text('Create Account').last);
+    await tester.tap(find.text('Create Account').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('At least 6 characters'), findsOneWidget);
+    expect(find.text('Require uppercase character'), findsOneWidget);
+    expect(find.text('Require special character'), findsOneWidget);
+    expect(find.text('Require numeric character'), findsOneWidget);
+    expect(find.text('Require lowercase character'), findsNothing);
+
+    await tester.enterText(fields.at(2), 'Abc1!x');
+    await tester.pump();
+    expect(find.text('At least 6 characters'), findsNothing);
+    expect(find.text('Require uppercase character'), findsNothing);
+    expect(find.text('Require special character'), findsNothing);
+    expect(find.text('Require numeric character'), findsNothing);
+  });
+
   testWidgets('signed-out users go straight to log in', (
     WidgetTester tester,
   ) async {
@@ -552,6 +631,26 @@ void main() {
   });
 
   group('Onboarding', () {
+    test(
+      'monthly income converts to a per-pay amount for legacy profile data',
+      () {
+        OnboardingData data(String frequency) => OnboardingData(
+          name: 'Dave',
+          notificationsEnabled: false,
+          incomeSource: 'Salary',
+          incomeFrequency: frequency,
+          monthlyIncome: 5200,
+          priorities: const [],
+          wallets: const [],
+        );
+
+        expect(data('Weekly').incomePerPayPeriod, closeTo(1200, 0.01));
+        expect(data('Bi-weekly').incomePerPayPeriod, closeTo(2400, 0.01));
+        expect(data('Semi-monthly').incomePerPayPeriod, 2600);
+        expect(data('Monthly').incomePerPayPeriod, 5200);
+      },
+    );
+
     Future<void> pumpOnboarding(
       WidgetTester tester, {
       required Future<void> Function(OnboardingData) save,
@@ -590,24 +689,52 @@ void main() {
       String hint,
       String option,
     ) async {
-      await tapText(tester, hint);
+      final dropdownKey = hint == 'Select your income source'
+          ? const Key('income-source-dropdown')
+          : const Key('income-frequency-dropdown');
+      final dropdown = find.byKey(dropdownKey);
+      await tester.ensureVisible(dropdown);
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
       await tester.tap(find.text(option).last);
       await tester.pumpAndSettle();
     }
 
     testWidgets('a blocked notification prompt still moves on', (tester) async {
+      OnboardingData? saved;
       await pumpOnboarding(
         tester,
-        save: (_) async {},
+        save: (data) async => saved = data,
         allowNotifications: false,
       );
 
       await tapText(tester, 'Get Started');
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
+      await chooseDropdown(tester, 'Select your income source', 'Salary');
+      await chooseDropdown(
+        tester,
+        'Select how often',
+        'Irregular (no fixed payday)',
+      );
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Add a Wallet');
+      expect(find.text('Current balance'), findsOneWidget);
+      await tapText(tester, 'Add Wallet');
+      expect(find.text('Cash'), findsNWidgets(2));
+      await tapText(tester, 'Next');
       await tapText(tester, 'Allow Reminders');
 
-      expect(find.text('Step 4 of 5'), findsOneWidget);
+      expect(find.text("You're ready, Dave!"), findsOneWidget);
+      await tester.ensureVisible(find.text('Go to Dashboard'));
+      await tester.tap(find.text('Go to Dashboard'));
+      await tester.pump();
+      await tester.pump();
+      expect(saved, isNotNull);
+      expect(saved!.wallets.single.startingBalance, 0);
     });
 
     testWidgets('walks through every step and saves the answers', (
@@ -622,7 +749,7 @@ void main() {
       );
 
       // Step 1: Welcome
-      expect(find.text('Step 1 of 5'), findsOneWidget);
+      expect(find.text('Step 1 of 7'), findsOneWidget);
       await tapText(tester, 'Get Started');
 
       // Step 2: Name is required
@@ -632,12 +759,9 @@ void main() {
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
 
-      // Step 3: Reminders
-      expect(find.text('Never miss a bill'), findsOneWidget);
-      await tapText(tester, 'Allow Reminders');
-
-      // Step 4: Income
-      expect(find.text('Step 4 of 5'), findsOneWidget);
+      // Step 3: Income
+      expect(find.text('Monthly income'), findsOneWidget);
+      expect(find.text('Daily spending limit (optional)'), findsNothing);
       await chooseDropdown(tester, 'Select your income source', 'Allowance');
       await chooseDropdown(
         tester,
@@ -654,6 +778,7 @@ void main() {
       expect(find.text('When did you last get paid?'), findsOneWidget);
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
+      await tapText(tester, 'Next');
 
       // The first priority can't move up; moving it down swaps it.
       final moveUp = find.byTooltip('Move "Pay bills on time" up');
@@ -672,22 +797,57 @@ void main() {
       await tester.tap(moveDownButton);
       await tester.pump();
 
-      await tester.ensureVisible(find.byKey(const Key('allocation-bills')));
-      await tester.enterText(find.byKey(const Key('allocation-bills')), '2000');
-      await tester.ensureVisible(find.byKey(const Key('allocation-savings')));
-      await tester.enterText(
-        find.byKey(const Key('allocation-savings')),
-        '1500',
+      expect(
+        find.text('How would you like to split each payment?'),
+        findsNothing,
       );
-      await tester.ensureVisible(find.byKey(const Key('allocation-others')));
+      await tapText(tester, 'Next');
+      expect(find.text('Add bill reminders'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('add-onboarding-bill')));
+      await tester.pumpAndSettle();
+      final billFields = find.byType(TextFormField);
+      await tester.enterText(billFields.at(0), 'Internet');
+      await tester.enterText(billFields.at(1), '1200');
+      await tapText(tester, 'Add Bill');
+      expect(find.text('Internet'), findsOneWidget);
+      expect(find.textContaining('₱1,200'), findsOneWidget);
+      expect(find.textContaining('Due '), findsOneWidget);
+      await tapText(tester, 'Next');
+      expect(find.text('Build your savings'), findsOneWidget);
+      expect(find.text('Savings amount'), findsNothing);
+      await tester.tap(find.byKey(const Key('add-onboarding-savings-account')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('onboarding-savings-kind')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Savings account').last);
+      await tester.pumpAndSettle();
       await tester.enterText(
-        find.byKey(const Key('allocation-others')),
-        '1500',
+        find.byKey(const Key('onboarding-savings-name')),
+        'Travel Savings',
       );
+      await tester.enterText(
+        find.byKey(const Key('onboarding-savings-balance')),
+        '500',
+      );
+      await tester.tap(find.byKey(const Key('save-onboarding-savings')));
+      await tester.pumpAndSettle();
+      expect(find.text('Travel Savings'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('add-onboarding-goal')));
+      await tester.pumpAndSettle();
+      expect(find.text('New Savings Goal'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, 'Emergency buffer');
+      await tester.enterText(find.byType(TextField).at(1), '10000');
+      await tester.tap(find.text('More options (optional)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Emergency fund').last);
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Save Goal');
+      expect(find.text('Emergency buffer'), findsOneWidget);
 
       await tapText(tester, 'Next');
 
-      // Step 5: Wallets are required
+      // Step 7: Wallets are required
       expect(find.text('Your starting wallets'), findsOneWidget);
       await tapText(tester, 'Next');
       expect(find.text('Please add at least one wallet.'), findsOneWidget);
@@ -699,6 +859,22 @@ void main() {
       await tapText(tester, 'Add Wallet');
 
       await tapText(tester, 'Add Another');
+      await tester.tap(find.text('Bank'));
+      await tester.pumpAndSettle();
+      final bankDropdown = find.byKey(const Key('wallet-bank-dropdown'));
+      expect(bankDropdown, findsOneWidget);
+      final bankField = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: bankDropdown,
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      expect(
+        bankField.items!.map((item) => item.value),
+        contains('Asia United Bank (AUB)'),
+      );
+      bankField.onChanged!('Asia United Bank (AUB)');
+      await tester.pump();
       await tester.enterText(find.byType(TextFormField).last, '300');
       await tapText(tester, 'Add Wallet');
 
@@ -706,15 +882,31 @@ void main() {
       expect(find.text('₱300'), findsOneWidget);
       expect(find.text('Receives my Allowance'), findsNWidgets(2));
 
-      // Move the income to the second (Cash) wallet.
+      // Move the income to the second (bank) wallet.
       await tester.tap(find.text('Receives my Allowance').last);
       await tester.pump();
       await tapText(tester, 'Next');
+      await tapText(tester, 'Allow Reminders');
 
       // Recap
       expect(find.text("You're ready, Dave!"), findsOneWidget);
+      expect(
+        find.text(
+          'After you tap Go to Dashboard, these shortcuts will be available there:',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Tap + anytime to add an expense or income'),
+        findsOneWidget,
+      );
+      expect(find.text('See where your money goes in Reports'), findsOneWidget);
       expect(find.text('2 wallets · ₱1,550.50 total'), findsOneWidget);
-      expect(find.text('Not set yet'), findsOneWidget);
+      expect(find.text('Daily spending limit'), findsNothing);
+      expect(
+        find.textContaining('₱5,000 a month · Twice a month (15th & 30th)'),
+        findsOneWidget,
+      );
       // The button shows a spinner while saving, and this test's onFinished
       // doesn't navigate away, so pump a few frames instead of settling.
       await tester.ensureVisible(find.text('Go to Dashboard'));
@@ -729,32 +921,43 @@ void main() {
       expect(saved!.incomeSource, 'Allowance');
       expect(saved!.incomeFrequency, 'Semi-monthly');
       expect(saved!.lastPaydayAt, isNotNull);
-      expect(saved!.income, 5000);
-      expect(saved!.dailyBudget, isNull);
-      expect(saved!.plannedBills, 2000);
-      expect(saved!.plannedSavings, 1500);
-      expect(saved!.plannedOthers, 1500);
+      expect(saved!.monthlyIncome, 5000);
+      expect(saved!.bills, hasLength(1));
+      expect(saved!.bills.single.name, 'Internet');
+      expect(saved!.bills.single.amount, 1200);
+      expect(saved!.bills.single.category, 'Bills');
+      expect(saved!.bills.single.recurrence, BillRecurrence.monthly);
+      expect(saved!.bills.single.firstDueDate, isA<DateTime>());
+      expect(saved!.savingsAccounts, hasLength(1));
+      expect(saved!.savingsAccounts.single.name, 'Travel Savings');
+      expect(saved!.savingsAccounts.single.kind, GoalKind.savingsAccount);
+      expect(saved!.savingsAccounts.single.balance, 500);
+      expect(saved!.goals, hasLength(1));
+      expect(saved!.goals.single.name, 'Emergency buffer');
+      expect(saved!.goals.single.kind, GoalKind.emergencyFund);
+      expect(saved!.goals.single.targetAmount, 10000);
       expect(saved!.priorities.take(2), [
         FinancialPriority.saveForGoal,
         FinancialPriority.payBills,
       ]);
       expect(saved!.wallets.map((w) => w.type), [
         WalletType.gcash,
-        WalletType.cash,
+        WalletType.bank,
       ]);
       expect(saved!.wallets.map((w) => w.receivesIncome), [false, true]);
       expect(saved!.wallets.first.name, 'GCash');
+      expect(saved!.wallets.last.name, 'Asia United Bank (AUB)');
     });
 
     testWidgets('Back returns to the previous step', (tester) async {
       await pumpOnboarding(tester, save: (_) async {});
 
       await tapText(tester, 'Get Started');
-      expect(find.text('Step 2 of 5'), findsOneWidget);
+      expect(find.text('Step 2 of 7'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Back'));
       await tester.pumpAndSettle();
-      expect(find.text('Step 1 of 5'), findsOneWidget);
+      expect(find.text('Step 1 of 7'), findsOneWidget);
     });
 
     testWidgets('irregular income makes the amount an optional estimate', (
@@ -766,7 +969,6 @@ void main() {
       await tapText(tester, 'Get Started');
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
-      await tapText(tester, 'Skip for now');
       await chooseDropdown(
         tester,
         'Select how often',
@@ -777,11 +979,22 @@ void main() {
         find.textContaining('No fixed payday? No problem.'),
         findsOneWidget,
       );
-      expect(find.text('Rough monthly estimate (optional)'), findsOneWidget);
-      expect(find.textContaining('Just a guess is fine.'), findsOneWidget);
+      expect(find.text('Estimated monthly income (optional)'), findsOneWidget);
+      expect(find.text('Daily spending limit (optional)'), findsNothing);
+      expect(
+        find.textContaining('A rough monthly estimate is fine.'),
+        findsOneWidget,
+      );
 
       // The amount can stay blank for irregular income.
       await chooseDropdown(tester, 'Select your income source', 'Freelance');
+      await tapText(tester, 'Next');
+      expect(find.text('What matters most to you?'), findsOneWidget);
+      await tapText(tester, 'Next');
+      expect(find.text('Add bill reminders'), findsOneWidget);
+      await tapText(tester, 'Next');
+      expect(find.text('Build your savings'), findsOneWidget);
+      expect(find.text('Savings amount'), findsNothing);
       await tapText(tester, 'Next');
       expect(find.text('Your starting wallets'), findsOneWidget);
 
@@ -789,6 +1002,7 @@ void main() {
       await tester.enterText(find.byType(TextFormField).last, '500');
       await tapText(tester, 'Add Wallet');
       await tapText(tester, 'Next');
+      await tapText(tester, 'Skip for now');
 
       expect(
         find.textContaining('Varies · Irregular (no fixed payday)'),
@@ -802,7 +1016,7 @@ void main() {
 
       expect(saved, isNotNull);
       expect(saved!.incomeFrequency, 'Irregular');
-      expect(saved!.income, isNull);
+      expect(saved!.monthlyIncome, isNull);
     });
 
     testWidgets('regular income still requires an amount', (tester) async {
@@ -811,13 +1025,42 @@ void main() {
       await tapText(tester, 'Get Started');
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
-      await tapText(tester, 'Skip for now');
       await chooseDropdown(tester, 'Select your income source', 'Salary');
       await chooseDropdown(tester, 'Select how often', 'Monthly');
       await tapText(tester, 'Next');
 
       expect(find.text('Enter a valid positive amount.'), findsOneWidget);
       expect(find.text('Your income'), findsOneWidget);
+      expect(find.text('Monthly income'), findsOneWidget);
+      expect(find.text('Daily spending limit (optional)'), findsNothing);
+    });
+
+    testWidgets('Other income requires a specification', (tester) async {
+      await pumpOnboarding(tester, save: (_) async {});
+
+      await tapText(tester, 'Get Started');
+      await tester.enterText(find.byType(TextFormField), 'Dave');
+      await tapText(tester, 'Next');
+      await chooseDropdown(tester, 'Select your income source', 'Other');
+      await chooseDropdown(
+        tester,
+        'Select how often',
+        'Irregular (no fixed payday)',
+      );
+
+      expect(
+        find.byKey(const Key('other-income-source-specification')),
+        findsOneWidget,
+      );
+      await tapText(tester, 'Next');
+      expect(find.text('Please specify your income source.'), findsOneWidget);
+      expect(find.text('Your income'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('other-income-source-specification')),
+        'Rental income',
+      );
+      await tapText(tester, 'Next');
+      expect(find.text('What matters most to you?'), findsOneWidget);
     });
   });
 
@@ -2021,6 +2264,25 @@ void main() {
       expect(find.text('Where did it come from?'), findsOneWidget);
     });
 
+    testWidgets('requires a specification when the income source is Other', (
+      tester,
+    ) async {
+      await pumpWaterfall(tester);
+      await tester.enterText(find.byType(TextField).first, '500');
+      await pickSource(tester, 'Other');
+
+      await next(tester);
+      expect(find.text('Tell us where the money came from.'), findsOneWidget);
+      expect(find.text('Step 1 of 2'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('other-income-source')),
+        'Sold my old phone',
+      );
+      await next(tester);
+      expect(find.text('Step 2 of 2'), findsOneWidget);
+    });
+
     testWidgets('offers the sources a student actually has', (tester) async {
       await pumpWaterfall(tester);
 
@@ -2050,6 +2312,59 @@ void main() {
       expect(find.text('₱2,000'), findsOneWidget);
       expect(find.textContaining('No unpaid bills right now'), findsOneWidget);
       expect(find.text('Confirm'), findsOneWidget);
+    });
+
+    testWidgets('step 2 shows only bills due within 10 days and labels them', (
+      tester,
+    ) async {
+      await pumpWaterfall(
+        tester,
+        bills: [
+          bill('Today', 100, dueDate: DateTime(2026, 3, 10)),
+          bill('Soon', 200, dueDate: DateTime(2026, 3, 13)),
+          bill('Between', 300, dueDate: DateTime(2026, 3, 14)),
+          bill('Last day', 400, dueDate: DateTime(2026, 3, 20)),
+          bill('Too far', 500, dueDate: DateTime(2026, 3, 21)),
+        ],
+      );
+
+      await fillIncome(tester, '2000');
+      await next(tester);
+
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Due today'), findsOneWidget);
+      expect(find.text('Soon'), findsOneWidget);
+      expect(find.text('Due soon'), findsOneWidget);
+      expect(find.text('Upcoming'), findsNWidgets(2));
+      expect(find.text('Between'), findsOneWidget);
+      expect(find.text('Last day'), findsOneWidget);
+      expect(find.text('Too far'), findsNothing);
+    });
+
+    testWidgets('salary step lists bills due in the next 10 days', (
+      tester,
+    ) async {
+      await pumpWaterfall(
+        tester,
+        bills: [
+          bill('Internet', 100, dueDate: DateTime(2026, 3, 10)),
+          bill('Electricity', 200, dueDate: DateTime(2026, 3, 12)),
+          bill('Rent', 300, dueDate: DateTime(2026, 3, 14)),
+          bill('Too far', 400, dueDate: DateTime(2026, 3, 21)),
+        ],
+      );
+      await tester.enterText(find.byType(TextField).first, '2000');
+      await pickSource(tester, 'Salary');
+      await next(tester);
+
+      expect(find.text('Bills due in the next 10 days'), findsOneWidget);
+      expect(find.text('Internet'), findsOneWidget);
+      expect(find.text('Electricity'), findsOneWidget);
+      expect(find.text('Rent'), findsOneWidget);
+      expect(find.text('Due today'), findsOneWidget);
+      expect(find.text('Due soon'), findsOneWidget);
+      expect(find.text('Upcoming'), findsOneWidget);
+      expect(find.text('Too far'), findsNothing);
     });
 
     testWidgets('defaults income to the first spending wallet', (tester) async {
@@ -2331,7 +2646,7 @@ void main() {
       );
       expect(
         instance(dueDate: DateTime(2026, 3, 10)).urgency(now: today),
-        BillUrgency.dueSoon,
+        BillUrgency.dueToday,
         reason: 'due today',
       );
       expect(
@@ -2341,6 +2656,11 @@ void main() {
       expect(
         instance(dueDate: DateTime(2026, 3, 14)).urgency(now: today),
         BillUrgency.upcoming,
+      );
+      expect(
+        instance(dueDate: DateTime(2026, 3, 20)).urgency(now: today),
+        BillUrgency.upcoming,
+        reason: 'due in 10 days',
       );
     });
 
@@ -3415,6 +3735,33 @@ void main() {
       expect(const TransactionFilter(category: 'food').matches(t('a')), isTrue);
     });
 
+    test('search matches category, note or transaction type', () {
+      const filter = TransactionFilter(query: 'rent');
+      expect(
+        filter.matches(t('a', label: 'Bills', date: DateTime(2026, 3, 10))),
+        isFalse,
+      );
+      expect(
+        filter.matches(
+          AppTransaction(
+            id: 'rent',
+            type: TransactionType.expense,
+            amount: 100,
+            label: 'Bills',
+            date: DateTime(2026, 3, 10),
+            note: 'Monthly rent',
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        const TransactionFilter(
+          query: 'inco',
+        ).matches(t('income', type: TransactionType.income, label: 'Salary')),
+        isTrue,
+      );
+    });
+
     test('a date range includes both of its end days', () {
       final filter = TransactionFilter(
         from: DateTime(2026, 3, 1),
@@ -3644,6 +3991,45 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Food'), findsOneWidget);
     });
+
+    testWidgets('search button opens search and transaction filters', (
+      tester,
+    ) async {
+      await pumpList(tester, [
+        AppTransaction(
+          id: 'a',
+          type: TransactionType.expense,
+          amount: 120,
+          label: 'Bills',
+          date: now,
+          walletId: 'cash',
+          note: 'Monthly rent',
+        ),
+        AppTransaction(
+          id: 'b',
+          type: TransactionType.expense,
+          amount: 80,
+          label: 'Food',
+          date: now,
+          walletId: 'cash',
+        ),
+      ]);
+
+      expect(find.byTooltip('Filter'), findsNothing);
+      await tester.tap(find.byKey(const Key('transaction-search-filters')));
+      await tester.pumpAndSettle();
+      expect(find.text('Search & filters'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('transaction-search-input')),
+        'rent',
+      );
+      await tester.tap(find.text('Show results'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Showing:'), findsOneWidget);
+      expect(find.textContaining('Monthly rent'), findsOneWidget);
+      expect(find.text('Food'), findsNothing);
+    });
   });
 
   group('Transaction edit sheet', () {
@@ -3693,8 +4079,7 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('an ordinary expense can be edited', (tester) async {
-      double? saved;
+    testWidgets('a recorded expense is read-only', (tester) async {
       await pumpSheet(
         tester,
         AppTransaction(
@@ -3705,14 +4090,16 @@ void main() {
           date: DateTime(2026, 3, 10),
           walletId: 'cash',
         ),
-        onSave: (amount) => saved = amount,
       );
 
-      await tester.enterText(find.byType(TextField).first, '150');
-      await tester.tap(find.text('Save Changes'));
-      await tester.pumpAndSettle();
-
-      expect(saved, 150);
+      expect(
+        find.textContaining(
+          'Expenses cannot be edited after they are recorded',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Save Changes'), findsNothing);
+      expect(find.text('Delete'), findsOneWidget);
     });
 
     testWidgets('a bill payment is changed from its bill, not here', (
@@ -6902,7 +7289,7 @@ void main() {
     await tester.pump();
 
     // The block above the list has scrolled away, which is how far we are.
-    expect(find.text('Money in'), findsNothing);
+    expect(find.text('Inward'), findsNothing);
 
     expect(
       find.text('Today'),

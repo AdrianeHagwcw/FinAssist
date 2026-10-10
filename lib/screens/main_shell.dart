@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/voice_command.dart';
 import '../providers/app_settings_provider.dart';
 import '../services/user_profile_service.dart';
 
@@ -17,12 +18,21 @@ import '../services/reminder_service.dart';
 import 'add_expense_screen.dart';
 import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
+import 'categories_screen.dart';
+import 'chatbot_screen.dart';
+import 'financial_preferences_screen.dart';
 import 'goal_detail_screen.dart';
 import 'goals_screen.dart';
+import 'help_screen.dart';
 import 'home_screen.dart';
 import 'income_waterfall_screen.dart';
 import 'ocr_screen.dart';
+import 'profile_screen.dart';
+import 'reminders_screen.dart';
+import 'reports_screen.dart';
+import 'set_aside_screen.dart';
 import 'voice_recognition_screen.dart';
+import 'history_screen.dart';
 import 'transactions_screen.dart';
 import 'wallets_screen.dart';
 
@@ -166,6 +176,95 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _selectTab(_billsIndex);
   }
 
+  void _navigateFromVoice(VoiceDestination destination) {
+    switch (destination) {
+      case VoiceDestination.home:
+        _selectTab(_homeIndex);
+        return;
+      case VoiceDestination.transactions:
+        _selectTab(_transactionsIndex);
+        return;
+      case VoiceDestination.bills:
+        _openBills();
+        return;
+      case VoiceDestination.wallet:
+        _selectTab(_walletIndex);
+        return;
+      case VoiceDestination.savings:
+        _selectTab(_homeIndex);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                const SetAsideScreen(initialPart: SetAsidePart.savings),
+          ),
+        );
+        return;
+      case VoiceDestination.debts:
+        _openDebts();
+        return;
+      case VoiceDestination.goals:
+        _openSavings();
+        return;
+      case VoiceDestination.reports:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ReportsScreen()),
+        );
+        return;
+      case VoiceDestination.settings:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+        );
+        return;
+      case VoiceDestination.scanReceipt:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const OcrScreen()),
+        );
+        return;
+      case VoiceDestination.assistant:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ChatbotScreen()),
+        );
+        return;
+      case VoiceDestination.expenseCategories:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CategoriesScreen()),
+        );
+        return;
+      case VoiceDestination.financialPreferences:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const FinancialPreferencesScreen(),
+          ),
+        );
+        return;
+      case VoiceDestination.payCycleHistory:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const HistoryScreen()),
+        );
+        return;
+      case VoiceDestination.reminders:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RemindersScreen()),
+        );
+        return;
+      case VoiceDestination.help:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const HelpScreen()),
+        );
+        return;
+    }
+  }
+
   int _currentIndex = _homeIndex;
   bool _billsShowDebts = false;
 
@@ -189,6 +288,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             // Savings on Home opens the savings balance; the goals behind it
             // are one tap further in.
             onOpenDebts: _openDebts,
+            onVoiceNavigate: _navigateFromVoice,
           ),
           const TransactionsScreen(),
           BillCalendarScreen(
@@ -266,8 +366,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             onSelected: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) =>
-                    const VoiceRecognitionScreen(autoStart: true),
+                builder: (context) => VoiceRecognitionScreen(
+                  autoStart: true,
+                  onNavigate: _navigateFromVoice,
+                  onIncomeSaved: () {
+                    if (mounted) setState(() => _homeRefreshKey++);
+                  },
+                ),
               ),
             ),
           ),

@@ -36,6 +36,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
+  String? _nameError;
+  String? _emailError;
+  String? _passwordError;
+  String? _confirmPasswordError;
+  String? _formError;
+  bool _showPasswordRequirements = false;
 
   // =========================================================
   // REGISTER WITH FIREBASE
@@ -47,57 +53,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final password = _passwordController.text;
     final confirmPassword = _confirmPasswordController.text;
 
-    // ---------------------------------------------------------
-    // CHECK NAME
-    // ---------------------------------------------------------
+    final nameError = name.isEmpty ? 'This field is required.' : null;
+    final emailError = email.isEmpty
+        ? 'This field is required.'
+        : !_validEmail(email)
+        ? 'Enter a valid email address.'
+        : null;
+    final passwordError = password.isEmpty ? 'This field is required.' : null;
+    final passwordMeetsPolicy = _passwordRequirementsFor(password).every(
+      (requirement) => requirement.value,
+    );
+    final confirmPasswordError = confirmPassword.isEmpty
+        ? 'This field is required.'
+        : password != confirmPassword
+        ? 'Passwords do not match.'
+        : null;
 
-    if (name.isEmpty) {
-      await _showMessage('Please enter your name.');
-      return;
-    }
+    setState(() {
+      _nameError = nameError;
+      _emailError = emailError;
+      _passwordError = passwordError;
+      _confirmPasswordError = confirmPasswordError;
+      _formError = null;
+      _showPasswordRequirements = password.isNotEmpty;
+    });
 
-    // ---------------------------------------------------------
-    // CHECK EMAIL
-    // ---------------------------------------------------------
-
-    if (email.isEmpty) {
-      await _showMessage('Please enter your email.');
-      return;
-    }
-
-    // ---------------------------------------------------------
-    // CHECK PASSWORD
-    // ---------------------------------------------------------
-
-    if (password.isEmpty) {
-      await _showMessage('Please enter a password.');
-      return;
-    }
-
-    // ---------------------------------------------------------
-    // CHECK PASSWORD LENGTH
-    // ---------------------------------------------------------
-
-    if (password.length < 6) {
-      await _showMessage('Password must be at least 6 characters.');
-      return;
-    }
-
-    // ---------------------------------------------------------
-    // CHECK CONFIRM PASSWORD
-    // ---------------------------------------------------------
-
-    if (confirmPassword.isEmpty) {
-      await _showMessage('Please confirm your password.');
-      return;
-    }
-
-    // ---------------------------------------------------------
-    // CHECK IF PASSWORDS MATCH
-    // ---------------------------------------------------------
-
-    if (password != confirmPassword) {
-      await _showMessage('Passwords do not match.');
+    if (nameError != null ||
+        emailError != null ||
+        passwordError != null ||
+        !passwordMeetsPolicy ||
+        confirmPasswordError != null) {
       return;
     }
 
@@ -133,17 +118,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       await UserProfileService.createInitialProfile(user);
 
-      await FirebaseAuth.instance.signOut();
-
-      if (!mounted) return;
-
-      // -------------------------------------------------------
-      // SHOW SUCCESS MESSAGE
-      // -------------------------------------------------------
-
-      await _showMessage(
-        'Account started. Please verify your email before signing in.',
-      );
       if (!mounted) return;
 
       // -------------------------------------------------------
@@ -153,7 +127,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
-          builder: (context) => EmailVerificationScreen(email: email),
+          builder: (context) => EmailVerificationScreen(
+            email: email,
+            user: user,
+          ),
         ),
         (route) => false,
       );
@@ -189,9 +166,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           message = e.message ?? 'Registration failed. Please try again.';
       }
 
-      await _showMessage(message);
+      if (mounted) setState(() => _formError = message);
     } catch (e) {
-      await _showMessage('Something went wrong. Please try again.');
+      if (mounted) {
+        setState(() => _formError = 'Something went wrong. Please try again.');
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -201,33 +180,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // =========================================================
-  // SHOW MESSAGE
-  // =========================================================
+  bool _validEmail(String email) =>
+      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
 
-  Future<void> _showMessage(String message) async {
-    if (!mounted) return;
+  List<MapEntry<String, bool>> _passwordRequirementsFor(String password) => [
+    MapEntry('At least 6 characters', password.length >= 6),
+    MapEntry('Require uppercase character', RegExp(r'[A-Z]').hasMatch(password)),
+    MapEntry('Require lowercase character', RegExp(r'[a-z]').hasMatch(password)),
+    MapEntry('Require special character', RegExp(r'[^A-Za-z0-9\s]').hasMatch(password)),
+    MapEntry('Require numeric character', RegExp(r'[0-9]').hasMatch(password)),
+  ];
 
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Row(
-          children: [
-            Icon(Icons.info_outline, color: Color(0xFF1976D2)),
-            SizedBox(width: 10),
-            Text('Create account'),
-          ],
-        ),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+  void _onFieldChanged(String field) {
+    setState(() {
+      _formError = null;
+      switch (field) {
+        case 'name':
+          _nameError = null;
+          break;
+        case 'email':
+          _emailError = null;
+          break;
+        case 'password':
+          _passwordError = null;
+          _showPasswordRequirements = true;
+          if (_confirmPasswordController.text.isNotEmpty) {
+            _confirmPasswordError = null;
+          }
+          break;
+        case 'confirmPassword':
+          _confirmPasswordError = null;
+          break;
+      }
+    });
   }
 
   // =========================================================
@@ -372,8 +357,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   textCapitalization: TextCapitalization.words,
 
+                  onChanged: (_) => _onFieldChanged('name'),
+
                   decoration: InputDecoration(
                     hintText: 'Enter your full name',
+                    errorText: _nameError,
 
                     prefixIcon: const Icon(
                       Icons.person_outline,
@@ -400,6 +388,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         width: 2,
                       ),
                     ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: dangerColorOn(context),
+                        width: 1.5,
+                      ),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: dangerColorOn(context),
+                        width: 2,
+                      ),
+                    ),
                   ),
                 ),
 
@@ -423,8 +425,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   keyboardType: TextInputType.emailAddress,
 
+                  onChanged: (_) => _onFieldChanged('email'),
+
                   decoration: InputDecoration(
                     hintText: 'Enter your email',
+                    errorText: _emailError,
 
                     prefixIcon: const Icon(
                       Icons.email_outlined,
@@ -451,6 +456,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         width: 2,
                       ),
                     ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: dangerColorOn(context),
+                        width: 1.5,
+                      ),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: dangerColorOn(context),
+                        width: 2,
+                      ),
+                    ),
                   ),
                 ),
 
@@ -474,8 +493,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   obscureText: _obscurePassword,
 
+                  onChanged: (_) => _onFieldChanged('password'),
+
                   decoration: InputDecoration(
                     hintText: 'Create a password',
+                    error: _passwordError != null
+                        ? Text(
+                            _passwordError!,
+                            style: TextStyle(color: dangerColorOn(context)),
+                          )
+                        : _showPasswordRequirements &&
+                              _passwordRequirementsFor(
+                                _passwordController.text,
+                              ).any((requirement) => !requirement.value)
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: _passwordRequirementsFor(
+                              _passwordController.text,
+                            ).where((requirement) => !requirement.value).map((
+                              requirement,
+                            ) {
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  requirement.key,
+                                  style: TextStyle(
+                                    color: dangerColorOn(context),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          )
+                        : null,
 
                     prefixIcon: const Icon(
                       Icons.lock_outline,
@@ -521,6 +571,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         width: 2,
                       ),
                     ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: dangerColorOn(context),
+                        width: 1.5,
+                      ),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: dangerColorOn(context),
+                        width: 2,
+                      ),
+                    ),
                   ),
                 ),
 
@@ -544,8 +608,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   obscureText: _obscureConfirmPassword,
 
+                  onChanged: (_) => _onFieldChanged('confirmPassword'),
+
                   decoration: InputDecoration(
                     hintText: 'Confirm your password',
+                    errorText: _confirmPasswordError,
 
                     prefixIcon: const Icon(
                       Icons.lock_outline,
@@ -592,6 +659,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         width: 2,
                       ),
                     ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: dangerColorOn(context),
+                        width: 1.5,
+                      ),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: dangerColorOn(context),
+                        width: 2,
+                      ),
+                    ),
                   ),
                 ),
 
@@ -629,6 +710,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                   ),
                 ),
+
+                if (_formError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _formError!,
+                    key: const Key('register-form-error'),
+                    style: TextStyle(
+                      color: dangerColorOn(context),
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 25),
 

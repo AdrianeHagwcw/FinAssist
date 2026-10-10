@@ -7,6 +7,7 @@ class TransactionFilter {
     this.walletId,
     this.type,
     this.category,
+    this.query,
     this.from,
     this.to,
   });
@@ -18,6 +19,9 @@ class TransactionFilter {
   /// expense and the source for an income.
   final String? category;
 
+  /// Matches a transaction's category/source, note, or type label.
+  final String? query;
+
   /// First day included.
   final DateTime? from;
 
@@ -28,6 +32,7 @@ class TransactionFilter {
       walletId == null &&
       type == null &&
       category == null &&
+      (query == null || query!.trim().isEmpty) &&
       from == null &&
       to == null;
 
@@ -36,6 +41,7 @@ class TransactionFilter {
     walletId,
     type,
     category,
+    query == null || query!.trim().isEmpty ? null : query,
     from ?? to,
   ].where((value) => value != null).length;
 
@@ -48,6 +54,17 @@ class TransactionFilter {
 
     if (category != null &&
         transaction.label.toLowerCase() != category!.toLowerCase()) {
+      return false;
+    }
+
+    final search = query?.trim().toLowerCase();
+    if (search != null &&
+        search.isNotEmpty &&
+        ![
+          transaction.label,
+          transaction.note ?? '',
+          transaction.type.label,
+        ].any((value) => value.toLowerCase().contains(search))) {
       return false;
     }
 
@@ -67,6 +84,7 @@ class TransactionFilter {
     String? Function()? walletId,
     TransactionType? Function()? type,
     String? Function()? category,
+    String? Function()? query,
     DateTime? Function()? from,
     DateTime? Function()? to,
   }) {
@@ -74,6 +92,7 @@ class TransactionFilter {
       walletId: walletId == null ? this.walletId : walletId(),
       type: type == null ? this.type : type(),
       category: category == null ? this.category : category(),
+      query: query == null ? this.query : query(),
       from: from == null ? this.from : from(),
       to: to == null ? this.to : to(),
     );

@@ -41,6 +41,11 @@ class LedgerService {
           'stays in step. You can still delete it here.';
     }
 
+    if (transaction.type == TransactionType.expense) {
+      return 'Expenses cannot be edited after they are recorded. You can '
+          'still delete this expense.';
+    }
+
     return null;
   }
 

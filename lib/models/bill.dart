@@ -46,7 +46,7 @@ enum BillStatus {
 /// How a bill should read on the calendar, which is status plus how close the
 /// due date is. [moved] is a bill whose unpaid part was carried into its next
 /// occurrence, where it is paid instead.
-enum BillUrgency { paid, skipped, moved, overdue, dueSoon, upcoming }
+enum BillUrgency { paid, skipped, moved, overdue, dueToday, dueSoon, upcoming }
 
 /// A bill the user owes, and the schedule it repeats on. One of these is the
 /// template; each time it falls due produces a [BillInstance].
@@ -310,6 +310,7 @@ class BillInstance {
     final due = _dateOnly(dueDate);
 
     if (due.isBefore(today)) return BillUrgency.overdue;
+    if (due.isAtSameMomentAs(today)) return BillUrgency.dueToday;
 
     return due.difference(today).inDays <= dueSoonDays
         ? BillUrgency.dueSoon

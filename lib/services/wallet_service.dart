@@ -313,6 +313,14 @@ class WalletService {
       throw ArgumentError('A transfer needs two different wallets.');
     }
 
+    final snapshot = await _transactionsCollection.doc(id).get();
+    final previous = snapshot.exists
+        ? AppTransaction.fromMap(snapshot.id, snapshot.data())
+        : null;
+    if (previous?.type == TransactionType.expense) {
+      throw StateError('Recorded expenses cannot be edited.');
+    }
+
     _writeTransaction(
       id: id,
       type: type,
@@ -322,7 +330,7 @@ class WalletService {
       toWalletId: type == TransactionType.transfer ? toWalletId : null,
       note: note,
       date: date,
-      previous: await loadTransaction(id),
+      previous: previous,
     );
   }
 

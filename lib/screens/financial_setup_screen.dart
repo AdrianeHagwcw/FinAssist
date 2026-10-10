@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 
 import '../models/onboarding_data.dart';
 import '../models/wallet.dart';
+import '../models/goal.dart';
+import '../widgets/bill_form_sheet.dart';
+import '../widgets/goal_sheets.dart';
 import '../widgets/wallet_form_sheet.dart';
 import '../services/reminder_service.dart';
 import '../services/user_profile_service.dart';
@@ -15,8 +18,8 @@ import '../widgets/app_logo.dart';
 import '../widgets/light_dark_toggle.dart';
 import 'main_shell.dart';
 
-/// First-time setup wizard: Welcome, Name, Income, pay plan, wallets,
-/// reminders, then a "You're ready" recap.
+/// First-time setup wizard: Welcome, Name, Income, priorities, bills, savings,
+/// wallets, reminders, then a "You're ready" recap.
 class FinancialSetupScreen extends StatefulWidget {
   const FinancialSetupScreen({
     this.initialName,
@@ -47,12 +50,14 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   static const _nameStep = 1;
   static const _incomeStep = 2;
   static const _planStep = 3;
-  static const _walletsStep = 4;
-  static const _remindersStep = 5;
-  static const _readyStep = 6;
+  static const _billsStep = 4;
+  static const _savingsStep = 5;
+  static const _walletsStep = 6;
+  static const _remindersStep = 7;
+  static const _readyStep = 8;
 
-  /// Steps that show "Step X of 5"; the recap comes after them.
-  static const _numberedSteps = 5;
+  /// Main setup steps; reminder permission is an optional interstitial.
+  static const _numberedSteps = 7;
 
   static const _incomeSources = [
     'Allowance',
@@ -74,23 +79,29 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
 
   final _nameFormKey = GlobalKey<FormState>();
   final _incomeFormKey = GlobalKey<FormState>();
-  final _planFormKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _incomeController = TextEditingController();
-  final _dailyBudgetController = TextEditingController();
-  final _plannedBillsController = TextEditingController();
-  final _plannedSavingsController = TextEditingController();
-  final _plannedOthersController = TextEditingController();
+  final _otherIncomeSourceController = TextEditingController();
 
   int _step = _welcomeStep;
   bool _notificationsEnabled = false;
   String? _incomeSource;
   String? _incomeFrequency;
 
+  String get _resolvedIncomeSource {
+    if (_incomeSource == 'Other') {
+      return _otherIncomeSourceController.text.trim();
+    }
+    return _incomeSource ?? 'income';
+  }
+
   /// The day the user last got paid. It anchors the first pay period, so the
   /// days left on Home are right as soon as setup is finished.
   DateTime? _lastPaydayAt;
   final List<FinancialPriority> _priorities = FinancialPriority.values.toList();
+  final List<OnboardingBill> _onboardingBills = [];
+  final List<OnboardingSavingsAccount> _onboardingSavingsAccounts = [];
+  final List<OnboardingGoal> _onboardingGoals = [];
   final List<WalletDraft> _wallets = [];
   bool _showWalletError = false;
   bool _isSaving = false;
@@ -113,10 +124,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   void dispose() {
     _nameController.dispose();
     _incomeController.dispose();
-    _dailyBudgetController.dispose();
-    _plannedBillsController.dispose();
-    _plannedSavingsController.dispose();
-    _plannedOthersController.dispose();
+    _otherIncomeSourceController.dispose();
     super.dispose();
   }
 
@@ -135,8 +143,6 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         if (!_nameFormKey.currentState!.validate()) return;
       case _incomeStep:
         if (!_incomeFormKey.currentState!.validate()) return;
-      case _planStep:
-        if (!_planFormKey.currentState!.validate()) return;
       case _walletsStep:
         if (_wallets.isEmpty) {
           setState(() => _showWalletError = true);
@@ -162,20 +168,16 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
     if (_isSaving) return;
     setState(() => _isSaving = true);
 
-    final dailyBudgetText = _dailyBudgetController.text.trim();
     final data = OnboardingData(
       name: _nameController.text.trim(),
       notificationsEnabled: _notificationsEnabled,
-      incomeSource: _incomeSource!,
+      incomeSource: _resolvedIncomeSource,
       incomeFrequency: _incomeFrequency!,
       lastPaydayAt: _lastPaydayAt,
-      income: _parseAmount(_incomeController.text),
-      dailyBudget: dailyBudgetText.isEmpty
-          ? null
-          : _parseAmount(dailyBudgetText),
-      plannedBills: _parseAmount(_plannedBillsController.text) ?? 0,
-      plannedSavings: _parseAmount(_plannedSavingsController.text) ?? 0,
-      plannedOthers: _parseAmount(_plannedOthersController.text) ?? 0,
+      monthlyIncome: _parseAmount(_incomeController.text),
+      bills: List.unmodifiable(_onboardingBills),
+      savingsAccounts: List.unmodifiable(_onboardingSavingsAccounts),
+      goals: List.unmodifiable(_onboardingGoals),
       priorities: List.unmodifiable(_priorities),
       wallets: List.unmodifiable(_wallets),
     );
@@ -211,7 +213,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   // =========================================================
 
   Future<void> _addWallet() async {
-    final wallet = await showWalletFormSheet(context);
+    final wallet = await showWalletFormSheet(context, balanceOptional: true);
 
     if (wallet == null || !mounted) return;
 
@@ -280,7 +282,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
 
   Widget _buildHeader() {
     final colors = context.appColors;
-    final showProgress = _step < _readyStep;
+    final showProgress = _step <= _walletsStep;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
@@ -340,6 +342,10 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         return _buildIncome();
       case _planStep:
         return _buildPlan();
+      case _billsStep:
+        return _buildBillsPlan();
+      case _savingsStep:
+        return _buildSavingsPlan();
       case _walletsStep:
         return _buildWallets();
       case _remindersStep:
@@ -455,7 +461,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   }
 
   // =========================================================
-  // STEP 3 - REMINDERS
+  // OPTIONAL REMINDER PERMISSION
   // =========================================================
 
   Widget _buildReminders() {
@@ -552,6 +558,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           const SizedBox(height: 24),
           _label('Main source of income'),
           DropdownButtonFormField<String>(
+            key: const Key('income-source-dropdown'),
             initialValue: _incomeSource,
             isExpanded: true,
             decoration: _inputDecoration('Select your income source'),
@@ -567,9 +574,24 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             validator: (value) =>
                 value == null ? 'Select an income source.' : null,
           ),
+          if (_incomeSource == 'Other') ...[
+            const SizedBox(height: 16),
+            _label('Please specify your income source'),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: const Key('other-income-source-specification'),
+              controller: _otherIncomeSourceController,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: _inputDecoration('e.g. Rental income'),
+              validator: (value) => value == null || value.trim().isEmpty
+                  ? 'Please specify your income source.'
+                  : null,
+            ),
+          ],
           const SizedBox(height: 20),
           _label('How often do you receive it?'),
           DropdownButtonFormField<String>(
+            key: const Key('income-frequency-dropdown'),
             initialValue: _incomeFrequency,
             isExpanded: true,
             decoration: _inputDecoration('Select how often'),
@@ -597,7 +619,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             _label('When did you last receive it?'),
             FormField<DateTime>(
               initialValue: _lastPaydayAt,
-              validator: (_) => _incomeFrequency == null || _lastPaydayAt != null
+              validator: (_) =>
+                  _incomeFrequency == null || _lastPaydayAt != null
                   ? null
                   : 'Choose the day your last pay came in.',
               builder: (field) => Column(
@@ -658,13 +681,17 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           const SizedBox(height: 20),
           _label(
             isIrregular
-                ? 'Rough monthly estimate (optional)'
-                : 'Usual amount per pay',
+                ? 'Estimated monthly income (optional)'
+                : 'Monthly income',
           ),
           TextFormField(
+            key: const Key('monthly-income'),
             controller: _incomeController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: _inputDecoration('0.00', prefixText: '₱ '),
+            decoration: _inputDecoration(
+              isIrregular ? 'Optional estimate' : 'Total for a typical month',
+              prefixText: '₱ ',
+            ),
             validator: (value) {
               // Irregular income changes, so the estimate may be left blank.
               if (isIrregular && (value?.trim() ?? '').isEmpty) return null;
@@ -681,217 +708,351 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             const SizedBox(height: 4),
             _noteRow(
               Icons.info_outline,
-              "Just a guess is fine. You'll enter the real amount each time "
-              'you get paid.',
+              "A rough monthly estimate is fine. You'll enter the real amount "
+              'each time you get paid.',
             ),
           ],
-          const SizedBox(height: 20),
-          _label('Daily spending limit (optional)'),
-          TextFormField(
-            controller: _dailyBudgetController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: _inputDecoration('0.00', prefixText: '₱ '),
-            validator: (value) {
-              if ((value?.trim() ?? '').isEmpty) return null;
-              final amount = _parseAmount(value!);
-              return amount == null || amount <= 0
-                  ? 'Enter a positive amount, or leave it blank.'
-                  : null;
-            },
-          ),
-          const SizedBox(height: 4),
-          _noteRow(
-            Icons.info_outline,
-            "Not sure? Leave it blank. FinAssist will suggest a daily amount "
-            'later.',
-          ),
         ],
       ),
     );
   }
 
   // =========================================================
-  // STEP 4 - PAY PLAN
+  // STEP 4 - PRIORITIES
   // =========================================================
 
   Widget _buildPlan() {
     final colors = context.appColors;
 
-    return Form(
-      key: _planFormKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 16),
-          _title('Plan each payment'),
-          const SizedBox(height: 8),
-          _subtitle(
-            'Choose what to set aside for bills and savings whenever income '
-            'is added.',
-          ),
-          const SizedBox(height: 24),
-          _title('What matters most to you?', size: 18),
-          const SizedBox(height: 6),
-          _subtitle(
-            'Use the arrows, or hold and drag, to put the most important '
-            'first.',
-          ),
-          const SizedBox(height: 12),
-          ReorderableListView(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            buildDefaultDragHandles: false,
-            onReorderItem: _movePriority,
-            children: [
-              for (var index = 0; index < _priorities.length; index++)
-                Padding(
-                  key: ValueKey(_priorities[index]),
-                  padding: const EdgeInsets.only(bottom: 8),
-                  // Long-press anywhere on the row to drag it.
-                  child: ReorderableDelayedDragStartListener(
-                    index: index,
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(14, 6, 4, 6),
-                      decoration: BoxDecoration(
-                        color: colors.pageBackground,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: colors.border),
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 13,
-                            backgroundColor: colors.primaryTint,
-                            child: Text(
-                              '${index + 1}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: colors.primaryText,
-                              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        _title('What matters most to you?'),
+        const SizedBox(height: 8),
+        _subtitle('Set the priorities that will guide your financial plan.'),
+        const SizedBox(height: 16),
+        _subtitle(
+          'Use the arrows, or hold and drag, to put the most important '
+          'first.',
+        ),
+        const SizedBox(height: 12),
+        ReorderableListView(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          buildDefaultDragHandles: false,
+          onReorderItem: _movePriority,
+          children: [
+            for (var index = 0; index < _priorities.length; index++)
+              Padding(
+                key: ValueKey(_priorities[index]),
+                padding: const EdgeInsets.only(bottom: 8),
+                // Long-press anywhere on the row to drag it.
+                child: ReorderableDelayedDragStartListener(
+                  index: index,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(14, 6, 4, 6),
+                    decoration: BoxDecoration(
+                      color: colors.pageBackground,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: colors.border),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 13,
+                          backgroundColor: colors.primaryTint,
+                          child: Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: colors.primaryText,
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              _priorities[index].label,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: colors.textPrimary,
-                              ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _priorities[index].label,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: colors.textPrimary,
                             ),
                           ),
-                          _moveButton(
-                            icon: Icons.keyboard_arrow_up,
-                            tooltip: 'Move "${_priorities[index].label}" up',
-                            onPressed: index == 0
-                                ? null
-                                : () => _movePriority(index, index - 1),
+                        ),
+                        _moveButton(
+                          icon: Icons.keyboard_arrow_up,
+                          tooltip: 'Move "${_priorities[index].label}" up',
+                          onPressed: index == 0
+                              ? null
+                              : () => _movePriority(index, index - 1),
+                        ),
+                        _moveButton(
+                          icon: Icons.keyboard_arrow_down,
+                          tooltip: 'Move "${_priorities[index].label}" down',
+                          onPressed: index == _priorities.length - 1
+                              ? null
+                              : () => _movePriority(index, index + 1),
+                        ),
+                        ReorderableDragStartListener(
+                          index: index,
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(Icons.drag_handle, color: Colors.grey),
                           ),
-                          _moveButton(
-                            icon: Icons.keyboard_arrow_down,
-                            tooltip: 'Move "${_priorities[index].label}" down',
-                            onPressed: index == _priorities.length - 1
-                                ? null
-                                : () => _movePriority(index, index + 1),
-                          ),
-                          ReorderableDragStartListener(
-                            index: index,
-                            child: const Padding(
-                              padding: EdgeInsets.all(8),
-                              child: Icon(
-                                Icons.drag_handle,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-            ],
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // STEP 5 - BILL REMINDERS
+
+  Future<void> _addOnboardingBill() async {
+    OnboardingBill? draft;
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: context.appColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => BillFormSheet(
+        wallets: Stream.value(const <Wallet>[]),
+        onSave:
+            ({
+              required name,
+              required amount,
+              required category,
+              required firstDueDate,
+              required recurrence,
+              String? walletId,
+            }) {
+              draft = OnboardingBill(
+                name: name.trim(),
+                amount: amount,
+                category: category,
+                firstDueDate: firstDueDate,
+                recurrence: recurrence,
+              );
+            },
+      ),
+    );
+    if (draft == null || !mounted) return;
+    setState(() => _onboardingBills.add(draft!));
+  }
+
+  void _removeOnboardingBill(int index) {
+    setState(() => _onboardingBills.removeAt(index));
+  }
+
+  Future<void> _addOnboardingSavingsAccount() async {
+    final account = await showModalBottomSheet<OnboardingSavingsAccount>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _OnboardingSavingsSheet(),
+    );
+    if (account == null || !mounted) return;
+    setState(() => _onboardingSavingsAccounts.add(account));
+  }
+
+  Future<void> _addOnboardingGoal() async {
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: context.appColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => GoalFormSheet(
+        nextPriority: _onboardingGoals.length,
+        allowAlreadySaved: false,
+        wallets: Stream.value(const <Wallet>[]),
+        onSave: (draft) {
+          _onboardingGoals.add(
+            OnboardingGoal(
+              name: draft.name,
+              kind: draft.kind,
+              targetAmount: draft.targetAmount,
+              targetDate: draft.targetDate,
+              frequency: draft.frequency,
+              planAmount: draft.planAmount,
+              note: draft.note,
+            ),
+          );
+        },
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Widget _buildBillsPlan() {
+    final colors = context.appColors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        _title('Add bill reminders'),
+        const SizedBox(height: 8),
+        _subtitle(
+          'Add any existing bills with their due dates and amounts. '
+          'You can skip this and add bills later.',
+        ),
+        const SizedBox(height: 20),
+        if (_onboardingBills.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+            decoration: BoxDecoration(
+              color: colors.pageBackground,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: colors.border),
+            ),
+            child: Text(
+              'No bills added yet.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: colors.textBody),
+            ),
+          )
+        else
+          for (var index = 0; index < _onboardingBills.length; index++)
+            Card(
+              key: ValueKey('onboarding-bill-$index'),
+              color: colors.pageBackground,
+              child: ListTile(
+                title: Text(_onboardingBills[index].name),
+                subtitle: Text(
+                  '${formatPeso(_onboardingBills[index].amount)} · '
+                  'Due ${formatShortDate(_onboardingBills[index].firstDueDate)} · '
+                  '${_onboardingBills[index].recurrence.label}',
+                ),
+                trailing: IconButton(
+                  key: Key('remove-onboarding-bill-$index'),
+                  tooltip: 'Remove ${_onboardingBills[index].name}',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () => _removeOnboardingBill(index),
+                ),
+              ),
+            ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: OutlinedButton.icon(
+            key: const Key('add-onboarding-bill'),
+            onPressed: _addOnboardingBill,
+            icon: const Icon(Icons.add),
+            label: const Text('Add a Bill'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: colors.primaryText,
+              side: BorderSide(color: colors.primaryText),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
           ),
-          const SizedBox(height: 24),
-          _title('How would you like to split each payment?', size: 18),
-          const SizedBox(height: 4),
-          _noteRow(
-            Icons.info_outline,
-            'Each time you record your pay, these amounts move to your Bills '
-            'and Savings wallets, so your balance shows only what is left to '
-            'spend.',
+        ),
+      ],
+    );
+  }
+
+  // STEP 6 - SAVINGS
+
+  Widget _buildSavingsPlan() {
+    final colors = context.appColors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        _title('Build your savings'),
+        const SizedBox(height: 8),
+        _subtitle(
+          'Add savings accounts or set a goal. You can do either now or later.',
+        ),
+        const SizedBox(height: 20),
+        for (final (index, account) in _onboardingSavingsAccounts.indexed)
+          Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: ListTile(
+              leading: Icon(account.kind.icon, color: colors.primaryText),
+              title: Text(account.name),
+              subtitle: Text(account.kind.label),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(formatPeso(account.balance)),
+                  IconButton(
+                    tooltip: 'Remove ${account.name}',
+                    onPressed: () => setState(
+                      () => _onboardingSavingsAccounts.removeAt(index),
+                    ),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 12),
-          _allocationField(
-            controller: _plannedBillsController,
-            label: 'Bills',
-            key: const Key('allocation-bills'),
-          ),
-          const SizedBox(height: 12),
-          _allocationField(
-            controller: _plannedSavingsController,
-            label: 'Savings',
-            key: const Key('allocation-savings'),
-          ),
-          const SizedBox(height: 12),
-          _allocationField(
-            controller: _plannedOthersController,
-            label: 'Others',
-            key: const Key('allocation-others'),
-            validateTotal: true,
-          ),
+        if (_onboardingGoals.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _label('Savings goals'),
+          for (final (index, goal) in _onboardingGoals.indexed)
+            Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                leading: Icon(goal.kind.icon, color: colors.primaryText),
+                title: Text(goal.name),
+                subtitle: Text(goal.kind.label),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(formatPeso(goal.targetAmount)),
+                    IconButton(
+                      tooltip: 'Remove ${goal.name}',
+                      onPressed: () =>
+                          setState(() => _onboardingGoals.removeAt(index)),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
-      ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: OutlinedButton.icon(
+            key: const Key('add-onboarding-savings-account'),
+            onPressed: _addOnboardingSavingsAccount,
+            icon: const Icon(Icons.add),
+            label: const Text('Add Savings'),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: OutlinedButton.icon(
+            key: const Key('add-onboarding-goal'),
+            onPressed: _addOnboardingGoal,
+            icon: const Icon(Icons.flag_outlined),
+            label: const Text('Add Goal'),
+          ),
+        ),
+      ],
     );
-  }
-
-  Widget _allocationField({
-    required TextEditingController controller,
-    required String label,
-    required Key key,
-    bool validateTotal = false,
-  }) {
-    return TextFormField(
-      key: key,
-      controller: controller,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: _inputDecoration(
-        '0.00',
-        prefixText: '₱ ',
-      ).copyWith(
-        labelText: label == 'Bills' || label == 'Savings' ? '$label *' : label,
-      ),
-      validator: (value) {
-        if ((value?.trim() ?? '').isEmpty) {
-          if (label == 'Bills' || label == 'Savings') {
-            return 'Enter an amount, or 0 if you do not need to set money aside.';
-          }
-          return validateTotal ? _validatePlannedTotal() : null;
-        }
-        final amount = _parseAmount(value!);
-        if (amount == null || !amount.isFinite || amount < 0) {
-          return 'Enter a valid amount.';
-        }
-        return validateTotal ? _validatePlannedTotal() : null;
-      },
-    );
-  }
-
-  String? _validatePlannedTotal() {
-    final income = _parseAmount(_incomeController.text);
-    if (income == null) return null;
-    final planned =
-        [
-          _plannedBillsController,
-          _plannedSavingsController,
-          _plannedOthersController,
-        ].fold<double>(0, (total, controller) {
-          return total + (_parseAmount(controller.text) ?? 0);
-        });
-    return planned > income + 0.005
-        ? 'Your split cannot be more than your income.'
-        : null;
   }
 
   void _movePriority(int oldIndex, int newIndex) {
@@ -1001,7 +1162,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           for (var index = 0; index < _wallets.length; index++)
             _WalletDraftCard(
               wallet: _wallets[index],
-              incomeSource: _incomeSource,
+              incomeSource: _resolvedIncomeSource,
               onRemove: () => _removeWallet(index),
               onSetIncome: () => _setIncomeWallet(index),
             ),
@@ -1045,8 +1206,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         ? 'Varies'
         : _incomeFrequency == 'Irregular'
         ? 'About ${formatPeso(income)} a month'
-        : formatPeso(income);
-    final dailyBudget = _parseAmount(_dailyBudgetController.text);
+        : '${formatPeso(income)} a month';
     final walletTotal = _wallets.fold<double>(
       0,
       (total, wallet) => total + wallet.startingBalance,
@@ -1084,7 +1244,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
               _summaryRow(
                 'assets/icons/icons8-banknotes-96.png',
                 'Income',
-                '$incomeText · $frequencyLabel\n$_incomeSource',
+                '$incomeText · $frequencyLabel\n$_resolvedIncomeSource',
               ),
               _summaryRow(
                 'assets/icons/icons8-wallet-96.png',
@@ -1094,26 +1254,53 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
               ),
               _summaryRow(
                 'assets/icons/icons8-expenses-64.png',
-                'Per-pay plan',
-                'Bills ${formatPeso(_parseAmount(_plannedBillsController.text) ?? 0)} · '
-                    'Savings ${formatPeso(_parseAmount(_plannedSavingsController.text) ?? 0)} · '
-                    'Others ${formatPeso(_parseAmount(_plannedOthersController.text) ?? 0)}',
+                'Bills',
+                _onboardingBills.isEmpty
+                    ? 'No bill reminders added'
+                    : '${_onboardingBills.length} bill reminder${_onboardingBills.length == 1 ? '' : 's'}',
+              ),
+              _summaryRow(
+                'assets/icons/icons8-goal-96.png',
+                'Savings',
+                '${_onboardingSavingsAccounts.length} account${_onboardingSavingsAccounts.length == 1 ? '' : 's'}'
+                    ' · ${_onboardingGoals.length} goal${_onboardingGoals.length == 1 ? '' : 's'}',
               ),
               _summaryRow(
                 'assets/icons/icons8-goal-96.png',
                 'Top priority',
                 _priorities.first.label,
               ),
-              _summaryRow(
-                'assets/icons/icons8-calendar-96.png',
-                'Daily limit',
-                dailyBudget == null ? 'Not set yet' : formatPeso(dailyBudget),
-                showDivider: false,
-              ),
             ],
           ),
         ),
         const SizedBox(height: 20),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: colors.primaryTint,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, size: 18, color: colors.primaryText),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'After you tap Go to Dashboard, these shortcuts will be '
+                  'available there:',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
         _featureRow(
           'assets/icons/icons8-money-transfer-96.png',
           'Tap + anytime to add an expense or income',
@@ -1295,6 +1482,144 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(color: appPrimaryBlue, width: 2),
+      ),
+    );
+  }
+}
+
+class _OnboardingSavingsSheet extends StatefulWidget {
+  const _OnboardingSavingsSheet();
+
+  @override
+  State<_OnboardingSavingsSheet> createState() =>
+      _OnboardingSavingsSheetState();
+}
+
+class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _balanceController = TextEditingController();
+  GoalKind _kind = GoalKind.emergencyFund;
+
+  static const _savingsKinds = [
+    GoalKind.emergencyFund,
+    GoalKind.savingsAccount,
+    GoalKind.timeDeposit,
+  ];
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _balanceController.dispose();
+    super.dispose();
+  }
+
+  double? _parseBalance(String value) =>
+      double.tryParse(value.trim().replaceAll(',', ''));
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    final name = _nameController.text.trim();
+    final balance = _balanceController.text.trim().isEmpty
+        ? 0.0
+        : _parseBalance(_balanceController.text)!;
+    Navigator.pop(
+      context,
+      OnboardingSavingsAccount(
+        name: name.isEmpty ? _kind.label : name,
+        kind: _kind,
+        balance: balance,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        24,
+        24,
+        MediaQuery.viewInsetsOf(context).bottom + 24,
+      ),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Add Savings',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              DropdownButtonFormField<GoalKind>(
+                key: const Key('onboarding-savings-kind'),
+                initialValue: _kind,
+                decoration: const InputDecoration(labelText: 'Savings type'),
+                items: _savingsKinds
+                    .map(
+                      (kind) => DropdownMenuItem(
+                        value: kind,
+                        child: Text(kind.label),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (kind) {
+                  if (kind != null) setState(() => _kind = kind);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const Key('onboarding-savings-name'),
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Name (optional)',
+                  hintText: 'Uses the savings type if left blank',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const Key('onboarding-savings-balance'),
+                controller: _balanceController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Current balance (optional)',
+                  prefixText: '₱ ',
+                ),
+                validator: (value) {
+                  if ((value ?? '').trim().isEmpty) return null;
+                  final amount = _parseBalance(value!);
+                  if (amount == null || !amount.isFinite || amount < 0) {
+                    return 'Enter a valid balance.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  key: const Key('save-onboarding-savings'),
+                  onPressed: _save,
+                  child: const Text('Add Savings'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

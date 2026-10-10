@@ -55,6 +55,8 @@ class WalletDraft {
     required this.name,
     required this.startingBalance,
     this.receivesIncome = false,
+    this.purpose = WalletPurpose.spending,
+    this.savingsKind,
   });
 
   final WalletType type;
@@ -65,6 +67,8 @@ class WalletDraft {
 
   /// Whether the user's main income is paid into this wallet.
   final bool receivesIncome;
+  final WalletPurpose purpose;
+  final String? savingsKind;
 
   WalletDraft copyWith({bool? receivesIncome}) {
     return WalletDraft(
@@ -72,6 +76,8 @@ class WalletDraft {
       name: name,
       startingBalance: startingBalance,
       receivesIncome: receivesIncome ?? this.receivesIncome,
+      purpose: purpose,
+      savingsKind: savingsKind,
     );
   }
 }
@@ -88,6 +94,7 @@ class Wallet {
     required this.archived,
     required this.sortOrder,
     this.purpose = WalletPurpose.spending,
+    this.savingsKind,
   });
 
   /// Reads a stored wallet document.
@@ -109,6 +116,7 @@ class Wallet {
       archived: map['archived'] == true,
       sortOrder: _asDouble(map['sortOrder']).toInt(),
       purpose: WalletPurpose.fromName(_asString(map['purpose'])),
+      savingsKind: _asString(map['savingsKind']),
     );
   }
 
@@ -135,6 +143,7 @@ class Wallet {
   /// What the wallet holds money for. Bills and savings wallets are money the
   /// user has already committed, so they are shown apart from spending money.
   final WalletPurpose purpose;
+  final String? savingsKind;
 
   /// True for the bills and savings wallets, whose money is no longer the
   /// user's to spend.

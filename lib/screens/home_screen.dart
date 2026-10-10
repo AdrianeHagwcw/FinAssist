@@ -8,6 +8,7 @@ import '../models/dashboard_tip.dart';
 import '../models/goal.dart';
 import '../models/report.dart';
 import '../models/transaction_filter.dart';
+import '../models/voice_command.dart';
 import '../models/wallet.dart';
 import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
@@ -27,13 +28,18 @@ import 'history_screen.dart';
 import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
 import 'chatbot_screen.dart';
+import 'categories_screen.dart';
+import 'financial_preferences_screen.dart';
+import 'help_screen.dart';
 import 'income_waterfall_screen.dart';
 import 'leftover_review_screen.dart';
 import 'ocr_screen.dart';
 import 'profile_screen.dart';
+import 'reminders_screen.dart';
 import 'reports_screen.dart';
 import 'set_aside_screen.dart';
 import 'voice_recognition_screen.dart';
+import 'wallets_screen.dart';
 
 /// The landing screen: what is safe to spend today, what the wallets hold,
 /// shortcuts, and a glance at this month's spending.
@@ -44,6 +50,7 @@ class HomeScreen extends StatefulWidget {
     this.onOpenBills,
     this.onOpenSavings,
     this.onOpenDebts,
+    this.onVoiceNavigate,
     this.userName,
     this.wallets,
     this.goals,
@@ -65,6 +72,9 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback? onOpenBills;
   final VoidCallback? onOpenSavings;
   final VoidCallback? onOpenDebts;
+
+  /// Routes commands recognized by Voice Entry to the app's sections.
+  final ValueChanged<VoiceDestination>? onVoiceNavigate;
 
   /// Replaces the signed-in user's name. Used by tests.
   final String? userName;
@@ -115,6 +125,69 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _push(Widget screen) {
     Navigator.push(context, MaterialPageRoute(builder: (context) => screen));
+  }
+
+  void _openVoiceDestination(VoiceDestination destination) {
+    switch (destination) {
+      case VoiceDestination.home:
+        return;
+      case VoiceDestination.transactions:
+        (widget.onOpenTransactions ?? () => _push(const HistoryScreen()))();
+        return;
+      case VoiceDestination.bills:
+        (widget.onOpenBills ?? () => _push(const BillCalendarScreen()))();
+        return;
+      case VoiceDestination.wallet:
+        (widget.onOpenWallets ?? () => _push(const WalletsScreen()))();
+        return;
+      case VoiceDestination.savings:
+        (widget.onOpenSavings ?? () => _openSetAside(SetAsidePart.savings))();
+        return;
+      case VoiceDestination.debts:
+        (widget.onOpenDebts ??
+            () => _push(const BillCalendarScreen(initialShowDebts: true)))();
+        return;
+      case VoiceDestination.goals:
+        (widget.onOpenSavings ?? () => _openSetAside(SetAsidePart.savings))();
+        return;
+      case VoiceDestination.reports:
+        _push(const ReportsScreen());
+        return;
+      case VoiceDestination.settings:
+        _push(const ProfileScreen());
+        return;
+      case VoiceDestination.scanReceipt:
+        _push(OcrScreen(wallets: widget.wallets));
+        return;
+      case VoiceDestination.assistant:
+        _push(const ChatbotScreen());
+        return;
+      case VoiceDestination.expenseCategories:
+        _push(const CategoriesScreen());
+        return;
+      case VoiceDestination.financialPreferences:
+        _push(const FinancialPreferencesScreen());
+        return;
+      case VoiceDestination.payCycleHistory:
+        _push(const HistoryScreen());
+        return;
+      case VoiceDestination.reminders:
+        _push(const RemindersScreen());
+        return;
+      case VoiceDestination.help:
+        _push(const HelpScreen());
+        return;
+    }
+  }
+
+  void _startVoiceEntry() {
+    _push(
+      VoiceRecognitionScreen(
+        autoStart: true,
+        onNavigate: widget.onVoiceNavigate ?? _openVoiceDestination,
+        onIncomeSaved: () => setState(() => _refreshKey++),
+      ),
+    );
   }
 
   @override
@@ -376,7 +449,7 @@ class _HomeScreenState extends State<HomeScreen> {
             tile(
               'assets/icons/icons8-microphone-96.png',
               'Voice Entry',
-              () => _push(const VoiceRecognitionScreen(autoStart: true)),
+              _startVoiceEntry,
             ),
           ],
         ),
