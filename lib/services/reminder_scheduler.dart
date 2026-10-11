@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/goal.dart';
+import '../models/wallet.dart';
 import '../models/onboarding_data.dart';
 import '../models/reminder.dart';
 import 'allocation_service.dart';
@@ -89,6 +90,7 @@ class ReminderScheduler {
 
   Map<String, dynamic>? _profile;
   List<Goal> _goals = const [];
+  List<Wallet> _wallets = const [];
   List<AllocationCycle> _cycles = const [];
   List<AppTransaction> _transactions = const [];
 
@@ -110,6 +112,7 @@ class ReminderScheduler {
 
     listen(UserProfileService.watchProfile(), (s) => _profile = s.data());
     listen(GoalService.watchGoals(), (goals) => _goals = goals);
+    listen(WalletService.watchWallets(), (wallets) => _wallets = wallets);
     listen(BudgetService.watchRecentCycles(), (cycles) => _cycles = cycles);
     listen(WalletService.watchTransactions(), (t) => _transactions = t);
     // Adding, editing or skipping a bill doesn't make a transaction.
@@ -141,6 +144,7 @@ class ReminderScheduler {
         settings: settings,
         bills: bills,
         goals: _goals,
+        wallets: _wallets,
         cycles: _cycles,
         incomeFrequency: profile['incomeFrequency'] as String?,
         incomeSource: profile['incomeSource'] as String?,

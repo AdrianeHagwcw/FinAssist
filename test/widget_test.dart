@@ -55,6 +55,8 @@ import 'package:testapp/widgets/back_to_home.dart';
 import 'package:testapp/widgets/bill_payment_sheet.dart';
 import 'package:testapp/widgets/export_transactions_tile.dart';
 import 'package:testapp/widgets/goal_sheets.dart';
+import 'package:testapp/widgets/matured_savings_notice.dart';
+import 'package:testapp/widgets/matured_savings_sheet.dart';
 import 'package:testapp/widgets/legacy_import_card.dart';
 import 'package:testapp/widgets/light_dark_toggle.dart';
 import 'package:testapp/utils/date_format.dart';
@@ -70,6 +72,7 @@ import 'package:testapp/widgets/transaction_edit_sheet.dart';
 import 'package:testapp/widgets/transaction_row.dart';
 import 'package:testapp/widgets/transfer_sheet.dart';
 import 'package:testapp/widgets/wallet_picker.dart';
+import 'package:testapp/widgets/wallet_form_sheet.dart';
 
 void main() {
   testWidgets('login screen can prefill email from verification recovery', (
@@ -631,6 +634,172 @@ void main() {
     });
   });
 
+  group('savings that have matured', () {
+    Wallet deposit({
+      String id = 'mp2',
+      String name = 'Pag-IBIG MP2',
+      double balance = 25000,
+      DateTime? matures,
+      bool archived = false,
+    }) => Wallet(
+      id: id,
+      name: name,
+      type: WalletType.other,
+      balance: balance,
+      startingBalance: balance,
+      receivesIncome: false,
+      archived: archived,
+      sortOrder: 0,
+      purpose: WalletPurpose.savings,
+      savingsKind: SavingsKind.government.name,
+      maturityDate: matures,
+    );
+
+    final today = DateTime(2027, 3, 5);
+
+    test('locked savings are counted apart from reachable ones', () {
+      final cash = Wallet(
+        id: 'piggy',
+        name: 'Piggy bank',
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.general.name,
+      );
+      final sss = deposit(id: 'sss', name: 'SSS', balance: 80000);
+      final wallets = [cash, sss];
+
+      // The figure on Home only promises money the user could reach.
+      expect(reachableSavingsBalance(wallets), 5000);
+      expect(lockedSavingsBalance(wallets), 80000);
+      // Both are still savings, so neither counts as spendable.
+      expect(walletBalanceFor(wallets, WalletPurpose.savings), 85000);
+      expect(cash.isLockedSavings, isFalse);
+      expect(sss.isLockedSavings, isTrue);
+    });
+
+    test('savings saved before these kinds existed stay reachable', () {
+      final old = Wallet(
+        id: 'old',
+        name: 'Savings',
+        type: WalletType.other,
+        balance: 1200,
+        startingBalance: 1200,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+      );
+
+      expect(old.isLockedSavings, isFalse);
+      expect(reachableSavingsBalance([old]), 1200);
+    });
+
+    test('a record is matured on its day, not before', () {
+      expect(deposit(matures: DateTime(2027, 3, 6)).maturedBy(today), isFalse);
+      expect(deposit(matures: today).maturedBy(today), isTrue);
+      expect(deposit(matures: DateTime(2027, 3, 4)).maturedBy(today), isTrue);
+    });
+
+    test('nothing matures without a date, money or a live record', () {
+      expect(deposit().maturedBy(today), isFalse, reason: 'no date set');
+      expect(
+        deposit(matures: today, balance: 0).maturedBy(today),
+        isFalse,
+        reason: 'nothing left in it',
+      );
+      expect(
+        deposit(matures: today, archived: true).maturedBy(today),
+        isFalse,
+        reason: 'archived records are not chased',
+      );
+    });
+
+    test('only savings records are picked up', () {
+      final spending = Wallet(
+        id: 'cash',
+        name: 'Cash',
+        type: WalletType.cash,
+        balance: 500,
+        startingBalance: 500,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 0,
+        maturityDate: today,
+      );
+
+      expect(maturedSavings([spending, deposit(matures: today)], today), [
+        isA<Wallet>().having((w) => w.id, 'id', 'mp2'),
+      ]);
+    });
+
+    testWidgets('the sheet says what a part withdrawal leaves behind', (
+      tester,
+    ) async {
+      double? received;
+      String? destination;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: MaturedSavingsSheet(
+              wallet: deposit(matures: today),
+              wallets: [
+                deposit(matures: today),
+                Wallet(
+                  id: 'cash',
+                  name: 'Cash',
+                  type: WalletType.cash,
+                  balance: 500,
+                  startingBalance: 500,
+                  receivesIncome: true,
+                  archived: false,
+                  sortOrder: 1,
+                ),
+              ],
+              onSettle: (amount, toWalletId) {
+                received = amount;
+                destination = toWalletId;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Prefilled with the whole balance.
+      expect(find.text('This record closes.'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('matured-amount')), '5000');
+      await tester.pump();
+      expect(
+        find.text('₱20,000 stays in Pag-IBIG MP2.'),
+        findsOneWidget,
+        reason: 'what stays behind is shown before saving',
+      );
+
+      await tester.enterText(find.byKey(const Key('matured-amount')), '27000');
+      await tester.pump();
+      expect(
+        find.textContaining('₱2,000 above the recorded balance'),
+        findsOneWidget,
+        reason: 'interest is named rather than invented',
+      );
+
+      await tester.tap(find.byKey(const Key('matured-settle')));
+      await tester.pump();
+
+      expect(received, 27000);
+      expect(destination, isNotNull);
+    });
+
+  });
+
   group('setup savings and goals', () {
     OnboardingSavingsAccount record(String name, double balance) =>
         OnboardingSavingsAccount(
@@ -753,7 +922,13 @@ void main() {
       expect(SavingsKind.fromName('account'), SavingsKind.account);
       expect(SavingsKind.fromName('timeDeposit'), SavingsKind.timeDeposit);
       expect(SavingsKind.fromName('emergencyFund'), SavingsKind.general);
+      expect(SavingsKind.fromName('government'), SavingsKind.government);
       expect(SavingsKind.fromName(null), SavingsKind.general);
+      // SSS and Pag-IBIG money cannot be drawn on this week, like a deposit.
+      expect(SavingsKind.government.isLockedAway, isTrue);
+      expect(SavingsKind.timeDeposit.isLockedAway, isTrue);
+      expect(SavingsKind.general.isLockedAway, isFalse);
+      expect(SavingsKind.account.isLockedAway, isFalse);
     });
 
     test('only a regular goal or an emergency fund can be chosen', () {
@@ -920,6 +1095,92 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(saved!.wallets.single.name, 'Cash');
+    });
+
+    testWidgets(
+      'starting wallets can be edited without changing income selection',
+      (tester) async {
+        OnboardingData? saved;
+        await pumpOnboarding(tester, save: (data) async => saved = data);
+        await tapText(tester, 'Get Started');
+        await tester.enterText(find.byType(TextFormField), 'Dave');
+        await tapText(tester, 'Next');
+        await chooseDropdown(tester, 'Select your income source', 'Salary');
+        await chooseDropdown(
+          tester,
+          'Select how often',
+          'Irregular (no fixed payday)',
+        );
+        for (var i = 0; i < 4; i++) {
+          await tapText(tester, 'Next');
+        }
+        await tapText(tester, 'Add a Wallet');
+        await tester.enterText(find.byType(TextFormField).last, '100');
+        await tapText(tester, 'Add Wallet');
+        await tapText(tester, 'Add Another');
+        await tapText(tester, 'Add Wallet');
+
+        await tapText(tester, 'Cash 1');
+        expect(find.text('Edit Wallet'), findsOneWidget);
+        expect(find.text('100'), findsOneWidget);
+        await tester.enterText(find.byType(TextFormField).first, 'Pocket');
+        await tester.enterText(find.byType(TextFormField).last, '250.50');
+        await tapText(tester, 'Save Changes');
+        expect(find.text('Pocket'), findsOneWidget);
+        expect(find.text('Cash 2'), findsNothing);
+
+        // Dismissing an edit must not change the saved draft.
+        await tapText(tester, 'Pocket');
+        await tester.enterText(find.byType(TextFormField).last, '999');
+        Navigator.of(tester.element(find.byType(WalletFormSheet))).pop();
+        await tester.pumpAndSettle();
+        await tapText(tester, 'Pocket');
+        expect(find.text('250.50'), findsOneWidget);
+        await tapText(tester, 'GCash');
+        await tapText(tester, 'Save Changes');
+
+        await tapText(tester, 'Next');
+        await tapText(tester, 'Allow Reminders');
+        await tapText(tester, 'Continue');
+        await tester.ensureVisible(find.text('Go to Dashboard'));
+        await tester.tap(find.text('Go to Dashboard'));
+        await tester.pump();
+        await tester.pump();
+        expect(saved!.wallets.map((w) => w.name), ['Pocket', 'Cash']);
+        expect(saved!.wallets.map((w) => w.startingBalance), [250.5, 0]);
+        expect(saved!.wallets.map((w) => w.type), [
+          WalletType.gcash,
+          WalletType.cash,
+        ]);
+        expect(saved!.wallets.map((w) => w.receivesIncome), [true, false]);
+      },
+    );
+
+    testWidgets('editing a saved wallet still hides its balance field', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: WalletFormSheet(
+              existing: Wallet(
+                id: 'cash',
+                name: 'Pocket',
+                type: WalletType.cash,
+                balance: 250,
+                startingBalance: 100,
+                receivesIncome: true,
+                archived: false,
+                sortOrder: 0,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Edit Wallet'), findsOneWidget);
+      expect(find.text('Current balance'), findsNothing);
+      expect(find.byType(TextFormField), findsOneWidget);
     });
 
     testWidgets('walks through every step and saves the answers', (
@@ -7815,11 +8076,13 @@ void main() {
       List<Goal> goals = const [],
       List<AllocationCycle> cycles = const [],
       List<AppTransaction> transactions = const [],
+      List<Wallet> wallets = const [],
       required DateTime now,
     }) => planReminders(
       settings: settings,
       bills: bills,
       goals: goals,
+      wallets: wallets,
       cycles: cycles,
       incomeFrequency: 'Monthly',
       transactions: transactions,
@@ -8106,6 +8369,60 @@ void main() {
       );
     });
 
+    Wallet maturedDeposit({double balance = 25000, DateTime? matures}) =>
+        Wallet(
+          id: 'mp2',
+          name: 'Pag-IBIG MP2',
+          type: WalletType.other,
+          balance: balance,
+          startingBalance: balance,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 0,
+          purpose: WalletPurpose.savings,
+          maturityDate: matures,
+        );
+
+    test('one reminder on the day and one a week later', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+      final planned = plan(
+        settings,
+        now: DateTime(2027, 3, 1, 7),
+        wallets: [maturedDeposit(matures: DateTime(2027, 3, 5))],
+      );
+
+      expect(planned.map((r) => r.at), [
+        DateTime(2027, 3, 5, 9),
+        DateTime(2027, 3, 12, 9),
+      ]);
+      expect(planned.first.title, 'Pag-IBIG MP2 matures today');
+      expect(planned.last.title, 'Pag-IBIG MP2 matured a week ago');
+      // The same event always keeps the same id, so it cannot double up.
+      expect(planned.first.key, 'savings:mp2:matured');
+    });
+
+    test('a settled record is no longer chased', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+
+      expect(
+        plan(settings, now: DateTime(2027, 3, 1, 7), wallets: [maturedDeposit()]),
+        isEmpty,
+        reason: 'clearing the date ends the reminders',
+      );
+      expect(
+        plan(
+          settings,
+          now: DateTime(2027, 3, 1, 7),
+          wallets: [maturedDeposit(matures: DateTime(2027, 3, 5), balance: 0)],
+        ),
+        isEmpty,
+        reason: 'an emptied record has nothing to come due',
+      );
+    });
     test('the logging nudge skips a day that already has a record', () {
       final settings = ReminderSettings.fromProfile(
         profile(const [FinancialPriority.trackSpending]),

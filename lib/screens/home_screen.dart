@@ -23,6 +23,7 @@ import '../widgets/spending_chart.dart';
 import '../widgets/transaction_edit_sheet.dart';
 import '../widgets/transaction_row.dart';
 import '../widgets/due_soon_notice.dart';
+import '../widgets/matured_savings_notice.dart';
 import '../widgets/dashboard_tip.dart';
 import 'history_screen.dart';
 import 'bill_calendar_screen.dart';
@@ -297,9 +298,12 @@ class _HomeScreenState extends State<HomeScreen> {
           title: 'Savings Total Balance',
           note: _savingsGoalCaption(wallets, goals),
           iconAsset: 'assets/icons/icons8-money-box-96.png',
+          // Only savings the user could actually reach. A time deposit or
+          // money with SSS, GSIS or Pag-IBIG is named on its own line below,
+          // so this figure never promises money that is years away.
           amount: wallets == null || goals == null
               ? null
-              : (walletBalanceFor(wallets, WalletPurpose.savings) -
+              : (reachableSavingsBalance(wallets) -
                       totalSetAsideInPurposeWallets(
                         goals,
                         wallets,
@@ -367,9 +371,20 @@ class _HomeScreenState extends State<HomeScreen> {
         )
         .length;
 
-    if (goalCount == 0) return 'No money set aside for goals';
-    return 'Across $goalCount goal${goalCount == 1 ? '' : 's'} · '
+    // Money that cannot be drawn on yet is named here rather than counted
+    // into the figure above, so the two never blur together.
+    final locked = lockedSavingsBalance(wallets);
+    final lockedNote = locked > 0
+        ? 'Locked away: ${formatPeso(locked)}'
+        : null;
+
+    if (goalCount == 0) {
+      return lockedNote ?? 'No money set aside for goals';
+    }
+    final goalNote =
+        'Across $goalCount goal${goalCount == 1 ? '' : 's'} · '
         '${formatPeso(assigned)} set aside';
+    return lockedNote == null ? goalNote : '$goalNote\n$lockedNote';
   }
 
   /// The tip needs the bills the Safe to Spend card already loaded, so it is
@@ -494,6 +509,13 @@ class _HomeScreenState extends State<HomeScreen> {
           bills: inputs.bills,
           now: inputs.now ?? DateTime.now(),
           onOpen: (bill) => _push(BillDetailScreen(instance: bill)),
+        ),
+        // A time deposit or government savings that has come due. Nothing
+        // moves until the user says what they did with it.
+        MaturedSavingsNotice(
+          wallets: inputs.wallets,
+          today: inputs.now,
+          onAnswered: () => setState(() => _refreshKey++),
         ),
         _leftoverNotice(context, inputs),
       ],

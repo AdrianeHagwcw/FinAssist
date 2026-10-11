@@ -449,6 +449,89 @@ class WalletService {
   /// touching the same wallet. The balance changes are then added to that map
   /// instead of written, and the caller writes the totals once with
   /// [applyDeltasToBatch].
+  /// Records what the user did with a matured time deposit or government
+  /// savings.
+  ///
+  /// [received] is what they say came back, which is often more than the
+  /// recorded balance because of interest or dividends. The difference is
+  /// written as income so reports stay honest, then the whole amount moves to
+  /// [toWalletId]. Taking only part of it leaves the rest where it is.
+  ///
+  /// Nothing happens to a real account; this only records what the user says
+  /// already happened.
+  static void settleMatured({
+    required Wallet wallet,
+    required double received,
+    required String toWalletId,
+    DateTime? date,
+  }) {
+    if (!received.isFinite || received <= 0) {
+      throw ArgumentError.value(received, 'received', 'Must be more than zero.');
+    }
+    if (toWalletId == wallet.id) {
+      throw ArgumentError('Choose a different wallet to move it into.');
+    }
+
+    final when = date ?? DateTime.now();
+    final batch = FirebaseFirestore.instance.batch();
+    final deltas = <String, double>{};
+    // Rounded to centavos, so a long decimal cannot leave a few stray
+    // thousandths behind in the record.
+    final taken = (received * 100).round() / 100;
+    final balance = (wallet.balance * 100).round() / 100;
+    final interest = taken > balance ? taken - balance : 0.0;
+
+    if (interest > 0) {
+      // Interest is new money, so it is income, not a transfer.
+      addTransactionToBatch(
+        batch,
+        type: TransactionType.income,
+        amount: interest,
+        label: 'Interest',
+        walletId: wallet.id,
+        note: 'Interest on ${wallet.name}',
+        date: when,
+        collectDeltasInto: deltas,
+      );
+    }
+
+    addTransactionToBatch(
+      batch,
+      type: TransactionType.transfer,
+      amount: taken,
+      label: TransactionType.transfer.label,
+      walletId: wallet.id,
+      toWalletId: toWalletId,
+      note: '${wallet.name} matured',
+      date: when,
+      collectDeltasInto: deltas,
+    );
+
+    applyDeltasToBatch(batch, deltas);
+
+    // Whatever is left keeps its own maturity until the user says otherwise;
+    // an emptied record has nothing left to come due.
+    if (taken >= balance) {
+      batch.set(_walletsCollection.doc(wallet.id), {
+        'maturityDate': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    commitFirestoreWrite(batch.commit(), 'settle matured savings');
+  }
+
+  /// Pushes a matured record's date forward, for a deposit that rolled over.
+  static void rollOverMaturity(Wallet wallet, DateTime nextDate) {
+    commitFirestoreWrite(
+      _walletsCollection.doc(wallet.id).set({
+        'maturityDate': Timestamp.fromDate(nextDate),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)),
+      'roll over maturity',
+    );
+  }
+
   static String addTransactionToBatch(
     WriteBatch batch, {
     required TransactionType type,

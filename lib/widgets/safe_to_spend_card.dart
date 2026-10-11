@@ -33,6 +33,7 @@ class SafeToSpendInputs {
     required this.cycles,
     required this.transactions,
     this.bills = const [],
+    this.wallets = const [],
     this.now,
     this.plannedBills,
     this.plannedSavings,
@@ -40,6 +41,10 @@ class SafeToSpendInputs {
   });
 
   final SafeToSpend safeToSpend;
+
+  /// The wallets the figure was worked out from, so anything shown under
+  /// the card can read them without loading them again.
+  final List<Wallet> wallets;
 
   /// Unpaid bills, overdue or coming up, as loaded for the figure.
   final List<BillInstance> bills;
@@ -203,6 +208,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         daysLeft: period.daysLeft(now),
         customDailyLimit: customDailyLimitFrom(profile),
       ),
+      wallets: wallets,
       period: period,
       frequency: frequency,
       cycles: cycles,

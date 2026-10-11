@@ -18,12 +18,20 @@ import 'main_shell.dart';
 enum StartDestination { signedOut, verifyEmail, setup, home }
 
 /// Checks for a signed-in user and whether they finished financial setup.
-Future<StartDestination> resolveStartDestination() async {
-  final user = await FirebaseAuth.instance.authStateChanges().first;
+Future<StartDestination> resolveStartDestination({FirebaseAuth? auth}) async {
+  final session = auth ?? FirebaseAuth.instance;
+  final user = await session.authStateChanges().first;
 
   if (user == null) return StartDestination.signedOut;
-  await user.reload();
-  final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
+  try {
+    await user.reload();
+  } on FirebaseAuthException {
+    // Firebase can clear an invalid session while refreshing it.
+    if (session.currentUser == null) return StartDestination.signedOut;
+    rethrow;
+  }
+  final refreshedUser = session.currentUser;
+  if (refreshedUser == null) return StartDestination.signedOut;
   if (!refreshedUser.emailVerified) return StartDestination.verifyEmail;
 
   final setupCompleted = await UserProfileService.isSetupCompleted();

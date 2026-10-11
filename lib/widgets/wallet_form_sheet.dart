@@ -4,6 +4,7 @@ import '../models/wallet.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_theme.dart';
+import '../utils/money_format.dart';
 
 const _philippineBanks = [
   'Asia United Bank (AUB)',
@@ -50,9 +51,11 @@ const _philippineBanks = [
 /// Pass [existing] to edit a wallet instead of adding one. The balance field
 /// is then left out: money only moves through a transaction, so a balance is
 /// never typed over by hand.
+/// Pass [initialDraft] to edit an unsaved setup wallet, including its balance.
 Future<WalletDraft?> showWalletFormSheet(
   BuildContext context, {
   Wallet? existing,
+  WalletDraft? initialDraft,
   bool balanceOptional = false,
 }) {
   return showModalBottomSheet<WalletDraft>(
@@ -65,6 +68,7 @@ Future<WalletDraft?> showWalletFormSheet(
     ),
     builder: (context) => WalletFormSheet(
       existing: existing,
+      initialDraft: initialDraft,
       balanceOptional: balanceOptional,
     ),
   );
@@ -73,12 +77,14 @@ Future<WalletDraft?> showWalletFormSheet(
 class WalletFormSheet extends StatefulWidget {
   const WalletFormSheet({
     this.existing,
+    this.initialDraft,
     this.balanceOptional = false,
     super.key,
-  });
+  }) : assert(existing == null || initialDraft == null);
 
   /// The wallet being edited, or null when adding a new one.
   final Wallet? existing;
+  final WalletDraft? initialDraft;
   final bool balanceOptional;
 
   @override
@@ -88,17 +94,24 @@ class WalletFormSheet extends StatefulWidget {
 class _WalletFormSheetState extends State<WalletFormSheet> {
   final _formKey = GlobalKey<FormState>();
   late final _nameController = TextEditingController(
-    text: widget.existing?.name ?? '',
+    text: widget.existing?.name ?? widget.initialDraft?.name ?? '',
   );
-  final _balanceController = TextEditingController();
-  late WalletType _type = widget.existing?.type ?? WalletType.cash;
+  late final _balanceController = TextEditingController(
+    // Shown the way money is typed, so a ₱2,500 wallet does not read
+    // "2500.0" when it is opened again.
+    text: widget.initialDraft == null
+        ? ''
+        : formatAmountInput(widget.initialDraft!.startingBalance),
+  );
+  late WalletType _type =
+      widget.existing?.type ?? widget.initialDraft?.type ?? WalletType.cash;
   late String? _selectedBank = _type == WalletType.bank
-      ? _philippineBanks.contains(widget.existing?.name)
-            ? widget.existing!.name
+      ? _philippineBanks.contains(_nameController.text)
+            ? _nameController.text
             : 'Other bank'
       : null;
 
-  bool get _isEditing => widget.existing != null;
+  bool get _isEditing => widget.existing != null || widget.initialDraft != null;
 
   @override
   void dispose() {
@@ -123,13 +136,18 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
       WalletDraft(
         type: _type,
         name: walletName.isEmpty ? _type.label : walletName,
-        startingBalance: _isEditing
+        startingBalance: widget.existing != null
             ? widget.existing!.balance
             : double.tryParse(
                     _balanceController.text.trim().replaceAll(',', ''),
                   ) ??
                   0,
-        receivesIncome: widget.existing?.receivesIncome ?? false,
+        receivesIncome:
+            widget.existing?.receivesIncome ??
+            widget.initialDraft?.receivesIncome ??
+            false,
+        purpose: widget.initialDraft?.purpose ?? WalletPurpose.spending,
+        savingsKind: widget.initialDraft?.savingsKind,
       ),
     );
   }
@@ -290,7 +308,7 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
                   ),
                 ],
                 const SizedBox(height: 8),
-                if (!_isEditing) ...[
+                if (widget.existing == null) ...[
                   const Text(
                     'Current balance',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -315,9 +333,7 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
                     validator: (value) {
                       final text = (value ?? '').trim();
                       if (text.isEmpty && widget.balanceOptional) return null;
-                      final amount = double.tryParse(
-                        text.replaceAll(',', ''),
-                      );
+                      final amount = double.tryParse(text.replaceAll(',', ''));
                       return amount == null || amount < 0
                           ? 'Enter the balance, or 0 if empty.'
                           : null;

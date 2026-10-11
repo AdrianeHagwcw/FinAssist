@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 /// Kind of money holder. Decides the wallet's icon and default name.
 enum WalletType {
   cash('Cash', 'assets/icons/icons8-banknotes-96.png'),
@@ -55,7 +56,11 @@ enum WalletPurpose {
 enum SavingsKind {
   general('General savings', 'Cash, an envelope, money kept by hand'),
   account('Savings account', 'Money you keep in a bank or e-wallet account'),
-  timeDeposit('Time deposit', 'Money locked in for a fixed term');
+  timeDeposit('Time deposit', 'Money you agreed to leave until a set date'),
+  government(
+    'Government savings',
+    'SSS, Pag-IBIG MP2 or GSIS. You cannot take it out anytime.',
+  );
 
   const SavingsKind(this.label, this.hint);
 
@@ -63,6 +68,11 @@ enum SavingsKind {
 
   /// One line under the choice, so the difference is plain.
   final String hint;
+
+  /// Money that cannot simply be withdrawn today. It is still savings, but
+  /// it should never read as cash the user could spend this week.
+  bool get isLockedAway =>
+      this == SavingsKind.timeDeposit || this == SavingsKind.government;
 
   /// Reads a stored name, including the kinds used before these three:
   /// an emergency fund is a goal now, so its money is general savings.
@@ -73,6 +83,8 @@ enum SavingsKind {
         return SavingsKind.account;
       case 'timeDeposit':
         return SavingsKind.timeDeposit;
+      case 'government':
+        return SavingsKind.government;
       default:
         return SavingsKind.general;
     }
@@ -125,6 +137,7 @@ class Wallet {
     required this.sortOrder,
     this.purpose = WalletPurpose.spending,
     this.savingsKind,
+    this.maturityDate,
   });
 
   /// Reads a stored wallet document.
@@ -147,6 +160,7 @@ class Wallet {
       sortOrder: _asDouble(map['sortOrder']).toInt(),
       purpose: WalletPurpose.fromName(_asString(map['purpose'])),
       savingsKind: _asString(map['savingsKind']),
+      maturityDate: _asDate(map['maturityDate']),
     );
   }
 
@@ -175,15 +189,43 @@ class Wallet {
   final WalletPurpose purpose;
   final String? savingsKind;
 
+  /// When a time deposit or government savings comes due. Null otherwise.
+  final DateTime? maturityDate;
+
+  /// True once that day has arrived and the money is still recorded here.
+  /// The user still has to say what they did with it; nothing moves on its
+  /// own, because FinAssist cannot see a real account.
+  bool maturedBy(DateTime now) {
+    final due = maturityDate;
+    if (due == null || balance <= 0 || archived) return false;
+    final day = DateTime(due.year, due.month, due.day);
+    final today = DateTime(now.year, now.month, now.day);
+    return !day.isAfter(today);
+  }
+
   /// True for the bills and savings wallets, whose money is no longer the
   /// user's to spend.
   bool get isSetAside => purpose != WalletPurpose.spending;
+
+  /// Savings the user cannot simply take out: a time deposit before its date,
+  /// or money with SSS, GSIS or Pag-IBIG. Counting it with ordinary savings
+  /// would promise money that is years away.
+  bool get isLockedSavings =>
+      purpose == WalletPurpose.savings &&
+      SavingsKind.fromName(savingsKind).isLockedAway;
 
   String get iconAsset => purpose.iconAsset ?? type.iconAsset;
 
   static String? _asString(Object? value) => value is String ? value : null;
 
   static double _asDouble(Object? value) => value is num ? value.toDouble() : 0;
+
+  /// Reads a Firestore timestamp, a DateTime, or nothing at all.
+  static DateTime? _asDate(Object? value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
 }
 
 /// Orders wallets the way they are shown: by [Wallet.sortOrder], then by name
@@ -203,7 +245,7 @@ void sortWallets(List<Wallet> wallets) {
 double totalWalletBalance(Iterable<Wallet> wallets) {
   return wallets
       .where((wallet) => !wallet.archived && !wallet.isSetAside)
-      .fold<double>(0, (sum, wallet) => sum + wallet.balance);
+      .fold<double>(0, (total, wallet) => total + wallet.balance);
 }
 
 /// What is held in the bills and savings wallets, shown beside the total
@@ -211,7 +253,7 @@ double totalWalletBalance(Iterable<Wallet> wallets) {
 double setAsideWalletBalance(Iterable<Wallet> wallets) {
   return wallets
       .where((wallet) => !wallet.archived && wallet.isSetAside)
-      .fold<double>(0, (sum, wallet) => sum + wallet.balance);
+      .fold<double>(0, (total, wallet) => total + wallet.balance);
 }
 
 /// The balance of the wallet kept for [purpose], or zero when the user has
@@ -219,7 +261,28 @@ double setAsideWalletBalance(Iterable<Wallet> wallets) {
 double walletBalanceFor(Iterable<Wallet> wallets, WalletPurpose purpose) {
   return wallets
       .where((wallet) => !wallet.archived && wallet.purpose == purpose)
-      .fold<double>(0, (sum, wallet) => sum + wallet.balance);
+      .fold<double>(0, (total, wallet) => total + wallet.balance);
+}
+
+/// Savings the user could reach today, which is what the savings balance on
+/// Home means. A time deposit or government savings is left out.
+double reachableSavingsBalance(Iterable<Wallet> wallets) {
+  return wallets
+      .where(
+        (wallet) =>
+            !wallet.archived &&
+            wallet.purpose == WalletPurpose.savings &&
+            !wallet.isLockedSavings,
+      )
+      .fold<double>(0, (total, wallet) => total + wallet.balance);
+}
+
+/// Savings held somewhere the user cannot draw on yet, shown on its own so
+/// the figure above it stays true.
+double lockedSavingsBalance(Iterable<Wallet> wallets) {
+  return wallets
+      .where((wallet) => !wallet.archived && wallet.isLockedSavings)
+      .fold<double>(0, (total, wallet) => total + wallet.balance);
 }
 
 /// The [Wallet.sortOrder] a newly added wallet should take.

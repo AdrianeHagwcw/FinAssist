@@ -226,6 +226,22 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
     });
   }
 
+  Future<void> _editWallet(int index) async {
+    final wallet = await showWalletFormSheet(
+      context,
+      initialDraft: _wallets[index].copyWith(
+        name: _baseWalletName(_wallets[index].name),
+      ),
+      balanceOptional: true,
+    );
+    if (wallet == null || !mounted) return;
+
+    setState(() {
+      _wallets[index] = wallet;
+      _numberRepeatedWallets();
+    });
+  }
+
   void _removeWallet(int index) {
     setState(() {
       final removed = _wallets.removeAt(index);
@@ -1505,6 +1521,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             _WalletDraftCard(
               wallet: _wallets[index],
               incomeSource: _resolvedIncomeSource,
+              onEdit: () => _editWallet(index),
               onRemove: () => _removeWallet(index),
               onSetIncome: () => _setIncomeWallet(index),
             ),
@@ -2220,8 +2237,8 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
         name: name.isEmpty ? _kind.label : name,
         kind: _kind,
         balance: balance,
-        // A maturity date only belongs to a time deposit.
-        maturityDate: _kind == SavingsKind.timeDeposit ? _maturityDate : null,
+        // A maturity date only belongs to money that is locked away.
+        maturityDate: _kind.isLockedAway ? _maturityDate : null,
         note: note.isEmpty ? null : note,
       ),
     );
@@ -2337,7 +2354,7 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
                   return null;
                 },
               ),
-              if (_kind == SavingsKind.timeDeposit) ...[
+              if (_kind.isLockedAway) ...[
                 const SizedBox(height: 14),
                 InkWell(
                   key: const Key('savings-maturity'),
@@ -2358,6 +2375,12 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
                       ),
                     ),
                   ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'On this date FinAssist asks what you did with it. Until '
+                  'then it never counts as money you can spend.',
+                  style: TextStyle(fontSize: 12, color: colors.textBody),
                 ),
               ],
               const SizedBox(height: 14),
@@ -2409,12 +2432,14 @@ class _WalletDraftCard extends StatelessWidget {
   const _WalletDraftCard({
     required this.wallet,
     required this.incomeSource,
+    required this.onEdit,
     required this.onRemove,
     required this.onSetIncome,
   });
 
   final WalletDraft wallet;
   final String? incomeSource;
+  final VoidCallback onEdit;
   final VoidCallback onRemove;
   final VoidCallback onSetIncome;
 
@@ -2423,107 +2448,116 @@ class _WalletDraftCard extends StatelessWidget {
     final colors = context.appColors;
     final incomeLabel = 'Receives my ${incomeSource ?? 'income'}';
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(14, 12, 4, 6),
-      decoration: BoxDecoration(
-        color: colors.pageBackground,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: wallet.receivesIncome ? colors.primaryText : colors.border,
-        ),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: colors.primaryTint,
-                  shape: BoxShape.circle,
-                ),
-                padding: const EdgeInsets.all(9),
-                child: Image.asset(wallet.type.iconAsset),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      wallet.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: colors.textPrimary,
-                      ),
-                    ),
-                    Text(
-                      wallet.type.label,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                formatPeso(wallet.startingBalance),
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: colors.textPrimary,
-                ),
-              ),
-              IconButton(
-                tooltip: 'Remove ${wallet.name}',
-                icon: const Icon(Icons.close, size: 20, color: Colors.grey),
-                onPressed: onRemove,
-              ),
-            ],
+    return InkWell(
+      onTap: onEdit,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 4, 6),
+        decoration: BoxDecoration(
+          color: colors.pageBackground,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: wallet.receivesIncome ? colors.primaryText : colors.border,
           ),
-          Semantics(
-            button: true,
-            selected: wallet.receivesIncome,
-            label: incomeLabel,
-            excludeSemantics: true,
-            child: InkWell(
-              onTap: onSetIncome,
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    Icon(
-                      wallet.receivesIncome
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_unchecked,
-                      size: 20,
-                      color: wallet.receivesIncome
-                          ? colors.primaryText
-                          : Colors.grey,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      incomeLabel,
-                      style: TextStyle(
-                        fontSize: 13,
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: colors.primaryTint,
+                    shape: BoxShape.circle,
+                  ),
+                  padding: const EdgeInsets.all(9),
+                  child: Image.asset(wallet.type.iconAsset),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        wallet.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        wallet.type.label,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.edit_outlined, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Text(
+                  formatPeso(wallet.startingBalance),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Remove ${wallet.name}',
+                  icon: const Icon(Icons.close, size: 20, color: Colors.grey),
+                  onPressed: onRemove,
+                ),
+              ],
+            ),
+            Semantics(
+              button: true,
+              selected: wallet.receivesIncome,
+              label: incomeLabel,
+              excludeSemantics: true,
+              child: InkWell(
+                onTap: onSetIncome,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        wallet.receivesIncome
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                        size: 20,
                         color: wallet.receivesIncome
                             ? colors.primaryText
                             : Colors.grey,
-                        fontWeight: wallet.receivesIncome
-                            ? FontWeight.w600
-                            : FontWeight.normal,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      Text(
+                        incomeLabel,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: wallet.receivesIncome
+                              ? colors.primaryText
+                              : Colors.grey,
+                          fontWeight: wallet.receivesIncome
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

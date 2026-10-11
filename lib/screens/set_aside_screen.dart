@@ -151,7 +151,14 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
   // ------------------------------------------------------------- savings
 
   List<Widget> _savings(List<Wallet> wallets) {
-    final walletTotal = walletBalanceFor(wallets, WalletPurpose.savings);
+    // Matches Home: only savings that can actually be drawn on. A time
+    // deposit or government savings is named on its own.
+    final walletTotal = reachableSavingsBalance(wallets);
+    final locked = lockedSavingsBalance(wallets);
+    final savingsNote = locked > 0
+        ? 'Money you have saved and have not put towards a goal. '
+              '${formatPeso(locked)} more is locked away.'
+        : 'Money you have saved and have not put towards a goal.';
 
     return [
       StreamBuilder<List<Goal>>(
@@ -181,7 +188,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                   title: 'Savings wallet',
                   total: available,
                   iconAsset: 'assets/icons/icons8-money-box-96.png',
-                  note: 'Money you have saved and have not put towards a goal.',
+                  note: savingsNote,
                 ),
                 const SizedBox(height: 20),
                 const EmptyStateView(
@@ -209,7 +216,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                 title: 'Savings wallet',
                 total: available,
                 iconAsset: 'assets/icons/icons8-money-box-96.png',
-                note: 'Money you have saved and have not put towards a goal.',
+                note: savingsNote,
               ),
               const SizedBox(height: 20),
               _SectionTitle('What it is for'),

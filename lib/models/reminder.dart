@@ -2,6 +2,7 @@ import 'allocation.dart';
 import 'app_transaction.dart';
 import 'bill.dart';
 import 'goal.dart';
+import 'wallet.dart';
 import 'onboarding_data.dart';
 import 'safe_to_spend.dart';
 import '../utils/date_format.dart';
@@ -202,6 +203,7 @@ List<PlannedReminder> planReminders({
   required List<BillInstance> bills,
   required List<Goal> goals,
   required List<AllocationCycle> cycles,
+  List<Wallet> wallets = const [],
   required String? incomeFrequency,
   required List<AppTransaction> transactions,
   required DateTime now,
@@ -418,6 +420,46 @@ List<PlannedReminder> planReminders({
           ),
         );
       }
+    }
+  }
+
+  // Savings that have come due. FinAssist cannot see a real account, so it
+  // asks once on the day and once a week later, then leaves the card on Home
+  // to do the rest. Settling the record clears its date, which cancels both.
+  if (settings.isOn(ReminderKind.goals)) {
+    for (final wallet in wallets) {
+      final due = wallet.maturityDate;
+      if (due == null) continue;
+      if (wallet.purpose != WalletPurpose.savings) continue;
+      if (wallet.archived || wallet.balance <= 0) continue;
+
+      final day = DateTime(due.year, due.month, due.day);
+      // Older than a fortnight is the card's job now, not a notification's.
+      if (day.isBefore(today.subtract(const Duration(days: 14)))) continue;
+
+      add(
+        PlannedReminder(
+          kind: ReminderKind.goals,
+          key: 'savings:${wallet.id}:matured',
+          at: at(day, morningHour),
+          title: '${wallet.name} matures today',
+          body:
+              '${formatPeso(wallet.balance)} is recorded. Open FinAssist to '
+              'say what you did with it.',
+          payload: 'savings:${wallet.id}',
+        ),
+      );
+
+      add(
+        PlannedReminder(
+          kind: ReminderKind.goals,
+          key: 'savings:${wallet.id}:matured:late',
+          at: at(day.add(const Duration(days: 7)), morningHour),
+          title: '${wallet.name} matured a week ago',
+          body: 'Still waiting on you to say where the money went.',
+          payload: 'savings:${wallet.id}',
+        ),
+      );
     }
   }
 
