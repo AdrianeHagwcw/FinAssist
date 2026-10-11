@@ -161,15 +161,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     icon: const Icon(Icons.pie_chart_outline),
                     onPressed: all == null ? null : () => _showBreakdown(shown),
                   ),
-                  IconButton(
-                    tooltip: 'Filter',
-                    icon: Badge(
-                      isLabelVisible: !_filter.isEmpty,
-                      label: Text('${_filter.activeCount}'),
-                      child: const Icon(Icons.filter_list),
-                    ),
-                    onPressed: () => _editFilter(wallets, all ?? const []),
-                  ),
                 ],
               ),
               body: _buildBody(context, all, shown, wallets),
@@ -249,6 +240,21 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           moneyIn: totals.moneyIn,
           moneyOut: totals.moneyOut,
           loans: loanMovements(shown),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            key: const Key('transaction-search-filters'),
+            onPressed: () => _editFilter(wallets, all),
+            style: openOutlineStyle(context),
+            icon: Badge(
+              isLabelVisible: !_filter.isEmpty,
+              label: Text('${_filter.activeCount}'),
+              child: const Icon(Icons.search),
+            ),
+            label: const Text('Search transactions & filters'),
+          ),
         ),
         const SizedBox(height: 16),
         if (shown.isEmpty)
@@ -416,14 +422,14 @@ class _InOutStrip extends StatelessWidget {
         children: [
           Row(
             children: [
-              figure('Money in', moneyIn, confirmColorOn(context)),
+              figure('Inward', moneyIn, confirmColorOn(context)),
               Container(
                 width: 1,
                 height: 34,
                 color: colors.border,
                 margin: const EdgeInsets.symmetric(horizontal: 12),
               ),
-              figure('Money out', moneyOut, dangerColorOn(context)),
+              figure('Outward', moneyOut, dangerColorOn(context)),
             ],
           ),
           if (loans.moneyIn > 0.005 || loans.moneyOut > 0.005) ...[
@@ -471,6 +477,8 @@ class _ActiveFilters extends StatelessWidget {
     final parts = [
       if (filter.type != null) filter.type!.label,
       if (filter.category != null) filter.category!,
+      if (filter.query != null && filter.query!.trim().isNotEmpty)
+        '"${filter.query!.trim()}"',
       if (filter.walletId != null) walletNameFor(wallets, filter.walletId),
       if (filter.from != null || filter.to != null)
         [
@@ -519,6 +527,15 @@ class _FilterSheet extends StatefulWidget {
 
 class _FilterSheetState extends State<_FilterSheet> {
   late TransactionFilter _filter = widget.initial;
+  late final TextEditingController _searchController = TextEditingController(
+    text: widget.initial.query ?? '',
+  );
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickRange() async {
     final now = DateTime.now();
@@ -564,11 +581,25 @@ class _FilterSheetState extends State<_FilterSheet> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Filter',
+              'Search & filters',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('transaction-search-input'),
+              controller: _searchController,
+              textInputAction: TextInputAction.search,
+              decoration: const InputDecoration(
+                labelText: 'Search transactions',
+                hintText: 'Category, source, note or type',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (value) => setState(
+                () => _filter = _filter.copyWith(query: () => value),
               ),
             ),
             const SizedBox(height: 16),

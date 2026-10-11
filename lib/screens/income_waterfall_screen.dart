@@ -25,11 +25,20 @@ import '../widgets/wallet_picker.dart';
 
 /// Walks the user through new income: what came in, which bills to pay from
 /// it, and what is left. Returns true when the income was saved.
-Future<bool> showIncomeWaterfall(BuildContext context, {String? walletId}) {
+Future<bool> showIncomeWaterfall(
+  BuildContext context, {
+  String? walletId,
+  double? initialAmount,
+  String? initialSource,
+}) {
   return Navigator.push<bool>(
     context,
     MaterialPageRoute(
-      builder: (context) => IncomeWaterfallScreen(initialWalletId: walletId),
+      builder: (context) => IncomeWaterfallScreen(
+        initialWalletId: walletId,
+        initialAmount: initialAmount,
+        initialSource: initialSource,
+      ),
     ),
   ).then((saved) => saved ?? false);
 }
@@ -37,6 +46,8 @@ Future<bool> showIncomeWaterfall(BuildContext context, {String? walletId}) {
 class IncomeWaterfallScreen extends StatefulWidget {
   const IncomeWaterfallScreen({
     this.initialWalletId,
+    this.initialAmount,
+    this.initialSource,
     this.wallets,
     this.loadBills,
     this.goals,
@@ -48,6 +59,10 @@ class IncomeWaterfallScreen extends StatefulWidget {
 
   /// The wallet the income goes into, when opened from a particular wallet.
   final String? initialWalletId;
+
+  /// The amount and source recognized by Voice Entry, if any.
+  final double? initialAmount;
+  final String? initialSource;
 
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
@@ -133,6 +148,17 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         _otherSourceController.text = preferences.source;
       }
     }
+    if (widget.initialSource != null) {
+      _source = incomeSources.contains(widget.initialSource)
+          ? widget.initialSource
+          : otherIncomeSource;
+      if (_source == otherIncomeSource) {
+        _otherSourceController.text = widget.initialSource!;
+      }
+    }
+    if (widget.initialAmount != null) {
+      _amountController.text = formatAmountInput(widget.initialAmount!);
+    }
     _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
     _billsAmountController.addListener(_refresh);
@@ -190,9 +216,20 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       if (!mounted) return;
 
       setState(() {
-        _allocations = [for (final bill in bills) BillAllocation.full(bill)];
-        _leftAlone.addAll(bills.map((bill) => bill.id));
-        for (final bill in bills) {
+        final today = DateTime(_today.year, _today.month, _today.day);
+        final shownBills = bills.where((bill) {
+          final due = DateTime(
+            bill.dueDate.year,
+            bill.dueDate.month,
+            bill.dueDate.day,
+          );
+          return !due.isAfter(today.add(const Duration(days: 10)));
+        }).toList();
+        _allocations = [
+          for (final bill in shownBills) BillAllocation.full(bill),
+        ];
+        _leftAlone.addAll(shownBills.map((bill) => bill.id));
+        for (final bill in shownBills) {
           _billControllers[bill.id] = TextEditingController(
             text: formatAmountInput(bill.remaining),
           )..addListener(_refresh);
@@ -211,16 +248,20 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   bool get _salaryIncome => _resolvedSource.trim().toLowerCase() == 'salary';
 
   double get _billsAmount =>
-      double.tryParse(
-        _billsAmountController.text.trim().replaceAll(',', ''),
-      ) ??
+      double.tryParse(_billsAmountController.text.trim().replaceAll(',', '')) ??
       -1;
 
   List<BillAllocation> get _upcomingBills {
     final today = DateTime(_today.year, _today.month, _today.day);
-    return (_allocations ?? const <BillAllocation>[])
-        .where((bill) => !bill.instance.dueDate.isBefore(today))
-        .toList();
+    return (_allocations ?? const <BillAllocation>[]).where((bill) {
+      final dueDate = DateTime(
+        bill.instance.dueDate.year,
+        bill.instance.dueDate.month,
+        bill.instance.dueDate.day,
+      );
+      final daysUntilDue = dueDate.difference(today).inDays;
+      return daysUntilDue >= 0 && daysUntilDue <= 10;
+    }).toList();
   }
 
   double get _upcomingBillsTotal => _upcomingBills.fold<double>(
@@ -262,10 +303,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   AllocationPlan get _plan {
     final AllocationPlan withBills;
     if (_salaryIncome) {
-      withBills = AllocationPlan(
-        income: _income,
-        billsSetAside: _billsAmount,
-      );
+      withBills = AllocationPlan(income: _income, billsSetAside: _billsAmount);
     } else {
       final bills = <BillAllocation>[];
 
@@ -352,6 +390,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         ? 'Enter how much came in.'
         : _source == null
         ? 'Choose where the money came from.'
+        : _source == otherIncomeSource &&
+              _otherSourceController.text.trim().isEmpty
+        ? 'Tell us where the money came from.'
         : _selectedWalletId == null
         ? 'Add a wallet first, so the money has somewhere to go.'
         : null;
@@ -553,6 +594,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         if (_source == otherIncomeSource) ...[
           const SizedBox(height: 16),
           TextField(
+            key: const Key('other-income-source'),
             controller: _otherSourceController,
             textCapitalization: TextCapitalization.sentences,
             maxLength: 30,
@@ -560,7 +602,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               context,
               'Where did it come from?',
               hint: 'e.g. Sold my old phone',
-              helper: 'Optional. Blank just calls it Other.',
+              helper: 'Please specify the source.',
             ),
           ),
         ],
@@ -717,8 +759,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             children: [
               Text(
                 upcoming.isEmpty
-                    ? 'No upcoming bills in the next 31 days'
-                    : 'Bills due in the next 31 days',
+                    ? 'No bills due in the next 10 days'
+                    : 'Bills due in the next 10 days',
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontWeight: FontWeight.w600,
@@ -761,6 +803,39 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                   fontSize: 13,
                 ),
               ),
+              if (upcoming.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                for (final allocation in upcoming) ...[
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                allocation.instance.name,
+                                style: TextStyle(
+                                  color: colors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              BillStatusBadge(
+                                instance: allocation.instance,
+                                now: _today,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(formatPeso(allocation.instance.remaining)),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ],
           ),
         ),
@@ -1011,7 +1086,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                       ? 'The amount set aside for bills and goals is more '
                             'than this income. The difference will come out '
                             'of what was already in ${wallet?.name ?? 'the '
-                            'wallet'}.'
+                                    'wallet'}.'
                       : 'The bills you chose cost more than this income. The '
                             'difference will come out of what was already in '
                             '${wallet?.name ?? 'the wallet'}.',

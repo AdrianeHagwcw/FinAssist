@@ -162,6 +162,41 @@ class GoalService {
     commitFirestoreWrite(batch.commit(), 'add goal');
   }
 
+  /// Adds an onboarding goal to the caller's batch so all setup data is
+  /// committed together.
+  static void addGoalToBatch(
+    WriteBatch batch, {
+    required DocumentReference<Map<String, dynamic>> reference,
+    required String name,
+    required double targetAmount,
+    DateTime? targetDate,
+    required int priority,
+    GoalKind kind = GoalKind.regular,
+    ContributionFrequency frequency = ContributionFrequency.monthly,
+    double? planAmount,
+    String? walletId,
+    String? note,
+  }) {
+    batch.set(reference, {
+      'name': name.trim(),
+      'targetAmount': targetAmount,
+      'savedAmount': 0,
+      'targetDate': targetDate == null ? null : Timestamp.fromDate(targetDate),
+      'priority': priority,
+      'status': GoalStatus.active.name,
+      ..._planFields(
+        kind: kind,
+        frequency: frequency,
+        planAmount: planAmount,
+        walletId: walletId,
+        note: note,
+      ),
+      'startingSaved': 0,
+      'planStartedAt': Timestamp.fromDate(DateTime.now()),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   static Map<String, dynamic> _planFields({
     required GoalKind kind,
     required ContributionFrequency frequency,

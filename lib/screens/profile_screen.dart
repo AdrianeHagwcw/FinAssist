@@ -199,6 +199,66 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return currentUser?.email ?? 'No email available';
   }
 
+  Future<void> _editAccountInformation() async {
+    final user = currentUser;
+    if (user == null) return;
+
+    final message = await showDialog<String>(
+      context: context,
+      builder: (_) => _EditAccountInformationDialog(
+        initialName: user.displayName ?? '',
+        initialEmail: user.email ?? '',
+        onSave: (name, email) => _saveAccountInformation(user, name, email),
+      ),
+    );
+
+    if (message == null || !mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<String> _saveAccountInformation(
+    User user,
+    String name,
+    String email,
+  ) async {
+    var nameWasUpdated = false;
+    try {
+      if (name != (user.displayName ?? '').trim()) {
+        await user.updateDisplayName(name);
+        nameWasUpdated = true;
+      }
+
+      final emailChanged = email.toLowerCase() !=
+          (user.email ?? '').toLowerCase();
+      if (emailChanged) {
+        await user.verifyBeforeUpdateEmail(email);
+      }
+
+      if (emailChanged) {
+        return nameWasUpdated
+            ? 'Name updated. Check your new email address to finish changing it.'
+            : 'Check your new email address to finish changing it.';
+      }
+      return 'Account information updated.';
+    } on FirebaseAuthException catch (error) {
+      final detail = switch (error.code) {
+        'invalid-email' => 'Enter a valid email address.',
+        'email-already-in-use' => 'That email is already linked to an account.',
+        'requires-recent-login' =>
+          'For security, sign out and sign back in before changing your email.',
+        'network-request-failed' =>
+          'Could not connect. Check your connection and try again.',
+        _ => error.message ?? 'Could not update account information.',
+      };
+      return nameWasUpdated
+          ? 'Name updated, but the email was not changed. $detail'
+          : detail;
+    }
+  }
+
   // =========================================================
   // BUILD
   // =========================================================
@@ -360,6 +420,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           iconAsset: 'assets/icons/icons8-verified-96.png',
                           title: 'Account Status',
                           value: 'Active',
+                        ),
+
+                        const Divider(height: 1, indent: 65),
+
+                        ListTile(
+                          key: const Key('edit-account-information'),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 5,
+                          ),
+                          leading: Icon(
+                            Icons.edit_outlined,
+                            color: colors.primaryText,
+                          ),
+                          title: const Text(
+                            'Edit account information',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: Colors.grey,
+                          ),
+                          onTap: _editAccountInformation,
                         ),
                       ],
                     ),
@@ -663,4 +749,107 @@ class _ProfileScreenState extends State<ProfileScreen> {
       onTap: onTap,
     );
   }
+}
+
+class _EditAccountInformationDialog extends StatefulWidget {
+  const _EditAccountInformationDialog({
+    required this.initialName,
+    required this.initialEmail,
+    required this.onSave,
+  });
+
+  final String initialName;
+  final String initialEmail;
+  final Future<String> Function(String name, String email) onSave;
+
+  @override
+  State<_EditAccountInformationDialog> createState() =>
+      _EditAccountInformationDialogState();
+}
+
+class _EditAccountInformationDialogState
+    extends State<_EditAccountInformationDialog> {
+  late final _formKey = GlobalKey<FormState>();
+  late final _nameController = TextEditingController(text: widget.initialName);
+  late final _emailController = TextEditingController(
+    text: widget.initialEmail,
+  );
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+
+    final message = await widget.onSave(
+      _nameController.text.trim(),
+      _emailController.text.trim(),
+    );
+    if (!mounted) return;
+    Navigator.pop(context, message);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Edit account information'),
+    content: Form(
+      key: _formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextFormField(
+            key: const Key('account-name-field'),
+            controller: _nameController,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Full Name'),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? 'Enter your name.'
+                : null,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            key: const Key('account-email-field'),
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(labelText: 'Email'),
+            validator: (value) {
+              final email = value?.trim() ?? '';
+              if (email.isEmpty ||
+                  !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+                return 'Enter a valid email address.';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Changing your email sends a verification link to the new address.',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      ElevatedButton(
+        onPressed: _saving ? null : _save,
+        child: _saving
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text('Save'),
+      ),
+    ],
+  );
 }

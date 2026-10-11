@@ -2,24 +2,29 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../models/expense_guess.dart';
+import '../models/voice_command.dart';
 import '../models/wallet.dart';
 import '../services/speech_input.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/category_options.dart';
+import '../utils/money_format.dart';
 import '../widgets/found_details.dart';
 import 'add_expense_screen.dart';
+import 'income_waterfall_screen.dart';
 
-/// Voice Entry: say an expense, check the words and what was found in them,
-/// then carry them into a new expense. Nothing is saved here; the expense
-/// form is where the user checks everything and saves.
+/// Voice Entry: recognize a finance command, check what was heard, then open
+/// the matching app flow. Nothing is saved here; the destination form is where
+/// the user checks everything and saves.
 class VoiceRecognitionScreen extends StatefulWidget {
   const VoiceRecognitionScreen({
     this.autoStart = false,
     this.input,
     this.wallets,
+    this.onNavigate,
+    this.onIncomeSaved,
+    this.incomeScreenBuilder,
     super.key,
   });
 
@@ -31,6 +36,19 @@ class VoiceRecognitionScreen extends StatefulWidget {
 
   /// Replaces the live wallet list on the expense form. Used by tests.
   final Stream<List<Wallet>>? wallets;
+
+  /// Lets the app shell switch tabs or open another section.
+  final ValueChanged<VoiceDestination>? onNavigate;
+
+  /// Refreshes the home balance after voice-started income is saved.
+  final VoidCallback? onIncomeSaved;
+
+  /// Replaces the income destination in tests without Firebase.
+  final IncomeWaterfallScreen Function({
+    double? initialAmount,
+    String? initialSource,
+  })?
+  incomeScreenBuilder;
 
   @override
   State<VoiceRecognitionScreen> createState() => _VoiceRecognitionScreenState();
@@ -172,34 +190,77 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
     });
   }
 
-  /// What was said, turned into the amount, category and description,
-  /// suggesting only from [categories].
-  ExpenseGuess _guess(List<String> categories) =>
-      guessFromSpeech(_words, categories: categories);
+  VoiceCommand _command(Iterable<String> categories) =>
+      interpretVoiceCommand(_words, categories: categories);
 
-  /// Opens a new expense started from what was said. Voice entry is finished,
-  /// so saving or leaving the form goes back to where it began.
-  void _useWords() {
-    final guess = _guess(availableCategoriesOf(context));
+  void _cancelCommand() {
+    setState(() {
+      _words = '';
+      _step = _Step.ready;
+      _problem = null;
+    });
+  }
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AddExpenseScreen(
-          initialAmount: guess.amount,
-          initialCategory: guess.category,
-          initialDescription: guess.description,
-          wallets: widget.wallets,
-        ),
-      ),
-    );
+  /// Sends the recognized command to its existing app flow. Data-entry flows
+  /// still require the user to check and save their details.
+  Future<void> _useWords() async {
+    final command = _command(availableCategoriesOf(context));
+    switch (command.type) {
+      case VoiceCommandType.expense:
+        final guess = command.expense;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AddExpenseScreen(
+              initialAmount: guess.amount,
+              initialCategory: guess.category,
+              initialDescription: guess.description,
+              wallets: widget.wallets,
+            ),
+          ),
+        );
+        return;
+      case VoiceCommandType.income:
+        final saved = await Navigator.pushReplacement<bool, void>(
+          context,
+          MaterialPageRoute(
+            builder: (context) =>
+                widget.incomeScreenBuilder?.call(
+                  initialAmount: command.amount,
+                  initialSource: command.incomeSource,
+                ) ??
+                IncomeWaterfallScreen(
+                  initialAmount: command.amount,
+                  initialSource: command.incomeSource,
+                ),
+          ),
+        );
+        if (saved == true && mounted) widget.onIncomeSaved?.call();
+        return;
+      case VoiceCommandType.navigation:
+        final destination = command.destination;
+        final onNavigate = widget.onNavigate;
+        if (destination == null || onNavigate == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('This section is not available here.'),
+            ),
+          );
+          return;
+        }
+        Navigator.pop(context);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onNavigate(destination);
+        });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final listening = _step == _Step.listening;
-    final (title, message) = _texts();
+    final command = _command(categoryOptions(context));
+    final (title, message) = _texts(command);
 
     return Scaffold(
       appBar: AppBar(
@@ -238,10 +299,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
                         if (_step == _Step.heard) ...[
                           _WordsCard(words: _words),
                           const SizedBox(height: 16),
-                          FoundDetails(
-                            guess: _guess(categoryOptions(context)),
-                            center: true,
-                          ),
+                          _commandDetails(command),
                         ] else ...[
                           _MicButton(
                             listening: listening,
@@ -272,10 +330,20 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _listen,
+                        onPressed: command.type == VoiceCommandType.navigation
+                            ? _cancelCommand
+                            : _listen,
                         style: openOutlineStyle(context, height: 52),
-                        icon: const Icon(Icons.mic_none),
-                        label: const Text('Try Again'),
+                        icon: Icon(
+                          command.type == VoiceCommandType.navigation
+                              ? Icons.close
+                              : Icons.mic_none,
+                        ),
+                        label: Text(
+                          command.type == VoiceCommandType.navigation
+                              ? 'No, cancel'
+                              : 'Try Again',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -283,8 +351,15 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
                       child: ElevatedButton.icon(
                         onPressed: _useWords,
                         style: openButtonStyle(),
-                        icon: const Icon(Icons.edit_note),
-                        label: const Text('Use This'),
+                        icon: Icon(
+                          command.type == VoiceCommandType.navigation
+                              ? command.destination ==
+                                        VoiceDestination.scanReceipt
+                                    ? Icons.document_scanner_outlined
+                                    : Icons.open_in_new
+                              : Icons.edit_note,
+                        ),
+                        label: Text(_actionLabel(command)),
                       ),
                     ),
                   ],
@@ -297,12 +372,65 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
     );
   }
 
-  (String, String) _texts() {
+  Widget _commandDetails(VoiceCommand command) {
+    switch (command.type) {
+      case VoiceCommandType.expense:
+        return FoundDetails(guess: command.expense, center: true);
+      case VoiceCommandType.income:
+        return _CommandDetails(
+          title: 'Ready to add income',
+          detail: [
+            if (command.amount != null) formatPeso(command.amount!),
+            command.incomeSource ?? 'Income',
+          ].join(' · '),
+        );
+      case VoiceCommandType.navigation:
+        return _CommandDetails(
+          title: command.destination == VoiceDestination.scanReceipt
+              ? 'Would you like to scan a receipt?'
+              : 'Would you like to open this section?',
+          detail: _destinationLabel(command.destination),
+        );
+    }
+  }
+
+  String _actionLabel(VoiceCommand command) => switch (command.type) {
+    VoiceCommandType.expense => 'Use This',
+    VoiceCommandType.income => 'Continue',
+    VoiceCommandType.navigation =>
+      command.destination == VoiceDestination.scanReceipt
+          ? 'Yes, Scan Receipt'
+          : 'Yes, Open',
+  };
+
+  String _destinationLabel(VoiceDestination? destination) =>
+      switch (destination) {
+        VoiceDestination.home => 'Home',
+        VoiceDestination.transactions => 'Transactions',
+        VoiceDestination.bills => 'Bill Planner',
+        VoiceDestination.wallet => 'Wallets',
+        VoiceDestination.savings => 'Savings',
+        VoiceDestination.debts => 'Debts',
+        VoiceDestination.goals => 'Goals',
+        VoiceDestination.reports => 'Reports',
+        VoiceDestination.settings => 'Settings',
+        VoiceDestination.scanReceipt => 'Scan Receipt',
+        VoiceDestination.assistant => 'AI Assistant',
+        VoiceDestination.expenseCategories => 'Expense Categories',
+        VoiceDestination.financialPreferences =>
+          'Income & Leftover Preferences',
+        VoiceDestination.payCycleHistory => 'Pay-cycle History',
+        VoiceDestination.reminders => 'Reminders',
+        VoiceDestination.help => 'Help & Support',
+        null => 'the selected section',
+      };
+
+  (String, String) _texts(VoiceCommand command) {
     return switch (_step) {
       _Step.ready => (
-        'Say what you spent',
+        'Say what you want to do',
         'Hold the mic and speak, then let go. You check the words before '
-            'anything is saved.',
+            'anything is saved or a section is opened.',
       ),
       _Step.listening => (
         'Listening…',
@@ -312,8 +440,19 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
       ),
       _Step.heard => (
         'Is this right?',
-        'Use This starts a new expense from what you said. You check '
-            'everything before saving.',
+        switch (command.type) {
+          VoiceCommandType.expense =>
+            'Use This starts a new expense from what you said. You check '
+                'everything before saving.',
+          VoiceCommandType.income =>
+            'Continue opens Add Income with these details filled in. Check '
+                'everything before saving.',
+          VoiceCommandType.navigation =>
+            command.destination == VoiceDestination.scanReceipt
+                ? 'Choose Yes to open the scanner, or No to cancel.'
+                : 'Choose Yes to open ${_destinationLabel(command.destination)}, '
+                      'or No to cancel.',
+        },
       ),
       _Step.nothingHeard => (
         "Didn't catch that",
@@ -478,13 +617,54 @@ class _Example extends StatelessWidget {
           style: TextStyle(fontSize: 13, color: colors.textBody),
         ),
         const SizedBox(height: 6),
-        Text(
+        for (final example in [
           '“Lunch at Jollibee, 150 pesos”',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 17,
-            fontStyle: FontStyle.italic,
-            color: colors.textPrimary,
+          '“Add salary 500”',
+          '“Open wallets”',
+          '“Scan receipt”',
+        ])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              example,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontStyle: FontStyle.italic,
+                color: colors.textPrimary,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CommandDetails extends StatelessWidget {
+  const _CommandDetails({required this.title, required this.detail});
+
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Column(
+      children: [
+        Text(title, style: TextStyle(fontSize: 12, color: colors.textBody)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: colors.primaryTint,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            detail,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: colors.primaryText,
+            ),
           ),
         ),
       ],

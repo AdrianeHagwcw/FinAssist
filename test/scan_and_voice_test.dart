@@ -9,8 +9,10 @@ import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as speech;
 
 import 'package:testapp/main.dart';
+import 'package:testapp/models/voice_command.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
 import 'package:testapp/screens/add_expense_screen.dart';
+import 'package:testapp/screens/income_waterfall_screen.dart';
 import 'package:testapp/screens/ocr_screen.dart';
 import 'package:testapp/screens/voice_recognition_screen.dart';
 import 'package:testapp/services/receipt_reader.dart';
@@ -585,14 +587,42 @@ void main() {
   });
 
   group('Voice Entry', () {
+    test('recognizes navigation commands for the available app sections', () {
+      const commands = <(String, VoiceDestination)>[
+        ('go home', VoiceDestination.home),
+        ('open transaction history', VoiceDestination.transactions),
+        ('open bill planner', VoiceDestination.bills),
+        ('open wallets', VoiceDestination.wallet),
+        ('open savings', VoiceDestination.savings),
+        ('open debts', VoiceDestination.debts),
+        ('open goals', VoiceDestination.goals),
+        ('open reports', VoiceDestination.reports),
+        ('open settings', VoiceDestination.settings),
+        ('scan receipt', VoiceDestination.scanReceipt),
+        ('open AI assistant', VoiceDestination.assistant),
+        ('manage expense categories', VoiceDestination.expenseCategories),
+        ('open financial preferences', VoiceDestination.financialPreferences),
+        ('open pay cycle history', VoiceDestination.payCycleHistory),
+        ('open reminders', VoiceDestination.reminders),
+        ('open help and support', VoiceDestination.help),
+      ];
+
+      for (final (words, destination) in commands) {
+        final command = interpretVoiceCommand(words, categories: const []);
+        expect(command.type, VoiceCommandType.navigation, reason: words);
+        expect(command.destination, destination, reason: words);
+      }
+    });
+
     testWidgets('waits with an example and a labelled mic', (tester) async {
       final handle = tester.ensureSemantics();
       final speech = FakeSpeech();
       await pumpScreen(tester, VoiceRecognitionScreen(input: speech));
 
       expect(find.text('Voice Entry'), findsOneWidget);
-      expect(find.text('Say what you spent'), findsOneWidget);
+      expect(find.text('Say what you want to do'), findsOneWidget);
       expect(find.text('“Lunch at Jollibee, 150 pesos”'), findsOneWidget);
+      expect(find.text('“Add salary 500”'), findsOneWidget);
       expect(find.byTooltip('Hold to speak'), findsOneWidget);
       expect(speech.starts, 0);
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
@@ -634,6 +664,127 @@ void main() {
         'Lunch at jollibee',
       );
       expect(fieldText(tester, '0.00'), '', reason: 'the user adds it');
+    });
+
+    testWidgets('salary command opens Add Income with its details prefilled', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          wallets: Stream.value(const []),
+          incomeScreenBuilder:
+              ({
+                double? initialAmount,
+                String? initialSource,
+              }) => IncomeWaterfallScreen(
+                initialAmount: initialAmount,
+                initialSource: initialSource,
+                wallets: Stream.value(const []),
+                loadBills: () async => const [],
+                goals: Stream.value(const []),
+                cycles: Stream.value(const []),
+              ),
+        ),
+      );
+      await tester.pump();
+      speech.hear!('add salary 500');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('₱500 · Salary'), findsOneWidget);
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(IncomeWaterfallScreen), findsOneWidget);
+      final amountField = tester.widget<TextField>(
+        find.byType(TextField).first,
+      );
+      expect(amountField.controller!.text, '500');
+      expect(find.text('Salary'), findsOneWidget);
+    });
+
+    testWidgets('navigation command opens the requested app section', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      VoiceDestination? destination;
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          onNavigate: (value) => destination = value,
+        ),
+      );
+      await tester.pump();
+      speech.hear!('open wallets');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Wallets'), findsOneWidget);
+      await tester.tap(find.text('Yes, Open'));
+      await tester.pumpAndSettle();
+      expect(destination, VoiceDestination.wallet);
+    });
+
+    testWidgets('asks before opening Scan Receipt and supports cancelling', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      VoiceDestination? destination;
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          onNavigate: (value) => destination = value,
+        ),
+      );
+      await tester.pump();
+      speech.hear!('scan receipt');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Would you like to scan a receipt?'), findsOneWidget);
+      expect(find.text('Yes, Scan Receipt'), findsOneWidget);
+      expect(destination, isNull);
+
+      await tester.tap(find.text('No, cancel'));
+      await tester.pumpAndSettle();
+      expect(destination, isNull);
+      expect(find.text('Say what you want to do'), findsOneWidget);
+    });
+
+    testWidgets('opens Scan Receipt only after the user confirms', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      VoiceDestination? destination;
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          onNavigate: (value) => destination = value,
+        ),
+      );
+      await tester.pump();
+      speech.hear!('please scan a receipt');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(destination, isNull);
+      await tester.tap(find.text('Yes, Scan Receipt'));
+      await tester.pumpAndSettle();
+      expect(destination, VoiceDestination.scanReceipt);
     });
 
     testWidgets('an amount said out loud fills the amount and category', (
@@ -826,10 +977,7 @@ void main() {
       await tester.pump();
 
       expect(find.text("Voice entry isn't available"), findsOneWidget);
-      expect(
-        find.textContaining('Speech Services by Google'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Speech Services by Google'), findsOneWidget);
       expect(find.textContaining('error'), findsNothing, reason: 'no codes');
     });
 
@@ -1023,10 +1171,7 @@ void main() {
         problemFor('error_language_unavailable'),
         SpeechProblem.unavailable,
       );
-      expect(
-        problemFor('error_too_many_requests'),
-        SpeechProblem.unavailable,
-      );
+      expect(problemFor('error_too_many_requests'), SpeechProblem.unavailable);
       expect(problemFor('error_busy'), SpeechProblem.failed);
     });
   });
@@ -1077,7 +1222,7 @@ void main() {
       );
     });
 
-    testWidgets('never when editing an expense that already has one', (
+    testWidgets('an existing expense is shown read-only', (
       tester,
     ) async {
       await pumpScreen(
@@ -1090,7 +1235,11 @@ void main() {
           initialDescription: 'Shirt',
         ),
       );
-      await type(tester, 'Jollibee');
+      expect(find.text('Expense details'), findsOneWidget);
+      expect(find.text('Recorded expenses are read-only.'), findsOneWidget);
+      expect(find.text('Expense is read-only'), findsOneWidget);
+      expect(fieldText(tester, 'What did you spend money on?'), 'Shirt');
+      expect(fieldText(tester, '0.00'), '99');
       expect(find.text('Shopping'), findsOneWidget);
       expect(find.text('Food'), findsNothing);
     });

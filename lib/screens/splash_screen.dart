@@ -10,17 +10,21 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
 import 'financial_setup_screen.dart';
+import 'email_verification_screen.dart';
 import 'login_screen.dart';
 import 'main_shell.dart';
 
 /// Where the app should go after checking for a saved session.
-enum StartDestination { signedOut, setup, home }
+enum StartDestination { signedOut, verifyEmail, setup, home }
 
 /// Checks for a signed-in user and whether they finished financial setup.
 Future<StartDestination> resolveStartDestination() async {
   final user = await FirebaseAuth.instance.authStateChanges().first;
 
   if (user == null) return StartDestination.signedOut;
+  await user.reload();
+  final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
+  if (!refreshedUser.emailVerified) return StartDestination.verifyEmail;
 
   final setupCompleted = await UserProfileService.isSetupCompleted();
   return setupCompleted ? StartDestination.home : StartDestination.setup;
@@ -103,6 +107,10 @@ class _SplashScreenState extends State<SplashScreen> {
     return switch (_destination) {
       null => const _Loading(),
       StartDestination.signedOut => const LoginScreen(),
+      StartDestination.verifyEmail => EmailVerificationScreen(
+        email: FirebaseAuth.instance.currentUser?.email,
+        user: FirebaseAuth.instance.currentUser,
+      ),
       StartDestination.setup => const FinancialSetupScreen(),
       StartDestination.home => const MainShell(),
     };

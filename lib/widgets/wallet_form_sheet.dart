@@ -5,6 +5,42 @@ import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_theme.dart';
 
+const _philippineBanks = [
+  'Asia United Bank (AUB)',
+  'BDO Unibank',
+  'Bank of Commerce',
+  'Bank of the Philippine Islands (BPI)',
+  'China Banking Corporation (China Bank)',
+  'China Bank Savings',
+  'Development Bank of the Philippines (DBP)',
+  'EastWest Bank',
+  'GoTyme Bank',
+  'HSBC Philippines',
+  'Land Bank of the Philippines',
+  'Maybank Philippines',
+  'Metrobank',
+  'Maya Bank',
+  'Philippine Bank of Communications (PBCOM)',
+  'Philippine National Bank (PNB)',
+  'Philippine Savings Bank (PSBank)',
+  'Philippine Trust Company (Philtrust)',
+  'Philippine Veterans Bank',
+  'Rizal Commercial Banking Corporation (RCBC)',
+  'Security Bank',
+  'Standard Chartered Bank Philippines',
+  'Sterling Bank of Asia',
+  'UnionBank of the Philippines',
+  'CIMB Bank Philippines',
+  'Netbank',
+  'Overseas Filipino Bank',
+  'SeaBank Philippines',
+  'Tonik Digital Bank',
+  'UNO Digital Bank',
+  'UnionDigital Bank',
+  'OwnBank',
+  'Other bank',
+];
+
 /// Asks for a wallet's type, name and starting balance.
 ///
 /// Returns the wallet the user described, or null if they backed out. Used
@@ -17,6 +53,7 @@ import '../theme/app_theme.dart';
 Future<WalletDraft?> showWalletFormSheet(
   BuildContext context, {
   Wallet? existing,
+  bool balanceOptional = false,
 }) {
   return showModalBottomSheet<WalletDraft>(
     context: context,
@@ -26,15 +63,23 @@ Future<WalletDraft?> showWalletFormSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) => WalletFormSheet(existing: existing),
+    builder: (context) => WalletFormSheet(
+      existing: existing,
+      balanceOptional: balanceOptional,
+    ),
   );
 }
 
 class WalletFormSheet extends StatefulWidget {
-  const WalletFormSheet({this.existing, super.key});
+  const WalletFormSheet({
+    this.existing,
+    this.balanceOptional = false,
+    super.key,
+  });
 
   /// The wallet being edited, or null when adding a new one.
   final Wallet? existing;
+  final bool balanceOptional;
 
   @override
   State<WalletFormSheet> createState() => _WalletFormSheetState();
@@ -47,6 +92,11 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
   );
   final _balanceController = TextEditingController();
   late WalletType _type = widget.existing?.type ?? WalletType.cash;
+  late String? _selectedBank = _type == WalletType.bank
+      ? _philippineBanks.contains(widget.existing?.name)
+            ? widget.existing!.name
+            : 'Other bank'
+      : null;
 
   bool get _isEditing => widget.existing != null;
 
@@ -61,14 +111,24 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
     if (!_formKey.currentState!.validate()) return;
 
     final name = _nameController.text.trim();
+    final walletName = _type == WalletType.bank
+        ? _selectedBank == 'Other bank'
+              ? name
+              : _selectedBank!
+        : name.isEmpty
+        ? _type.label
+        : name;
     Navigator.pop(
       context,
       WalletDraft(
         type: _type,
-        name: name.isEmpty ? _type.label : name,
+        name: walletName.isEmpty ? _type.label : walletName,
         startingBalance: _isEditing
             ? widget.existing!.balance
-            : double.parse(_balanceController.text.trim().replaceAll(',', '')),
+            : double.tryParse(
+                    _balanceController.text.trim().replaceAll(',', ''),
+                  ) ??
+                  0,
         receivesIncome: widget.existing?.receivesIncome ?? false,
       ),
     );
@@ -136,28 +196,81 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
                               ? FontWeight.bold
                               : FontWeight.normal,
                         ),
-                        onSelected: (_) => setState(() => _type = type),
+                        onSelected: (_) {
+                          if (type == WalletType.bank) {
+                            FocusScope.of(context).unfocus();
+                          }
+                          setState(() => _type = type);
+                        },
                       ),
                   ],
                 ),
                 const SizedBox(height: 20),
-                const Text(
-                  'Name (optional)',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _nameController,
-                  autofocus: _isEditing,
-                  textCapitalization: TextCapitalization.words,
-                  maxLength: 30,
-                  decoration: InputDecoration(
-                    hintText: 'e.g. ${_type.label} or "BPI Savings"',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+                if (_type == WalletType.bank) ...[
+                  const Text(
+                    'Bank',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    key: const Key('wallet-bank-dropdown'),
+                    initialValue: _selectedBank,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      hintText: 'Select a bank',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    items: [
+                      for (final bank in _philippineBanks)
+                        DropdownMenuItem(value: bank, child: Text(bank)),
+                    ],
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Please select a bank.'
+                        : null,
+                    onChanged: (value) => setState(() => _selectedBank = value),
+                  ),
+                  if (_selectedBank == 'Other bank') ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('wallet-other-bank-name'),
+                      controller: _nameController,
+                      autofocus: !_isEditing,
+                      textCapitalization: TextCapitalization.words,
+                      maxLength: 30,
+                      decoration: InputDecoration(
+                        labelText: 'Bank name',
+                        hintText: 'Enter your bank name',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                          ? 'Enter the bank name.'
+                          : null,
+                    ),
+                  ],
+                ] else ...[
+                  const Text(
+                    'Name (optional)',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _nameController,
+                    autofocus: _isEditing,
+                    textCapitalization: TextCapitalization.words,
+                    maxLength: 30,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. ${_type.label}',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 8),
                 if (!_isEditing) ...[
                   const Text(
@@ -174,14 +287,18 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
                     decoration: InputDecoration(
                       hintText: '0.00',
                       prefixText: '₱ ',
-                      helperText: 'Enter 0 if this wallet is empty.',
+                      helperText: widget.balanceOptional
+                          ? 'Optional. Leave blank if you do not know it yet.'
+                          : 'Enter 0 if this wallet is empty.',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                     validator: (value) {
+                      final text = (value ?? '').trim();
+                      if (text.isEmpty && widget.balanceOptional) return null;
                       final amount = double.tryParse(
-                        (value ?? '').trim().replaceAll(',', ''),
+                        text.replaceAll(',', ''),
                       );
                       return amount == null || amount < 0
                           ? 'Enter the balance, or 0 if empty.'

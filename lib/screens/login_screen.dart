@@ -25,7 +25,9 @@ class _SocialSignInException implements Exception {
 }
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.initialEmail});
+
+  final String? initialEmail;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -46,6 +48,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController.text = widget.initialEmail ?? '';
+  }
 
   // =========================================================
   // EMAIL / PASSWORD LOGIN
@@ -87,21 +95,10 @@ class _LoginScreenState extends State<LoginScreen> {
       // FIREBASE LOGIN
       // -------------------------------------------------------
 
-      final userCredential = await FirebaseAuth.instance
-          .signInWithEmailAndPassword(email: email, password: password);
-
-      final currentUser = userCredential.user;
-      if (currentUser != null && !currentUser.emailVerified) {
-        await FirebaseAuth.instance.signOut();
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => EmailVerificationScreen(email: email),
-          ),
-        );
-        return;
-      }
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
 
       // -------------------------------------------------------
       // LOGIN SUCCESSFUL
@@ -223,6 +220,26 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _navigateAfterAuthentication() async {
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await user.reload();
+        final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
+        if (!refreshedUser.emailVerified) {
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  EmailVerificationScreen(
+                    email: refreshedUser.email,
+                    user: refreshedUser,
+                  ),
+            ),
+          );
+          return;
+        }
+      }
+
       final setupCompleted = await UserProfileService.isSetupCompleted();
 
       if (!mounted) return;

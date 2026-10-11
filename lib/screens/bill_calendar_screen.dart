@@ -173,9 +173,7 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
               ),
             ),
           ),
-          Expanded(
-            child: _showDebts ? const DebtsView() : _buildBills(),
-          ),
+          Expanded(child: _showDebts ? const DebtsView() : _buildBills()),
         ],
       ),
       floatingActionButton: _showDebts
@@ -191,56 +189,56 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
   }
 
   Widget _buildBills() => StreamBuilder<List<Bill>>(
-        stream: _bills,
-        builder: (context, billsSnapshot) {
-          final bills = billsSnapshot.data ?? const <Bill>[];
-          _fillMonth(bills);
+    stream: _bills,
+    builder: (context, billsSnapshot) {
+      final bills = billsSnapshot.data ?? const <Bill>[];
+      _fillMonth(bills);
 
-          return StreamBuilder<List<BillInstance>>(
-            stream: _instances(_month.year, _month.month),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return const _BillsError();
-              }
+      return StreamBuilder<List<BillInstance>>(
+        stream: _instances(_month.year, _month.month),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const _BillsError();
+          }
 
-              final instances = snapshot.data ?? const <BillInstance>[];
+          final instances = snapshot.data ?? const <BillInstance>[];
 
-              if (bills.isEmpty && instances.isEmpty) {
-                return const EmptyStateView(
-                  iconAsset: 'assets/icons/icons8-calendar-96.png',
-                  title: 'No bills yet',
-                  message:
-                      'Add the things you pay on a schedule — rent, tuition, '
-                      'load — and they will show up here on their due dates.',
-                );
-              }
+          if (bills.isEmpty && instances.isEmpty) {
+            return const EmptyStateView(
+              iconAsset: 'assets/icons/icons8-calendar-96.png',
+              title: 'No bills yet',
+              message:
+                  'Add the things you pay on a schedule — rent, tuition, '
+                  'load — and they will show up here on their due dates.',
+            );
+          }
 
-              return Column(
-                children: [
-                  _MonthHeader(
-                    month: _month,
-                    onPrevious: () => _changeMonth(-1),
-                    onNext: () => _changeMonth(1),
-                  ),
-                  _MonthSummary(instances: instances, today: _today),
-                  Expanded(
-                    child: _showAsList
-                        ? _BillList(instances: instances, today: _today)
-                        : _CalendarAndDay(
-                            month: _month,
-                            today: _today,
-                            selectedDay: _selectedDay,
-                            instances: instances,
-                            onSelectDay: (day) =>
-                                setState(() => _selectedDay = day),
-                          ),
-                  ),
-                ],
-              );
-            },
+          return Column(
+            children: [
+              _MonthHeader(
+                month: _month,
+                onPrevious: () => _changeMonth(-1),
+                onNext: () => _changeMonth(1),
+              ),
+              _MonthSummary(instances: instances, today: _today),
+              Expanded(
+                child: _showAsList
+                    ? _BillList(instances: instances, today: _today)
+                    : _CalendarAndDay(
+                        month: _month,
+                        today: _today,
+                        selectedDay: _selectedDay,
+                        instances: instances,
+                        onSelectDay: (day) =>
+                            setState(() => _selectedDay = day),
+                      ),
+              ),
+            ],
           );
         },
       );
+    },
+  );
 }
 
 class _MonthHeader extends StatelessWidget {
@@ -488,6 +486,8 @@ class _MonthGrid extends StatelessWidget {
   static int _rank(BillUrgency urgency) {
     switch (urgency) {
       case BillUrgency.overdue:
+        return 5;
+      case BillUrgency.dueToday:
         return 4;
       case BillUrgency.dueSoon:
         return 3;

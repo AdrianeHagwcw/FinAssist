@@ -1,3 +1,5 @@
+import 'bill.dart';
+import 'goal.dart';
 import 'wallet.dart';
 
 /// What the user can rank as most important during onboarding.
@@ -20,13 +22,12 @@ class OnboardingData {
     required this.incomeSource,
     required this.incomeFrequency,
     this.lastPaydayAt,
-    required this.income,
-    required this.dailyBudget,
+    required this.monthlyIncome,
     required this.priorities,
     required this.wallets,
-    this.plannedBills = 0,
-    this.plannedSavings = 0,
-    this.plannedOthers = 0,
+    this.bills = const [],
+    this.savingsAccounts = const [],
+    this.goals = const [],
   });
 
   final String name;
@@ -38,19 +39,83 @@ class OnboardingData {
   /// period, so the days left are right from the moment setup is finished.
   final DateTime? lastPaydayAt;
 
-  /// Usual income per pay period. For irregular income this is an optional
-  /// rough monthly estimate, and null when the user left it blank.
-  final double? income;
+  /// Monthly income. For irregular income this is an optional rough estimate,
+  /// and null when the user left it blank.
+  final double? monthlyIncome;
 
-  /// Optional daily spending limit; null when the user skipped it.
-  final double? dailyBudget;
+  /// The profile's legacy `income` value represents one payment, not a month.
+  double? get incomePerPayPeriod {
+    final amount = monthlyIncome;
+    if (amount == null) return null;
+
+    final paymentsPerMonth = switch (incomeFrequency) {
+      'Weekly' => 52 / 12,
+      'Bi-weekly' => 26 / 12,
+      'Semi-monthly' => 2,
+      _ => 1,
+    };
+    return amount / paymentsPerMonth;
+  }
 
   /// Most important first.
   final List<FinancialPriority> priorities;
   final List<WalletDraft> wallets;
 
-  /// Per-pay amounts the user plans to direct toward each category.
-  final double plannedBills;
-  final double plannedSavings;
-  final double plannedOthers;
+  /// Bills the user wants to track from the start of the account.
+  final List<OnboardingBill> bills;
+
+  /// Savings wallets created during account setup.
+  final List<OnboardingSavingsAccount> savingsAccounts;
+
+  /// Goals to create with the account.
+  final List<OnboardingGoal> goals;
+}
+
+/// A bill schedule collected during account setup and saved with the profile.
+class OnboardingBill {
+  const OnboardingBill({
+    required this.name,
+    required this.amount,
+    required this.category,
+    required this.firstDueDate,
+    required this.recurrence,
+  });
+
+  final String name;
+  final double amount;
+  final String category;
+  final DateTime firstDueDate;
+  final BillRecurrence recurrence;
+}
+
+class OnboardingSavingsAccount {
+  const OnboardingSavingsAccount({
+    required this.name,
+    required this.kind,
+    required this.balance,
+  });
+
+  final String name;
+  final GoalKind kind;
+  final double balance;
+}
+
+class OnboardingGoal {
+  const OnboardingGoal({
+    required this.name,
+    required this.kind,
+    required this.targetAmount,
+    required this.targetDate,
+    required this.frequency,
+    required this.planAmount,
+    required this.note,
+  });
+
+  final String name;
+  final GoalKind kind;
+  final double targetAmount;
+  final DateTime? targetDate;
+  final ContributionFrequency frequency;
+  final double? planAmount;
+  final String? note;
 }

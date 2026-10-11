@@ -214,6 +214,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   // =========================================================
 
   Future<void> _saveExpense() async {
+    if (_isEditMode) {
+      _showError('Recorded expenses cannot be edited.');
+      return;
+    }
+
     // ---------------------------------------------------------
     // AMOUNT
     // ---------------------------------------------------------
@@ -419,7 +424,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         centerTitle: true,
 
         title: Text(
-          _isEditMode ? 'Edit Expense' : 'Add Expense',
+          _isEditMode ? 'Expense details' : 'Add Expense',
 
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
@@ -435,6 +440,18 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
 
           children: [
+            if (_isEditMode) ...[
+              const Text(
+                'Recorded expenses are read-only.',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+            ],
+            AbsorbPointer(
+              absorbing: _isEditMode,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             // =================================================
             // AMOUNT: the number the user came to type, as large
             // as on Add Income
@@ -594,6 +611,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             ),
 
             const SizedBox(height: 30),
+                ],
+              ),
+            ),
 
             // =================================================
             // SAVE / UPDATE BUTTON
@@ -603,7 +623,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               height: 55,
 
               child: ElevatedButton(
-                onPressed: _isSaving ? null : _saveExpense,
+                onPressed: _isSaving || _isEditMode ? null : _saveExpense,
 
                 style: confirmButtonStyle(height: 55),
 
@@ -618,7 +638,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                         ),
                       )
                     : Text(
-                        _isEditMode ? 'Update Expense' : 'Save Expense',
+                        _isEditMode ? 'Expense is read-only' : 'Save Expense',
 
                         style: const TextStyle(
                           fontSize: 16,

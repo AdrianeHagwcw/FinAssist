@@ -9,9 +9,14 @@ import '../widgets/app_logo.dart';
 import 'login_screen.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
-  const EmailVerificationScreen({super.key, this.email});
+  const EmailVerificationScreen({
+    super.key,
+    this.email,
+    this.user,
+  });
 
   final String? email;
+  final User? user;
 
   @override
   State<EmailVerificationScreen> createState() =>
@@ -20,20 +25,21 @@ class EmailVerificationScreen extends StatefulWidget {
 
 class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
 
-  bool _obscurePassword = true;
   bool _isLoading = false;
   bool _hasSentVerificationEmail = false;
+  String? _sendError;
   int _cooldownSeconds = 0;
   Timer? _cooldownTimer;
 
   @override
   void initState() {
     super.initState();
-    if (widget.email != null && widget.email!.trim().isNotEmpty) {
-      _emailController.text = widget.email!;
-    }
+    _emailController.text =
+        widget.user?.email ??
+        FirebaseAuth.instance.currentUser?.email ??
+        widget.email ??
+        '';
   }
 
   String _formatCooldown() {
@@ -62,39 +68,36 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     });
   }
 
+  Future<User?> _getSignedInUser() async {
+    final auth = FirebaseAuth.instance;
+    return widget.user ?? auth.currentUser ?? await auth.authStateChanges().first;
+  }
+
+  void _returnToLogin() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            LoginScreen(initialEmail: _emailController.text.trim()),
+      ),
+    );
+  }
+
   Future<void> _sendVerificationEmail() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
-    if (email.isEmpty) {
-      await _showMessage('Please enter your email address.');
+    final user = await _getSignedInUser();
+    if (user == null) {
+      if (mounted) _returnToLogin();
       return;
     }
 
-    if (password.isEmpty) {
-      await _showMessage(
-        'Please enter your password to send the verification email.',
-      );
-      return;
-    }
-
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
-      // Registration deliberately does not send an email automatically.
-      // This is the first send, so the first tap is not a duplicate request.
-      final userCredential = await FirebaseAuth.instance
-          .signInWithEmailAndPassword(email: email, password: password);
+      await user.reload();
+      final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
 
-      final user = userCredential.user;
-      if (user == null) {
-        throw FirebaseAuthException(
-          code: 'user-null',
-          message: 'Unable to resend the verification email right now.',
-        );
-      }
-
-      if (user.emailVerified) {
+      if (refreshedUser.emailVerified) {
         await FirebaseAuth.instance.signOut();
         if (!mounted) return;
         await _showMessage(
@@ -108,12 +111,14 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
         return;
       }
 
-      await user.sendEmailVerification();
+      await refreshedUser.sendEmailVerification();
       if (mounted) {
-        setState(() => _hasSentVerificationEmail = true);
+        setState(() {
+          _hasSentVerificationEmail = true;
+          _sendError = null;
+        });
       }
       _startCooldown();
-      await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
 
@@ -121,14 +126,11 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     } on FirebaseAuthException catch (e) {
       String message;
       switch (e.code) {
-        case 'user-not-found':
-          message = 'No account found with this email.';
+        case 'user-disabled':
+          message = 'This account has been disabled.';
           break;
-        case 'wrong-password':
-          message = 'Incorrect password.';
-          break;
-        case 'invalid-email':
-          message = 'Please enter a valid email address.';
+        case 'user-token-expired':
+          message = 'Your session expired. Please log in again.';
           break;
         case 'too-many-requests':
           if (mounted) {
@@ -142,10 +144,12 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
           message = e.message ?? 'Unable to resend the verification email.';
       }
       await _showMessage(message);
+      if (mounted) setState(() => _sendError = message);
     } catch (e) {
-      await _showMessage(
-        'Something went wrong while sending the verification email.',
-      );
+      const message =
+          'Something went wrong while sending the verification email.';
+      if (mounted) setState(() => _sendError = message);
+      await _showMessage(message);
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -154,42 +158,29 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   }
 
   Future<void> _checkVerification() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
-    if (email.isEmpty || password.isEmpty) {
-      await _showMessage('Enter your email and password first.');
+    final user = await _getSignedInUser();
+    if (user == null) {
+      if (mounted) _returnToLogin();
       return;
     }
 
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
-      final userCredential = await FirebaseAuth.instance
-          .signInWithEmailAndPassword(email: email, password: password);
-      final user = userCredential.user;
-
-      if (user == null) {
-        throw FirebaseAuthException(
-          code: 'user-null',
-          message: 'Unable to check your verification status right now.',
-        );
-      }
-
       await user.reload();
-      final refreshedUser = FirebaseAuth.instance.currentUser;
-      final isVerified = refreshedUser?.emailVerified ?? false;
-      await FirebaseAuth.instance.signOut();
+      final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
 
       if (!mounted) return;
 
-      if (!isVerified) {
+      if (!refreshedUser.emailVerified) {
         await _showMessage(
           'Your email is not verified yet. Open the Gmail message, then try again.',
         );
         return;
       }
 
+      await FirebaseAuth.instance.signOut();
       await _showMessage('Email verified. You can now log in.');
       if (!mounted) return;
       Navigator.pushReplacement(
@@ -197,19 +188,16 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
         MaterialPageRoute(builder: (context) => const LoginScreen()),
       );
     } on FirebaseAuthException catch (e) {
-      await FirebaseAuth.instance.signOut();
       if (!mounted) return;
 
       final message = switch (e.code) {
-        'user-not-found' => 'No account found with this email.',
-        'wrong-password' ||
-        'invalid-credential' => 'Incorrect email or password.',
-        'invalid-email' => 'Please enter a valid email address.',
+        'user-disabled' => 'This account has been disabled.',
+        'user-token-expired' ||
+        'requires-recent-login' => 'Please log in again to check verification.',
         _ => 'Unable to check your verification status right now.',
       };
       await _showMessage(message);
     } catch (_) {
-      await FirebaseAuth.instance.signOut();
       await _showMessage('Unable to check your verification status right now.');
     } finally {
       if (mounted) {
@@ -243,9 +231,11 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     );
   }
 
-  void _backToLogin() {
+  Future<void> _backToLogin() async {
     _cooldownTimer?.cancel();
     _cooldownTimer = null;
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -256,7 +246,6 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   void dispose() {
     _cooldownTimer?.cancel();
     _emailController.dispose();
-    _passwordController.dispose();
     super.dispose();
   }
 
@@ -320,10 +309,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                 const SizedBox(height: 8),
                 TextField(
                   controller: _emailController,
-                  enabled: !_isLoading,
-                  keyboardType: TextInputType.emailAddress,
+                  readOnly: true,
                   decoration: InputDecoration(
-                    hintText: 'Enter your email',
                     prefixIcon: const Icon(
                       Icons.email_outlined,
                       color: Colors.grey,
@@ -345,56 +332,24 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Password',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _passwordController,
-                  enabled: !_isLoading,
-                  obscureText: _obscurePassword,
-                  decoration: InputDecoration(
-                    hintText: 'Enter your password',
-                    prefixIcon: const Icon(
-                      Icons.lock_outline,
-                      color: Colors.grey,
-                    ),
-                    suffixIcon: IconButton(
-                      tooltip: _obscurePassword
-                          ? 'Show password'
-                          : 'Hide password',
-                      onPressed: _isLoading
-                          ? null
-                          : () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                      ),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF1976D2),
-                        width: 2,
-                      ),
+                if (_sendError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _sendError!,
+                    key: const Key('verification-email-error'),
+                    style: TextStyle(
+                      color: dangerColorOn(context),
+                      fontSize: 13,
                     ),
                   ),
-                ),
+                ] else if (_hasSentVerificationEmail) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Verification email sent. Open the link in your inbox to continue.',
+                    key: Key('verification-email-sent'),
+                    style: TextStyle(color: Color(0xFF2E7D32), fontSize: 13),
+                  ),
+                ],
                 const SizedBox(height: 30),
                 SizedBox(
                   width: double.infinity,

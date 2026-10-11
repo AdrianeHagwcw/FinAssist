@@ -9,6 +9,7 @@ Color billUrgencyColor(BuildContext context, BillUrgency urgency) {
   switch (urgency) {
     case BillUrgency.overdue:
       return Colors.red;
+    case BillUrgency.dueToday:
     case BillUrgency.dueSoon:
       return Colors.amber.shade700;
     case BillUrgency.paid:
@@ -24,6 +25,8 @@ String billUrgencyLabel(BillUrgency urgency) {
   switch (urgency) {
     case BillUrgency.overdue:
       return 'Overdue';
+    case BillUrgency.dueToday:
+      return 'Due today';
     case BillUrgency.dueSoon:
       return 'Due soon';
     case BillUrgency.paid:
@@ -47,6 +50,7 @@ IconData billUrgencyIcon(BillUrgency urgency) {
       return Icons.redo;
     case BillUrgency.overdue:
       return Icons.error;
+    case BillUrgency.dueToday:
     case BillUrgency.dueSoon:
     case BillUrgency.upcoming:
       return Icons.schedule;
