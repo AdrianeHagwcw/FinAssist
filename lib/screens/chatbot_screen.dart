@@ -521,10 +521,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     );
   }
 
-  /// Small line above the input: what the assistant can answer, and a
-  /// heads-up when the phone has no connection.
+  /// Notice above the input: scope, offline status, and input accuracy.
   Widget _inputNotice() {
     final offline = !_isOnline;
+    final status = offline
+        ? "You're offline. Answers use the records saved on this phone."
+        : 'Finance questions only, like budgeting, expenses, bills and savings.';
 
     return Row(
       children: [
@@ -536,11 +538,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         const SizedBox(width: 6),
         Expanded(
           child: Text(
-            offline
-                ? "You're offline. Answers use the records saved on this "
-                      'phone.'
-                : 'Finance questions only, like budgeting, expenses, bills '
-                      'and savings.',
+            '$status Answers depend on your inputs being accurate and complete.',
             style: const TextStyle(fontSize: 11, color: Colors.grey),
           ),
         ),
