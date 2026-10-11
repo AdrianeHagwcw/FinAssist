@@ -312,6 +312,9 @@ List<PlannedReminder> planReminders({
   // Goals: on each day of the goal's saving rhythm, for the next six weeks.
   // With a plan amount the reminder repeats it; with only a target date it
   // says what is needed each time to get there.
+  // Goals: one nudge on each saving day, and only while the cycle's amount
+  // is still missing. Nothing has gone in after a day, and again after three,
+  // so the last one says what the delay costs. Saving silences the rest.
   if (settings.isOn(ReminderKind.goals)) {
     final until = today.add(const Duration(days: 42));
 
@@ -320,41 +323,97 @@ List<PlannedReminder> planReminders({
       if (goal.status != GoalStatus.active || goal.isReached) continue;
       if (start == null) continue;
 
-      final plan = goal.planAmount;
-      final needed = neededPerContribution(
-        remaining: goal.remaining,
-        targetDate: goal.targetDate,
-        frequency: goal.frequency,
-        now: now,
-        planStartedAt: start,
-      );
-      final String body;
-      if (plan != null) {
-        body =
-            'Your plan is ${formatPeso(plan)} ${goal.frequency.per}. '
-            '${formatPeso(goal.remaining)} to go.';
-      } else if (needed != null && goal.targetDate != null) {
-        body =
-            'Save ${formatPeso(needed)} ${goal.frequency.per} to reach it by '
-            '${formatShortDate(goal.targetDate!)}.';
-      } else {
-        // No amount and no date: nothing honest to remind about.
-        continue;
-      }
+      final perCycle =
+          goal.planAmount ??
+          neededPerContribution(
+            remaining: goal.remaining,
+            targetDate: goal.targetDate,
+            frequency: goal.frequency,
+            now: now,
+            planStartedAt: start,
+          );
+      // No amount and no date: nothing honest to remind about.
+      if (perCycle == null || perCycle <= 0) continue;
 
-      for (final day in planDates(
+      // What the plan has asked for since it started, against what went in.
+      // Money saved before the goal existed is not part of the plan.
+      final asked = planDates(
         start,
         goal.frequency,
-        from: today,
+        from: start,
+        until: today,
+      ).length;
+      final saved = goal.savedAmount - goal.startingSaved;
+      final behind = perCycle * asked - (saved < 0 ? 0 : saved);
+      final owing = behind <= 0
+          ? 0.0
+          : (behind > perCycle ? perCycle : behind);
+
+      // Saving days that have just passed stay in range, so one that was
+      // missed can still be chased today.
+      final days = planDates(
+        start,
+        goal.frequency,
+        from: today.subtract(const Duration(days: 3)),
         until: until,
-      )) {
+      );
+
+      for (final day in days) {
+        final isCurrent = !day.isAfter(today);
+        // This cycle's amount is already set aside, so say nothing.
+        if (isCurrent && owing <= 0) continue;
+
+        final due = isCurrent ? owing : perCycle;
+        final key = 'goal:${goal.id}:${day.year}-${day.month}-${day.day}';
+
         add(
           PlannedReminder(
             kind: ReminderKind.goals,
-            key: 'goal:${goal.id}:${day.year}-${day.month}-${day.day}',
+            key: key,
             at: at(day, morningHour),
             title: 'Time to save for ${goal.name}',
-            body: body,
+            // With a plan the figure is the user's own; with only a target
+            // date it is what that date asks for, so the date is named.
+            body: goal.planAmount != null || goal.targetDate == null
+                ? '${formatPeso(due)} ${goal.frequency.per}. '
+                      '${formatPeso(goal.remaining)} to go.'
+                : 'Save ${formatPeso(due)} ${goal.frequency.per} to reach it '
+                      'by ${formatShortDate(goal.targetDate!)}.',
+            payload: 'goal:${goal.id}',
+          ),
+        );
+
+        add(
+          PlannedReminder(
+            kind: ReminderKind.goals,
+            key: '$key:late',
+            at: at(day.add(const Duration(days: 1)), morningHour),
+            title: 'Missed: ${goal.name}',
+            body: '${formatPeso(due)} is still to be set aside.',
+            payload: 'goal:${goal.id}',
+          ),
+        );
+
+        // The last one names the date this pace now reaches, so the warning
+        // is a fact rather than a scare.
+        final slipsTo = reachedByPlan(
+          remaining: goal.remaining,
+          amount: perCycle,
+          frequency: goal.frequency,
+          now: day.add(const Duration(days: 3)),
+          planStartedAt: start,
+        );
+
+        add(
+          PlannedReminder(
+            kind: ReminderKind.goals,
+            key: '$key:last',
+            at: at(day.add(const Duration(days: 3)), morningHour),
+            title: 'Last reminder for ${goal.name}',
+            body: slipsTo == null
+                ? 'Still ${formatPeso(due)} short this time.'
+                : 'Still ${formatPeso(due)} short. At this pace you reach it '
+                      'around ${formatShortDate(slipsTo)}.',
             payload: 'goal:${goal.id}',
           ),
         );

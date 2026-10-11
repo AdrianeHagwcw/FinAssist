@@ -137,6 +137,9 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    // "Other" covers anything that is not one of the named types, so it has
+    // to be named or the list is full of wallets called Other.
+    final isOther = _type == WalletType.other;
 
     return Padding(
       // Keeps the form above the on-screen keyboard.
@@ -253,9 +256,12 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
                     ),
                   ],
                 ] else ...[
-                  const Text(
-                    'Name (optional)',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  Text(
+                    isOther ? 'Name' : 'Name (optional)',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -264,11 +270,23 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
                     textCapitalization: TextCapitalization.words,
                     maxLength: 30,
                     decoration: InputDecoration(
-                      hintText: 'e.g. ${_type.label}',
+                      hintText: isOther
+                          ? 'e.g. Coins.ph, Lazada Wallet, coin bank'
+                          : 'e.g. ${_type.label}',
+                      helperText: isOther
+                          ? 'Other is for anywhere else you keep money that '
+                                'is not cash, GCash, Maya or a bank. Name it '
+                                'so you can tell it apart later.'
+                          : null,
+                      helperMaxLines: 3,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
+                    validator: (value) =>
+                        isOther && (value == null || value.trim().isEmpty)
+                        ? 'Name this wallet so you know what it is.'
+                        : null,
                   ),
                 ],
                 const SizedBox(height: 8),

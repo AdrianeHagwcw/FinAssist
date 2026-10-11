@@ -70,10 +70,10 @@ class WalletDraft {
   final WalletPurpose purpose;
   final String? savingsKind;
 
-  WalletDraft copyWith({bool? receivesIncome}) {
+  WalletDraft copyWith({bool? receivesIncome, String? name}) {
     return WalletDraft(
       type: type,
-      name: name,
+      name: name ?? this.name,
       startingBalance: startingBalance,
       receivesIncome: receivesIncome ?? this.receivesIncome,
       purpose: purpose,

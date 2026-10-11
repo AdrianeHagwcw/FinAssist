@@ -54,10 +54,11 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   static const _savingsStep = 5;
   static const _walletsStep = 6;
   static const _remindersStep = 7;
-  static const _readyStep = 8;
+  static const _reviewStep = 8;
+  static const _readyStep = 9;
 
   /// Main setup steps; reminder permission is an optional interstitial.
-  static const _numberedSteps = 7;
+  static const _numberedSteps = 9;
 
   static const _incomeSources = [
     'Allowance',
@@ -157,7 +158,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
     // sense. Saying no to Android keeps reminders off rather than pretending.
     _notificationsEnabled = enabled && await widget.requestReminderPermission();
     if (!mounted) return;
-    _goTo(_readyStep);
+    _goTo(_reviewStep);
   }
 
   double? _parseAmount(String text) {
@@ -220,6 +221,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
     setState(() {
       // The first wallet receives income until the user picks another.
       _wallets.add(wallet.copyWith(receivesIncome: _wallets.isEmpty));
+      _numberRepeatedWallets();
       _showWalletError = false;
     });
   }
@@ -230,7 +232,38 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
       if (removed.receivesIncome && _wallets.isNotEmpty) {
         _wallets[0] = _wallets[0].copyWith(receivesIncome: true);
       }
+      _numberRepeatedWallets();
     });
+  }
+
+  /// Two wallets of the same name are impossible to tell apart in a list, so
+  /// repeats are numbered in the order they were added: "BPI 1", "BPI 2".
+  /// A name used only once keeps its plain form, including after a delete.
+  void _numberRepeatedWallets() {
+    final counts = <String, int>{};
+    for (final wallet in _wallets) {
+      final base = _baseWalletName(wallet.name);
+      counts[base] = (counts[base] ?? 0) + 1;
+    }
+
+    final used = <String, int>{};
+    for (var i = 0; i < _wallets.length; i++) {
+      final base = _baseWalletName(_wallets[i].name);
+      if (counts[base] == 1) {
+        _wallets[i] = _wallets[i].copyWith(name: base);
+        continue;
+      }
+      final position = (used[base] ?? 0) + 1;
+      used[base] = position;
+      _wallets[i] = _wallets[i].copyWith(name: '$base $position');
+    }
+  }
+
+  /// The name without a number this screen added, so renumbering stays stable.
+  String _baseWalletName(String name) {
+    final trimmed = name.trim();
+    final match = RegExp(r'^(.*?)\s+\d+$').firstMatch(trimmed);
+    return match == null ? trimmed : match.group(1)!.trim();
   }
 
   void _setIncomeWallet(int index) {
@@ -350,6 +383,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         return _buildWallets();
       case _remindersStep:
         return _buildReminders();
+      case _reviewStep:
+        return _buildReview();
       default:
         return _buildReady();
     }
@@ -373,6 +408,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             ),
           ],
         );
+      case _reviewStep:
+        return _primaryButton('Continue', _next);
       case _readyStep:
         return _primaryButton(
           'Go to Dashboard',
@@ -1197,6 +1234,130 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   // =========================================================
   // RECAP - YOU'RE READY
   // =========================================================
+
+  // =========================================================
+  // STEP 9 - REVIEW
+  // =========================================================
+
+  /// A last look before anything is saved. Each line jumps back to the step
+  /// that set it, so a wrong answer is two taps from being fixed.
+  Widget _buildReview() {
+    final income = _parseAmount(_incomeController.text);
+    final incomeText = income == null
+        ? 'Not set'
+        : _incomeFrequency == 'Irregular'
+        ? 'About ${formatPeso(income)} a month'
+        : formatPeso(income);
+    final walletTotal = _wallets.fold<double>(
+      0,
+      (total, wallet) => total + wallet.startingBalance,
+    );
+    final billsTotal = _onboardingBills.fold<double>(
+      0,
+      (total, bill) => total + bill.amount,
+    );
+    String plural(int count, String word) =>
+        '$count $word${count == 1 ? '' : 's'}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        _title('Check your answers'),
+        const SizedBox(height: 8),
+        _subtitle(
+          'Nothing is saved yet. Tap Edit on anything that is wrong, then '
+          'come back here.',
+        ),
+        const SizedBox(height: 20),
+        _reviewRow('Your name', _nameController.text.trim(), _nameStep),
+        _reviewRow(
+          'Income',
+          '$incomeText · ${_incomeFrequencies[_incomeFrequency] ?? 'Not set'}\n'
+          '$_resolvedIncomeSource',
+          _incomeStep,
+        ),
+        _reviewRow(
+          'Last payday',
+          _lastPaydayAt == null ? 'Not set' : formatShortDate(_lastPaydayAt!),
+          _incomeStep,
+        ),
+        _reviewRow('What matters most', _priorities.first.label, _planStep),
+        _reviewRow(
+          'Bills',
+          _onboardingBills.isEmpty
+              ? 'None added'
+              : '${plural(_onboardingBills.length, 'bill')} · '
+                    '${formatPeso(billsTotal)}',
+          _billsStep,
+        ),
+        _reviewRow(
+          'Savings',
+          '${plural(_onboardingSavingsAccounts.length, 'account')} · '
+          '${plural(_onboardingGoals.length, 'goal')}',
+          _savingsStep,
+        ),
+        _reviewRow(
+          'Wallets',
+          _wallets.isEmpty
+              ? 'None added'
+              : '${plural(_wallets.length, 'wallet')} · '
+                    '${formatPeso(walletTotal)} total',
+          _walletsStep,
+        ),
+        _reviewRow(
+          'Bill reminders',
+          _notificationsEnabled ? 'On' : 'Off',
+          _remindersStep,
+        ),
+      ],
+    );
+  }
+
+  /// One answer, with the way back to the step that set it.
+  Widget _reviewRow(String label, String value, int step) {
+    final colors = context.appColors;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: colors.textBody),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value.isEmpty ? 'Not set' : value,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () => _goTo(step),
+            child: Text('Edit', style: TextStyle(color: colors.primaryText)),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildReady() {
     final colors = context.appColors;

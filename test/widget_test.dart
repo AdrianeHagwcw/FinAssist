@@ -728,6 +728,8 @@ void main() {
       expect(find.text('Cash'), findsNWidgets(2));
       await tapText(tester, 'Next');
       await tapText(tester, 'Allow Reminders');
+      expect(find.text('Check your answers'), findsOneWidget);
+      await tapText(tester, 'Continue');
 
       expect(find.text("You're ready, Dave!"), findsOneWidget);
       await tester.ensureVisible(find.text('Go to Dashboard'));
@@ -736,6 +738,56 @@ void main() {
       await tester.pump();
       expect(saved, isNotNull);
       expect(saved!.wallets.single.startingBalance, 0);
+    });
+
+    testWidgets('wallets of the same name are numbered', (tester) async {
+      OnboardingData? saved;
+      await pumpOnboarding(tester, save: (data) async => saved = data);
+
+      await tapText(tester, 'Get Started');
+      await tester.enterText(find.byType(TextFormField), 'Dave');
+      await tapText(tester, 'Next');
+      await chooseDropdown(tester, 'Select your income source', 'Salary');
+      await chooseDropdown(
+        tester,
+        'Select how often',
+        'Irregular (no fixed payday)',
+      );
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Next');
+
+      // Two wallets of the same type would otherwise both read "Cash".
+      await tapText(tester, 'Add a Wallet');
+      await tapText(tester, 'Add Wallet');
+      await tapText(tester, 'Add Another');
+      await tapText(tester, 'Add Wallet');
+
+      expect(find.text('Cash 1'), findsOneWidget);
+      expect(find.text('Cash 2'), findsOneWidget);
+
+      // A third of the same name keeps counting.
+      await tapText(tester, 'Add Another');
+      await tapText(tester, 'Add Wallet');
+      expect(find.text('Cash 3'), findsOneWidget);
+      await tester.tap(find.byTooltip('Remove Cash 3'));
+      await tester.pumpAndSettle();
+
+      // Removing one puts the other back to its plain name.
+      await tester.tap(find.byTooltip('Remove Cash 2'));
+      await tester.pumpAndSettle();
+      expect(find.text('Cash'), findsWidgets);
+      expect(find.text('Cash 1'), findsNothing);
+
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Allow Reminders');
+      await tapText(tester, 'Continue');
+      await tester.ensureVisible(find.text('Go to Dashboard'));
+      await tester.tap(find.text('Go to Dashboard'));
+      await tester.pump();
+      await tester.pump();
+      expect(saved!.wallets.single.name, 'Cash');
     });
 
     testWidgets('walks through every step and saves the answers', (
@@ -750,7 +802,7 @@ void main() {
       );
 
       // Step 1: Welcome
-      expect(find.text('Step 1 of 7'), findsOneWidget);
+      expect(find.text('Step 1 of 9'), findsOneWidget);
       await tapText(tester, 'Get Started');
 
       // Step 2: Name is required
@@ -888,6 +940,8 @@ void main() {
       await tester.pump();
       await tapText(tester, 'Next');
       await tapText(tester, 'Allow Reminders');
+      expect(find.text('Check your answers'), findsOneWidget);
+      await tapText(tester, 'Continue');
 
       // Recap
       expect(find.text("You're ready, Dave!"), findsOneWidget);
@@ -954,11 +1008,11 @@ void main() {
       await pumpOnboarding(tester, save: (_) async {});
 
       await tapText(tester, 'Get Started');
-      expect(find.text('Step 2 of 7'), findsOneWidget);
+      expect(find.text('Step 2 of 9'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Back'));
       await tester.pumpAndSettle();
-      expect(find.text('Step 1 of 7'), findsOneWidget);
+      expect(find.text('Step 1 of 9'), findsOneWidget);
     });
 
     testWidgets('irregular income makes the amount an optional estimate', (
@@ -1004,6 +1058,7 @@ void main() {
       await tapText(tester, 'Add Wallet');
       await tapText(tester, 'Next');
       await tapText(tester, 'Skip for now');
+      await tapText(tester, 'Continue');
 
       expect(
         find.textContaining('Varies · Irregular (no fixed payday)'),
@@ -7829,14 +7884,19 @@ void main() {
 
       expect(
         planned.map((r) => r.at),
-        [DateTime(2026, 10, 17, 9)],
-        reason: 'monthly from Sep 17, within six weeks; a reached goal waits',
+        [
+          DateTime(2026, 10, 17, 9),
+          DateTime(2026, 10, 18, 9),
+          DateTime(2026, 10, 20, 9),
+        ],
+        reason: 'monthly from Sep 17, then a warning and a last call; '
+            'a reached goal waits',
       );
-      expect(planned.single.title, 'Time to save for Laptop');
-      expect(
-        planned.single.body,
-        'Your plan is ₱1,500 a month. ₱18,500 to go.',
-      );
+      expect(planned.first.title, 'Time to save for Laptop');
+      expect(planned.first.body, '₱1,500 a month. ₱18,500 to go.');
+      expect(planned[1].title, 'Missed: Laptop');
+      expect(planned.last.title, 'Last reminder for Laptop');
+      expect(planned.last.body, startsWith('Still ₱1,500 short.'));
 
       final byDate = plan(
         settings,
@@ -7864,9 +7924,55 @@ void main() {
         ],
       );
       expect(
-        byDate.single.body,
+        byDate.first.body,
         'Save ₱1,583.33 a month to reach it by Sep 17, 2027.',
         reason: 'a goal with neither an amount nor a date gets no reminder',
+      );
+      expect(byDate.length, 3, reason: 'the nudge, the warning, the last call');
+    });
+
+    test('saving for the cycle silences the goal reminders', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+      Goal laptop(double saved) => Goal(
+        id: 'g',
+        name: 'Laptop',
+        targetAmount: 20000,
+        savedAmount: saved,
+        priority: 0,
+        status: GoalStatus.active,
+        planAmount: 1500,
+        planStartedAt: DateTime(2026, 9, 17),
+      );
+
+      // Oct 17 was the saving day and nothing went in, so the day after
+      // carries a warning and the third day the last call.
+      final missed = plan(
+        settings,
+        now: DateTime(2026, 10, 18, 7),
+        goals: [laptop(0)],
+      );
+      expect(missed.where((r) => r.at.month == 10).map((r) => r.title), [
+        'Missed: Laptop',
+        'Last reminder for Laptop',
+      ]);
+
+      // The same day, with the month's ₱1,500 already set aside.
+      final onTrack = plan(
+        settings,
+        now: DateTime(2026, 10, 18, 7),
+        goals: [laptop(1500)],
+      );
+      expect(
+        onTrack.where((r) => r.at.month == 10),
+        isEmpty,
+        reason: 'nothing to chase once this cycle is saved',
+      );
+      expect(
+        onTrack.where((r) => r.at.month == 11),
+        isNotEmpty,
+        reason: 'next month is still planned',
       );
     });
 
