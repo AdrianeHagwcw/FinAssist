@@ -176,11 +176,16 @@ class GoalService {
     double? planAmount,
     String? walletId,
     String? note,
+    double savedAmount = 0,
+    Map<String, double> savedByWallet = const {},
   }) {
     batch.set(reference, {
       'name': name.trim(),
       'targetAmount': targetAmount,
-      'savedAmount': 0,
+      // Money already set aside for this goal when it was created. It is a
+      // claim on a savings wallet, not a transfer, so no balance moves.
+      'savedAmount': savedAmount,
+      if (savedByWallet.isNotEmpty) 'savedByWallet': savedByWallet,
       'targetDate': targetDate == null ? null : Timestamp.fromDate(targetDate),
       'priority': priority,
       'status': GoalStatus.active.name,

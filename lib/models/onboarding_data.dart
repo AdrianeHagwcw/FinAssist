@@ -88,18 +88,45 @@ class OnboardingBill {
   final BillRecurrence recurrence;
 }
 
+/// Money the user has already put aside, as they report it. FinAssist records
+/// the balance they declare; it never reads a real account.
 class OnboardingSavingsAccount {
   const OnboardingSavingsAccount({
     required this.name,
     required this.kind,
     required this.balance,
+    this.maturityDate,
+    this.note,
   });
 
   final String name;
-  final GoalKind kind;
+  final SavingsKind kind;
   final double balance;
+
+  /// When a time deposit comes due. Null for the other kinds.
+  final DateTime? maturityDate;
+  final String? note;
+
+  OnboardingSavingsAccount copyWith({
+    String? name,
+    SavingsKind? kind,
+    double? balance,
+    DateTime? maturityDate,
+    String? note,
+  }) {
+    return OnboardingSavingsAccount(
+      name: name ?? this.name,
+      kind: kind ?? this.kind,
+      balance: balance ?? this.balance,
+      maturityDate: maturityDate ?? this.maturityDate,
+      note: note ?? this.note,
+    );
+  }
 }
 
+/// What saved money is for. A goal claims part of a savings record through
+/// [allocated]; it never moves the money, so the record's balance is the same
+/// before and after.
 class OnboardingGoal {
   const OnboardingGoal({
     required this.name,
@@ -109,6 +136,8 @@ class OnboardingGoal {
     required this.frequency,
     required this.planAmount,
     required this.note,
+    this.fundedBy,
+    this.allocated = 0,
   });
 
   final String name;
@@ -118,4 +147,66 @@ class OnboardingGoal {
   final ContributionFrequency frequency;
   final double? planAmount;
   final String? note;
+
+  /// The savings record this goal draws on, by its name in the setup list.
+  /// Null when the user did not pick one, which is allowed.
+  final String? fundedBy;
+
+  /// How much of that record is already counted towards this goal.
+  final double allocated;
+
+  /// What is still to be found, never below zero.
+  double get remaining {
+    final left = targetAmount - allocated;
+    return left < 0 ? 0 : left;
+  }
+
+  /// How far along the goal is, from 0 to 1.
+  double get progress {
+    if (targetAmount <= 0) return 0;
+    final share = allocated / targetAmount;
+    return share > 1 ? 1 : share;
+  }
+
+  bool get isReached => remaining <= 0;
+
+  OnboardingGoal copyWith({
+    String? name,
+    GoalKind? kind,
+    double? targetAmount,
+    DateTime? targetDate,
+    ContributionFrequency? frequency,
+    double? planAmount,
+    String? note,
+    String? fundedBy,
+    double? allocated,
+    bool clearFunding = false,
+  }) {
+    return OnboardingGoal(
+      name: name ?? this.name,
+      kind: kind ?? this.kind,
+      targetAmount: targetAmount ?? this.targetAmount,
+      targetDate: targetDate ?? this.targetDate,
+      frequency: frequency ?? this.frequency,
+      planAmount: planAmount ?? this.planAmount,
+      note: note ?? this.note,
+      fundedBy: clearFunding ? null : (fundedBy ?? this.fundedBy),
+      allocated: clearFunding ? 0 : (allocated ?? this.allocated),
+    );
+  }
+}
+
+/// What is left of [record] once every goal drawing on it is counted.
+double unallocatedSavings(
+  OnboardingSavingsAccount record,
+  Iterable<OnboardingGoal> goals, {
+  OnboardingGoal? ignoring,
+}) {
+  var claimed = 0.0;
+  for (final goal in goals) {
+    if (identical(goal, ignoring)) continue;
+    if (goal.fundedBy == record.name) claimed += goal.allocated;
+  }
+  final left = record.balance - claimed;
+  return left < 0 ? 0 : left;
 }

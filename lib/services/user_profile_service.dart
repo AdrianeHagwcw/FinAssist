@@ -151,8 +151,12 @@ class UserProfileService {
     }
 
     var sortOrder = data.wallets.length;
+    // Each savings record becomes a wallet held aside from spending. The id
+    // is kept so a goal funded by it can point at the right one.
+    final savingsWalletIds = <String, String>{};
     for (final savings in data.savingsAccounts) {
       final reference = walletsCollection.doc();
+      savingsWalletIds[savings.name] = reference.id;
       batch.set(reference, {
         'name': savings.name,
         'type': WalletType.other.name,
@@ -163,6 +167,9 @@ class UserProfileService {
         'sortOrder': sortOrder++,
         'purpose': WalletPurpose.savings.name,
         'savingsKind': savings.kind.name,
+        if (savings.maturityDate != null)
+          'maturityDate': Timestamp.fromDate(savings.maturityDate!),
+        if (savings.note != null) 'note': savings.note,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -171,6 +178,13 @@ class UserProfileService {
     final goalsCollection = profileReference.collection('goals');
     for (var index = 0; index < data.goals.length; index++) {
       final goal = data.goals[index];
+      // An allocation marks part of a savings wallet as meant for this goal.
+      // The wallet keeps its balance; only the goal's own figure changes.
+      final fundingWalletId = goal.fundedBy == null
+          ? null
+          : savingsWalletIds[goal.fundedBy];
+      final allocated = fundingWalletId == null ? 0.0 : goal.allocated;
+
       GoalService.addGoalToBatch(
         batch,
         reference: goalsCollection.doc(),
@@ -182,6 +196,11 @@ class UserProfileService {
         frequency: goal.frequency,
         planAmount: goal.planAmount,
         note: goal.note,
+        walletId: fundingWalletId,
+        savedAmount: allocated,
+        savedByWallet: allocated > 0
+            ? {fundingWalletId!: allocated}
+            : const {},
       );
     }
 

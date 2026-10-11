@@ -631,6 +631,138 @@ void main() {
     });
   });
 
+  group('setup savings and goals', () {
+    OnboardingSavingsAccount record(String name, double balance) =>
+        OnboardingSavingsAccount(
+          name: name,
+          kind: SavingsKind.general,
+          balance: balance,
+        );
+
+    OnboardingGoal goal(
+      String name,
+      double target, {
+      String? fundedBy,
+      double allocated = 0,
+    }) => OnboardingGoal(
+      name: name,
+      kind: GoalKind.emergencyFund,
+      targetAmount: target,
+      targetDate: null,
+      frequency: ContributionFrequency.monthly,
+      planAmount: null,
+      note: null,
+      fundedBy: fundedBy,
+      allocated: allocated,
+    );
+
+    test('setting money aside leaves the savings balance alone', () {
+      final personal = record('Personal Savings', 15000);
+      final fund = goal(
+        'Emergency Fund',
+        30000,
+        fundedBy: 'Personal Savings',
+        allocated: 5000,
+      );
+
+      expect(personal.balance, 15000, reason: 'the record is untouched');
+      expect(unallocatedSavings(personal, [fund]), 10000);
+      expect(fund.allocated, 5000);
+      expect(fund.remaining, 25000);
+      expect(fund.progress, closeTo(0.1667, 0.0001));
+      expect(fund.isReached, isFalse);
+    });
+
+    test('two goals cannot promise the same money twice', () {
+      final personal = record('Personal Savings', 15000);
+      final first = goal(
+        'Laptop',
+        20000,
+        fundedBy: 'Personal Savings',
+        allocated: 9000,
+      );
+      final second = goal(
+        'Tuition',
+        20000,
+        fundedBy: 'Personal Savings',
+        allocated: 4000,
+      );
+
+      expect(unallocatedSavings(personal, [first, second]), 2000);
+      // What a goal may claim leaves out what it already holds.
+      expect(
+        unallocatedSavings(personal, [first, second], ignoring: second),
+        6000,
+      );
+    });
+
+    test('a goal is reached once the whole target is set aside', () {
+      final reached = goal(
+        'Phone',
+        5000,
+        fundedBy: 'Personal Savings',
+        allocated: 5000,
+      );
+
+      expect(reached.isReached, isTrue);
+      expect(reached.remaining, 0);
+      expect(reached.progress, 1);
+    });
+
+    test('a goal with no funding source holds nothing', () {
+      final lonely = goal('Someday', 1000);
+
+      expect(lonely.fundedBy, isNull);
+      expect(lonely.allocated, 0);
+      expect(lonely.remaining, 1000);
+      expect(lonely.progress, 0);
+    });
+
+    test('releasing the funding clears what was set aside', () {
+      final funded = goal(
+        'Laptop',
+        20000,
+        fundedBy: 'Personal Savings',
+        allocated: 9000,
+      );
+      final released = funded.copyWith(clearFunding: true);
+
+      expect(released.fundedBy, isNull);
+      expect(released.allocated, 0);
+      expect(
+        unallocatedSavings(record('Personal Savings', 15000), [released]),
+        15000,
+      );
+    });
+
+    test('a record never shows less than nothing free', () {
+      // A balance cut below what goals already hold cannot go negative.
+      final shrunk = record('Personal Savings', 1000);
+      final heavy = goal(
+        'Laptop',
+        20000,
+        fundedBy: 'Personal Savings',
+        allocated: 9000,
+      );
+
+      expect(unallocatedSavings(shrunk, [heavy]), 0);
+    });
+
+    test('the kinds used before map onto the three that are offered', () {
+      expect(SavingsKind.fromName('savingsAccount'), SavingsKind.account);
+      expect(SavingsKind.fromName('account'), SavingsKind.account);
+      expect(SavingsKind.fromName('timeDeposit'), SavingsKind.timeDeposit);
+      expect(SavingsKind.fromName('emergencyFund'), SavingsKind.general);
+      expect(SavingsKind.fromName(null), SavingsKind.general);
+    });
+
+    test('only a regular goal or an emergency fund can be chosen', () {
+      expect(GoalKind.choosable, [GoalKind.regular, GoalKind.emergencyFund]);
+      // Older goals still read back with their own kind.
+      expect(GoalKind.fromName('timeDeposit'), GoalKind.timeDeposit);
+    });
+  });
+
   group('Onboarding', () {
     test(
       'monthly income converts to a per-pay amount for legacy profile data',
@@ -870,9 +1002,7 @@ void main() {
       expect(find.text('Savings amount'), findsNothing);
       await tester.tap(find.byKey(const Key('add-onboarding-savings-account')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('onboarding-savings-kind')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Savings account').last);
+      await tester.tap(find.byKey(const Key('savings-kind-account')));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const Key('onboarding-savings-name')),
@@ -985,7 +1115,7 @@ void main() {
       expect(saved!.bills.single.firstDueDate, isA<DateTime>());
       expect(saved!.savingsAccounts, hasLength(1));
       expect(saved!.savingsAccounts.single.name, 'Travel Savings');
-      expect(saved!.savingsAccounts.single.kind, GoalKind.savingsAccount);
+      expect(saved!.savingsAccounts.single.kind, SavingsKind.account);
       expect(saved!.savingsAccounts.single.balance, 500);
       expect(saved!.goals, hasLength(1));
       expect(saved!.goals.single.name, 'Emergency buffer');

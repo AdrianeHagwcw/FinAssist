@@ -676,7 +676,12 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        for (final kind in GoalKind.values)
+                        // A goal saved under an older kind keeps its chip,
+                        // so editing it does not silently change the type.
+                        for (final kind in {
+                          ...GoalKind.choosable,
+                          _kind,
+                        })
                           ChoiceChip(
                             avatar: Icon(kind.icon, size: 18),
                             label: Text(kind.label),

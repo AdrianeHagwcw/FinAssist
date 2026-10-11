@@ -15,6 +15,11 @@ enum GoalKind {
   final String label;
   final IconData icon;
 
+  /// The kinds a goal can be set to now. Savings account and time deposit
+  /// describe where money is kept, so they belong to savings records; goals
+  /// saved under them before stay readable and keep their label.
+  static const choosable = [GoalKind.regular, GoalKind.emergencyFund];
+
   static GoalKind fromName(String? name) => GoalKind.values.firstWhere(
     (kind) => kind.name == name,
     orElse: () => GoalKind.regular,

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import '../models/onboarding_data.dart';
 import '../models/wallet.dart';
-import '../models/goal.dart';
 import '../widgets/bill_form_sheet.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/wallet_form_sheet.dart';
@@ -15,6 +14,7 @@ import '../utils/date_format.dart';
 import '../theme/app_theme.dart';
 import '../utils/money_format.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/dialog_kit.dart';
 import '../widgets/light_dark_toggle.dart';
 import 'main_shell.dart';
 
@@ -1008,7 +1008,11 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   // STEP 6 - SAVINGS
 
   Widget _buildSavingsPlan() {
-    final colors = context.appColors;
+    final savedTotal = _onboardingSavingsAccounts.fold<double>(
+      0,
+      (total, account) => total + account.balance,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1016,57 +1020,30 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         _title('Build your savings'),
         const SizedBox(height: 8),
         _subtitle(
-          'Add savings accounts or set a goal. You can do either now or later.',
+          'Track your existing savings or create a financial goal. You can '
+          'set up either or both now, or add them later.',
         ),
         const SizedBox(height: 20),
-        for (final (index, account) in _onboardingSavingsAccounts.indexed)
-          Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
-              leading: Icon(account.kind.icon, color: colors.primaryText),
-              title: Text(account.name),
-              subtitle: Text(account.kind.label),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(formatPeso(account.balance)),
-                  IconButton(
-                    tooltip: 'Remove ${account.name}',
-                    onPressed: () => setState(
-                      () => _onboardingSavingsAccounts.removeAt(index),
-                    ),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        if (_onboardingGoals.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          _label('Savings goals'),
-          for (final (index, goal) in _onboardingGoals.indexed)
-            Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: ListTile(
-                leading: Icon(goal.kind.icon, color: colors.primaryText),
-                title: Text(goal.name),
-                subtitle: Text(goal.kind.label),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(formatPeso(goal.targetAmount)),
-                    IconButton(
-                      tooltip: 'Remove ${goal.name}',
-                      onPressed: () =>
-                          setState(() => _onboardingGoals.removeAt(index)),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+
+        if (_onboardingSavingsAccounts.isEmpty && _onboardingGoals.isEmpty)
+          _emptySavingsState(),
+
+        if (_onboardingSavingsAccounts.isNotEmpty) ...[
+          _savingsSectionTitle('Your savings', formatPeso(savedTotal)),
+          const SizedBox(height: 10),
+          for (final (index, account) in _onboardingSavingsAccounts.indexed)
+            _savingsRecordCard(index, account),
+          const SizedBox(height: 10),
         ],
-        const SizedBox(height: 8),
+
+        if (_onboardingGoals.isNotEmpty) ...[
+          _savingsSectionTitle('Your goals', null),
+          const SizedBox(height: 10),
+          for (final (index, goal) in _onboardingGoals.indexed)
+            _onboardingGoalCard(index, goal),
+          const SizedBox(height: 10),
+        ],
+
         SizedBox(
           width: double.infinity,
           height: 50,
@@ -1090,6 +1067,334 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         ),
       ],
     );
+  }
+
+  Widget _emptySavingsState() {
+    final colors = context.appColors;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+      decoration: BoxDecoration(
+        color: colors.pageBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        children: [
+          Image.asset('assets/icons/icons8-money-box-96.png', width: 44),
+          const SizedBox(height: 12),
+          Text(
+            'Nothing saved here yet',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'This step is optional. You can tap Next and add savings or a '
+            'goal whenever you are ready.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: colors.textBody),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _savingsSectionTitle(String title, String? trailing) {
+    final colors = context.appColors;
+
+    return Row(
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: colors.textPrimary,
+          ),
+        ),
+        const Spacer(),
+        if (trailing != null)
+          Text(
+            trailing,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _savingsRecordCard(int index, OnboardingSavingsAccount account) {
+    final colors = context.appColors;
+    final free = unallocatedSavings(account, _onboardingGoals);
+    final promised = account.balance - free;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  account.name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                // A record left unnamed takes the type as its name, so
+                // showing the type again would just read twice.
+                if (account.name != account.kind.label) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    account.kind.label,
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                ],
+                if (account.maturityDate != null)
+                  Text(
+                    'Matures ${formatShortDate(account.maturityDate!)}',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                if (promised > 0)
+                  Text(
+                    '${formatPeso(promised)} promised to a goal, '
+                    '${formatPeso(free)} free',
+                    style: TextStyle(fontSize: 12, color: colors.primaryText),
+                  ),
+              ],
+            ),
+          ),
+          Text(
+            formatPeso(account.balance),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Edit ${account.name}',
+            onPressed: () => _editOnboardingSavingsAccount(index),
+            icon: const Icon(Icons.edit_outlined, size: 18),
+          ),
+          IconButton(
+            tooltip: 'Remove ${account.name}',
+            onPressed: () => _removeOnboardingSavingsAccount(index),
+            icon: const Icon(Icons.close, size: 18),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _onboardingGoalCard(int index, OnboardingGoal goal) {
+    final colors = context.appColors;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      goal.name,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Target: ${formatPeso(goal.targetAmount)}',
+                      style: TextStyle(fontSize: 12, color: colors.textBody),
+                    ),
+                    Text(
+                      'Saved toward goal: ${formatPeso(goal.allocated)}'
+                      '${goal.isReached ? ' \u00B7 Reached' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: goal.isReached
+                            ? confirmColorOn(context)
+                            : colors.textBody,
+                      ),
+                    ),
+                    if (goal.fundedBy != null)
+                      Text(
+                        'From ${goal.fundedBy}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colors.primaryText,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove ${goal.name}',
+                onPressed: () =>
+                    setState(() => _onboardingGoals.removeAt(index)),
+                icon: const Icon(Icons.close, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: goal.progress,
+              minHeight: 6,
+              backgroundColor: colors.track,
+              color: appPrimaryBlue,
+            ),
+          ),
+          if (_onboardingSavingsAccounts.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => _allocateToOnboardingGoal(index),
+                child: Text(
+                  goal.allocated > 0
+                      ? 'Change what is set aside'
+                      : 'Set money aside for this',
+                  style: TextStyle(color: colors.primaryText),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editOnboardingSavingsAccount(int index) async {
+    final existing = _onboardingSavingsAccounts[index];
+    final updated = await showModalBottomSheet<OnboardingSavingsAccount>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _OnboardingSavingsSheet(existing: existing),
+    );
+    if (updated == null || !mounted) return;
+
+    setState(() {
+      _onboardingSavingsAccounts[index] = updated;
+      // Goals pointing at the old name follow it, and an allocation larger
+      // than the new balance is trimmed rather than left impossible.
+      for (var i = 0; i < _onboardingGoals.length; i++) {
+        final goal = _onboardingGoals[i];
+        if (goal.fundedBy != existing.name) continue;
+        final room = unallocatedSavings(
+          updated,
+          _onboardingGoals,
+          ignoring: goal,
+        );
+        _onboardingGoals[i] = goal.copyWith(
+          fundedBy: updated.name,
+          allocated: goal.allocated > room ? room : goal.allocated,
+        );
+      }
+    });
+  }
+
+  Future<void> _removeOnboardingSavingsAccount(int index) async {
+    final account = _onboardingSavingsAccounts[index];
+    final funded = _onboardingGoals
+        .where((goal) => goal.fundedBy == account.name)
+        .toList();
+
+    if (funded.isNotEmpty) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: dialogShape,
+          title: Text('Remove ${account.name}?'),
+          content: Text(
+            '${funded.length} goal${funded.length == 1 ? '' : 's'} '
+            'draw${funded.length == 1 ? 's' : ''} on it. The '
+            'goal${funded.length == 1 ? '' : 's'} stay, with nothing set '
+            'aside yet.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              style: cancelTextStyle(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: dangerTextStyle(context),
+              child: const Text('Remove'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+
+    setState(() {
+      _onboardingSavingsAccounts.removeAt(index);
+      for (var i = 0; i < _onboardingGoals.length; i++) {
+        if (_onboardingGoals[i].fundedBy == account.name) {
+          _onboardingGoals[i] = _onboardingGoals[i].copyWith(
+            clearFunding: true,
+          );
+        }
+      }
+    });
+  }
+
+  /// Sets part of a savings record against a goal. The record keeps its
+  /// balance; only the share promised to this goal changes.
+  Future<void> _allocateToOnboardingGoal(int index) async {
+    final goal = _onboardingGoals[index];
+    final result = await showModalBottomSheet<_AllocationResult>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _OnboardingAllocationSheet(
+        goal: goal,
+        records: _onboardingSavingsAccounts,
+        goals: _onboardingGoals,
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    setState(() {
+      _onboardingGoals[index] = result.amount <= 0
+          ? goal.copyWith(clearFunding: true)
+          : goal.copyWith(fundedBy: result.record, allocated: result.amount);
+    });
   }
 
   void _movePriority(int oldIndex, int newIndex) {
@@ -1648,8 +1953,212 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
   }
 }
 
+/// What the allocation sheet hands back: which record, and how much of it.
+class _AllocationResult {
+  const _AllocationResult({required this.record, required this.amount});
+
+  final String record;
+  final double amount;
+}
+
+/// Sets aside part of a savings record for one goal. The record's balance is
+/// untouched; this only says what that money is already promised to.
+class _OnboardingAllocationSheet extends StatefulWidget {
+  const _OnboardingAllocationSheet({
+    required this.goal,
+    required this.records,
+    required this.goals,
+  });
+
+  final OnboardingGoal goal;
+  final List<OnboardingSavingsAccount> records;
+  final List<OnboardingGoal> goals;
+
+  @override
+  State<_OnboardingAllocationSheet> createState() =>
+      _OnboardingAllocationSheetState();
+}
+
+class _OnboardingAllocationSheetState
+    extends State<_OnboardingAllocationSheet> {
+  late String _record =
+      widget.goal.fundedBy ??
+      (widget.records.isEmpty ? '' : widget.records.first.name);
+  late final _amountController = TextEditingController(
+    text: widget.goal.allocated == 0
+        ? ''
+        : formatAmountInput(widget.goal.allocated),
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  OnboardingSavingsAccount? get _selected {
+    for (final record in widget.records) {
+      if (record.name == _record) return record;
+    }
+    return widget.records.isEmpty ? null : widget.records.first;
+  }
+
+  /// What this goal may claim: the record's free money, plus whatever this
+  /// same goal already holds there.
+  double get _available {
+    final record = _selected;
+    if (record == null) return 0;
+    return unallocatedSavings(record, widget.goals, ignoring: widget.goal);
+  }
+
+  void _save() {
+    final record = _selected;
+    if (record == null) return;
+
+    final text = _amountController.text.trim().replaceAll(',', '');
+    final amount = text.isEmpty ? 0.0 : double.tryParse(text);
+
+    if (amount == null || !amount.isFinite || amount < 0) {
+      setState(() => _error = 'Enter an amount of zero or more.');
+      return;
+    }
+    // Rounded to centavos, so a long decimal cannot creep past the limit.
+    final rounded = (amount * 100).round() / 100;
+    if (rounded > (_available * 100).round() / 100) {
+      setState(
+        () => _error =
+            'Only ${formatPeso(_available)} of ${record.name} is free.',
+      );
+      return;
+    }
+    if (rounded > widget.goal.targetAmount) {
+      setState(
+        () => _error =
+            'That is more than the goal needs '
+            '(${formatPeso(widget.goal.targetAmount)}).',
+      );
+      return;
+    }
+
+    Navigator.pop(
+      context,
+      _AllocationResult(record: record.name, amount: rounded),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final record = _selected;
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        24,
+        24,
+        MediaQuery.viewInsetsOf(context).bottom + 24,
+      ),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Set aside for ${widget.goal.name}',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'This marks part of your savings as meant for this goal. The '
+              'savings balance itself does not change.',
+              style: TextStyle(fontSize: 13, color: colors.textBody),
+            ),
+            const SizedBox(height: 18),
+            DropdownButtonFormField<String>(
+              key: const Key('allocation-record'),
+              initialValue: record?.name,
+              isExpanded: true,
+              decoration: _inputDecoration(context, 'Take it from'),
+              items: [
+                for (final option in widget.records)
+                  DropdownMenuItem(
+                    value: option.name,
+                    child: Text(option.name, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (value) => setState(() {
+                _record = value ?? _record;
+                _error = null;
+              }),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              record == null
+                  ? 'Add a savings record first.'
+                  : '${formatPeso(_available)} of ${record.name} is free.',
+              style: TextStyle(fontSize: 12, color: colors.textBody),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              key: const Key('allocation-amount'),
+              controller: _amountController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: _inputDecoration(
+                context,
+                'Amount for this goal',
+                hint: '0.00',
+                prefix: '\u20B1 ',
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: TextStyle(fontSize: 12, color: dangerColorOn(context)),
+              ),
+            ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                style: confirmButtonStyle(),
+                onPressed: record == null ? null : _save,
+                child: const Text('Save'),
+              ),
+            ),
+            if (widget.goal.allocated > 0)
+              TextButton(
+                onPressed: () => Navigator.pop(
+                  context,
+                  _AllocationResult(record: _record, amount: 0),
+                ),
+                style: dangerTextStyle(context),
+                child: const Text('Release what is set aside'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _OnboardingSavingsSheet extends StatefulWidget {
-  const _OnboardingSavingsSheet();
+  const _OnboardingSavingsSheet({this.existing});
+
+  /// The record being changed, or null when adding a new one.
+  final OnboardingSavingsAccount? existing;
 
   @override
   State<_OnboardingSavingsSheet> createState() =>
@@ -1658,25 +2167,44 @@ class _OnboardingSavingsSheet extends StatefulWidget {
 
 class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _balanceController = TextEditingController();
-  GoalKind _kind = GoalKind.emergencyFund;
+  late final _nameController = TextEditingController(
+    text: widget.existing?.name ?? '',
+  );
+  late final _balanceController = TextEditingController(
+    text: widget.existing == null || widget.existing!.balance == 0
+        ? ''
+        : formatAmountInput(widget.existing!.balance),
+  );
+  late final _noteController = TextEditingController(
+    text: widget.existing?.note ?? '',
+  );
+  late SavingsKind _kind = widget.existing?.kind ?? SavingsKind.general;
+  late DateTime? _maturityDate = widget.existing?.maturityDate;
 
-  static const _savingsKinds = [
-    GoalKind.emergencyFund,
-    GoalKind.savingsAccount,
-    GoalKind.timeDeposit,
-  ];
+  bool get _isEditing => widget.existing != null;
 
   @override
   void dispose() {
     _nameController.dispose();
     _balanceController.dispose();
+    _noteController.dispose();
     super.dispose();
   }
 
   double? _parseBalance(String value) =>
       double.tryParse(value.trim().replaceAll(',', ''));
+
+  Future<void> _pickMaturity() async {
+    final today = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _maturityDate ?? DateTime(today.year, today.month + 6, today.day),
+      firstDate: today,
+      lastDate: DateTime(today.year + 20),
+      helpText: 'When does it mature?',
+    );
+    if (picked != null) setState(() => _maturityDate = picked);
+  }
 
   void _save() {
     if (!_formKey.currentState!.validate()) return;
@@ -1684,12 +2212,17 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
     final balance = _balanceController.text.trim().isEmpty
         ? 0.0
         : _parseBalance(_balanceController.text)!;
+    final note = _noteController.text.trim();
+
     Navigator.pop(
       context,
       OnboardingSavingsAccount(
         name: name.isEmpty ? _kind.label : name,
         kind: _kind,
         balance: balance,
+        // A maturity date only belongs to a time deposit.
+        maturityDate: _kind == SavingsKind.timeDeposit ? _maturityDate : null,
+        note: note.isEmpty ? null : note,
       ),
     );
   }
@@ -1697,6 +2230,7 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+
     return Container(
       padding: EdgeInsets.fromLTRB(
         24,
@@ -1716,66 +2250,135 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Add Savings',
+                _isEditing ? 'Edit savings' : 'Add Savings',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: colors.textPrimary,
                 ),
               ),
-              const SizedBox(height: 20),
-              DropdownButtonFormField<GoalKind>(
-                key: const Key('onboarding-savings-kind'),
-                initialValue: _kind,
-                decoration: const InputDecoration(labelText: 'Savings type'),
-                items: _savingsKinds
-                    .map(
-                      (kind) => DropdownMenuItem(
+              const SizedBox(height: 6),
+              Text(
+                'Money you have already put aside. FinAssist records the '
+                'balance you enter; it is never read from a bank.',
+                style: TextStyle(fontSize: 13, color: colors.textBody),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Type',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: colors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // The sheet paints its own background, so the tiles need a
+              // Material of their own for their ink to show.
+              Material(
+                color: Colors.transparent,
+                child: RadioGroup<SavingsKind>(
+                  groupValue: _kind,
+                  onChanged: (value) => setState(() => _kind = value!),
+                  child: Column(
+                    children: [
+                      for (final kind in SavingsKind.values)
+                      RadioListTile<SavingsKind>(
+                        key: Key('savings-kind-${kind.name}'),
                         value: kind,
-                        child: Text(kind.label),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(kind.label),
+                        subtitle: Text(
+                          kind.hint,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.textBody,
+                          ),
+                        ),
                       ),
-                    )
-                    .toList(),
-                onChanged: (kind) {
-                  if (kind != null) setState(() => _kind = kind);
-                },
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               TextFormField(
                 key: const Key('onboarding-savings-name'),
                 controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name (optional)',
-                  hintText: 'Uses the savings type if left blank',
+                textCapitalization: TextCapitalization.words,
+                maxLength: 40,
+                decoration: _inputDecoration(
+                  context,
+                  'Name (optional)',
+                  hint: 'e.g. ${_kind.label}',
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 4),
               TextFormField(
                 key: const Key('onboarding-savings-balance'),
                 controller: _balanceController,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
-                  labelText: 'Current balance (optional)',
-                  prefixText: '₱ ',
+                decoration: _inputDecoration(
+                  context,
+                  'Current balance',
+                  hint: '0.00',
+                  prefix: '\u20B1 ',
                 ),
                 validator: (value) {
-                  if ((value ?? '').trim().isEmpty) return null;
-                  final amount = _parseBalance(value!);
+                  final text = (value ?? '').trim();
+                  if (text.isEmpty) return null;
+                  final amount = _parseBalance(text);
                   if (amount == null || !amount.isFinite || amount < 0) {
-                    return 'Enter a valid balance.';
+                    return 'Enter an amount of zero or more.';
                   }
+                  if (amount > 999999999) return 'That amount is too large.';
                   return null;
                 },
               ),
-              const SizedBox(height: 20),
+              if (_kind == SavingsKind.timeDeposit) ...[
+                const SizedBox(height: 14),
+                InkWell(
+                  key: const Key('savings-maturity'),
+                  onTap: _pickMaturity,
+                  child: InputDecorator(
+                    decoration: _inputDecoration(
+                      context,
+                      'Maturity date (optional)',
+                    ),
+                    child: Text(
+                      _maturityDate == null
+                          ? 'Select the date'
+                          : formatShortDate(_maturityDate!),
+                      style: TextStyle(
+                        color: _maturityDate == null
+                            ? colors.textBody
+                            : colors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _noteController,
+                maxLength: 80,
+                decoration: _inputDecoration(
+                  context,
+                  'Notes (optional)',
+                  hint: 'Anything you want to remember about it',
+                ),
+              ),
+              const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
+                height: 50,
                 child: ElevatedButton(
                   key: const Key('save-onboarding-savings'),
+                  style: confirmButtonStyle(),
                   onPressed: _save,
-                  child: const Text('Add Savings'),
+                  child: Text(_isEditing ? 'Save changes' : 'Add Savings'),
                 ),
               ),
             ],
@@ -1786,9 +2389,21 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
   }
 }
 
-// =========================================================
-// WALLET CARD (ONBOARDING)
-// =========================================================
+/// The same outlined field the rest of setup uses.
+InputDecoration _inputDecoration(
+  BuildContext context,
+  String label, {
+  String? hint,
+  String? prefix,
+}) {
+  return InputDecoration(
+    labelText: label,
+    hintText: hint,
+    prefixText: prefix,
+    counterText: '',
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+  );
+}
 
 class _WalletDraftCard extends StatelessWidget {
   const _WalletDraftCard({

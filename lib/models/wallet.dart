@@ -49,6 +49,36 @@ enum WalletPurpose {
 }
 
 /// A wallet the user is adding during onboarding, before it is saved.
+/// What a savings record is: where the money is kept, not what it is for.
+/// A goal says what it is for, and claims part of a record through its own
+/// saved amount.
+enum SavingsKind {
+  general('General savings', 'Cash, an envelope, money kept by hand'),
+  account('Savings account', 'Money you keep in a bank or e-wallet account'),
+  timeDeposit('Time deposit', 'Money locked in for a fixed term');
+
+  const SavingsKind(this.label, this.hint);
+
+  final String label;
+
+  /// One line under the choice, so the difference is plain.
+  final String hint;
+
+  /// Reads a stored name, including the kinds used before these three:
+  /// an emergency fund is a goal now, so its money is general savings.
+  static SavingsKind fromName(String? name) {
+    switch (name) {
+      case 'account':
+      case 'savingsAccount':
+        return SavingsKind.account;
+      case 'timeDeposit':
+        return SavingsKind.timeDeposit;
+      default:
+        return SavingsKind.general;
+    }
+  }
+}
+
 class WalletDraft {
   const WalletDraft({
     required this.type,
