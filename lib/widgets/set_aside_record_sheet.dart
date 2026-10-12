@@ -123,7 +123,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet> {
           _maturityDate ?? DateTime(today.year, today.month + 6, today.day),
       firstDate: DateTime(today.year - 5),
       lastDate: DateTime(today.year + 20),
-      helpText: 'When does it come due?',
+      helpText: 'When can you take it out?',
     );
     if (picked != null) setState(() => _maturityDate = picked);
   }
@@ -332,7 +332,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet> {
                   child: InputDecorator(
                     decoration: dialogFieldDecoration(
                       context,
-                      'Maturity date (optional)',
+                      'Date you can take it out (optional)',
                     ),
                     child: Text(
                       _maturityDate == null

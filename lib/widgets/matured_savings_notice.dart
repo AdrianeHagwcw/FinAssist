@@ -60,8 +60,8 @@ class MaturedSavingsNotice extends StatelessWidget {
               Expanded(
                 child: Text(
                   many
-                      ? '${due.length} savings matured'
-                      : '${due.first.name} matured',
+                      ? '${due.length} savings ready to take out'
+                      : '${due.first.name} is ready to take out',
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,

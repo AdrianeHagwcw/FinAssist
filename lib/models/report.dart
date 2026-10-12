@@ -5,14 +5,31 @@ import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 
 /// Which stretch of time a report covers.
+///
+/// A pay cycle is here because a calendar month is not how most people are
+/// paid: someone paid on the 15th and the 30th lives in two stretches a
+/// month, and a report cut to the calendar splits their money in half.
 enum ReportRange {
+  cycle('Pay cycle'),
   week('This week'),
   month('This month'),
+  quarter('Quarter'),
+  year('Year'),
   custom('Custom');
 
   const ReportRange(this.label);
 
   final String label;
+
+  /// The word for one of these in a sentence.
+  String get unit => switch (this) {
+    ReportRange.cycle => 'cycle',
+    ReportRange.week => 'week',
+    ReportRange.month => 'month',
+    ReportRange.quarter => 'quarter',
+    ReportRange.year => 'year',
+    ReportRange.custom => 'stretch',
+  };
 }
 
 /// A stretch of days, first and last day both included.
@@ -37,6 +54,19 @@ class ReportPeriod {
     );
   }
 
+  /// The three-month quarter holding [now]: Jan–Mar, Apr–Jun, and so on.
+  factory ReportPeriod.quarterOf(DateTime now) {
+    final first = ((now.month - 1) ~/ 3) * 3 + 1;
+    return ReportPeriod(
+      DateTime(now.year, first),
+      DateTime(now.year, first + 3, 0),
+    );
+  }
+
+  /// The calendar year holding [now].
+  factory ReportPeriod.yearOf(DateTime now) =>
+      ReportPeriod(DateTime(now.year), DateTime(now.year, 12, 31));
+
   /// First day included, at midnight.
   final DateTime start;
 
@@ -56,13 +86,23 @@ class ReportPeriod {
   }
 
   /// The period of the same kind just before this one: the week before, the
-  /// month before, or the same number of days before a custom range.
+  /// month before, and so on.
+  ///
+  /// A pay cycle steps back by its own length rather than by asking the
+  /// profile again. Every cycle but a monthly one is a fixed number of days,
+  /// so this lands on the right stretch without dragging pay settings into
+  /// the model.
   ReportPeriod previous(ReportRange range) {
     switch (range) {
       case ReportRange.week:
         return ReportPeriod.weekOf(start.subtract(const Duration(days: 7)));
       case ReportRange.month:
         return ReportPeriod.monthOf(DateTime(start.year, start.month - 1));
+      case ReportRange.quarter:
+        return ReportPeriod.quarterOf(DateTime(start.year, start.month - 3));
+      case ReportRange.year:
+        return ReportPeriod.yearOf(DateTime(start.year - 1));
+      case ReportRange.cycle:
       case ReportRange.custom:
         final days = end.difference(start).inDays + 1;
         return ReportPeriod(
@@ -154,10 +194,19 @@ List<TrendPoint> trend(
   Iterable<AppTransaction> transactions, {
   required ReportRange range,
   required DateTime end,
+  ReportPeriod? from,
   int count = 6,
 }) {
-  final weekly = range == ReportRange.week;
-  var period = weekly ? ReportPeriod.weekOf(end) : ReportPeriod.monthOf(end);
+  // A pay cycle and a custom stretch cannot be worked out from a date alone,
+  // so the caller hands over the one being read.
+  var period =
+      from ??
+      switch (range) {
+        ReportRange.week => ReportPeriod.weekOf(end),
+        ReportRange.quarter => ReportPeriod.quarterOf(end),
+        ReportRange.year => ReportPeriod.yearOf(end),
+        _ => ReportPeriod.monthOf(end),
+      };
   final periods = <ReportPeriod>[];
 
   // The first day anything was recorded.
@@ -174,26 +223,28 @@ List<TrendPoint> trend(
   for (var i = 0; i < count; i++) {
     if (i > 0 && firstDay != null && period.end.isBefore(firstDay)) break;
     periods.add(period);
-    period = period.previous(weekly ? ReportRange.week : ReportRange.month);
+    period = period.previous(range);
   }
 
   return [
-    for (final p in periods.reversed)
-      _trendPoint(transactions, p, weekly: weekly),
+    for (final p in periods.reversed) _trendPoint(transactions, p, range),
   ];
 }
 
 TrendPoint _trendPoint(
   Iterable<AppTransaction> transactions,
-  ReportPeriod period, {
-  required bool weekly,
-}) {
+  ReportPeriod period,
+  ReportRange range,
+) {
   final totals = inAndOut(transactionsIn(transactions, period));
   return TrendPoint(
     period: period,
-    label: weekly
-        ? formatMonthDay(period.start)
-        : formatMonthName(period.start),
+    label: switch (range) {
+      ReportRange.month => formatMonthName(period.start),
+      ReportRange.quarter => 'Q${((period.start.month - 1) ~/ 3) + 1}',
+      ReportRange.year => '${period.start.year}',
+      _ => formatMonthDay(period.start),
+    },
     moneyIn: totals.moneyIn,
     moneyOut: totals.moneyOut,
   );
@@ -214,11 +265,7 @@ List<String> insightsFor(
   final spending = spendingByCategory(current);
   final totals = inAndOut(current);
   final lines = <String>[];
-  final unit = switch (range) {
-    ReportRange.week => 'week',
-    ReportRange.month => 'month',
-    ReportRange.custom => 'stretch',
-  };
+  final unit = range.unit;
 
   if (spending.isEmpty) {
     return totals.moneyIn > 0
@@ -254,13 +301,9 @@ List<String> insightsFor(
       if (change.abs() < 0.10) continue;
 
       final percent = (change.abs() * 100).round();
-      final span = earlier.length < 3
+      final span = earlier.length < 3 || range == ReportRange.custom
           ? 'recent'
-          : switch (range) {
-              ReportRange.week => '3-week',
-              ReportRange.month => '3-month',
-              ReportRange.custom => 'recent',
-            };
+          : '3-${range.unit}';
       lines.add(
         '${entry.key} spending is $percent% ${change > 0 ? 'higher' : 'lower'} '
         'than your $span average.',

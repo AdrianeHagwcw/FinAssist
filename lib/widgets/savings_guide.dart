@@ -142,13 +142,13 @@ const List<SavingsOption> savingsOptions = [
     icon: Icons.lock_clock_outlined,
     summary: 'Leave it for a set time, earn more',
     risk: 'Low risk',
-    access: 'Locked until the term ends',
+    access: 'Locked until the agreed date',
     whatItIs:
-        'Money you agree to leave in a bank for a fixed period, usually for a '
-        'better rate than a regular savings account.',
+        'Money you agree to leave in a bank until a date you choose, '
+        'usually earning more than a regular savings account.',
     howItWorks: [
       'Choose how long to leave it, such as a few months or a year.',
-      'You get your money and the interest when the term ends.',
+      'You get your money and what it earned on the agreed date.',
     ],
     bestFor: ['Money you will not need until a set date'],
     watchOutFor: [

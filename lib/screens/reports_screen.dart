@@ -9,6 +9,7 @@ import '../models/finance_snapshot.dart';
 import '../models/goal.dart';
 import '../models/money_tips.dart';
 import '../models/report.dart';
+import '../models/safe_to_spend.dart';
 import '../models/transaction_filter.dart';
 import '../providers/app_settings_provider.dart';
 import '../services/finance_snapshot_service.dart';
@@ -98,6 +99,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
   ReportRange _range = ReportRange.month;
   late ReportPeriod _period = ReportPeriod.monthOf(_now);
 
+  /// The pay cycle [moment] falls in, read from the user's own pay settings.
+  /// Without them this is the monthly default the rest of the app uses.
+  ReportPeriod _cycleAt(DateTime moment) {
+    final pay = payPeriodFor(
+      _records?.incomeFrequency,
+      lastIncomeAt: _records?.lastIncomeAt,
+      now: moment,
+    );
+    // A pay period's end is the next payday; a report's end is its last day.
+    return ReportPeriod(pay.start, pay.end.subtract(const Duration(days: 1)));
+  }
+
+  /// The stretch of [range] that [moment] falls in.
+  ReportPeriod _periodFor(ReportRange range, DateTime moment) =>
+      switch (range) {
+        ReportRange.cycle => _cycleAt(moment),
+        ReportRange.week => ReportPeriod.weekOf(moment),
+        ReportRange.month => ReportPeriod.monthOf(moment),
+        ReportRange.quarter => ReportPeriod.quarterOf(moment),
+        ReportRange.year => ReportPeriod.yearOf(moment),
+        ReportRange.custom => _period,
+      };
+
   void _selectRange(ReportRange range) async {
     if (range == ReportRange.custom) {
       final picked = await showDateRangePicker(
@@ -120,25 +144,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
     setState(() {
       _range = range;
-      _period = range == ReportRange.week
-          ? ReportPeriod.weekOf(_now)
-          : ReportPeriod.monthOf(_now);
+      _period = _periodFor(range, _now);
     });
   }
 
-  /// Steps to the week or month before or after. Never past the current one.
+  /// Steps to the stretch before or after. Never past the current one.
   void _step(int direction) {
     setState(() {
-      if (direction < 0) {
-        _period = _period.previous(_range);
-      } else {
-        final next = _range == ReportRange.week
-            ? ReportPeriod.weekOf(_period.end.add(const Duration(days: 1)))
-            : ReportPeriod.monthOf(
-                DateTime(_period.start.year, _period.start.month + 1),
-              );
-        _period = next;
-      }
+      _period = direction < 0
+          ? _period.previous(_range)
+          // The day after this one ends always falls in the next stretch,
+          // whatever its length, so one rule covers every range.
+          : _periodFor(_range, _period.end.add(const Duration(days: 1)));
     });
   }
 
@@ -167,7 +184,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   String _trendSubtitle(int count) {
-    final unit = _range == ReportRange.week ? 'week' : 'month';
+    final unit = _range.unit;
     final span = count == 1
         ? 'This $unit, since your records start here'
         : 'The last $count ${unit}s';
@@ -250,20 +267,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
       transactions,
       range: _range,
       end: _period.end.isAfter(_now) ? _now : _period.end,
+      from: _period,
     );
     final insights = insightsFor(transactions, period: _period, range: _range);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
-        SegmentedButton<ReportRange>(
-          segments: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
             for (final range in ReportRange.values)
-              ButtonSegment(value: range, label: Text(range.label)),
+              ChoiceChip(
+                label: Text(range.label),
+                selected: _range == range,
+                onSelected: (_) => _selectRange(range),
+              ),
           ],
-          selected: {_range},
-          showSelectedIcon: false,
-          onSelectionChanged: (selection) => _selectRange(selection.first),
         ),
         const SizedBox(height: 8),
         Row(
@@ -447,8 +468,10 @@ class _SummaryGrid extends StatelessWidget {
               context.appColors.primaryText,
             ),
             const SizedBox(width: 10),
+            // Named for what happened rather than for the arithmetic:
+            // "net change" is the only banking word left on this screen.
             tile(
-              'Net change',
+              net < -0.005 ? 'Short by' : 'Left over',
               net.abs(),
               net < -0.005 ? red : green,
               sign: net < -0.005 ? '-' : '+',

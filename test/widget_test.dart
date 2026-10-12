@@ -7250,6 +7250,46 @@ void main() {
       );
     });
 
+    test('a quarter is the three months its date falls in', () {
+      expect(
+        ReportPeriod.quarterOf(DateTime(2026, 2, 10)),
+        ReportPeriod(DateTime(2026, 1, 1), DateTime(2026, 3, 31)),
+      );
+      expect(
+        ReportPeriod.quarterOf(DateTime(2026, 9, 17)),
+        ReportPeriod(DateTime(2026, 7, 1), DateTime(2026, 9, 30)),
+      );
+      // The last day of a quarter still belongs to it.
+      expect(
+        ReportPeriod.quarterOf(DateTime(2026, 12, 31)),
+        ReportPeriod(DateTime(2026, 10, 1), DateTime(2026, 12, 31)),
+      );
+    });
+
+    test('quarters and years step back across the turn of the year', () {
+      expect(
+        ReportPeriod.quarterOf(
+          DateTime(2026, 2, 10),
+        ).previous(ReportRange.quarter),
+        ReportPeriod(DateTime(2025, 10, 1), DateTime(2025, 12, 31)),
+      );
+      expect(
+        ReportPeriod.yearOf(DateTime(2026, 6, 1)).previous(ReportRange.year),
+        ReportPeriod(DateTime(2025, 1, 1), DateTime(2025, 12, 31)),
+      );
+    });
+
+    test('a pay cycle steps back by its own length', () {
+      // Semi-monthly: the fifteen days before the fifteen being read.
+      expect(
+        ReportPeriod(
+          DateTime(2026, 9, 15),
+          DateTime(2026, 9, 29),
+        ).previous(ReportRange.cycle),
+        ReportPeriod(DateTime(2026, 8, 31), DateTime(2026, 9, 14)),
+      );
+    });
+
     test('the summary leaves out borrowing, lending and transfers', () {
       final september = ReportPeriod.monthOf(DateTime(2026, 9, 17));
       final day = DateTime(2026, 9, 10);
@@ -7698,6 +7738,109 @@ void main() {
       expect(opened?.type, TransactionType.expense);
       expect(opened?.from, DateTime(2026, 9, 1));
       expect(opened?.to, DateTime(2026, 9, 30));
+    });
+
+    testWidgets('money left over is called that, not a net change', (
+      tester,
+    ) async {
+      await pumpReports(tester);
+
+      expect(find.text('Left over'), findsOneWidget);
+      expect(find.text('Net change'), findsNothing);
+    });
+
+    testWidgets('spending past what came in reads as short, not left over', (
+      tester,
+    ) async {
+      await pumpReports(
+        tester,
+        list: [
+          AppTransaction(
+            id: 'a',
+            type: TransactionType.income,
+            amount: 1000,
+            label: 'Allowance',
+            date: day,
+            walletId: 'cash',
+          ),
+          AppTransaction(
+            id: 'b',
+            type: TransactionType.expense,
+            amount: 2500,
+            label: 'Food',
+            date: day,
+            walletId: 'cash',
+          ),
+        ],
+      );
+
+      expect(find.text('Short by'), findsOneWidget);
+      expect(find.text('Left over'), findsNothing);
+    });
+
+    testWidgets('a quarter covers three months and steps back as one', (
+      tester,
+    ) async {
+      await pumpReports(tester);
+
+      await tester.tap(find.text('Quarter'));
+      await tester.pump();
+      expect(find.text('Jul 1 – Sep 30, 2026'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Earlier'));
+      await tester.pump();
+      expect(find.text('Apr 1 – Jun 30, 2026'), findsOneWidget);
+    });
+
+    testWidgets('a year covers the calendar year', (tester) async {
+      await pumpReports(tester);
+
+      await tester.tap(find.text('Year'));
+      await tester.pump();
+      expect(find.text('Jan 1 – Dec 31, 2026'), findsOneWidget);
+    });
+
+    testWidgets('the pay cycle follows the user, not the calendar', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: ReportsScreen(
+              transactions: Stream.value(transactions),
+              contributions: Stream.value(const []),
+              records: Stream.value(
+                FinanceSnapshot(
+                  now: DateTime(2026, 9, 17),
+                  transactions: transactions,
+                  incomeFrequency: 'Semi-monthly',
+                  lastIncomeAt: DateTime(2026, 9, 15),
+                ),
+              ),
+              today: DateTime(2026, 9, 17),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.text('Pay cycle'));
+      await tester.pump();
+
+      // Paid on the 15th, so the stretch runs from payday, not from the 1st.
+      expect(find.text('Sep 15 – Sep 29, 2026'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Earlier'));
+      await tester.pump();
+      expect(find.text('Aug 31 – Sep 14, 2026'), findsOneWidget);
     });
 
     testWidgets('switches to this week and steps back a week', (tester) async {

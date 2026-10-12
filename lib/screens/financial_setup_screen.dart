@@ -1185,7 +1185,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
                 ],
                 if (account.maturityDate != null)
                   Text(
-                    'Matures ${formatShortDate(account.maturityDate!)}',
+                    'Can be taken out '
+                    '${formatShortDate(account.maturityDate!)}',
                     style: TextStyle(fontSize: 12, color: colors.textBody),
                   ),
                 if (promised > 0)
@@ -2218,7 +2219,7 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
       initialDate: _maturityDate ?? DateTime(today.year, today.month + 6, today.day),
       firstDate: today,
       lastDate: DateTime(today.year + 20),
-      helpText: 'When does it mature?',
+      helpText: 'When can you take it out?',
     );
     if (picked != null) setState(() => _maturityDate = picked);
   }
@@ -2362,7 +2363,7 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
                   child: InputDecorator(
                     decoration: _inputDecoration(
                       context,
-                      'Maturity date (optional)',
+                      'Date you can take it out (optional)',
                     ),
                     child: Text(
                       _maturityDate == null

@@ -181,7 +181,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
                 ),
               ),
               Text(
-                '${widget.wallet.name} matured',
+                '${widget.wallet.name} is ready to take out',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,

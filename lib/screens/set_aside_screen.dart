@@ -173,7 +173,8 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                       ),
                       if (wallet.maturityDate != null)
                         Text(
-                          'Due ${formatShortDate(wallet.maturityDate!)}',
+                          'Can be taken out '
+                          '${formatShortDate(wallet.maturityDate!)}',
                           style: TextStyle(
                             fontSize: 12,
                             color: colors.textBody,
