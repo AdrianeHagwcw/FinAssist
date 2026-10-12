@@ -330,7 +330,14 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               _SectionTitle('What it is for'),
               const SizedBox(height: 10),
               for (final goal in goals) ...[
-                _GoalRow(goal: goal),
+                _GoalRow(
+                  goal: goal,
+                  inSavings: totalSetAsideInPurposeWallets(
+                    [goal],
+                    wallets,
+                    WalletPurpose.savings,
+                  ),
+                ),
                 const SizedBox(height: 10),
               ],
               _ManageGoalsButton(
@@ -556,9 +563,14 @@ class _SectionTitle extends StatelessWidget {
 
 /// One goal the savings are going towards.
 class _GoalRow extends StatelessWidget {
-  const _GoalRow({required this.goal});
+  const _GoalRow({required this.goal, required this.inSavings});
 
   final Goal goal;
+
+  /// The part of this goal's money that is held in savings. A goal can also
+  /// be funded from a spending wallet, and that part is not in the total
+  /// above, so the difference is named rather than left to puzzle over.
+  final double inSavings;
 
   @override
   Widget build(BuildContext context) {
@@ -614,6 +626,13 @@ class _GoalRow extends StatelessWidget {
             'of ${formatPeso(goal.targetAmount)} target',
             style: TextStyle(fontSize: 12, color: colors.textBody),
           ),
+          if (goal.savedAmount - inSavings > 0.005) ...[
+            const SizedBox(height: 4),
+            Text(
+              '${formatPeso(inSavings)} of this is in your savings',
+              style: TextStyle(fontSize: 12, color: colors.primaryText),
+            ),
+          ],
         ],
       ),
     );

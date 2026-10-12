@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/goal.dart';
@@ -303,6 +305,7 @@ class GoalFormSheet extends StatefulWidget {
     this.initialTarget,
     this.initialDate,
     this.wallets,
+    this.goals,
     this.today,
     this.allowAlreadySaved = true,
     this.onSave,
@@ -323,6 +326,10 @@ class GoalFormSheet extends StatefulWidget {
 
   /// Replaces the live wallet list. Used by tests.
   final Stream<List<Wallet>>? wallets;
+
+  /// Replaces the live goals, read to see what they already claim. Used by
+  /// tests.
+  final Stream<List<Goal>>? goals;
   final DateTime? today;
   final bool allowAlreadySaved;
 
@@ -339,6 +346,17 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
 
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
+
+  StreamSubscription<List<Goal>>? _goalsSub;
+  List<Goal> _goals = const [];
+
+  /// Only an amount already saved has to be checked against the goals, so
+  /// nothing else pays the cost of reading them.
+  bool get _needsGoals => widget.allowAlreadySaved && !_isEditing;
+
+  /// The savings record the money already saved came out of. Null until the
+  /// user picks one, and then the first record is used.
+  String? _savedWalletId;
 
   late final _nameController = TextEditingController(
     text: _existing?.name ?? widget.initialName ?? '',
@@ -388,12 +406,30 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     ]) {
       controller.addListener(_refresh);
     }
+    if (_needsGoals) {
+      final stream = widget.goals ?? GoalService.watchGoals();
+      _goalsSub = stream.listen((goals) {
+        if (mounted) setState(() => _goals = goals);
+      });
+    }
   }
 
   void _refresh() => setState(() {});
 
+  /// The savings record the money already saved is taken from: the one
+  /// chosen, or the first when nothing is chosen yet.
+  Wallet? _recordFor(List<Wallet> wallets) {
+    final records = promisableSavingsRecords(wallets);
+    if (records.isEmpty) return null;
+    return records.firstWhere(
+      (wallet) => wallet.id == _savedWalletId,
+      orElse: () => records.first,
+    );
+  }
+
   @override
   void dispose() {
+    _goalsSub?.cancel();
     for (final controller in [
       _nameController,
       _targetController,
@@ -480,21 +516,21 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     final saved = _isEditing || !widget.allowAlreadySaved
         ? 0.0
         : _number(_savedController);
-    final savingsWallet = WalletService.walletFor(
-      wallets,
-      WalletPurpose.savings,
-    );
-    final walletId = savingsWallet?.id;
+    final record = _recordFor(wallets);
+    final walletId = record?.id;
+    final free = record == null ? 0.0 : freeInWallet(record, _goals);
 
     final String? problem;
     if (name.isEmpty) {
       problem = 'Give the goal a name.';
     } else if (target <= 0) {
       problem = 'Enter how much you want to save.';
-    } else if (saved > 0 && walletId == null) {
+    } else if (saved > 0 && record == null) {
       problem = 'Add a Savings wallet before recording money already saved.';
-    } else if (saved > (savingsWallet?.balance ?? 0) + 0.005) {
-      problem = 'Your Savings wallet does not hold that much yet.';
+    } else if (saved > free + 0.005) {
+      problem = free <= 0
+          ? '${record!.name} has nothing left to promise.'
+          : '${record!.name} has ${formatPeso(free)} left to promise.';
     } else {
       problem = null;
     }
@@ -692,6 +728,17 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     ),
                     if (!_isEditing && widget.allowAlreadySaved) ...[
                       const SizedBox(height: 16),
+                      if (promisableSavingsRecords(wallets).length > 1) ...[
+                        WalletPicker(
+                          wallets: promisableSavingsRecords(wallets),
+                          selectedId: _recordFor(wallets)?.id,
+                          label: 'Where it is saved',
+                          allowed: const {WalletPurpose.savings},
+                          onChanged: (id) =>
+                              setState(() => _savedWalletId = id),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       TextField(
                         controller: _savedController,
                         keyboardType: const TextInputType.numberWithOptions(
@@ -732,7 +779,11 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                         helper: 'Leave blank to follow the target date.',
                       ).copyWith(prefixText: '₱ ', hintText: 'e.g. 1500'),
                     ),
-                    if (savingsWallet != null) ...[
+                    // Only when the money has no say in where it sits:
+                    // picking the record is done beside Already saved, and
+                    // showing it twice would let the two disagree.
+                    if (savingsWallet != null &&
+                        promisableSavingsRecords(wallets).length < 2) ...[
                       sectionTitle('Wallet'),
                       WalletPicker(
                         wallets: [savingsWallet],

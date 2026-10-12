@@ -288,6 +288,40 @@ double totalSetAsideInPurposeWallets(
   });
 }
 
+/// What the goals already hold inside one wallet.
+///
+/// Goal money is tracked per wallet, so asking per wallet is the only way to
+/// know how much of one savings record is still free to promise. A goal
+/// saved before the per-wallet map existed counts against the single wallet
+/// it was recorded under.
+double goalMoneyInWallet(Iterable<Goal> goals, String walletId) {
+  return goals.fold<double>(0, (total, goal) {
+    if (goal.status == GoalStatus.used) return total;
+    if (goal.savedByWallet.isNotEmpty) {
+      return total + (goal.savedByWallet[walletId] ?? 0);
+    }
+    return goal.walletId == walletId ? total + goal.shownSaved : total;
+  });
+}
+
+/// The savings records a goal can be funded from: money the user can
+/// actually draw on today. A time deposit or government savings is left out,
+/// because promising money that cannot be touched would be a promise the
+/// user cannot keep.
+List<Wallet> promisableSavingsRecords(Iterable<Wallet> wallets) => [
+  for (final wallet in wallets)
+    if (!wallet.archived &&
+        wallet.purpose == WalletPurpose.savings &&
+        !wallet.isLockedSavings)
+      wallet,
+];
+
+/// What is left in [wallet] once the goals' claims on it are taken off.
+double freeInWallet(Wallet wallet, Iterable<Goal> goals) =>
+    (wallet.balance - goalMoneyInWallet(goals, wallet.id))
+        .clamp(0.0, double.infinity)
+        .toDouble();
+
 /// When the goal will be reached at the pace the user has been saving, or
 /// null when there isn't enough history to say.
 ///

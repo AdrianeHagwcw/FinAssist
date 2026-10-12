@@ -7067,6 +7067,68 @@ void main() {
       purpose: WalletPurpose.savings,
     );
 
+    testWidgets('already saved is capped by what the record still has free', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      GoalDraft? saved;
+
+      // ₱5,000 in the record, ₱4,000 of it already promised to another
+      // goal, so only ₱1,000 is left to promise to this one.
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFormSheet(
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value([cash, savings]),
+              goals: Stream.value(const [
+                Goal(
+                  id: 'other',
+                  name: 'Tuition',
+                  targetAmount: 20000,
+                  savedAmount: 4000,
+                  priority: 0,
+                  status: GoalStatus.active,
+                  savedByWallet: {'savings': 4000},
+                ),
+              ]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField).first, 'New phone');
+      await tester.enterText(find.byType(TextField).at(1), '10000');
+      await tester.tap(find.text('More options (optional)'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).at(2), '2500');
+      await tester.tap(find.text('Save Goal'));
+      await tester.pump();
+
+      // The old check read the whole ₱5,000 balance and would have let this
+      // through, promising pesos another goal already holds.
+      expect(saved, isNull);
+      expect(
+        find.textContaining('₱1,000 left to promise'),
+        findsOneWidget,
+      );
+
+      await tester.enterText(find.byType(TextField).at(2), '1000');
+      await tester.tap(find.text('Save Goal'));
+      await tester.pump();
+
+      expect(saved?.alreadySaved, 1000);
+      expect(saved?.walletId, 'savings');
+    });
+
     testWidgets('shows what to save and records money already saved', (
       tester,
     ) async {
@@ -7086,6 +7148,7 @@ void main() {
               initialKind: GoalKind.emergencyFund,
               today: DateTime(2026, 3, 10),
               wallets: Stream.value([cash, savings]),
+              goals: Stream.value(const []),
               onSave: (draft) => saved = draft,
             ),
           ),
