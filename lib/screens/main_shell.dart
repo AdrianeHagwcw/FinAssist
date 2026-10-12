@@ -430,7 +430,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 iconAsset: 'assets/icons/icons8-calendar-96.png',
                 label: 'Bills',
                 selected: _currentIndex == _billsIndex,
-                onTap: () => _selectTab(_billsIndex),
+                // Resets the side as well: without the old toggle, someone
+                // left on Debts would have no way back to the bills.
+                onTap: _openBills,
               ),
               _NavItem(
                 iconAsset: 'assets/icons/icons8-wallet-96.png',

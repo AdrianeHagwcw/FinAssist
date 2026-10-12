@@ -273,12 +273,12 @@ void main() {
         expect(find.text('August salary'), findsOneWidget);
         expect(find.text('Pending'), findsOneWidget);
         await capture(tester, dark ? 'history-dark' : 'history-light');
-        await scrollTo(tester, find.text('Review leftover'));
+        await scrollTo(tester, find.text('Decide what is left'));
         await capture(
           tester,
           dark ? 'history-review-dark' : 'history-review-light',
         );
-        await tester.tap(find.text('Review leftover'));
+        await tester.tap(find.text('Decide what is left'));
         expect(reviewed?.id, old.id);
         expect(amount, 8800);
         expect(tester.takeException(), isNull);
@@ -302,7 +302,7 @@ void main() {
       settings: settings,
     );
     expect(find.text('Done'), findsOneWidget);
-    expect(find.text('Review leftover'), findsNothing);
+    expect(find.text('Decide what is left'), findsNothing);
     expect(find.text(formatPeso(18000)), findsNothing);
     settings.toggleAmountsMasked();
     await tester.pumpAndSettle();
@@ -632,7 +632,7 @@ void main() {
       width: 320,
       textScale: 1.5,
     );
-    await tester.scrollUntilVisible(find.text('Review leftover'), 250);
+    await tester.scrollUntilVisible(find.text('Decide what is left'), 250);
     expect(tester.takeException(), isNull);
   });
 }

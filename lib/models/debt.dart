@@ -36,6 +36,8 @@ enum DebtCategory {
 /// How often an installment is paid. Kept to what installments actually use.
 enum PaymentFrequency {
   monthly('Every month', BillRecurrence.monthly),
+  semiMonthly('Twice a month', BillRecurrence.semiMonthly),
+  fortnightly('Every 2 weeks', BillRecurrence.fortnightly),
   weekly('Every week', BillRecurrence.weekly);
 
   const PaymentFrequency(this.label, this.recurrence);

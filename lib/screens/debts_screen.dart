@@ -136,7 +136,7 @@ class _DebtsViewState extends State<DebtsView> {
                   iconAsset: 'assets/icons/icons8-money-box-96.png',
                   title: 'Nothing to pay off',
                   message:
-                      'Add an installment or loan, and its payments show up '
+                      'Add an installment and its payments show up '
                       'in your Bill Planner so you never miss one.',
                 ),
               )
@@ -165,7 +165,7 @@ class _DebtsViewState extends State<DebtsView> {
                 style: openButtonStyle(),
                 icon: const Icon(Icons.add),
                 label: const Text(
-                  'Add loan or installment',
+                  'Add installment',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),

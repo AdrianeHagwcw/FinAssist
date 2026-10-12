@@ -128,6 +128,10 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   // Lent money almost always leaves a wallet, so that starts on. An
   // installment is often a gadget bought on credit, where no cash arrives.
   bool _movedMoney = false;
+
+  /// Everything a plan does not need is folded away until asked for. The
+  /// form was a wall of fields and explanations before anything was typed.
+  bool _showMore = false;
   String? _movedWalletId;
   String? _error;
 
@@ -240,7 +244,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     final name = _nameController.text.trim();
     final principal = _number(_principalController);
     final perPayment = _number(_perPaymentController);
-    final movedWallet = _movedMoney
+    final movedWallet = _movedMoney && !_iOwe
         ? (_movedWalletId ?? defaultWalletId(wallets))
         : null;
 
@@ -304,7 +308,6 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         frequency: draft.frequency,
         firstDueDate: draft.firstDueDate!,
         payFromWalletId: draft.payFromWalletId,
-        receivedIntoWalletId: draft.movedWalletId,
         note: draft.note,
       );
     } else {
@@ -360,7 +363,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Add loan or installment',
+                    'Add installment',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -386,30 +389,14 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                           floatingLabelBehavior: FloatingLabelBehavior.always,
                         ),
                   ),
-                  if (_iOwe) ...[
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<DebtCategory>(
-                      initialValue: _category,
-                      isExpanded: true,
-                      decoration: dialogFieldDecoration(context, 'Kind'),
-                      items: [
-                        for (final category in DebtCategory.values)
-                          DropdownMenuItem(
-                            value: category,
-                            child: Text(category.label),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _category = value ?? _category),
-                    ),
-                  ],
                   const SizedBox(height: 16),
                   AmountField(
                     controller: _principalController,
                     label: _iOwe ? 'Amount borrowed' : 'Amount',
                     hint: _iOwe ? 'e.g. 12,000' : 'e.g. 500',
                     helper: _iOwe
-                        ? 'The price or loan amount, before any interest.'
+                        ? 'The price, or what you borrowed. Not counting '
+                              'what the store or lender adds on top.'
                         : null,
                     alwaysShowHint: true,
                     autofocus: false,
@@ -417,7 +404,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                   if (_iOwe) ...[
                     const SizedBox(height: 14),
                     const _ContractGuide(),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -431,8 +418,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             decoration:
                                 dialogFieldDecoration(
                                   context,
-                                  'Each payment',
-                                  helper: 'Every month or week',
+                                  'How much each time',
+                                  helper: 'One payment, not the total',
                                 ).copyWith(
                                   // The peso sign waits for the first digit,
                                   // so the example isn't taken for an amount.
@@ -454,9 +441,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             decoration:
                                 dialogFieldDecoration(
                                   context,
-                                  'Payments',
+                                  'How many times',
                                   hint: 'e.g. 12',
-                                  helper: 'Blank = auto',
+                                  helper: 'Leave blank',
                                 ).copyWith(
                                   floatingLabelBehavior:
                                       FloatingLabelBehavior.always,
@@ -464,28 +451,6 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _lastController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration:
-                          dialogFieldDecoration(
-                            context,
-                            'Last payment (optional)',
-                            helper:
-                                "Only if your contract's last payment is "
-                                'different. Example: a ₱10,000 installment '
-                                'paid as ₱3,000 × 3 months, then ₱1,000 on '
-                                'the 4th month → type 1,000. Leave it blank '
-                                'when all payments are the same.',
-                          ).copyWith(
-                            prefixText: '₱ ',
-                            hintText: 'Same as the rest',
-                            helperMaxLines: 4,
-                          ),
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<PaymentFrequency>(
@@ -511,7 +476,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                       decoration: dialogFieldDecoration(
                         context,
                         _iOwe
-                            ? 'First payment due'
+                            ? 'When is the first payment'
                             : 'When they will pay back (optional)',
                       ),
                       child: Row(
@@ -540,56 +505,116 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                       ),
                     ),
                   ),
-                  if (wallets.isNotEmpty) ...[
-                    if (_iOwe) ...[
-                      const SizedBox(height: 16),
-                      WalletPicker(
-                        wallets: wallets,
-                        selectedId:
-                            _payFromWalletId ?? defaultWalletId(wallets),
-                        label: 'Usually paid from',
-                        onChanged: (value) =>
-                            setState(() => _payFromWalletId = value),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      value: _movedMoney,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        _iOwe
-                            ? 'I received this money in a wallet'
-                            : 'It came out of one of my wallets',
-                      ),
-                      subtitle: Text(
-                        _iOwe
-                            ? 'For a cash loan. Leave off for a gadget bought '
-                                  'on installment.'
-                            : 'The wallet goes down now, and back up when '
-                                  'you are paid back. Turn off for money lent '
-                                  'before you used FinAssist.',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      onChanged: (value) => setState(() => _movedMoney = value),
+                  if (_iOwe) ...[
+                    const SizedBox(height: 14),
+                    const DialogNote(
+                      text: 'This only writes down the plan. Your money does '
+                          'not move until you pay.',
                     ),
-                    if (_movedMoney)
-                      WalletPicker(
-                        wallets: wallets,
-                        selectedId: _movedWalletId ?? defaultWalletId(wallets),
-                        label: _iOwe ? 'Received into' : 'Taken from',
-                        onChanged: (value) =>
-                            setState(() => _movedWalletId = value),
-                      ),
                   ],
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _noteController,
-                    maxLength: 80,
-                    decoration: dialogFieldDecoration(
-                      context,
-                      'Notes (optional)',
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => setState(() => _showMore = !_showMore),
+                      style: TextButton.styleFrom(
+                        foregroundColor: colors.primaryText,
+                        padding: EdgeInsets.zero,
+                      ),
+                      icon: Icon(
+                        _showMore ? Icons.expand_less : Icons.expand_more,
+                      ),
+                      label: Text(
+                        _showMore ? 'Fewer options' : 'More options (optional)',
+                      ),
                     ),
                   ),
+                  if (_showMore) ...[
+                    if (_iOwe) ...[
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<DebtCategory>(
+                        initialValue: _category,
+                        isExpanded: true,
+                        decoration: dialogFieldDecoration(context, 'Kind'),
+                        items: [
+                          for (final category in DebtCategory.values)
+                            DropdownMenuItem(
+                              value: category,
+                              child: Text(category.label),
+                            ),
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _category = value ?? _category),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _lastController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration:
+                            dialogFieldDecoration(
+                              context,
+                              'Last payment (optional)',
+                              helper:
+                                  "Only if your contract's last payment is "
+                                  'different, such as ₱3,000 three times then '
+                                  '₱1,000.',
+                            ).copyWith(
+                              prefixText: '₱ ',
+                              hintText: 'Same as the rest',
+                              helperMaxLines: 3,
+                            ),
+                      ),
+                    ],
+                    if (wallets.isNotEmpty) ...[
+                      if (_iOwe) ...[
+                        const SizedBox(height: 16),
+                        WalletPicker(
+                          wallets: wallets,
+                          selectedId:
+                              _payFromWalletId ?? defaultWalletId(wallets),
+                          label: 'Usually paid from',
+                          onChanged: (value) =>
+                              setState(() => _payFromWalletId = value),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      if (!_iOwe) ...[
+                      SwitchListTile(
+                        value: _movedMoney,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('It came out of one of my wallets'),
+                        subtitle: const Text(
+                          'The wallet goes down now, and back up when you are '
+                          'paid back. Turn off for money lent before you used '
+                          'FinAssist.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        onChanged: (value) =>
+                            setState(() => _movedMoney = value),
+                      ),
+                      if (_movedMoney)
+                        WalletPicker(
+                          wallets: wallets,
+                          selectedId:
+                              _movedWalletId ?? defaultWalletId(wallets),
+                          label: 'Taken from',
+                          onChanged: (value) =>
+                              setState(() => _movedWalletId = value),
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _noteController,
+                      maxLength: 80,
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'Notes (optional)',
+                      ),
+                    ),
+                  ],
                   if (_error != null) ...[
                     Text(
                       _error!,
@@ -648,10 +673,8 @@ class _ContractGuide extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Copy these from your contract. "₱1,500 a month for 12 months" '
-              'means Each payment 1,500 and Payments 12. No set number of '
-              'payments? Leave Payments blank to pay back just what you '
-              'borrowed.',
+              'Copy these from your receipt or contract. "₱1,500 a month '
+              'for 12 months" is 1,500 and 12 times.',
               style: TextStyle(
                 fontSize: 12.5,
                 height: 1.35,
@@ -722,7 +745,7 @@ class _SummaryCard extends StatelessWidget {
                 ready ? formatPeso(debt.perPayment) : '—',
               ),
               figure(
-                'Payments',
+                'Times',
                 debt.paymentCount > 0 ? '${debt.paymentCount}' : '—',
               ),
             ],
@@ -730,8 +753,8 @@ class _SummaryCard extends StatelessWidget {
           if (ready && debt.paymentCount > 0) ...[
             const SizedBox(height: 12),
             Text(
-              'Total you will pay: ${formatPeso(debt.totalPayable)}'
-              '${debt.extraCost > 0 ? ' · ${formatPeso(debt.extraCost)} more than you borrowed' : ''}',
+              'You will pay ${formatPeso(debt.totalPayable)} in total'
+              '${debt.extraCost > 0 ? ', which is ${formatPeso(debt.extraCost)} more than you borrowed' : ''}',
               style: const TextStyle(color: Colors.white, fontSize: 13),
             ),
             if (last != null) ...[

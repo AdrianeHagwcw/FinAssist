@@ -50,10 +50,11 @@ class DebtService {
 
   /// Saves an installment or loan the user is paying back.
   ///
-  /// The terms, the payment schedule in the Bill Planner, and (when
-  /// [receivedIntoWalletId] is given) the borrowed money arriving in a wallet
-  /// all go in one batch. The schedule ends on the last payment's date, so it
-  /// never asks for a thirteenth payment on a twelve-month plan.
+  /// The terms and the payment schedule in the Bill Planner go in one batch,
+  /// and nothing else: a plan is not a payment, so no wallet moves until a
+  /// payment is actually recorded. Cash handed over for a loan is income the
+  /// user records on its own. The schedule ends on the last payment's date,
+  /// so it never asks for a thirteenth payment on a twelve-month plan.
   static String addInstallment({
     required String name,
     required DebtCategory category,
@@ -64,7 +65,6 @@ class DebtService {
     required DateTime firstDueDate,
     double lastPayment = 0,
     String? payFromWalletId,
-    String? receivedIntoWalletId,
     String? note,
   }) {
     final batch = _firestore.batch();
@@ -115,18 +115,6 @@ class DebtService {
       debtId: debt.id,
       lastAmount: terms.hasDifferentLastPayment ? terms.finalPayment : null,
     );
-
-    if (receivedIntoWalletId != null && principal > 0) {
-      WalletService.addTransactionToBatch(
-        batch,
-        type: TransactionType.income,
-        amount: principal,
-        label: 'Borrowed',
-        walletId: receivedIntoWalletId,
-        note: name,
-        debtId: debt.id,
-      );
-    }
 
     commitFirestoreWrite(batch.commit(), 'add installment');
     return debt.id;

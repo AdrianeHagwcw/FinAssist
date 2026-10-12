@@ -4,6 +4,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 enum BillRecurrence {
   once('One time', 'Happens once, on the due date.'),
   weekly('Every week', 'Falls due on the same weekday each week.'),
+  fortnightly(
+    'Every 2 weeks',
+    'Falls due every second week, on the same '
+        'weekday. Buy now pay later usually works this way.',
+  ),
+  semiMonthly(
+    'Twice a month',
+    'Falls due twice each month, fifteen days '
+        'apart. Pay deducted on the 15th and the 30th works this way.',
+  ),
   monthly('Every month', 'Falls due on the same date each month.'),
   quarterly('Every 3 months', 'Falls due every third month.'),
   yearly('Every year', 'Falls due once a year, on the same date.');
@@ -143,7 +153,13 @@ class Bill {
         return first.year == year && first.month == month ? [first] : const [];
 
       case BillRecurrence.weekly:
-        return _weeklyOccurrences(first, monthStart, monthEnd);
+        return _everyNDays(first, monthStart, monthEnd, 7);
+
+      case BillRecurrence.fortnightly:
+        return _everyNDays(first, monthStart, monthEnd, 14);
+
+      case BillRecurrence.semiMonthly:
+        return _twiceAMonth(first, year, month);
 
       case BillRecurrence.monthly:
         return _repeatEveryMonths(first, year, month, 1);
@@ -156,27 +172,50 @@ class Bill {
     }
   }
 
-  static List<DateTime> _weeklyOccurrences(
+  static List<DateTime> _everyNDays(
     DateTime first,
     DateTime monthStart,
     DateTime monthEnd,
+    int step,
   ) {
     if (!first.isBefore(monthEnd)) return const [];
 
     // Jumps straight to the first occurrence in the month instead of stepping
-    // week by week from a start date that may be years back.
+    // along from a start date that may be years back.
     final daysUntilMonth = monthStart.difference(first).inDays;
-    final weeksToSkip = daysUntilMonth <= 0 ? 0 : (daysUntilMonth + 6) ~/ 7;
+    final toSkip = daysUntilMonth <= 0
+        ? 0
+        : (daysUntilMonth + step - 1) ~/ step;
 
     final dates = <DateTime>[];
-    var date = first.add(Duration(days: 7 * weeksToSkip));
+    var date = first.add(Duration(days: step * toSkip));
 
     while (date.isBefore(monthEnd)) {
       dates.add(date);
-      date = date.add(const Duration(days: 7));
+      date = date.add(Duration(days: step));
     }
 
     return dates;
+  }
+
+  /// Twice a month: the day it started on, and fifteen days later. A pay
+  /// deducted on the 15th and the 30th lands on both.
+  static List<DateTime> _twiceAMonth(DateTime first, int year, int month) {
+    if (year < first.year || (year == first.year && month < first.month)) {
+      return const [];
+    }
+
+    final dates = [
+      _clampDay(year, month, first.day),
+      _clampDay(year, month, first.day + 15),
+    ];
+    // The second can land on the same day as the first in a short month.
+    final unique = <DateTime>[];
+    for (final date in dates) {
+      if (date.isBefore(first) || unique.contains(date)) continue;
+      unique.add(date);
+    }
+    return unique;
   }
 
   static List<DateTime> _repeatEveryMonths(
@@ -356,6 +395,14 @@ DateTime lastDueDateFor(
       return first;
     case BillRecurrence.weekly:
       return DateTime(first.year, first.month, first.day + 7 * steps);
+    case BillRecurrence.fortnightly:
+      return DateTime(first.year, first.month, first.day + 14 * steps);
+    case BillRecurrence.semiMonthly:
+      // Two to a month, so every second step is a whole month on.
+      final moved = _addMonths(first, steps ~/ 2);
+      return steps.isEven
+          ? moved
+          : DateTime(moved.year, moved.month, moved.day + 15);
     case BillRecurrence.monthly:
       return _addMonths(first, steps);
     case BillRecurrence.quarterly:

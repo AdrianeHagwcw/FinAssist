@@ -102,6 +102,8 @@ class AmountField extends StatelessWidget {
           .copyWith(
             prefixText: alwaysShowHint && controller.text.isEmpty ? null : '₱ ',
             hintText: hint,
+            // Wraps rather than trailing off, so the sentence can be read.
+            helperMaxLines: 3,
             floatingLabelBehavior: alwaysShowHint
                 ? FloatingLabelBehavior.always
                 : null,

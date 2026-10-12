@@ -70,7 +70,9 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
   late DateTime? _selectedDay = _today;
 
   bool _showAsList = false;
-  late bool _showDebts = widget.initialShowDebts;
+  /// Set once when the screen opens. Which side you are on is decided by
+  /// how you got here, not by a control on the screen.
+  late final bool _showDebts = widget.initialShowDebts;
 
   /// Months already filled in, so scrolling back and forth doesn't ask
   /// Firestore to do the same work over and over.
@@ -147,35 +149,9 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
                 ),
               ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-            child: SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(
-                    value: false,
-                    icon: Icon(Icons.receipt_long_outlined),
-                    label: Text('Bills'),
-                  ),
-                  ButtonSegment(
-                    value: true,
-                    icon: Icon(Icons.account_balance_outlined),
-                    label: Text('Debts'),
-                  ),
-                ],
-                selected: {_showDebts},
-                showSelectedIcon: false,
-                onSelectionChanged: (value) =>
-                    setState(() => _showDebts = value.first),
-              ),
-            ),
-          ),
-          Expanded(child: _showDebts ? const DebtsView() : _buildBills()),
-        ],
-      ),
+      // No toggle: Quick Actions already opens Bill Planner and Debts
+      // separately, and the title says which one you are on.
+      body: _showDebts ? const DebtsView() : _buildBills(),
       floatingActionButton: _showDebts
           ? null
           : FloatingActionButton.extended(

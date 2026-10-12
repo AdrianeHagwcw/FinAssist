@@ -78,7 +78,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 iconAsset: 'assets/icons/icons8-calendar-96.png',
                 title: 'Your story starts with income',
                 message:
-                    'Use + to add income and plan it. Each pay cycle will appear here with its allocations and leftover decision.',
+                    'Use + to add income and plan it. Every pay you log shows up here: what came in, where it went, and what was left at the end.',
               );
             }
             final frequency = profile.data?['incomeFrequency'] as String?;
@@ -108,7 +108,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         icon: Icons.history,
                         title: 'Every payday, a clearer picture',
                         message: pending == 0
-                            ? 'Your income plans and decisions, together in one place.'
+                            ? 'Every pay you log: what came in, where it went, and what was left.'
                             : '$pending ${pending == 1 ? 'cycle is' : 'cycles are'} waiting for a leftover decision.',
                       ),
                       const SizedBox(height: 16),
@@ -131,7 +131,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Newest first · Amounts reflect the original income plan',
+                        'Newest first · Amounts are from the plan you made on payday',
                         style: TextStyle(
                           fontSize: 12,
                           color: context.appColors.textBody,
@@ -288,27 +288,30 @@ class _CycleCard extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
-                      'Older cycle · period based on your current income frequency',
+                      'An older pay · dates worked out from how often you are paid now',
                       style: TextStyle(color: colors.textBody, fontSize: 12),
                     ),
                   ),
                 const SizedBox(height: 18),
-                _line(context, 'Income received', cycle.income, strong: true),
-                _line(context, 'Allocated to bills', cycle.toBills),
+                _line(
+                  context,
+                  'Money that came in',
+                  cycle.income,
+                  strong: true,
+                ),
+                _line(context, 'Set aside for bills', cycle.toBills),
                 _line(
                   context,
                   cycle.goalName == null
-                      ? 'Set aside for goals'
-                      : 'Goal · ${cycle.goalName}',
+                      ? 'Saved for goals'
+                      : 'Saved for ${cycle.goalName}',
                   cycle.toGoal,
                 ),
                 const Divider(height: 24),
-                _line(context, 'After allocations', cycle.remaining),
+                _line(context, 'Left to spend', cycle.remaining),
                 _line(
                   context,
-                  cycle.isResolved
-                      ? 'Leftover reviewed'
-                      : 'Left after spending',
+                  cycle.isResolved ? 'What was left' : 'Still left now',
                   leftover,
                   strong: true,
                 ),
@@ -316,7 +319,7 @@ class _CycleCard extends StatelessWidget {
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Text(
-                      'This period is still open. Review becomes available on its last day.',
+                      'This pay is still running. On its last day you can decide what to do with whatever is left.',
                       style: TextStyle(fontSize: 12),
                     ),
                   ),
@@ -324,7 +327,7 @@ class _CycleCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     status == CycleStatus.declined
-                        ? 'Saving declined · kept available for spending'
+                        ? 'Chose not to save it · kept for spending'
                         : cycle.decision!.label,
                     style: TextStyle(color: colors.textBody, fontSize: 13),
                   ),
@@ -348,7 +351,7 @@ class _CycleCard extends StatelessWidget {
                       ),
                       onPressed: onReview,
                       icon: const Icon(Icons.arrow_forward, size: 18),
-                      label: const Text('Review leftover'),
+                      label: const Text('Decide what is left'),
                     ),
                   ),
                 ],

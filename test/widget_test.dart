@@ -3176,6 +3176,52 @@ void main() {
       );
     }
 
+    test('every 2 weeks falls due fortnightly, not twice a month', () {
+      final plan = bill(
+        firstDueDate: DateTime(2026, 3, 5),
+        recurrence: BillRecurrence.fortnightly,
+      );
+
+      // 14 days apart, so a long month holds three and the next starts
+      // wherever the last one left off.
+      expect(plan.occurrencesIn(2026, 3), [
+        DateTime(2026, 3, 5),
+        DateTime(2026, 3, 19),
+      ]);
+      expect(plan.occurrencesIn(2026, 4), [
+        DateTime(2026, 4, 2),
+        DateTime(2026, 4, 16),
+        DateTime(2026, 4, 30),
+      ]);
+      // Nothing before it starts.
+      expect(plan.occurrencesIn(2026, 2), isEmpty);
+    });
+
+    test('twice a month falls due on the day and fifteen days later', () {
+      final plan = bill(
+        firstDueDate: DateTime(2026, 3, 15),
+        recurrence: BillRecurrence.semiMonthly,
+      );
+
+      // Paid on the 15th and the 30th, the way a deduction from pay works.
+      expect(plan.occurrencesIn(2026, 3), [
+        DateTime(2026, 3, 15),
+        DateTime(2026, 3, 30),
+      ]);
+      expect(plan.occurrencesIn(2026, 4), [
+        DateTime(2026, 4, 15),
+        DateTime(2026, 4, 30),
+      ]);
+      // February is short, so the second date falls on the last day.
+      expect(
+        bill(
+          firstDueDate: DateTime(2026, 1, 20),
+          recurrence: BillRecurrence.semiMonthly,
+        ).occurrencesIn(2026, 2),
+        [DateTime(2026, 2, 20), DateTime(2026, 2, 28)],
+      );
+    });
+
     test('a monthly bill falls due once a month, from its first date on', () {
       final rent = bill(firstDueDate: DateTime(2026, 3, 5));
 
@@ -6551,6 +6597,51 @@ void main() {
       child: MaterialApp(theme: AppTheme.light, home: home),
     );
 
+    testWidgets('an installment plan never moves money by itself', (
+      tester,
+    ) async {
+      tall(tester);
+      DebtDraft? saved;
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: DebtFormSheet(
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value([cash]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // A plan is a plan. Nothing offers to put the borrowed amount into a
+      // wallet, and the form says so.
+      expect(find.text('I received this money in a wallet'), findsNothing);
+      expect(find.text('Received into'), findsNothing);
+      expect(
+        find.textContaining('Your money does not move until you pay'),
+        findsOneWidget,
+      );
+
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'Phone');
+      await tester.enterText(fields.at(1), '24000');
+      await tester.enterText(fields.at(2), '2400');
+      await tester.pump();
+
+      await tester.tap(find.text('Save Installment'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.name, 'Phone');
+      expect(
+        saved?.movedWalletId,
+        isNull,
+        reason: 'nothing arrives in a wallet from setting up a plan',
+      );
+    });
+
     testWidgets('the form works out payments and the extra cost', (
       tester,
     ) async {
@@ -6577,7 +6668,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('10'), findsOneWidget, reason: 'payments, worked out');
-      expect(find.textContaining('Total you will pay: ₱24,000'), findsOne);
+      expect(find.textContaining('You will pay ₱24,000'), findsOne);
 
       await tester.enterText(fields.at(3), '12');
       await tester.pump();
@@ -6611,14 +6702,19 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.textContaining('Copy these from your contract'), findsOne);
+        expect(find.textContaining('from your receipt or contract'), findsOne);
+        // The rare and the optional start folded away, so the first look at
+        // the form is the plan itself and nothing else.
+        expect(find.text('Last payment (optional)'), findsNothing);
+        expect(find.text('Notes (optional)'), findsNothing);
+        expect(find.text('More options (optional)'), findsOneWidget);
         // Grey examples inside the empty fields.
         expect(find.text('e.g. Phone, SSS loan'), findsOneWidget);
         expect(find.text('e.g. 12,000'), findsOneWidget);
         expect(find.text('e.g. 1,500'), findsOneWidget);
         expect(find.text('e.g. 12'), findsOneWidget);
-        expect(find.text('Every month or week'), findsOneWidget);
-        expect(find.text('Blank = auto'), findsOneWidget);
+        expect(find.text('One payment, not the total'), findsOneWidget);
+        expect(find.text('Leave blank'), findsOneWidget);
         // No peso sign until an amount is typed, so no example looks filled in.
         final fields = tester
             .widgetList<TextField>(find.byType(TextField))
@@ -6667,20 +6763,23 @@ void main() {
 
       // No count given: pay exactly what was borrowed, the last one smaller.
       expect(find.text('4'), findsOneWidget, reason: 'payments, worked out');
-      expect(find.textContaining('Total you will pay: ₱10,000'), findsOne);
+      expect(find.textContaining('You will pay ₱10,000'), findsOne);
       expect(find.textContaining('more than you borrowed'), findsNothing);
       expect(find.textContaining('Last payment ₱1,000 on'), findsOneWidget);
 
       // A count from the contract keeps every payment the same.
       await tester.enterText(fields.at(3), '4');
       await tester.pump();
-      expect(find.textContaining('Total you will pay: ₱12,000'), findsOne);
+      expect(find.textContaining('You will pay ₱12,000'), findsOne);
       expect(find.textContaining('₱2,000 more than you borrowed'), findsOne);
 
-      // Unless the contract's last payment is typed in.
+      // Unless the contract's last payment is typed in, which is rare
+      // enough to live under More options.
+      await tester.tap(find.text('More options (optional)'));
+      await tester.pumpAndSettle();
       await tester.enterText(fields.at(4), '1000');
       await tester.pump();
-      expect(find.textContaining('Total you will pay: ₱10,000'), findsOne);
+      expect(find.textContaining('You will pay ₱10,000'), findsOne);
 
       await tester.ensureVisible(find.text('Save Installment'));
       await tester.tap(find.text('Save Installment'));
@@ -6750,7 +6849,7 @@ void main() {
       expect(find.text('Ana'), findsNothing);
       expect(find.text('Owed to me'), findsNothing);
       expect(find.text('Nothing to pay off'), findsOneWidget);
-      expect(find.text('Add loan or installment'), findsOneWidget);
+      expect(find.text('Add installment'), findsOneWidget);
     });
 
     testWidgets('lists installments with their progress', (tester) async {
