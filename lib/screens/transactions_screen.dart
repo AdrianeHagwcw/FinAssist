@@ -8,11 +8,9 @@ import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/category_options.dart';
-import '../utils/categories.dart';
 import 'history_screen.dart';
 import '../utils/date_format.dart';
 import '../widgets/back_to_home.dart';
-import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/legacy_import_card.dart';
 import '../widgets/money_text.dart';
@@ -95,16 +93,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
 
     if (chosen != null) setState(() => _filter = chosen);
-  }
-
-  /// Narrows the list to one category's spending.
-  void _narrowTo(String category) {
-    setState(
-      () => _filter = _filter.copyWith(
-        category: () => category,
-        type: () => TransactionType.expense,
-      ),
-    );
   }
 
   @override
@@ -245,9 +233,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        // In the list it describes, rather than behind an icon that had to be
-        // found first. Tapping a category narrows the list to it.
-        _CategoryBreakdown(transactions: shown, onPick: _narrowTo),
         if (shown.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 40),
@@ -690,103 +675,6 @@ class _FilterSheetState extends State<_FilterSheet> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Where the money on screen went, read inside the list it describes.
-///
-/// Tapping a slice narrows the list to it, which is what the sheet behind the
-/// old chart icon did. Hidden when there is no spending to break down, so an
-/// empty heading never takes up the top of the screen.
-class _CategoryBreakdown extends StatelessWidget {
-  const _CategoryBreakdown({required this.transactions, required this.onPick});
-
-  final List<AppTransaction> transactions;
-  final void Function(String category) onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final entries = spendingByCategory(transactions);
-    if (entries.isEmpty) return const SizedBox.shrink();
-
-    final total = entries.fold<double>(0, (sum, entry) => sum + entry.value);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Spending by category',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: colors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 2),
-          const Text(
-            'For what is on screen. Tap one to see just those.',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 10),
-          for (final entry in entries)
-            InkWell(
-              onTap: () => onPick(entry.key),
-              borderRadius: BorderRadius.circular(10),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    CategoryIcon(entry.key, size: 22),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  entry.key,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: colors.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              MoneyText(
-                                entry.value,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: colors.textPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: total == 0 ? 0 : entry.value / total,
-                              minHeight: 6,
-                              backgroundColor: colors.track,
-                              valueColor: AlwaysStoppedAnimation(
-                                categoryColor(entry.key),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

@@ -4733,8 +4733,7 @@ void main() {
       ]);
 
       expect(find.text('Today'), findsOneWidget);
-      // Once on its row, once in the breakdown above it.
-      expect(find.text('Food'), findsNWidgets(2));
+      expect(find.text('Food'), findsOneWidget);
       expect(find.text('Allowance'), findsOneWidget);
       expect(find.text('Cash → GCash'), findsOneWidget);
       expect(find.text('-₱120'), findsOneWidget);
@@ -4785,43 +4784,8 @@ void main() {
         ),
       ], onOpen: (t) => opened = t);
 
-      // The row itself, not the same name in the breakdown above it.
-      await tester.tap(find.text('Food').last);
+      await tester.tap(find.text('Food'));
       expect(opened?.id, 'e');
-    });
-
-    testWidgets('the category breakdown narrows the list', (tester) async {
-      await pumpList(tester, [
-        AppTransaction(
-          id: 'a',
-          type: TransactionType.expense,
-          amount: 120,
-          label: 'Food',
-          date: now,
-          walletId: 'cash',
-        ),
-        AppTransaction(
-          id: 'b',
-          type: TransactionType.expense,
-          amount: 80,
-          label: 'Transportation',
-          date: now,
-          walletId: 'cash',
-        ),
-      ]);
-
-      // The breakdown sits in the list itself, so there is nothing to
-      // open first.
-      expect(find.text('Spending by category'), findsOneWidget);
-      await tester.tap(find.text('Transportation').first);
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('Showing:'), findsOneWidget);
-      expect(find.text('Food'), findsNothing);
-
-      await tester.tap(find.text('Clear'));
-      await tester.pumpAndSettle();
-      expect(find.text('Food'), findsNWidgets(2));
     });
 
     testWidgets('search button opens search and transaction filters', (
@@ -8629,9 +8593,7 @@ void main() {
     expect(find.text('Loans in'), findsOneWidget);
     expect(find.text('Loans out'), findsOneWidget);
     expect(find.text('₱500'), findsNWidgets(2), reason: 'loans in and out');
-    // Once in the Outward total and once in the breakdown's Food row: the
-    // loan is in neither, which is the point.
-    expect(find.text('₱100'), findsNWidgets(2), reason: 'outward stays ₱100');
+    expect(find.text('₱100'), findsOneWidget, reason: 'outward stays ₱100');
   });
 
   test('loans get their own icons, not a category one', () {
