@@ -57,6 +57,7 @@ import 'package:testapp/widgets/export_transactions_tile.dart';
 import 'package:testapp/widgets/goal_sheets.dart';
 import 'package:testapp/widgets/matured_savings_notice.dart';
 import 'package:testapp/widgets/matured_savings_sheet.dart';
+import 'package:testapp/widgets/set_aside_record_sheet.dart';
 import 'package:testapp/widgets/legacy_import_card.dart';
 import 'package:testapp/widgets/light_dark_toggle.dart';
 import 'package:testapp/utils/date_format.dart';
@@ -697,6 +698,193 @@ void main() {
 
       expect(old.isLockedSavings, isFalse);
       expect(reachableSavingsBalance([old]), 1200);
+    });
+
+    testWidgets('a record set up at sign up can still be fixed', (
+      tester,
+    ) async {
+      String? name;
+      double? recorded;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: SetAsideRecordSheet(
+              wallet: deposit(name: 'Pag-IBIG MP2', balance: 50000),
+              onSave: (newName, newBalance) {
+                name = newName;
+                recorded = newBalance;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Opens on what was entered before.
+      expect(find.text('Pag-IBIG MP2'), findsWidgets);
+      expect(find.text('50000'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('set-aside-balance')), '5000');
+      await tester.enterText(
+        find.byKey(const Key('set-aside-name')),
+        'MP2 savings',
+      );
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+
+      expect(name, 'MP2 savings');
+      expect(recorded, 5000, reason: 'a typo at sign up can be corrected');
+    });
+
+    testWidgets('savings left empty at sign up can be started later', (
+      tester,
+    ) async {
+      String? name;
+      double? recorded;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: SetAsideRecordSheet(
+              onSave: (newName, newBalance) {
+                name = newName;
+                recorded = newBalance;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Nothing to fix here, so it reads as adding rather than editing, and
+      // it opens empty.
+      expect(find.text('Add savings'), findsWidgets);
+      expect(find.byKey(const Key('new-savings-general')), findsOneWidget);
+      expect(find.byKey(const Key('new-savings-government')), findsOneWidget);
+
+      // A date is only asked for once the money is locked away.
+      expect(find.byKey(const Key('new-savings-maturity')), findsNothing);
+      await tester.tap(find.byKey(const Key('new-savings-timeDeposit')));
+      await tester.pump();
+      expect(find.byKey(const Key('new-savings-maturity')), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('set-aside-name')),
+        'BPI time deposit',
+      );
+      await tester.enterText(
+        find.byKey(const Key('set-aside-balance')),
+        '20000',
+      );
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+
+      expect(name, 'BPI time deposit');
+      expect(recorded, 20000);
+    });
+
+    testWidgets('a new record left unnamed is called after its type', (
+      tester,
+    ) async {
+      String? name;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: SetAsideRecordSheet(
+              wallets: [deposit(name: 'General savings', balance: 500)],
+              onSave: (newName, _) => name = newName,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Nothing typed, nothing chosen: it takes the first type's name. One
+      // of those already exists, so this one is told apart by a number.
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+
+      expect(name, 'General savings 2');
+    });
+
+    testWidgets('each kind can be read about where it is chosen', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(body: SetAsideRecordSheet(onSave: (_, _) {})),
+        ),
+      );
+      await tester.pump();
+
+      // Every choice carries its own explainer, cash included, so no kind
+      // is left unexplained.
+      for (final kind in SavingsKind.values) {
+        expect(
+          find.byKey(Key('explain-savings-${kind.name}')),
+          findsOneWidget,
+        );
+      }
+
+      await tester.tap(find.byKey(const Key('explain-savings-government')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Watch out for'), findsOneWidget);
+      expect(find.textContaining('Pag-IBIG MP2 runs for five years'),
+          findsOneWidget);
+
+      // Reading about it is also how it gets picked.
+      await tester.ensureVisible(find.text('Use this'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Use this'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('new-savings-maturity')), findsOneWidget,
+          reason: 'government savings is locked away, so it asks for a date');
+    });
+
+    testWidgets('an empty name or a negative balance is refused', (
+      tester,
+    ) async {
+      var saves = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: SetAsideRecordSheet(
+              wallet: deposit(name: 'Savings', balance: 1000),
+              onSave: (_, _) => saves++,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(find.byKey(const Key('set-aside-name')), '');
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+      expect(find.text('Give it a name.'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('set-aside-name')),
+        'Savings',
+      );
+      await tester.enterText(find.byKey(const Key('set-aside-balance')), '-5');
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+      expect(find.text('Enter an amount of zero or more.'), findsOneWidget);
+      expect(saves, 0);
     });
 
     test('a record is matured on its day, not before', () {
@@ -4812,11 +5000,15 @@ void main() {
       expect(find.text('Savings wallet'), findsWidgets);
       expect(find.text('Total balance'), findsOneWidget);
       expect(find.text('Emergency fund'), findsOneWidget);
-      expect(find.text('₱1,500'), findsOneWidget);
-      // ₱2,000 in the wallet, ₱1,500 of it held inside the goal, so ₱500 is
-      // free: the card and the note both say so.
+
+      // The total is the savings themselves, and the card says underneath
+      // how they are spoken for: ₱2,000 saved, ₱1,500 inside the goal, so
+      // ₱500 is still free. The record below adds up to the same ₱2,000.
+      expect(find.text('₱2,000'), findsNWidgets(2));
+      expect(find.text('Towards your goals'), findsOneWidget);
+      expect(find.text('₱1,500'), findsNWidgets(2));
       expect(find.text('Not promised to a goal yet'), findsOneWidget);
-      expect(find.text('₱500'), findsNWidgets(2));
+      expect(find.text('₱500'), findsOneWidget);
     });
 
     testWidgets('savings reads zero when the goals hold it all', (
@@ -4840,7 +5032,9 @@ void main() {
 
       // Goal money never shows as a negative balance here.
       expect(find.text('Not promised to a goal yet'), findsOneWidget);
-      expect(find.text('₱0'), findsNWidgets(2));
+      expect(find.text('₱0'), findsOneWidget);
+      // The wallet still reads its real ₱1,000, in the card and the record.
+      expect(find.text('₱1,000'), findsNWidgets(2));
     });
 
     testWidgets('bills opens with its total and what is still to pay', (
@@ -4858,13 +5052,42 @@ void main() {
 
       expect(find.text('Bills wallet'), findsWidgets);
       expect(find.text('Total balance'), findsOneWidget);
-      expect(find.text('₱1,200'), findsOneWidget);
+      // Once in the total, once in the record it can be edited from.
+      expect(find.text('₱1,200'), findsNWidgets(2));
+      expect(find.text('Where it is kept'), findsOneWidget);
       expect(find.text('Rent'), findsOneWidget);
       expect(find.textContaining('Overdue'), findsOneWidget);
       expect(find.text('Water'), findsOneWidget);
       // ₱1,700 owed against ₱1,200 held.
       expect(find.text('Still to set aside'), findsOneWidget);
       expect(find.text('₱500'), findsOneWidget);
+    });
+
+    testWidgets('each side stands on its own, with no toggle between them', (
+      tester,
+    ) async {
+      await pumpSetAside(
+        tester,
+        part: SetAsidePart.bills,
+        wallets: [holding('b', 1200, WalletPurpose.bills)],
+      );
+
+      // Home already keeps the two apart, so bills is alone here: nothing
+      // offers to switch to savings, and no savings money is on the screen.
+      expect(find.byType(SegmentedButton<SetAsidePart>), findsNothing);
+      expect(find.text('Savings wallet'), findsNothing);
+      expect(find.text('Add bills money'), findsOneWidget);
+
+      await pumpSetAside(
+        tester,
+        wallets: [holding('s', 2000, WalletPurpose.savings)],
+      );
+
+      expect(find.text('Bills wallet'), findsNothing);
+      expect(find.text('Add savings'), findsOneWidget);
+      // The wallet and what it is going towards sit together.
+      expect(find.text('Savings wallet'), findsWidgets);
+      expect(find.text('Manage goals'), findsOneWidget);
     });
 
     testWidgets('an account with nothing set aside says so', (tester) async {
@@ -6637,6 +6860,13 @@ void main() {
       expect(find.text('About ₱2,000'), findsOneWidget);
       expect(find.textContaining('not financial advice'), findsOneWidget);
 
+      // Only what the saving is for belongs here. Where to keep it is
+      // explained inside Add savings, beside the choice itself, so the two
+      // are never mistaken for one list.
+      expect(find.text('What you can save for'), findsOneWidget);
+      expect(find.text('Savings account'), findsNothing);
+      expect(find.text('Government savings'), findsNothing);
+
       await tester.tap(find.text('Emergency Fund'));
       await tester.pumpAndSettle();
 
@@ -6653,7 +6883,10 @@ void main() {
           theme: AppTheme.light,
           home: Scaffold(
             body: SingleChildScrollView(
-              child: SavingsGuide(monthlyIncome: null, onCreateGoal: (_, _) {}),
+              child: SavingsGuide(
+                monthlyIncome: null,
+                onCreateGoal: (_, _) {},
+              ),
             ),
           ),
         ),

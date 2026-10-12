@@ -301,16 +301,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Only savings the user could actually reach. A time deposit or
           // money with SSS, GSIS or Pag-IBIG is named on its own line below,
           // so this figure never promises money that is years away.
-          amount: wallets == null || goals == null
-              ? null
-              : (reachableSavingsBalance(wallets) -
-                      totalSetAsideInPurposeWallets(
-                        goals,
-                        wallets,
-                        WalletPurpose.savings,
-                      ))
-                  .clamp(0.0, double.infinity)
-                  .toDouble(),
+          amount: wallets == null ? null : reachableSavingsBalance(wallets),
           onTap: () => _openSetAside(SetAsidePart.savings),
         ),
 

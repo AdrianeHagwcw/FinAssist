@@ -14,10 +14,12 @@ import '../utils/money_format.dart';
 import '../widgets/bill_payment_sheet.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/set_aside_record_sheet.dart';
 import '../widgets/money_text.dart';
 import 'goals_screen.dart';
 
-/// Which half of the screen is being read.
+/// Which of the two is being opened. Home already keeps them apart, so each
+/// one is a screen of its own rather than two halves behind a toggle.
 enum SetAsidePart { savings, bills }
 
 /// The money the user has already promised, kept apart from what they can
@@ -60,7 +62,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
   late final Stream<List<Goal>> _goals =
       widget.goals ?? GoalService.watchGoals();
 
-  late SetAsidePart _part = widget.initialPart;
+  bool get _isBills => widget.initialPart == SetAsidePart.bills;
 
   List<BillInstance> _bills = const [];
 
@@ -98,9 +100,9 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     return Scaffold(
       backgroundColor: colors.pageBackground,
       appBar: AppBar(
-        title: const Text(
-          'Set aside',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        title: Text(
+          _isBills ? 'Bills wallet' : 'Savings wallet',
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         backgroundColor: appPrimaryBlue,
@@ -115,35 +117,115 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
             children: [
-              SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<SetAsidePart>(
-                  segments: const [
-                    ButtonSegment(
-                      value: SetAsidePart.savings,
-                      label: Text('Savings wallet'),
-                    ),
-                    ButtonSegment(
-                      value: SetAsidePart.bills,
-                      label: Text('Bills wallet'),
-                    ),
-                  ],
-                  selected: {_part},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (value) =>
-                      setState(() => _part = value.first),
-                ),
-              ),
-              const SizedBox(height: 16),
               if (wallets == null)
                 const Center(child: CircularProgressIndicator())
-              else if (_part == SetAsidePart.savings)
-                ..._savings(wallets)
+              else if (_isBills)
+                ..._billsPart(wallets)
               else
-                ..._billsPart(wallets),
+                ..._savings(wallets),
             ],
           );
         },
+      ),
+    );
+  }
+
+  /// The records behind a total, so a figure typed at sign up can still be
+  /// fixed. Without this there is no way back into them.
+  List<Widget> _records(List<Wallet> wallets, WalletPurpose purpose) {
+    final colors = context.appColors;
+    final kept = [
+      for (final wallet in wallets)
+        if (!wallet.archived && wallet.purpose == purpose) wallet,
+    ];
+    if (kept.isEmpty) return const [];
+
+    return [
+      _SectionTitle(purpose == WalletPurpose.bills
+          ? 'Where it is kept'
+          : 'Your savings records'),
+      const SizedBox(height: 10),
+      for (final wallet in kept)
+        InkWell(
+          key: Key('set-aside-record-${wallet.id}'),
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _editRecord(wallet),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+            decoration: BoxDecoration(
+              color: colors.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: colors.border),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        wallet.name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                      if (wallet.maturityDate != null)
+                        Text(
+                          'Due ${formatShortDate(wallet.maturityDate!)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.textBody,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Text(
+                  formatPeso(wallet.balance),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(Icons.edit_outlined, size: 18, color: colors.primaryText),
+              ],
+            ),
+          ),
+        ),
+      const SizedBox(height: 10),
+    ];
+  }
+
+  Future<void> _editRecord(Wallet wallet) async {
+    final saved = await showSetAsideRecordSheet(context, wallet: wallet);
+    if (saved == true && mounted) setState(() {});
+  }
+
+  Future<void> _addRecord(List<Wallet> wallets, WalletPurpose purpose) async {
+    final saved = await showSetAsideRecordSheet(
+      context,
+      wallets: wallets,
+      purpose: purpose,
+    );
+    if (saved == true && mounted) setState(() {});
+  }
+
+  /// Shown even when there are no records at all, so a side left empty at
+  /// sign up can still be started here.
+  Widget _addRecordButton(List<Wallet> wallets, WalletPurpose purpose) {
+    final savings = purpose == WalletPurpose.savings;
+
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        key: Key(savings ? 'add-savings-record' : 'add-bills-record'),
+        onPressed: () => _addRecord(wallets, purpose),
+        icon: const Icon(Icons.add, size: 18),
+        label: Text(savings ? 'Add savings' : 'Add bills money'),
+        style: openOutlineStyle(context),
       ),
     );
   }
@@ -156,9 +238,9 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     final walletTotal = reachableSavingsBalance(wallets);
     final locked = lockedSavingsBalance(wallets);
     final savingsNote = locked > 0
-        ? 'Money you have saved and have not put towards a goal. '
-              '${formatPeso(locked)} more is locked away.'
-        : 'Money you have saved and have not put towards a goal.';
+        ? 'Everything you have saved. ${formatPeso(locked)} more is locked '
+              'away and is not counted here.'
+        : 'Everything you have saved, and what it is spoken for.';
 
     return [
       StreamBuilder<List<Goal>>(
@@ -186,9 +268,23 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               children: [
                 _TotalCard(
                   title: 'Savings wallet',
-                  total: available,
+                  total: walletTotal,
                   iconAsset: 'assets/icons/icons8-money-box-96.png',
                   note: savingsNote,
+                  // Nothing to split until a goal holds something, and two
+                  // zero lines would only be noise.
+                  breakdown: assignedToGoals <= 0
+                      ? const []
+                      : [
+                          (
+                            label: 'Towards your goals',
+                            amount: assignedToGoals,
+                          ),
+                          (
+                            label: 'Not promised to a goal yet',
+                            amount: available,
+                          ),
+                        ],
                 ),
                 const SizedBox(height: 20),
                 const EmptyStateView(
@@ -205,6 +301,9 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                     MaterialPageRoute(builder: (_) => const GoalsScreen()),
                   ),
                 ),
+                const SizedBox(height: 24),
+                ..._records(wallets, WalletPurpose.savings),
+                _addRecordButton(wallets, WalletPurpose.savings),
               ],
             );
           }
@@ -214,9 +313,18 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
             children: [
               _TotalCard(
                 title: 'Savings wallet',
-                total: available,
+                total: walletTotal,
                 iconAsset: 'assets/icons/icons8-money-box-96.png',
                 note: savingsNote,
+                breakdown: assignedToGoals <= 0
+                    ? const []
+                    : [
+                        (label: 'Towards your goals', amount: assignedToGoals),
+                        (
+                          label: 'Not promised to a goal yet',
+                          amount: available,
+                        ),
+                      ],
               ),
               const SizedBox(height: 20),
               _SectionTitle('What it is for'),
@@ -231,12 +339,9 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                   MaterialPageRoute(builder: (_) => const GoalsScreen()),
                 ),
               ),
-              const SizedBox(height: 10),
-              _NoteRow(
-                label: 'Not promised to a goal yet',
-                amount: available,
-                hint: 'Yours to put towards any goal.',
-              ),
+              const SizedBox(height: 24),
+              ..._records(wallets, WalletPurpose.savings),
+              _addRecordButton(wallets, WalletPurpose.savings),
             ],
           );
         },
@@ -282,6 +387,9 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               : 'Enough is here for every bill on the list.',
         ),
       ],
+      const SizedBox(height: 24),
+      ..._records(wallets, WalletPurpose.bills),
+      _addRecordButton(wallets, WalletPurpose.bills),
     ];
   }
 }
@@ -294,11 +402,16 @@ class _TotalCard extends StatelessWidget {
     required this.total,
     required this.note,
     required this.iconAsset,
+    this.breakdown = const [],
   });
 
   final String title;
   final double total;
   final String note;
+
+  /// How the total is spoken for, read under it. Empty when there is
+  /// nothing to split.
+  final List<({String label, double amount})> breakdown;
 
   /// The same icon this money carries on Home, so the two read as one thing.
   final String iconAsset;
@@ -359,6 +472,35 @@ class _TotalCard extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
+          if (breakdown.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Divider(color: Colors.white24, height: 1),
+            for (final row in breakdown)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        row.label,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    MoneyText(
+                      row.amount,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
           const SizedBox(height: 8),
           Text(
             note,

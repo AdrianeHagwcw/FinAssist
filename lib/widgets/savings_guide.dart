@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/goal.dart';
+import '../models/wallet.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -28,7 +29,6 @@ double? monthlyIncomeFrom(Map<String, dynamic>? profile) {
 /// Those change, and naming them would turn a guide into advice.
 class SavingsOption {
   const SavingsOption({
-    required this.name,
     required this.icon,
     required this.summary,
     required this.risk,
@@ -37,11 +37,19 @@ class SavingsOption {
     required this.howItWorks,
     required this.bestFor,
     required this.watchOutFor,
-    required this.goalName,
+    this.goalName,
     this.goalKind = GoalKind.regular,
+    this.savingsKind,
+    this.ownName,
   });
 
-  final String name;
+  /// Set only on a card that is not about a savings kind.
+  final String? ownName;
+
+  /// The card's title. A card about a place to keep money takes the savings
+  /// kind's own label, so the guide can never drift from what sign up and
+  /// Add savings show.
+  String get name => savingsKind?.label ?? ownName!;
   final IconData icon;
   final String summary;
   final String risk;
@@ -51,14 +59,44 @@ class SavingsOption {
   final List<String> bestFor;
   final List<String> watchOutFor;
 
-  /// What a goal made from this card is called, and what kind it is.
-  final String goalName;
+  /// What a goal made from this card is called, and what kind it is. Only
+  /// a card about a purpose carries one.
+  final String? goalName;
   final GoalKind goalKind;
+
+  /// The savings record this card leads to. A savings account, a time
+  /// deposit and government savings are places money is kept, not things to
+  /// save for, so they open a record rather than a goal.
+  final SavingsKind? savingsKind;
+
+  bool get startsAGoal => goalName != null;
 }
 
 const List<SavingsOption> savingsOptions = [
   SavingsOption(
-    name: 'Emergency Fund',
+    icon: Icons.payments_outlined,
+    summary: 'Money you keep yourself',
+    risk: 'Can be lost or spent',
+    access: 'Take out anytime',
+    whatItIs:
+        'Money you hold yourself, such as cash at home, in an envelope or in '
+        'a jar. It earns nothing, but it is there the moment you need it.',
+    howItWorks: [
+      'You set money aside and keep it yourself.',
+      'Nothing is added over time, so what you put in is what you get.',
+    ],
+    bestFor: [
+      'Small amounts you may need any day',
+      'Saving without a bank account',
+    ],
+    watchOutFor: [
+      'It is the easiest money to spend without noticing.',
+      'Cash at home can be lost or taken, and no one replaces it.',
+    ],
+    savingsKind: SavingsKind.general,
+  ),
+  SavingsOption(
+    ownName: 'Emergency Fund',
     icon: Icons.health_and_safety_outlined,
     summary: 'A cash cushion for surprises',
     risk: 'Very low risk',
@@ -79,7 +117,6 @@ const List<SavingsOption> savingsOptions = [
     goalKind: GoalKind.emergencyFund,
   ),
   SavingsOption(
-    name: 'Savings Account',
     icon: Icons.account_balance_outlined,
     summary: 'Flexible savings that earn a little',
     risk: 'Very low risk',
@@ -91,16 +128,17 @@ const List<SavingsOption> savingsOptions = [
       'Deposit and withdraw whenever you need.',
       'Interest is usually small, and the rate can change.',
     ],
-    bestFor: ['Short-term goals', 'Keeping your emergency fund'],
+    bestFor: [
+      'Money you may need within a few months',
+      'Money you want kept safely, not as cash at home',
+    ],
     watchOutFor: [
       'Check for minimum balances and fees.',
       'Make sure the bank is covered by PDIC deposit insurance.',
     ],
-    goalName: 'Savings',
-    goalKind: GoalKind.savingsAccount,
+    savingsKind: SavingsKind.account,
   ),
   SavingsOption(
-    name: 'Time Deposit',
     icon: Icons.lock_clock_outlined,
     summary: 'Leave it for a set time, earn more',
     risk: 'Low risk',
@@ -117,13 +155,72 @@ const List<SavingsOption> savingsOptions = [
       'Taking it out early can mean losing interest or paying a penalty.',
       'There is often a minimum amount to start.',
     ],
-    goalName: 'Time Deposit',
-    goalKind: GoalKind.timeDeposit,
+    savingsKind: SavingsKind.timeDeposit,
+  ),
+  SavingsOption(
+    icon: Icons.savings_outlined,
+    summary: 'Save through SSS, Pag-IBIG or GSIS',
+    risk: 'Very low risk',
+    access: 'Only under the agency rules',
+    whatItIs:
+        'Savings programs run by government agencies, such as Pag-IBIG MP2, '
+        'SSS or GSIS. You put money in over time and take it out only when '
+        'their rules allow.',
+    howItWorks: [
+      'Pag-IBIG MP2 runs for five years, then pays what you saved plus its '
+          'dividend.',
+      'SSS and GSIS savings follow each agency\'s own rules for when you can '
+          'claim.',
+    ],
+    bestFor: [
+      'Long-term money you will not touch',
+      'Members already paying contributions',
+    ],
+    watchOutFor: [
+      'Earnings are declared afterwards, so the rate is not fixed in '
+          'advance.',
+      'Taking money out early may not be allowed at all.',
+    ],
+    savingsKind: SavingsKind.government,
   ),
 ];
 
-/// "Grow Your Money": a suggested monthly amount to save, and plain-language
-/// cards about where to keep savings.
+/// The guide entry for a savings kind, so Add savings can explain the
+/// choice being made.
+SavingsOption savingsOptionFor(SavingsKind kind) =>
+    savingsOptions.firstWhere((option) => option.savingsKind == kind);
+
+/// Opens the plain-language explainer for one option. [onAct] adds a button
+/// under it; without one the sheet only explains.
+Future<void> showSavingsOptionSheet(
+  BuildContext context, {
+  required SavingsOption option,
+  double? monthlyIncome,
+  String? actionLabel,
+  VoidCallback? onAct,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: context.appColors.card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (_) => _OptionSheet(
+      option: option,
+      monthlyIncome: monthlyIncome,
+      actionLabel: actionLabel,
+      onAct: onAct,
+    ),
+  );
+}
+
+/// "Grow Your Money": a suggested monthly amount to save, and what that
+/// saving can be for.
+///
+/// Where to keep it is explained inside Add savings instead, next to the
+/// choice itself, rather than sending the reader there from here.
 class SavingsGuide extends StatelessWidget {
   const SavingsGuide({
     required this.monthlyIncome,
@@ -142,22 +239,12 @@ class SavingsGuide extends StatelessWidget {
   static const savingsShare = 0.20;
 
   void _open(BuildContext context, SavingsOption option) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: context.appColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => _OptionSheet(
-        option: option,
-        monthlyIncome: monthlyIncome,
-        onCreateGoal: () {
-          Navigator.pop(sheetContext);
-          onCreateGoal(option.goalName, option.goalKind);
-        },
-      ),
+    showSavingsOptionSheet(
+      context,
+      option: option,
+      monthlyIncome: monthlyIncome,
+      actionLabel: 'Create Savings Goal',
+      onAct: () => onCreateGoal(option.goalName!, option.goalKind),
     );
   }
 
@@ -178,61 +265,14 @@ class SavingsGuide extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _SuggestionCard(monthlyIncome: monthlyIncome),
-        const SizedBox(height: 12),
-        for (final option in savingsOptions) ...[
-          Material(
-            color: colors.card,
-            borderRadius: BorderRadius.circular(14),
-            child: InkWell(
-              onTap: () => _open(context, option),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: colors.border),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: colors.primaryTint,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(option.icon, color: appPrimaryBlue),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            option.name,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: colors.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            option.summary,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right, color: Colors.grey),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        const SizedBox(height: 18),
+        _GroupTitle(
+          title: 'What you can save for',
+          subtitle: 'The one to start with. For anything else, use Add '
+              'New Goal above.',
+        ),
+        for (final option in savingsOptions.where((o) => o.startsAGoal)) ...[
+          _optionCard(context, option),
           const SizedBox(height: 10),
         ],
         const SizedBox(height: 4),
@@ -243,6 +283,113 @@ class SavingsGuide extends StatelessWidget {
           style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.4),
         ),
       ],
+    );
+  }
+
+  Widget _optionCard(BuildContext context, SavingsOption option) {
+    final colors = context.appColors;
+
+    return _CardShell(
+      onTap: () => _open(context, option),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: colors.primaryTint,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(option.icon, color: appPrimaryBlue),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  option.name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  option.summary,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: Colors.grey),
+        ],
+      ),
+    );
+  }
+}
+
+/// The heading over each group, saying plainly what the group is.
+class _GroupTitle extends StatelessWidget {
+  const _GroupTitle({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: TextStyle(fontSize: 12, color: colors.textBody),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CardShell extends StatelessWidget {
+  const _CardShell({required this.onTap, required this.child});
+
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Material(
+      color: colors.card,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: colors.border),
+          ),
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -301,12 +448,14 @@ class _OptionSheet extends StatelessWidget {
   const _OptionSheet({
     required this.option,
     required this.monthlyIncome,
-    required this.onCreateGoal,
+    required this.actionLabel,
+    required this.onAct,
   });
 
   final SavingsOption option;
   final double? monthlyIncome;
-  final VoidCallback onCreateGoal;
+  final String? actionLabel;
+  final VoidCallback? onAct;
 
   @override
   Widget build(BuildContext context) {
@@ -392,22 +541,32 @@ class _OptionSheet extends StatelessWidget {
               ),
               section('What it is', [option.whatItIs]),
               section('How it works', option.howItWorks),
-              section('Best for', option.bestFor),
+              // Not "Best for": naming one best would be a recommendation,
+              // and this guide only explains.
+              section('Usually used for', option.bestFor),
               section('Watch out for', option.watchOutFor),
               const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: onCreateGoal,
-                  // Blue: it opens the goal form, where the saving happens.
-                  style: openButtonStyle(),
-                  child: const Text(
-                    'Create Savings Goal',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              if (onAct != null) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      onAct!();
+                    },
+                    // Blue: it opens the form where the saving happens.
+                    style: openButtonStyle(),
+                    child: Text(
+                      actionLabel ?? 'Continue',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
+                const SizedBox(height: 8),
+              ],
               Center(
                 child: TextButton(
                   onPressed: () => Navigator.pop(context),

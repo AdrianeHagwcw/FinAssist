@@ -116,6 +116,8 @@ class WalletService {
     bool receivesIncome = false,
     List<Wallet>? currentWallets,
     WalletPurpose purpose = WalletPurpose.spending,
+    String? savingsKind,
+    DateTime? maturityDate,
   }) async {
     final wallets = currentWallets ?? await loadWallets();
     final trimmedName = name.trim();
@@ -131,6 +133,9 @@ class WalletService {
         'archived': false,
         'sortOrder': nextWalletSortOrder(wallets),
         'purpose': purpose.name,
+        'savingsKind': ?savingsKind,
+        if (maturityDate != null)
+          'maturityDate': Timestamp.fromDate(maturityDate),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -439,16 +444,32 @@ class WalletService {
     return transactionId;
   }
 
-  /// Adds a transaction, and the balance changes it causes, to [batch].
+  /// Fixes a balance the user declared wrongly, such as a typo at sign up.
   ///
-  /// This exists so a caller that must save something else in the very same
-  /// write — marking a bill paid, say — can do it atomically instead of
-  /// hoping two separate writes both land. Returns the transaction's id.
-  ///
-  /// Pass [collectDeltasInto] when the batch will hold several transactions
-  /// touching the same wallet. The balance changes are then added to that map
-  /// instead of written, and the caller writes the totals once with
-  /// [applyDeltasToBatch].
+  /// The money never existed, so this is neither income nor spending. The
+  /// starting figure and the balance both move by the difference, which
+  /// leaves reports untouched.
+  static void correctDeclaredBalance({
+    required Wallet wallet,
+    required double recorded,
+  }) {
+    if (!recorded.isFinite || recorded < 0) {
+      throw ArgumentError.value(recorded, 'recorded', 'Cannot be negative.');
+    }
+    // Rounded to centavos, so a long decimal cannot leave a stray fraction.
+    final delta = ((recorded - wallet.balance) * 100).round() / 100;
+    if (delta == 0) return;
+
+    commitFirestoreWrite(
+      _walletsCollection.doc(wallet.id).set({
+        'balance': FieldValue.increment(delta),
+        'startingBalance': FieldValue.increment(delta),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)),
+      'correct declared balance',
+    );
+  }
+
   /// Records what the user did with a matured time deposit or government
   /// savings.
   ///
@@ -532,6 +553,16 @@ class WalletService {
     );
   }
 
+  /// Adds a transaction, and the balance changes it causes, to [batch].
+  ///
+  /// This exists so a caller that must save something else in the very same
+  /// write — marking a bill paid, say — can do it atomically instead of
+  /// hoping two separate writes both land. Returns the transaction's id.
+  ///
+  /// Pass [collectDeltasInto] when the batch will hold several transactions
+  /// touching the same wallet. The balance changes are then added to that map
+  /// instead of written, and the caller writes the totals once with
+  /// [applyDeltasToBatch].
   static String addTransactionToBatch(
     WriteBatch batch, {
     required TransactionType type,
