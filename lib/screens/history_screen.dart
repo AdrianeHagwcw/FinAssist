@@ -152,9 +152,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 final left = cycle.isResolved
                     ? cycle.savedAmount + cycle.spentAmount
                     : leftoverOf(cycle, transactions.data!, period);
+                final spent = cycle.isResolved
+                    ? cycle.remaining - left
+                    : spentInCycle(cycle, transactions.data!, period);
                 return _CycleCard(
                   cycle: cycle,
                   status: status,
+                  spent: spent < 0 ? 0 : spent,
                   periodLabel:
                       '${formatShortDate(period.start)} – ${formatShortDate(period.end.subtract(const Duration(days: 1)))}',
                   leftover: left,
@@ -193,12 +197,17 @@ class _CycleCard extends StatelessWidget {
     required this.status,
     required this.periodLabel,
     required this.leftover,
+    required this.spent,
     required this.onReview,
   });
   final AllocationCycle cycle;
   final CycleStatus status;
   final String periodLabel;
   final double leftover;
+
+  /// What was spent out of this pay. Without it the card dropped from what
+  /// was left to plan with to what is left now with nothing in between.
+  final double spent;
   final VoidCallback onReview;
 
   @override
@@ -309,10 +318,19 @@ class _CycleCard extends StatelessWidget {
                 ),
                 const Divider(height: 24),
                 _line(context, 'Left to spend', cycle.remaining),
+                _line(context, 'Spent so far', spent),
                 _line(
                   context,
-                  cycle.isResolved ? 'What was left' : 'Still left now',
-                  leftover,
+                  // Spending past what was left is worth naming, rather than
+                  // showing nothing left and hiding by how much.
+                  spent > cycle.remaining + 0.005
+                      ? 'Over by'
+                      : cycle.isResolved
+                      ? 'What was left'
+                      : 'Still left now',
+                  spent > cycle.remaining + 0.005
+                      ? spent - cycle.remaining
+                      : leftover,
                   strong: true,
                 ),
                 if (status == CycleStatus.active)

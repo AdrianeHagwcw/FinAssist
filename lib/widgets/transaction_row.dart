@@ -15,6 +15,46 @@ String loanIconAsset(AppTransaction transaction) =>
     ? 'assets/icons/lend-96.png'
     : 'assets/icons/loan-in-96.png';
 
+/// Which way the money went, in one word, so a row says it outright
+/// instead of leaving a plus or minus sign to carry the meaning alone.
+///
+/// Inward and outward change what you have. A deposit or a withdrawal only
+/// moves money between your own pockets, so neither carries a sign.
+({String label, String sign}) transactionDirection(
+  AppTransaction transaction,
+  List<Wallet> wallets, {
+  String? forWalletId,
+}) {
+  switch (transaction.type) {
+    case TransactionType.income:
+      return (label: 'Inward', sign: '+');
+    case TransactionType.expense:
+      return (label: 'Outward', sign: '-');
+    case TransactionType.transfer:
+      // Read from the wallet being looked at when there is one, otherwise
+      // from where the money ended up.
+      if (forWalletId != null) {
+        return transaction.walletId == forWalletId
+            ? (label: 'Withdraw', sign: '')
+            : (label: 'Deposit', sign: '');
+      }
+      if (_isSetAside(wallets, transaction.toWalletId)) {
+        return (label: 'Deposit', sign: '');
+      }
+      if (_isSetAside(wallets, transaction.walletId)) {
+        return (label: 'Withdraw', sign: '');
+      }
+      return (label: 'Moved', sign: '');
+  }
+}
+
+bool _isSetAside(List<Wallet> wallets, String? id) {
+  for (final wallet in wallets) {
+    if (wallet.id == id) return wallet.isSetAside;
+  }
+  return false;
+}
+
 /// A wallet's name by id, including archived ones the list was given.
 String walletNameFor(List<Wallet> wallets, String? id) {
   for (final wallet in wallets) {
@@ -42,11 +82,12 @@ class TransactionRow extends StatelessWidget {
     final colors = context.appColors;
     final t = transaction;
 
-    final (Color color, String sign) = switch (t.type) {
-      TransactionType.expense => (dangerColorOn(context), '-'),
-      TransactionType.income => (confirmColorOn(context), '+'),
-      TransactionType.transfer => (appPrimaryBlue, ''),
+    final color = switch (t.type) {
+      TransactionType.expense => dangerColorOn(context),
+      TransactionType.income => confirmColorOn(context),
+      TransactionType.transfer => appPrimaryBlue,
     };
+    final direction = transactionDirection(t, wallets);
 
     final title = t.type == TransactionType.transfer
         ? '${walletNameFor(wallets, t.walletId)} → '
@@ -54,7 +95,8 @@ class TransactionRow extends StatelessWidget {
         : t.label;
 
     final details = [
-      // First, so a run of rows can be scanned down by time when someone is
+      direction.label,
+      // Then the time, so a run of rows can be scanned down when someone is
       // looking for "the one around seven".
       ?formatTransactionTime(t.date),
       if (t.type != TransactionType.transfer)
@@ -136,7 +178,7 @@ class TransactionRow extends StatelessWidget {
               const SizedBox(width: 10),
               MoneyText(
                 t.amount,
-                sign: sign.isEmpty ? null : sign,
+                sign: direction.sign.isEmpty ? null : direction.sign,
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,

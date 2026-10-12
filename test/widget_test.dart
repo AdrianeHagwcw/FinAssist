@@ -3160,6 +3160,103 @@ void main() {
     });
   });
 
+  group('which way the money went', () {
+    Wallet pocket(String id, String name, WalletPurpose purpose) => Wallet(
+      id: id,
+      name: name,
+      type: WalletType.other,
+      balance: 1000,
+      startingBalance: 1000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 0,
+      purpose: purpose,
+    );
+
+    final wallets = [
+      pocket('cash', 'Cash', WalletPurpose.spending),
+      pocket('gcash', 'GCash', WalletPurpose.spending),
+      pocket('save', 'Savings', WalletPurpose.savings),
+    ];
+
+    AppTransaction entry(
+      TransactionType type, {
+      String walletId = 'cash',
+      String? toWalletId,
+    }) => AppTransaction(
+      id: 't',
+      type: type,
+      amount: 500,
+      label: 'Thing',
+      date: DateTime(2026, 3, 10),
+      walletId: walletId,
+      toWalletId: toWalletId,
+    );
+
+    test('earning and spending are inward and outward, and carry a sign', () {
+      final inward = transactionDirection(
+        entry(TransactionType.income),
+        wallets,
+      );
+      expect(inward.label, 'Inward');
+      expect(inward.sign, '+');
+
+      final outward = transactionDirection(
+        entry(TransactionType.expense),
+        wallets,
+      );
+      expect(outward.label, 'Outward');
+      expect(outward.sign, '-');
+    });
+
+    test('moving your own money is a deposit or a withdrawal, unsigned', () {
+      // Into savings.
+      final deposit = transactionDirection(
+        entry(TransactionType.transfer, toWalletId: 'save'),
+        wallets,
+      );
+      expect(deposit.label, 'Deposit');
+      expect(
+        deposit.sign,
+        isEmpty,
+        reason: 'nothing was earned or spent, so no plus or minus',
+      );
+
+      // Back out of savings.
+      expect(
+        transactionDirection(
+          entry(TransactionType.transfer, walletId: 'save', toWalletId: 'cash'),
+          wallets,
+        ).label,
+        'Withdraw',
+      );
+
+      // Between two spending wallets it is neither.
+      expect(
+        transactionDirection(
+          entry(TransactionType.transfer, toWalletId: 'gcash'),
+          wallets,
+        ).label,
+        'Moved',
+      );
+    });
+
+    test('a wallet reads a transfer from its own side', () {
+      final transfer = entry(TransactionType.transfer, toWalletId: 'save');
+
+      expect(
+        transactionDirection(transfer, wallets, forWalletId: 'cash').label,
+        'Withdraw',
+        reason: 'the money left this wallet',
+      );
+      expect(
+        transactionDirection(transfer, wallets, forWalletId: 'save').label,
+        'Deposit',
+        reason: 'the same move, seen from where it landed',
+      );
+    });
+  });
+
   group('bill schedules', () {
     Bill bill({
       required DateTime firstDueDate,
@@ -4636,7 +4733,8 @@ void main() {
       ]);
 
       expect(find.text('Today'), findsOneWidget);
-      expect(find.text('Food'), findsOneWidget);
+      // Once on its row, once in the breakdown above it.
+      expect(find.text('Food'), findsNWidgets(2));
       expect(find.text('Allowance'), findsOneWidget);
       expect(find.text('Cash → GCash'), findsOneWidget);
       expect(find.text('-₱120'), findsOneWidget);
@@ -4687,7 +4785,8 @@ void main() {
         ),
       ], onOpen: (t) => opened = t);
 
-      await tester.tap(find.text('Food'));
+      // The row itself, not the same name in the breakdown above it.
+      await tester.tap(find.text('Food').last);
       expect(opened?.id, 'e');
     });
 
@@ -4711,9 +4810,10 @@ void main() {
         ),
       ]);
 
-      await tester.tap(find.byTooltip('Spending by category'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Transportation').last);
+      // The breakdown sits in the list itself, so there is nothing to
+      // open first.
+      expect(find.text('Spending by category'), findsOneWidget);
+      await tester.tap(find.text('Transportation').first);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Showing:'), findsOneWidget);
@@ -4721,7 +4821,7 @@ void main() {
 
       await tester.tap(find.text('Clear'));
       await tester.pumpAndSettle();
-      expect(find.text('Food'), findsOneWidget);
+      expect(find.text('Food'), findsNWidgets(2));
     });
 
     testWidgets('search button opens search and transaction filters', (
@@ -8341,6 +8441,13 @@ void main() {
       date: date,
     );
 
+    // Tall enough to hold the breakdown and every day below it, since the
+    // list only builds the rows it can show.
+    tester.view.physicalSize = const Size(800, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => AppSettingsProvider(),
@@ -8522,7 +8629,9 @@ void main() {
     expect(find.text('Loans in'), findsOneWidget);
     expect(find.text('Loans out'), findsOneWidget);
     expect(find.text('₱500'), findsNWidgets(2), reason: 'loans in and out');
-    expect(find.text('₱100'), findsOneWidget, reason: 'money out stays ₱100');
+    // Once in the Outward total and once in the breakdown's Food row: the
+    // loan is in neither, which is the point.
+    expect(find.text('₱100'), findsNWidgets(2), reason: 'outward stays ₱100');
   });
 
   test('loans get their own icons, not a category one', () {

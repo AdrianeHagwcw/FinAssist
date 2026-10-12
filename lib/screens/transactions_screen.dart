@@ -97,19 +97,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     if (chosen != null) setState(() => _filter = chosen);
   }
 
-  Future<void> _showBreakdown(List<AppTransaction> transactions) async {
-    final category = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: context.appColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => _CategoryBreakdownSheet(transactions: transactions),
-    );
-
-    if (category == null) return;
-
-    // Narrows the list to that category's spending.
+  /// Narrows the list to one category's spending.
+  void _narrowTo(String category) {
     setState(
       () => _filter = _filter.copyWith(
         category: () => category,
@@ -150,16 +139,15 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 actions: [
                   IconButton(
                     tooltip: 'Pay-cycle history',
-                    icon: const Icon(Icons.history),
+                    icon: Image.asset(
+                      'assets/icons/icons8-idea-96.png',
+                      width: 24,
+                      height: 24,
+                    ),
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const HistoryScreen()),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Spending by category',
-                    icon: const Icon(Icons.pie_chart_outline),
-                    onPressed: all == null ? null : () => _showBreakdown(shown),
                   ),
                 ],
               ),
@@ -257,6 +245,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           ),
         ),
         const SizedBox(height: 16),
+        // In the list it describes, rather than behind an icon that had to be
+        // found first. Tapping a category narrows the list to it.
+        _CategoryBreakdown(transactions: shown, onPick: _narrowTo),
         if (shown.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 40),
@@ -451,7 +442,7 @@ class _InOutStrip extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Lent, borrowed or paid back. Not counted in money in or out.',
+              'Lent, borrowed or paid back. Not counted as inward or outward.',
               style: TextStyle(fontSize: 11, color: Colors.grey),
             ),
           ],
@@ -704,102 +695,98 @@ class _FilterSheetState extends State<_FilterSheet> {
   }
 }
 
-class _CategoryBreakdownSheet extends StatelessWidget {
-  const _CategoryBreakdownSheet({required this.transactions});
+/// Where the money on screen went, read inside the list it describes.
+///
+/// Tapping a slice narrows the list to it, which is what the sheet behind the
+/// old chart icon did. Hidden when there is no spending to break down, so an
+/// empty heading never takes up the top of the screen.
+class _CategoryBreakdown extends StatelessWidget {
+  const _CategoryBreakdown({required this.transactions, required this.onPick});
 
   final List<AppTransaction> transactions;
+  final void Function(String category) onPick;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final entries = spendingByCategory(transactions);
+    if (entries.isEmpty) return const SizedBox.shrink();
+
     final total = entries.fold<double>(0, (sum, entry) => sum + entry.value);
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Spending by category',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: colors.textPrimary,
-              ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Spending by category',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'For what is on screen. Tap one to see just those.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            if (entries.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Text(
-                  'No spending here yet.',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              )
-            else
-              for (final entry in entries)
-                InkWell(
-                  onTap: () => Navigator.pop(context, entry.key),
-                  borderRadius: BorderRadius.circular(10),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      children: [
-                        CategoryIcon(entry.key, size: 22),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'For what is on screen. Tap one to see just those.',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 10),
+          for (final entry in entries)
+            InkWell(
+              onTap: () => onPick(entry.key),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    CategoryIcon(entry.key, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      entry.key,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: colors.textPrimary,
-                                      ),
-                                    ),
+                              Expanded(
+                                child: Text(
+                                  entry.key,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: colors.textPrimary,
                                   ),
-                                  MoneyText(
-                                    entry.value,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: colors.textPrimary,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
-                              const SizedBox(height: 6),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: LinearProgressIndicator(
-                                  value: total == 0 ? 0 : entry.value / total,
-                                  minHeight: 6,
-                                  backgroundColor: colors.track,
-                                  valueColor: AlwaysStoppedAnimation(
-                                    categoryColor(entry.key),
-                                  ),
+                              MoneyText(
+                                entry.value,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: colors.textPrimary,
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 6),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: total == 0 ? 0 : entry.value / total,
+                              minHeight: 6,
+                              backgroundColor: colors.track,
+                              valueColor: AlwaysStoppedAnimation(
+                                categoryColor(entry.key),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-          ],
-        ),
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -462,9 +462,14 @@ class _TransactionRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      note == null || note.isEmpty
-                          ? transaction.type.label
-                          : note,
+                      [
+                        transactionDirection(
+                          transaction,
+                          wallets,
+                          forWalletId: wallet.id,
+                        ).label,
+                        if (note != null && note.isNotEmpty) note,
+                      ].join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12, color: Colors.grey),

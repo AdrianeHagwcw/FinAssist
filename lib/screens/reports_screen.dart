@@ -363,7 +363,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
         const SizedBox(height: 16),
         _Section(
-          title: 'Money in vs. money out',
+          title: 'Inward vs. outward',
           subtitle: _trendSubtitle(points.length),
           child: _TrendChart(points: points),
         ),
@@ -507,7 +507,9 @@ class _TrendChart extends StatelessWidget {
     }
 
     if (highest <= 0) {
-      return const _EmptyNote('No money in or out in these periods yet.');
+      return const _EmptyNote(
+        'Nothing inward or outward in these periods yet.',
+      );
     }
 
     // Four or five round gridlines, with room above the tallest bar so it
@@ -543,9 +545,9 @@ class _TrendChart extends StatelessWidget {
       children: [
         Row(
           children: [
-            key('Money in', green),
+            key('Inward', green),
             const SizedBox(width: 16),
-            key('Money out', red),
+            key('Outward', red),
           ],
         ),
         const SizedBox(height: 16),

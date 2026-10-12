@@ -281,7 +281,21 @@ double leftoverOf(
   Iterable<AppTransaction> transactions,
   PayPeriod period,
 ) {
-  final spent = discretionarySpending(
+  final left = cycle.remaining - spentInCycle(cycle, transactions, period);
+  return left > 0 ? left : 0;
+}
+
+/// What was spent out of this pay, from the day it came in to the end of its
+/// period.
+///
+/// Shown beside the leftover so the drop from one to the other is accounted
+/// for rather than left to guess at.
+double spentInCycle(
+  AllocationCycle cycle,
+  Iterable<AppTransaction> transactions,
+  PayPeriod period,
+) {
+  return discretionarySpending(
     transactions,
     from: DateTime(
       cycle.receivedAt.year,
@@ -290,8 +304,6 @@ double leftoverOf(
     ),
     until: period.end,
   );
-  final left = cycle.remaining - spent;
-  return left > 0 ? left : 0;
 }
 
 /// The newest cycle whose period is on its last day or already over and whose
