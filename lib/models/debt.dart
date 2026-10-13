@@ -17,7 +17,7 @@ enum DebtDirection {
 enum DebtCategory {
   gadget('Gadget or appliance'),
   personalLoan('Personal loan'),
-  governmentLoan('Government loan (SSS, Pag-IBIG)'),
+  governmentLoan('Government loan'),
   creditCard('Credit card'),
   buyNowPayLater('Buy now, pay later'),
   familyFriend('Family or friend'),

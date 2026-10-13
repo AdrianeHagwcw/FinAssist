@@ -880,11 +880,15 @@ void main() {
         find.byKey(const Key('set-aside-name')),
         'Savings',
       );
+      // A minus sign cannot be typed into an amount at all now, so a
+      // negative never reaches the check behind it.
       await tester.enterText(find.byKey(const Key('set-aside-balance')), '-5');
+      expect(find.text('-5'), findsNothing);
+      expect(find.text('5'), findsOneWidget);
+
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
-      expect(find.text('Enter an amount of zero or more.'), findsOneWidget);
-      expect(saves, 0);
+      expect(saves, 1, reason: '₱5 is a balance a record can hold');
     });
 
     test('a record is matured on its day, not before', () {
@@ -6424,6 +6428,58 @@ void main() {
       expect(saved, 3800);
     });
 
+    testWidgets('money goes into the savings record the user picks', (
+      tester,
+    ) async {
+      String? intoWallet;
+
+      final cashSavings = Wallet(
+        id: 'cash-savings',
+        name: 'Cash at home',
+        type: WalletType.other,
+        balance: 3000,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+        purpose: WalletPurpose.savings,
+      );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: ContributionSheet(
+                goal: laptop,
+                wallets: Stream.value([cash, savings, cashSavings]),
+                goals: Stream.value(const [laptop]),
+                onSave: (_, walletId) => intoWallet = walletId,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Both records are offered, not just the first one.
+      await tester.tap(find.text('Savings').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cash at home').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, '500');
+      await tester.tap(find.text('Set Aside'));
+      await tester.pumpAndSettle();
+
+      expect(
+        intoWallet,
+        'cash-savings',
+        reason: 'it used to always land on the first savings record',
+      );
+    });
+
     testWidgets('cannot take out more than is set aside', (tester) async {
       double? saved;
       await pumpSheet(tester, takeOut: true, onSave: (a, _) => saved = a);
@@ -6432,8 +6488,9 @@ void main() {
       await tester.tap(find.text('Take It Out'));
       await tester.pump();
 
+      // Named per record, because the goal's money may sit in several.
       expect(
-        find.text('Only ₱1,200 is in your Savings wallet for this goal.'),
+        find.text('Only ₱1,200 of this goal is in Savings.'),
         findsOneWidget,
       );
       expect(saved, isNull);

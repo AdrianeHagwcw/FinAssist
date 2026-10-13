@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../utils/amount_input_formatter.dart';
 import '../providers/app_settings_provider.dart';
 
 import '../models/allocation.dart';
@@ -965,6 +966,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              inputFormatters: const [ThousandsSeparatorFormatter()],
               decoration: dialogFieldDecoration(
                 context,
                 'Amount to set aside',
@@ -1303,6 +1305,7 @@ class _BillChoice extends StatelessWidget {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: const [ThousandsSeparatorFormatter()],
                 decoration: dialogFieldDecoration(
                   context,
                   'Pay now',

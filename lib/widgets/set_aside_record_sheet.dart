@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
@@ -80,8 +81,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet> {
         ? ''
         : formatAmountInput(widget.wallet!.balance),
   );
-  late SavingsKind _kind =
-      widget.wallet != null || widget.initialKind == null
+  late SavingsKind _kind = widget.wallet != null || widget.initialKind == null
       ? SavingsKind.fromName(widget.wallet?.savingsKind)
       : widget.initialKind!;
   late DateTime? _maturityDate = widget.wallet?.maturityDate;
@@ -310,6 +310,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: const [ThousandsSeparatorFormatter()],
                 decoration: dialogFieldDecoration(
                   context,
                   'Recorded balance',
@@ -357,10 +358,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet> {
                 const SizedBox(height: 10),
                 Text(
                   _error!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: dangerColorOn(context),
-                  ),
+                  style: TextStyle(fontSize: 12, color: dangerColorOn(context)),
                 ),
               ],
               const SizedBox(height: 18),

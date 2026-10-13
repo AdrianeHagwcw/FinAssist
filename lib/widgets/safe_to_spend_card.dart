@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
@@ -196,10 +197,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         billsDue: billsDueBefore(_bills, period.end),
         savingsReserve: savingsReserveFrom(profile),
         billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
-        goalSavings: totalSetAsideInSpendingWallets(
-          _goalsData,
-          wallets,
-        ),
+        goalSavings: totalSetAsideInSpendingWallets(_goalsData, wallets),
         spentToday: discretionarySpending(
           transactions,
           from: startOfToday,
@@ -598,6 +596,7 @@ class _EditSafeToSpendSheetState extends State<EditSafeToSpendSheet> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: const [ThousandsSeparatorFormatter()],
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -625,6 +624,7 @@ class _EditSafeToSpendSheetState extends State<EditSafeToSpendSheet> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: const [ThousandsSeparatorFormatter()],
                 decoration: dialogFieldDecoration(
                   context,
                   'Set aside as savings',

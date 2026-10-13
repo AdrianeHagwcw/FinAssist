@@ -1,3 +1,17 @@
+/// The smallest amount the app will record: one centavo.
+///
+/// Amounts are shown rounded to centavos, so anything smaller reads as ₱0
+/// everywhere. Storing it would be money the user can neither see nor
+/// correct, which is worse than refusing it.
+const double minimumAmount = 0.01;
+
+/// Whether this is an amount the app can record and then show honestly.
+///
+/// Rejects nothing typed, zero, negatives, and the sub-centavo values that
+/// would display as ₱0.
+bool isRecordableAmount(double? amount) =>
+    amount != null && amount.isFinite && (amount * 100).round() >= 1;
+
 /// Formats an amount as Philippine Peso, e.g. `₱12,500` or `₱12,500.50`.
 ///
 /// Centavos only show when there are some, so whole amounts read cleanly.

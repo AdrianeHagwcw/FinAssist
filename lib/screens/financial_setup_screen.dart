@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/onboarding_data.dart';
 import '../models/wallet.dart';
 import '../widgets/bill_form_sheet.dart';
@@ -741,6 +742,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             key: const Key('monthly-income'),
             controller: _incomeController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: const [ThousandsSeparatorFormatter()],
             decoration: _inputDecoration(
               isIrregular ? 'Optional estimate' : 'Total for a typical month',
               prefixText: '₱ ',
@@ -1597,7 +1599,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         _reviewRow(
           'Income',
           '$incomeText · ${_incomeFrequencies[_incomeFrequency] ?? 'Not set'}\n'
-          '$_resolvedIncomeSource',
+              '$_resolvedIncomeSource',
           _incomeStep,
         ),
         _reviewRow(
@@ -1617,7 +1619,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
         _reviewRow(
           'Savings',
           '${plural(_onboardingSavingsAccounts.length, 'account')} · '
-          '${plural(_onboardingGoals.length, 'goal')}',
+              '${plural(_onboardingGoals.length, 'goal')}',
           _savingsStep,
         ),
         _reviewRow(
@@ -2132,6 +2134,7 @@ class _OnboardingAllocationSheetState
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              inputFormatters: const [ThousandsSeparatorFormatter()],
               decoration: _inputDecoration(
                 context,
                 'Amount for this goal',
@@ -2216,7 +2219,8 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
     final today = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: _maturityDate ?? DateTime(today.year, today.month + 6, today.day),
+      initialDate:
+          _maturityDate ?? DateTime(today.year, today.month + 6, today.day),
       firstDate: today,
       lastDate: DateTime(today.year + 20),
       helpText: 'When can you take it out?',
@@ -2301,20 +2305,20 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
                   child: Column(
                     children: [
                       for (final kind in SavingsKind.values)
-                      RadioListTile<SavingsKind>(
-                        key: Key('savings-kind-${kind.name}'),
-                        value: kind,
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: Text(kind.label),
-                        subtitle: Text(
-                          kind.hint,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colors.textBody,
+                        RadioListTile<SavingsKind>(
+                          key: Key('savings-kind-${kind.name}'),
+                          value: kind,
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(kind.label),
+                          subtitle: Text(
+                            kind.hint,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textBody,
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -2338,6 +2342,7 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: const [ThousandsSeparatorFormatter()],
                 decoration: _inputDecoration(
                   context,
                   'Current balance',

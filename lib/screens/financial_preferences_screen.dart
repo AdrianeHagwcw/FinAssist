@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/allocation.dart';
 import '../models/financial_preferences.dart';
 import '../services/user_profile_service.dart';
@@ -224,6 +225,7 @@ class _PreferencesFormState extends State<_PreferencesForm> {
           key: const Key('usual-income'),
           controller: _amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: const [ThousandsSeparatorFormatter()],
           decoration: const InputDecoration(
             labelText: 'Usual amount per payment (optional)',
             prefixText: '₱ ',
@@ -232,10 +234,9 @@ class _PreferencesFormState extends State<_PreferencesForm> {
           ),
           validator: (value) {
             if (value == null || value.trim().isEmpty) return null;
-            final amount = double.tryParse(_clean(value));
-            return amount == null || !amount.isFinite || amount <= 0
-                ? 'Enter an amount greater than zero.'
-                : null;
+            return isRecordableAmount(double.tryParse(_clean(value)))
+                ? null
+                : 'Enter an amount greater than zero.';
           },
         ),
         const SizedBox(height: 28),

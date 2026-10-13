@@ -349,7 +349,7 @@ void main() {
     await capture(tester, 'preferences-light');
     await tester.enterText(find.byKey(const Key('income-source')), 'Freelance');
     await scrollTo(tester, find.byKey(const Key('usual-income')));
-    await tester.enterText(find.byKey(const Key('usual-income')), 'NaN');
+    await tester.enterText(find.byKey(const Key('usual-income')), '0');
     await scrollTo(tester, find.text('Save preferences'));
     await tester.tap(find.text('Save preferences'));
     await tester.pumpAndSettle();
@@ -559,7 +559,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text("More than what's in Cash"), findsNothing);
     expect(find.byType(AddExpenseScreen), findsOneWidget);
-    expect(find.text('7000'), findsOneWidget);
+    expect(find.text('7,000'), findsOneWidget, reason: 'grouped as typed');
   });
 
   testWidgets('Add Income starts with the usual source, never the amount', (

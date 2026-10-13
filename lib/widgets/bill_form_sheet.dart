@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/bill.dart';
 import '../models/wallet.dart';
 import '../services/bill_service.dart';
@@ -204,6 +205,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  inputFormatters: const [ThousandsSeparatorFormatter()],
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -216,7 +218,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
                     final amount = double.tryParse(
                       (value ?? '').trim().replaceAll(',', ''),
                     );
-                    return amount == null || amount <= 0
+                    return !isRecordableAmount(amount)
                         ? 'Enter how much this bill is.'
                         : null;
                   },
@@ -270,7 +272,10 @@ class _BillFormSheetState extends State<BillFormSheet> {
                 DropdownButtonFormField<BillRecurrence>(
                   initialValue: _recurrence,
                   isExpanded: true,
-                  decoration: dialogFieldDecoration(context, 'Does this repeat?'),
+                  decoration: dialogFieldDecoration(
+                    context,
+                    'Does this repeat?',
+                  ),
                   items: [
                     for (final recurrence in BillRecurrence.values)
                       DropdownMenuItem(

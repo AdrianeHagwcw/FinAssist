@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_colors.dart';
@@ -224,6 +225,7 @@ class _TransferSheetState extends State<TransferSheet> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
+                        inputFormatters: const [ThousandsSeparatorFormatter()],
                         decoration: InputDecoration(
                           labelText: 'Amount',
                           prefixText: '₱ ',
@@ -284,7 +286,9 @@ class _TransferSheetState extends State<TransferSheet> {
   String? _validateAmount(String? value, {required Wallet? source}) {
     final amount = double.tryParse((value ?? '').trim().replaceAll(',', ''));
 
-    if (amount == null || amount <= 0) return 'Enter an amount to transfer.';
+    if (amount == null || !isRecordableAmount(amount)) {
+      return 'Enter an amount to transfer.';
+    }
 
     if (source != null && amount > source.balance) {
       return '${source.name} only holds ${formatPeso(source.balance)}.';

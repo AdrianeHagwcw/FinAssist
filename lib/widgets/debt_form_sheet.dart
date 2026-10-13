@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/debt.dart';
 import '../models/wallet.dart';
 import '../services/debt_service.dart';
@@ -251,9 +252,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     final String? problem;
     if (name.isEmpty) {
       problem = _iOwe ? 'Give it a name.' : 'Who owes you?';
-    } else if (principal <= 0) {
+    } else if (!isRecordableAmount(principal)) {
       problem = _iOwe ? 'Enter the amount borrowed.' : 'Enter how much.';
-    } else if (_iOwe && perPayment <= 0) {
+    } else if (_iOwe && !isRecordableAmount(perPayment)) {
       problem = 'Enter how much each payment is.';
     } else if (_iOwe && _paymentCount < 1) {
       problem = 'Enter how many payments.';
@@ -415,6 +416,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
+                            inputFormatters: const [
+                              ThousandsSeparatorFormatter(),
+                            ],
                             decoration:
                                 dialogFieldDecoration(
                                   context,
@@ -508,7 +512,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                   if (_iOwe) ...[
                     const SizedBox(height: 14),
                     const DialogNote(
-                      text: 'This only writes down the plan. Your money does '
+                      text:
+                          'This only writes down the plan. Your money does '
                           'not move until you pay.',
                     ),
                   ],
@@ -552,6 +557,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
+                        inputFormatters: const [ThousandsSeparatorFormatter()],
                         decoration:
                             dialogFieldDecoration(
                               context,
@@ -581,28 +587,28 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                       ],
                       const SizedBox(height: 8),
                       if (!_iOwe) ...[
-                      SwitchListTile(
-                        value: _movedMoney,
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('It came out of one of my wallets'),
-                        subtitle: const Text(
-                          'The wallet goes down now, and back up when you are '
-                          'paid back. Turn off for money lent before you used '
-                          'FinAssist.',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        onChanged: (value) =>
-                            setState(() => _movedMoney = value),
-                      ),
-                      if (_movedMoney)
-                        WalletPicker(
-                          wallets: wallets,
-                          selectedId:
-                              _movedWalletId ?? defaultWalletId(wallets),
-                          label: 'Taken from',
+                        SwitchListTile(
+                          value: _movedMoney,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('It came out of one of my wallets'),
+                          subtitle: const Text(
+                            'The wallet goes down now, and back up when you are '
+                            'paid back. Turn off for money lent before you used '
+                            'FinAssist.',
+                            style: TextStyle(fontSize: 12),
+                          ),
                           onChanged: (value) =>
-                              setState(() => _movedWalletId = value),
+                              setState(() => _movedMoney = value),
                         ),
+                        if (_movedMoney)
+                          WalletPicker(
+                            wallets: wallets,
+                            selectedId:
+                                _movedWalletId ?? defaultWalletId(wallets),
+                            label: 'Taken from',
+                            onChanged: (value) =>
+                                setState(() => _movedWalletId = value),
+                          ),
                       ],
                     ],
                     const SizedBox(height: 16),

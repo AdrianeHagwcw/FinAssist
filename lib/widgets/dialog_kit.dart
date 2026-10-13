@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_theme.dart';
@@ -91,6 +92,7 @@ class AmountField extends StatelessWidget {
       enabled: enabled,
       autofocus: autofocus,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      inputFormatters: const [ThousandsSeparatorFormatter()],
       textInputAction: TextInputAction.done,
       onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
       style: TextStyle(

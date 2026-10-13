@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
@@ -98,7 +99,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
   /// The line under the field: what this amount leaves behind, or adds.
   String get _consequence {
     final amount = _typed;
-    if (amount == null || amount <= 0) {
+    if (amount == null || !isRecordableAmount(amount)) {
       return 'Enter how much came back to you.';
     }
     final taken = (amount * 100).round() / 100;
@@ -133,7 +134,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
 
   void _settle() {
     final amount = _typed;
-    if (amount == null || amount <= 0) {
+    if (amount == null || !isRecordableAmount(amount)) {
       setState(() => _error = 'Enter how much came back to you.');
       return;
     }
@@ -203,6 +204,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: const [ThousandsSeparatorFormatter()],
                 decoration: dialogFieldDecoration(
                   context,
                   'Amount you received',
@@ -237,10 +239,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
                 const SizedBox(height: 10),
                 Text(
                   _error!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: dangerColorOn(context),
-                  ),
+                  style: TextStyle(fontSize: 12, color: dangerColorOn(context)),
                 ),
               ],
               const SizedBox(height: 18),

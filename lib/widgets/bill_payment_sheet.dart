@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/bill.dart';
 import '../models/wallet.dart';
 import 'transfer_sheet.dart';
@@ -75,10 +76,7 @@ class _NothingSetAside extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          message,
-          style: const TextStyle(fontSize: 14, color: Colors.grey),
-        ),
+        Text(message, style: const TextStyle(fontSize: 14, color: Colors.grey)),
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
@@ -195,7 +193,9 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
   String? _validateAmount(String? value) {
     final amount = double.tryParse((value ?? '').trim().replaceAll(',', ''));
 
-    if (amount == null || amount <= 0) return 'Enter how much you are paying.';
+    if (amount == null || !isRecordableAmount(amount)) {
+      return 'Enter how much you are paying.';
+    }
 
     if (amount > widget.instance.remaining + 0.005) {
       return 'This bill only needs '
@@ -292,6 +292,7 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
+                        inputFormatters: const [ThousandsSeparatorFormatter()],
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,

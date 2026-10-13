@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
 import '../models/wallet.dart';
@@ -213,7 +214,8 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => BillDetailScreen(instance: instance, today: widget.today),
+        builder: (_) =>
+            BillDetailScreen(instance: instance, today: widget.today),
       ),
     );
   }
@@ -414,9 +416,7 @@ class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
   }
 
   void _save() {
-    final amount = double.tryParse(
-      _controller.text.trim().replaceAll(',', ''),
-    );
+    final amount = double.tryParse(_controller.text.trim().replaceAll(',', ''));
     Navigator.pop(context, amount);
   }
 
@@ -441,6 +441,7 @@ class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
             controller: _controller,
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: const [ThousandsSeparatorFormatter()],
             decoration: const InputDecoration(
               labelText: 'Amount',
               prefixText: '₱ ',

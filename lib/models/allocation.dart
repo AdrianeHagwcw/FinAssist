@@ -89,7 +89,7 @@ class AllocationPlan {
   List<String> get problems {
     final problems = <String>[];
 
-    if (!income.isFinite || income <= 0) {
+    if (!isRecordableAmount(income)) {
       problems.add('Enter how much came in.');
     }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/goal_service.dart';
@@ -523,7 +524,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     final String? problem;
     if (name.isEmpty) {
       problem = 'Give the goal a name.';
-    } else if (target <= 0) {
+    } else if (!isRecordableAmount(target)) {
       problem = 'Enter how much you want to save.';
     } else if (saved > 0 && record == null) {
       problem = 'Add a Savings wallet before recording money already saved.';
@@ -714,10 +715,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                       children: [
                         // A goal saved under an older kind keeps its chip,
                         // so editing it does not silently change the type.
-                        for (final kind in {
-                          ...GoalKind.choosable,
-                          _kind,
-                        })
+                        for (final kind in {...GoalKind.choosable, _kind})
                           ChoiceChip(
                             avatar: Icon(kind.icon, size: 18),
                             label: Text(kind.label),
@@ -744,6 +742,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
+                        inputFormatters: const [ThousandsSeparatorFormatter()],
                         decoration: dialogFieldDecoration(
                           context,
                           'Already saved',
@@ -773,6 +772,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      inputFormatters: const [ThousandsSeparatorFormatter()],
                       decoration: dialogFieldDecoration(
                         context,
                         'Amount each time',
@@ -971,7 +971,21 @@ class _ContributionSheetState extends State<ContributionSheet> {
         ? ''
         : formatAmountInput(widget.goal.remaining),
   );
+
+  /// Which savings record the money is taken from or put back into. Null
+  /// until the user picks one, and then the first record is used.
+  String? _recordId;
   String? _error;
+
+  /// The record being saved into, or null when there is none to save into.
+  Wallet? _recordFor(List<Wallet> wallets) {
+    final records = promisableSavingsRecords(wallets);
+    if (records.isEmpty) return null;
+    return records.firstWhere(
+      (wallet) => wallet.id == _recordId,
+      orElse: () => records.first,
+    );
+  }
 
   @override
   void dispose() {
@@ -983,32 +997,24 @@ class _ContributionSheetState extends State<ContributionSheet> {
     final amount = double.tryParse(
       _amountController.text.trim().replaceAll(',', ''),
     );
-    final savingsWallet = WalletService.walletFor(
-      wallets,
-      WalletPurpose.savings,
-    );
-    final walletId = savingsWallet?.id;
     final goal = widget.goal;
-    final alreadyAssigned = totalSetAsideInPurposeWallets(
-      goals,
-      wallets,
-      WalletPurpose.savings,
-    );
-    final savedInSavings = totalSetAsideInPurposeWallets(
-      [goal],
-      wallets,
-      WalletPurpose.savings,
-    );
-    final available = (savingsWallet?.balance ?? 0) - alreadyAssigned;
+    // Per record, not across all of them: money is promised out of one
+    // place, and the user said which.
+    final record = _recordFor(wallets);
+    final walletId = record?.id;
+    final heldHere = record == null
+        ? 0.0
+        : goalMoneyInWallet([goal], record.id);
+    final available = record == null ? 0.0 : freeInWallet(record, goals);
 
-    final problem = amount == null || amount <= 0
+    final problem = amount == null || !isRecordableAmount(amount)
         ? 'Enter an amount.'
-        : walletId == null
+        : record == null
         ? 'Add a Savings wallet and move money into it first.'
-        : widget.takeOut && amount > savedInSavings + 0.005
-        ? 'Only ${formatPeso(savedInSavings)} is in your Savings wallet for this goal.'
+        : widget.takeOut && amount > heldHere + 0.005
+        ? 'Only ${formatPeso(heldHere)} of this goal is in ${record.name}.'
         : !widget.takeOut && amount > available + 0.005
-        ? 'Only ${formatPeso(available > 0 ? available : 0)} is available in your Savings wallet.'
+        ? '${record.name} has ${formatPeso(available)} left to promise.'
         : null;
 
     if (problem != null) {
@@ -1044,10 +1050,8 @@ class _ContributionSheetState extends State<ContributionSheet> {
                 stream: _goals,
                 builder: (context, goalsSnapshot) {
                   final goals = goalsSnapshot.data ?? [widget.goal];
-                  final savingsWallet = WalletService.walletFor(
-                    wallets,
-                    WalletPurpose.savings,
-                  );
+                  final records = promisableSavingsRecords(wallets);
+                  final record = _recordFor(wallets);
 
                   return Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1071,17 +1075,20 @@ class _ContributionSheetState extends State<ContributionSheet> {
                         label: widget.takeOut ? 'Amount to take out' : 'Amount',
                       ),
                       const SizedBox(height: 16),
-                      if (savingsWallet != null)
+                      // Which record, now that there can be several. Goal
+                      // money is tracked per record, so the one chosen here
+                      // is the one it is counted against.
+                      if (record != null)
                         WalletPicker(
-                          wallets: [savingsWallet],
-                          selectedId: savingsWallet.id,
+                          wallets: records,
+                          selectedId: record.id,
                           allowed: const {WalletPurpose.savings},
                           label: widget.takeOut
-                              ? 'Savings wallet'
-                              : 'Save in the Savings wallet',
-                          onChanged: (_) {},
+                              ? 'Take it out of'
+                              : 'Save it in',
+                          onChanged: (id) => setState(() => _recordId = id),
                         ),
-                      if (savingsWallet == null) ...[
+                      if (record == null) ...[
                         const SizedBox(height: 8),
                         const Text(
                           'Add a Savings wallet and move money into it before '
@@ -1099,10 +1106,8 @@ class _ContributionSheetState extends State<ContributionSheet> {
                       ] else ...[
                         const SizedBox(height: 8),
                         OutlinedButton.icon(
-                          onPressed: () => showTransferSheet(
-                            context,
-                            toWalletId: savingsWallet.id,
-                          ),
+                          onPressed: () =>
+                              showTransferSheet(context, toWalletId: record.id),
                           icon: const Icon(Icons.swap_horiz),
                           label: const Text('Move money to Savings'),
                         ),

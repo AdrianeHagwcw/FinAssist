@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../utils/amount_input_formatter.dart';
 import '../providers/app_settings_provider.dart';
 
 import '../models/allocation.dart';
@@ -350,6 +351,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
+                    inputFormatters: const [ThousandsSeparatorFormatter()],
                     decoration: dialogFieldDecoration(
                       context,
                       'Save',
@@ -363,6 +365,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
+                    inputFormatters: const [ThousandsSeparatorFormatter()],
                     decoration: dialogFieldDecoration(
                       context,
                       'Spend',

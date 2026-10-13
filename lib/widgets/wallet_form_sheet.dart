@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/amount_input_formatter.dart';
 import '../models/wallet.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
@@ -320,6 +321,7 @@ class _WalletFormSheetState extends State<WalletFormSheet> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
+                    inputFormatters: const [ThousandsSeparatorFormatter()],
                     decoration: InputDecoration(
                       hintText: '0.00',
                       prefixText: '₱ ',
