@@ -195,11 +195,9 @@ class SafeToSpend {
   const SafeToSpend({
     required this.walletBalance,
     required this.billsDue,
-    required this.savingsReserve,
     required this.spentToday,
     required this.daysLeft,
     this.goalSavings = 0,
-    this.customDailyLimit,
     this.periodBudget,
     this.periodSpent = 0,
     this.periodLengthDays,
@@ -211,9 +209,6 @@ class SafeToSpend {
 
   /// Owed on bills before the period ends.
   final double billsDue;
-
-  /// Money the user chose to set aside as savings.
-  final double savingsReserve;
 
   /// What is already waiting in the bills wallet. Bills covered by it are not
   /// taken out of spending money a second time.
@@ -230,8 +225,6 @@ class SafeToSpend {
 
   /// A daily limit the user typed in. A period budget still caps it so the
   /// plan lasts until the next payday.
-  final double? customDailyLimit;
-
   /// The user's planned spending amount for this whole pay period.
   final double? periodBudget;
 
@@ -254,7 +247,6 @@ class SafeToSpend {
         walletBalance +
         spentToday -
         (billsShortfall > 0 ? billsShortfall : 0) -
-        savingsReserve -
         goalSavings;
     final availableFromWallet = walletAmount > 0 ? walletAmount : 0.0;
     final budget = periodBudget;
@@ -278,14 +270,9 @@ class SafeToSpend {
     return remainingPerDay < plannedPerDay ? remainingPerDay : plannedPerDay;
   }
 
-  bool get usesCustomLimit => customDailyLimit != null;
-
-  double get dailyLimit {
-    final custom = customDailyLimit;
-    if (custom == null) return recommendedDailyLimit;
-    if (periodBudget == null || custom <= recommendedDailyLimit) return custom;
-    return recommendedDailyLimit;
-  }
+  /// Always the worked-out figure. Nothing is typed over it, so the card
+  /// can never promise more than is safe.
+  double get dailyLimit => recommendedDailyLimit;
 
   /// Still safe to spend today. Negative once today's limit is passed.
   double get leftToday => dailyLimit - spentToday;

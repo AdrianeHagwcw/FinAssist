@@ -410,7 +410,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         VoiceDestination.bills => 'Bill Planner',
         VoiceDestination.wallet => 'Wallets',
         VoiceDestination.savings => 'Savings',
-        VoiceDestination.debts => 'Debts',
+        VoiceDestination.debts => 'Installments',
         VoiceDestination.goals => 'Goals',
         VoiceDestination.reports => 'Reports',
         VoiceDestination.settings => 'Settings',

@@ -108,7 +108,18 @@ VoiceDestination? _destinationFor(String words, double? amount) {
     VoiceDestination.bills: ['bill planner', 'bills', 'bill calendar'],
     VoiceDestination.wallet: ['wallets', 'wallet'],
     VoiceDestination.savings: ['savings', 'set aside'],
-    VoiceDestination.debts: ['debts', 'debt'],
+    // The screen is called Installments now. The older words stay, because
+    // people still say them and they cost nothing to keep listening for.
+    VoiceDestination.debts: [
+      'installments',
+      'installment',
+      'instalments',
+      'instalment',
+      'debts',
+      'debt',
+      'loan',
+      'loans',
+    ],
     VoiceDestination.goals: ['goals', 'goal'],
     VoiceDestination.reports: ['reports', 'report'],
     VoiceDestination.settings: ['settings', 'profile'],

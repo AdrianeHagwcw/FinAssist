@@ -38,14 +38,12 @@ List<String> tipsFor({
   List<AppTransaction> transactions = const [],
   List<Goal> goals = const [emergencyFund],
   List<Debt> debts = const [],
-  double? limit,
 }) => moneyTipsFor(
   FinanceSnapshot(
     now: now,
     transactions: transactions,
     goals: goals,
     debts: debts,
-    customDailyLimit: limit,
   ),
 );
 
@@ -71,24 +69,6 @@ void main() {
       tips.first,
       'Small buys add up: 9 purchases under ₱100 this week came to ₱450. A '
       'weekly limit for small spends helps.',
-    );
-  });
-
-  test('over a daily limit the user set, on several days', () {
-    final spending = [
-      spend('Food', 400, DateTime(2026, 9, 14, 12)),
-      spend('Food', 350, DateTime(2026, 9, 15, 12)),
-      spend('Food', 310, DateTime(2026, 9, 16, 12)),
-    ];
-    expect(
-      tipsFor(transactions: spending, limit: 300).first,
-      'You went over your ₱300 daily limit on 3 days this week. Spending by '
-      'category above shows what pushed it up.',
-    );
-    // Without a limit of their own, nothing is said about it.
-    expect(
-      tipsFor(transactions: spending).first,
-      isNot(contains('daily limit')),
     );
   });
 

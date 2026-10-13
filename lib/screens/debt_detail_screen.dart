@@ -309,14 +309,20 @@ class _InstallmentBody extends StatelessWidget {
             ),
             const SizedBox(height: 22),
             Text(
-              'Payments so far',
+              'Statement of account',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
                 color: colors.textPrimary,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 2),
+            const Text(
+              'Every payment, what you have paid on it, and what is left to '
+              'pay after it.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
             if (instances.isEmpty)
               const Text(
                 'Payments appear here once their month is opened in the Bill '
@@ -324,34 +330,158 @@ class _InstallmentBody extends StatelessWidget {
                 style: TextStyle(color: Colors.grey),
               )
             else
-              for (final instance in instances)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          formatShortDate(instance.dueDate),
-                          style: TextStyle(color: colors.textPrimary),
-                        ),
-                      ),
-                      BillStatusBadge(instance: instance),
-                      const SizedBox(width: 10),
-                      MoneyText(
-                        instance.amount,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              ..._statementRows(context, debt, instances, progress),
           ],
         );
       },
     );
   }
+}
+
+/// The statement's rows: one per payment in the plan, in the order they fall
+/// due, with what is still owed after each one.
+///
+/// Built from the plan's own schedule rather than from the bills that happen
+/// to exist. A payment only becomes a bill when its month is opened, so a
+/// fresh twelve-month plan has one bill and eleven payments still to come;
+/// a statement that showed only the first would be no statement at all.
+/// Where a bill does exist, what was really paid on it is laid over the top.
+List<Widget> _statementRows(
+  BuildContext context,
+  Debt debt,
+  List<BillInstance> instances,
+  DebtProgress progress,
+) {
+  final colors = context.appColors;
+  final rows = <Widget>[];
+
+  // Counted down from the whole amount payable, so the last row reads zero
+  // when the plan is finished.
+  var owed = progress.total;
+
+  // Without a start date there is no schedule to lay out, so the bills that
+  // exist are all there is to show.
+  final first = debt.firstDueDate;
+  final schedule = <({int number, DateTime due, double amount})>[];
+
+  if (first == null) {
+    final known = [...instances]
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    for (var i = 0; i < known.length; i++) {
+      schedule.add((
+        number: i + 1,
+        due: known[i].dueDate,
+        amount: known[i].amount,
+      ));
+    }
+  } else {
+    for (var number = 1; number <= debt.paymentCount; number++) {
+      schedule.add((
+        number: number,
+        due: lastDueDateFor(first, debt.frequency.recurrence, number),
+        amount: number == debt.paymentCount && debt.hasDifferentLastPayment
+            ? debt.finalPayment
+            : debt.perPayment,
+      ));
+    }
+  }
+
+  for (final payment in schedule) {
+    final number = payment.number;
+    final due = payment.due;
+    final scheduled = payment.amount;
+
+    final instance = _instanceOn(instances, due);
+    final amount = instance?.amount ?? scheduled;
+    final paid = instance?.amountPaid ?? 0;
+    final stillDue = instance?.remaining ?? amount;
+
+    owed = (owed - paid).clamp(0.0, double.infinity).toDouble();
+
+    final settledHere = stillDue <= 0.005;
+    final partly = paid > 0.005 && !settledHere;
+
+    rows.add(
+      Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: colors.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Payment $number of ${schedule.length} · '
+                    '${formatShortDate(due)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ),
+                if (instance != null)
+                  BillStatusBadge(instance: instance)
+                else
+                  Text(
+                    'To come',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    settledHere
+                        ? '${formatPeso(amount)} paid in full'
+                        : partly
+                        ? '${formatPeso(paid)} of ${formatPeso(amount)} paid · '
+                              '${formatPeso(stillDue)} still due'
+                        : '${formatPeso(amount)} due',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '${formatPeso(owed)} left',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // No totals box: the card at the top of the screen already states what
+  // has been paid, what is left and how many payments remain, and saying it
+  // twice only invites the two to disagree.
+  return rows;
+}
+
+/// The bill standing for the payment due on [day], or null when that month
+/// has not been opened yet.
+BillInstance? _instanceOn(List<BillInstance> instances, DateTime day) {
+  for (final instance in instances) {
+    if (instance.dueDate.year == day.year &&
+        instance.dueDate.month == day.month &&
+        instance.dueDate.day == day.day) {
+      return instance;
+    }
+  }
+  return null;
 }
 
 class _OwedToMeBody extends StatelessWidget {

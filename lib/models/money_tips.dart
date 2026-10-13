@@ -3,7 +3,6 @@ import 'app_transaction.dart';
 import 'finance_snapshot.dart';
 import 'goal.dart';
 import 'report.dart';
-import 'safe_to_spend.dart';
 import 'transaction_filter.dart';
 
 /// Short money-habit tips worked out from the user's own records: at most
@@ -16,7 +15,6 @@ import 'transaction_filter.dart';
 List<String> moneyTipsFor(FinanceSnapshot records, {int limit = 2}) {
   final tips = <String>[
     ?_smallBuys(records),
-    ?_overLimit(records),
     ?_payday(records),
     ?_biggestShare(records),
     ?_emergencyFund(records),
@@ -48,31 +46,6 @@ String? _smallBuys(FinanceSnapshot records) {
 
   return 'Small buys add up: ${small.length} purchases under ₱100 this week '
       'came to ${formatPeso(total)}. A weekly limit for small spends helps.';
-}
-
-/// Going over a daily limit the user set, on several days this week.
-String? _overLimit(FinanceSnapshot records) {
-  final limit = records.customDailyLimit;
-  if (limit == null) return null;
-
-  final week = ReportPeriod.weekOf(records.now);
-  var days = 0;
-  for (
-    var day = week.start;
-    day.isBefore(records.today);
-    day = DateTime(day.year, day.month, day.day + 1)
-  ) {
-    final spent = discretionarySpending(
-      records.transactions,
-      from: day,
-      until: DateTime(day.year, day.month, day.day + 1),
-    );
-    if (spent > limit + 0.005) days++;
-  }
-  if (days < 3) return null;
-
-  return 'You went over your ${formatPeso(limit)} daily limit on $days days '
-      'this week. Spending by category above shows what pushed it up.';
 }
 
 /// Income came in today or yesterday.

@@ -726,7 +726,10 @@ void main() {
       expect(find.text('Pag-IBIG MP2'), findsWidgets);
       expect(find.text('50000'), findsOneWidget);
 
-      await tester.enterText(find.byKey(const Key('set-aside-balance')), '5000');
+      await tester.enterText(
+        find.byKey(const Key('set-aside-balance')),
+        '5000',
+      );
       await tester.enterText(
         find.byKey(const Key('set-aside-name')),
         'MP2 savings',
@@ -830,18 +833,17 @@ void main() {
       // Every choice carries its own explainer, cash included, so no kind
       // is left unexplained.
       for (final kind in SavingsKind.values) {
-        expect(
-          find.byKey(Key('explain-savings-${kind.name}')),
-          findsOneWidget,
-        );
+        expect(find.byKey(Key('explain-savings-${kind.name}')), findsOneWidget);
       }
 
       await tester.tap(find.byKey(const Key('explain-savings-government')));
       await tester.pumpAndSettle();
 
       expect(find.text('Watch out for'), findsOneWidget);
-      expect(find.textContaining('Pag-IBIG MP2 runs for five years'),
-          findsOneWidget);
+      expect(
+        find.textContaining('Pag-IBIG MP2 runs for five years'),
+        findsOneWidget,
+      );
 
       // Reading about it is also how it gets picked.
       await tester.ensureVisible(find.text('Use this'));
@@ -849,8 +851,11 @@ void main() {
       await tester.tap(find.text('Use this'));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('new-savings-maturity')), findsOneWidget,
-          reason: 'government savings is locked away, so it asks for a date');
+      expect(
+        find.byKey(const Key('new-savings-maturity')),
+        findsOneWidget,
+        reason: 'government savings is locked away, so it asks for a date',
+      );
     });
 
     testWidgets('an empty name or a negative balance is refused', (
@@ -989,7 +994,6 @@ void main() {
       expect(received, 27000);
       expect(destination, isNotNull);
     });
-
   });
 
   group('setup savings and goals', () {
@@ -4639,11 +4643,10 @@ void main() {
         ),
       ]);
 
-      expect(
-        result.map((e) => '${e.key}=${e.value}'),
-        ['Bills=900.0', 'Food=250.0'],
-        reason: 'money lent out is not spending',
-      );
+      expect(result.map((e) => '${e.key}=${e.value}'), [
+        'Bills=900.0',
+        'Food=250.0',
+      ], reason: 'money lent out is not spending');
     });
   });
 
@@ -5405,25 +5408,23 @@ void main() {
   });
 
   group('safe to spend', () {
-    test('bills and savings come off before sharing over the days left', () {
+    test('bills come off before sharing over the days left', () {
       const s = SafeToSpend(
         walletBalance: 10000,
         billsDue: 3000,
-        savingsReserve: 1000,
         spentToday: 0,
         daysLeft: 10,
       );
 
-      expect(s.spendableThisPeriod, 6000);
-      expect(s.recommendedDailyLimit, 600);
-      expect(s.leftToday, 600);
+      expect(s.spendableThisPeriod, 7000);
+      expect(s.recommendedDailyLimit, 700);
+      expect(s.leftToday, 700);
     });
 
     test('period budget is shared across days and reduces as spent', () {
       const s = SafeToSpend(
         walletBalance: 10000,
         billsDue: 0,
-        savingsReserve: 0,
         spentToday: 0,
         daysLeft: 15,
         periodBudget: 3000,
@@ -5437,7 +5438,6 @@ void main() {
       const later = SafeToSpend(
         walletBalance: 9500,
         billsDue: 0,
-        savingsReserve: 0,
         spentToday: 100,
         daysLeft: 10,
         periodBudget: 3000,
@@ -5456,7 +5456,6 @@ void main() {
         walletBalance: 3000,
         billsDue: 5000,
         billsWalletBalance: 5000,
-        savingsReserve: 0,
         spentToday: 0,
         daysLeft: 15,
         periodBudget: 3000,
@@ -5475,7 +5474,6 @@ void main() {
           walletBalance: 3000,
           billsDue: 5000,
           billsWalletBalance: 4000,
-          savingsReserve: 0,
           spentToday: 0,
           daysLeft: 10,
         );
@@ -5486,18 +5484,19 @@ void main() {
       },
     );
 
-    test('custom daily limit cannot exceed the remaining period budget', () {
+    test('the day\'s limit is always the worked-out one', () {
       const s = SafeToSpend(
         walletBalance: 10000,
         billsDue: 0,
-        savingsReserve: 0,
         spentToday: 0,
         daysLeft: 15,
         periodBudget: 3000,
         periodLengthDays: 15,
-        customDailyLimit: 2500,
       );
 
+      // Nothing can be typed over it, so Safe to Spend can never promise
+      // more than the money and the days allow.
+      expect(s.dailyLimit, s.recommendedDailyLimit);
       expect(s.dailyLimit, 200);
     });
 
@@ -5507,7 +5506,6 @@ void main() {
       const s = SafeToSpend(
         walletBalance: 5800,
         billsDue: 0,
-        savingsReserve: 0,
         spentToday: 200,
         daysLeft: 10,
       );
@@ -5517,18 +5515,18 @@ void main() {
       expect(s.usedFraction, closeTo(1 / 3, 0.001));
     });
 
-    test('a limit the user set is used instead of the recommendation', () {
+    test('going past the day\'s limit reads as over', () {
+      // The balance already dropped by the 1,350 spent, so it is added back
+      // before sharing: 3,650 + 1,350 = 5,000 over five days is 1,000 a day.
       const s = SafeToSpend(
-        walletBalance: 5000,
+        walletBalance: 3650,
         billsDue: 0,
-        savingsReserve: 0,
-        spentToday: 350,
+        spentToday: 1350,
         daysLeft: 5,
-        customDailyLimit: 300,
       );
 
-      expect(s.dailyLimit, 300);
-      expect(s.leftToday, -50);
+      expect(s.dailyLimit, 1000);
+      expect(s.leftToday, -350);
       expect(s.isOverLimit, isTrue);
       expect(s.usedFraction, 1);
     });
@@ -5537,7 +5535,6 @@ void main() {
       const s = SafeToSpend(
         walletBalance: 1000,
         billsDue: 4000,
-        savingsReserve: 0,
         spentToday: 0,
         daysLeft: 7,
       );
@@ -5599,19 +5596,6 @@ void main() {
       ], DateTime(2026, 4, 1));
 
       expect(total, 1500);
-    });
-
-    test('an older profile limit counts as one the user chose', () {
-      expect(customDailyLimitFrom({'dailyBudget': 250}), 250);
-      expect(
-        customDailyLimitFrom({
-          'dailyBudget': 250,
-          'dailyLimitMode': 'recommended',
-        }),
-        isNull,
-      );
-      expect(customDailyLimitFrom(null), isNull);
-      expect(savingsReserveFrom({'savingsReserve': -5}), 0);
     });
   });
 
@@ -5780,111 +5764,6 @@ void main() {
   });
 
   group('Safe to Spend card', () {
-    Future<void> pumpLimitSheet(
-      WidgetTester tester,
-      SafeToSpend safeToSpend,
-      void Function(double?, double) onSave,
-    ) {
-      tester.view.physicalSize = const Size(700, 1600);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      return tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: EditSafeToSpendSheet(
-              safeToSpend: safeToSpend,
-              onSave: onSave,
-            ),
-          ),
-        ),
-      );
-    }
-
-    testWidgets('the daily limit left empty uses the recommendation', (
-      tester,
-    ) async {
-      double? limit = -1;
-      await pumpLimitSheet(
-        tester,
-        const SafeToSpend(
-          walletBalance: 1400,
-          billsDue: 0,
-          savingsReserve: 0,
-          spentToday: 0,
-          daysLeft: 14,
-        ),
-        (custom, _) => limit = custom,
-      );
-
-      expect(find.text('Use Recommendation'), findsNothing);
-      expect(find.text('100'), findsOneWidget, reason: 'shown as the hint');
-
-      await tester.tap(find.text('Save'));
-      await tester.pump();
-      expect(limit, isNull);
-    });
-
-    testWidgets('a typed daily limit is saved as your own', (tester) async {
-      double? limit;
-      await pumpLimitSheet(
-        tester,
-        const SafeToSpend(
-          walletBalance: 1400,
-          billsDue: 0,
-          savingsReserve: 0,
-          spentToday: 0,
-          daysLeft: 14,
-        ),
-        (custom, _) => limit = custom,
-      );
-
-      await tester.enterText(find.byType(TextField).first, '150.50');
-      await tester.tap(find.text('Save'));
-      await tester.pump();
-      expect(limit, 150.5);
-    });
-
-    testWidgets('clearing your own limit goes back to the recommendation', (
-      tester,
-    ) async {
-      double? limit = -1;
-      await pumpLimitSheet(
-        tester,
-        const SafeToSpend(
-          walletBalance: 1400,
-          billsDue: 0,
-          savingsReserve: 0,
-          spentToday: 0,
-          daysLeft: 14,
-          customDailyLimit: 200,
-        ),
-        (custom, _) => limit = custom,
-      );
-
-      final field = find.byType(TextField).first;
-      expect(find.widgetWithText(TextField, '200'), findsOneWidget);
-
-      await tester.enterText(field, '150.50');
-      await tester.pump();
-      expect(
-        find.textContaining('Clear it to use the recommendation'),
-        findsOneWidget,
-      );
-
-      await tester.enterText(field, '');
-      await tester.pump();
-      expect(
-        find.textContaining('Empty, so the recommendation is used'),
-        findsOneWidget,
-      );
-      await tester.tap(find.text('Save'));
-      await tester.pump();
-      expect(limit, isNull);
-    });
-
     final cash = Wallet(
       id: 'cash',
       name: 'Cash',
@@ -6051,7 +5930,55 @@ void main() {
       expect(find.text('8 days left this period'), findsOneWidget);
     });
 
-    testWidgets('the card still offers a way to set your own daily limit', (
+    testWidgets('a brand new account is told what to do, not shown ₱0 a day', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SafeToSpendCard(
+                today: DateTime(2026, 3, 22, 10),
+                // Nothing set up yet: no wallets, no income, no bills.
+                wallets: Stream.value(const []),
+                transactions: Stream.value(const []),
+                profile: Stream.value(const {}),
+                cycles: Stream.value(const []),
+                loadBills: () async => const [],
+                goals: Stream.value(const []),
+                billSchedules: Stream.value(const []),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('How this is worked out'));
+      await tester.pumpAndSettle();
+
+      // "All of it is yours to spend" would be an odd thing to say about
+      // nothing, and "₱0 a day" helps no one.
+      expect(
+        find.textContaining('Once you add income or a wallet balance'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('yours to spend'), findsNothing);
+      expect(find.textContaining('a day for the'), findsNothing);
+    });
+
+    testWidgets('the card offers nothing to set, only how it was worked out', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(700, 1600);
@@ -6085,10 +6012,24 @@ void main() {
 
       await tester.tap(find.byTooltip('More'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Set my daily limit'));
-      await tester.pumpAndSettle();
 
-      expect(find.text('Your daily limit'), findsOneWidget);
+      // Safe to Spend is worked out from the user's own records, so there
+      // is nothing here to type over it or hold money back with.
+      expect(find.text('How this is worked out'), findsOneWidget);
+      expect(find.text('Set my daily limit'), findsNothing);
+      expect(find.text('Money I keep for savings'), findsNothing);
+
+      await tester.tap(find.text('How this is worked out'));
+      await tester.pumpAndSettle();
+      expect(find.text('Money in your wallets'), findsOneWidget);
+      // Nothing is taken off this account, so no total line repeats the
+      // figure above it; it says so in words instead.
+      expect(find.text('Left until your next pay'), findsNothing);
+      expect(
+        find.textContaining('all of it is yours to spend'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('a day for the'), findsOneWidget);
     });
   });
 
@@ -6191,7 +6132,6 @@ void main() {
       const s = SafeToSpend(
         walletBalance: 10000,
         billsDue: 0,
-        savingsReserve: 0,
         goalSavings: 4000,
         spentToday: 0,
         daysLeft: 6,
@@ -6573,6 +6513,144 @@ void main() {
       status: DebtStatus.active,
     );
 
+    testWidgets('the statement counts down what is left after each payment', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(900, 3200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      BillInstance due(
+        String id,
+        DateTime date, {
+        double paid = 0,
+        BillStatus status = BillStatus.unpaid,
+      }) => BillInstance(
+        id: id,
+        billId: 'b',
+        name: 'Phone',
+        amount: 2400,
+        category: 'Bills',
+        dueDate: date,
+        status: status,
+        amountPaid: paid,
+      );
+
+      final plan = phone(count: 3);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: DebtDetailScreen(
+              debt: plan,
+              liveDebt: Stream.value(plan),
+              payments: Stream.value([
+                due(
+                  '1',
+                  DateTime(2026, 1, 31),
+                  paid: 2400,
+                  status: BillStatus.paid,
+                ),
+                due(
+                  '2',
+                  DateTime(2026, 2, 28),
+                  paid: 1000,
+                  status: BillStatus.partial,
+                ),
+                due('3', DateTime(2026, 3, 31)),
+              ]),
+              transactions: Stream.value(const []),
+              wallets: Stream.value(const []),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Statement of account'), findsOneWidget);
+
+      // Every payment is numbered, so a row can be matched to the contract.
+      expect(find.textContaining('Payment 1 of 3'), findsOneWidget);
+      expect(find.textContaining('Payment 3 of 3'), findsOneWidget);
+
+      // A settled payment, a part-paid one, and one not yet due each read
+      // differently.
+      expect(find.text('₱2,400 paid in full'), findsOneWidget);
+      expect(
+        find.text('₱1,000 of ₱2,400 paid · ₱1,400 still due'),
+        findsOneWidget,
+      );
+      expect(find.text('₱2,400 due'), findsOneWidget);
+
+      // ₱7,200 payable, counted down by what was actually paid on each row:
+      // 7,200 - 2,400 = 4,800, then - 1,000 = 3,800, then nothing paid.
+      expect(find.text('₱4,800 left'), findsOneWidget);
+      expect(find.text('₱3,800 left'), findsNWidgets(2));
+
+      // The card at the top already carries the totals, so the statement
+      // does not repeat them.
+      expect(find.textContaining('of ₱7,200 paid'), findsOneWidget);
+    });
+
+    testWidgets('the statement lists the whole plan, not just the bills made', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final plan = phone(count: 12, perPayment: 2000);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: DebtDetailScreen(
+              debt: plan,
+              liveDebt: Stream.value(plan),
+              // Only the first month has been opened in the Bill Planner,
+              // which is how a freshly made plan starts out.
+              payments: Stream.value([
+                BillInstance(
+                  id: '1',
+                  billId: 'b',
+                  name: 'Phone',
+                  amount: 2000,
+                  category: 'Bills',
+                  dueDate: DateTime(2026, 1, 31),
+                  status: BillStatus.unpaid,
+                  amountPaid: 0,
+                ),
+              ]),
+              transactions: Stream.value(const []),
+              wallets: Stream.value(const []),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // All twelve, not the one bill that happens to exist.
+      expect(find.textContaining('Payment 1 of 12'), findsOneWidget);
+      expect(find.textContaining('Payment 12 of 12'), findsOneWidget);
+
+      // The dates come from the plan itself, keeping the 31st where the
+      // month allows it. Matched on the whole row, because the card above
+      // names the last payment's date too.
+      expect(find.text('Payment 2 of 12 · Feb 28, 2026'), findsOneWidget);
+      expect(find.text('Payment 12 of 12 · Dec 31, 2026'), findsOneWidget);
+
+      // Payments with no bill yet are marked as still to come.
+      expect(find.text('To come'), findsNWidgets(11));
+    });
+
     test('the last payment of a monthly plan keeps its day', () {
       expect(
         lastDueDateFor(DateTime(2026, 1, 31), BillRecurrence.monthly, 12),
@@ -6675,7 +6753,7 @@ void main() {
       );
 
       final loan = list[1];
-      expect(LedgerService.whyNotEditable(loan), contains('Debts'));
+      expect(LedgerService.whyNotEditable(loan), contains('Installments'));
       expect(LedgerService.canDeleteHere(loan), isFalse);
       expect(LedgerService.canDeleteHere(list[0]), isTrue);
     });
@@ -6969,7 +7047,7 @@ void main() {
 
       expect(find.text('Ana'), findsNothing);
       expect(find.text('Owed to me'), findsNothing);
-      expect(find.text('Nothing to pay off'), findsOneWidget);
+      expect(find.text('No installments yet'), findsOneWidget);
       expect(find.text('Add installment'), findsOneWidget);
     });
 
@@ -7103,10 +7181,7 @@ void main() {
           theme: AppTheme.light,
           home: Scaffold(
             body: SingleChildScrollView(
-              child: SavingsGuide(
-                monthlyIncome: null,
-                onCreateGoal: (_, _) {},
-              ),
+              child: SavingsGuide(monthlyIncome: null, onCreateGoal: (_, _) {}),
             ),
           ),
         ),
@@ -7336,10 +7411,7 @@ void main() {
       // The old check read the whole ₱5,000 balance and would have let this
       // through, promising pesos another goal already holds.
       expect(saved, isNull);
-      expect(
-        find.textContaining('₱1,000 left to promise'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('₱1,000 left to promise'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField).at(2), '1000');
       await tester.tap(find.text('Save Goal'));
@@ -8221,7 +8293,7 @@ void main() {
       for (final shortcut in [
         'Bill Planner',
         'Savings',
-        'Debts',
+        'Installments',
         'Reports',
         'Scan Receipt',
         'Voice Entry',
@@ -8864,15 +8936,11 @@ void main() {
         ],
       );
 
-      expect(
-        planned.map((r) => '${r.title} @ ${r.at}'),
-        [
-          'Water is due today @ 2026-09-19 09:00:00.000',
-          'Internet is due in 3 days @ 2026-09-22 09:00:00.000',
-          'Internet is due today @ 2026-09-25 09:00:00.000',
-        ],
-        reason: "Water's early reminder was this morning, already past",
-      );
+      expect(planned.map((r) => '${r.title} @ ${r.at}'), [
+        'Water is due today @ 2026-09-19 09:00:00.000',
+        'Internet is due in 3 days @ 2026-09-22 09:00:00.000',
+        'Internet is due today @ 2026-09-25 09:00:00.000',
+      ], reason: "Water's early reminder was this morning, already past");
       expect(planned.first.body, '₱1,000 to pay. Tap to pay it now.');
       expect(planned.first.payload, 'bill:Water');
     });
@@ -8948,7 +9016,8 @@ void main() {
           DateTime(2026, 10, 18, 9),
           DateTime(2026, 10, 20, 9),
         ],
-        reason: 'monthly from Sep 17, then a warning and a last call; '
+        reason:
+            'monthly from Sep 17, then a warning and a last call; '
             'a reached goal waits',
       );
       expect(planned.first.title, 'Time to save for Laptop');
@@ -9075,7 +9144,11 @@ void main() {
       );
 
       expect(
-        plan(settings, now: DateTime(2027, 3, 1, 7), wallets: [maturedDeposit()]),
+        plan(
+          settings,
+          now: DateTime(2027, 3, 1, 7),
+          wallets: [maturedDeposit()],
+        ),
         isEmpty,
         reason: 'clearing the date ends the reminders',
       );
@@ -9233,20 +9306,16 @@ void main() {
           now: DateTime(2026, 9, 1, 10),
         );
 
-        expect(
-          planned.map((r) => r.at),
-          [
-            DateTime(2026, 9, 7, 12),
-            DateTime(2026, 9, 8, 12),
-            DateTime(2026, 9, 9, 12),
-            DateTime(2026, 9, 10, 12),
-            DateTime(2026, 10, 7, 12),
-            DateTime(2026, 10, 8, 12),
-            DateTime(2026, 10, 9, 12),
-            DateTime(2026, 10, 10, 12),
-          ],
-          reason: 'a month after the last allowance, within six weeks',
-        );
+        expect(planned.map((r) => r.at), [
+          DateTime(2026, 9, 7, 12),
+          DateTime(2026, 9, 8, 12),
+          DateTime(2026, 9, 9, 12),
+          DateTime(2026, 9, 10, 12),
+          DateTime(2026, 10, 7, 12),
+          DateTime(2026, 10, 8, 12),
+          DateTime(2026, 10, 9, 12),
+          DateTime(2026, 10, 10, 12),
+        ], reason: 'a month after the last allowance, within six weeks');
         expect(planned.first.title, 'Payday today?');
         expect(
           planned.first.body,
@@ -9263,16 +9332,12 @@ void main() {
         final august = pay(DateTime(2026, 8, 30));
 
         final waiting = paydays('Semi-monthly', cycles: [august], now: now);
-        expect(
-          waiting.map((r) => '${r.title} @ ${r.at}').take(4),
-          [
-            'Has your salary come in? @ 2026-09-16 12:00:00.000',
-            'Has your salary come in? @ 2026-09-17 12:00:00.000',
-            'Has your salary come in? @ 2026-09-18 12:00:00.000',
-            'Payday today? @ 2026-09-30 12:00:00.000',
-          ],
-          reason: "the 15th's own reminder has passed",
-        );
+        expect(waiting.map((r) => '${r.title} @ ${r.at}').take(4), [
+          'Has your salary come in? @ 2026-09-16 12:00:00.000',
+          'Has your salary come in? @ 2026-09-17 12:00:00.000',
+          'Has your salary come in? @ 2026-09-18 12:00:00.000',
+          'Payday today? @ 2026-09-30 12:00:00.000',
+        ], reason: "the 15th's own reminder has passed");
 
         // A gift isn't the salary.
         final gift = pay(DateTime(2026, 9, 16, 9), source: 'Gift');

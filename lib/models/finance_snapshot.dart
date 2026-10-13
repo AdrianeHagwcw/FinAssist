@@ -18,8 +18,6 @@ class FinanceSnapshot {
     this.incomeFrequency,
     this.usualIncome,
     this.lastIncomeAt,
-    this.savingsReserve = 0,
-    this.customDailyLimit,
     this.periodBudget,
   });
 
@@ -40,8 +38,6 @@ class FinanceSnapshot {
   /// [lastPayday]: a gift or a refund doesn't count.
   final DateTime? lastIncomeAt;
 
-  final double savingsReserve;
-  final double? customDailyLimit;
   final double? periodBudget;
 
   DateTime get today => DateTime(now.year, now.month, now.day);
@@ -58,8 +54,6 @@ class FinanceSnapshot {
     incomeFrequency: incomeFrequency,
     usualIncome: usualIncome,
     lastIncomeAt: lastIncomeAt,
-    savingsReserve: savingsReserve,
-    customDailyLimit: customDailyLimit,
     periodBudget: periodBudget,
   );
 
@@ -80,13 +74,11 @@ class FinanceSnapshot {
     return SafeToSpend(
       walletBalance: walletBalance,
       billsDue: billsDueBefore(bills, period.end),
-      savingsReserve: savingsReserve,
-      billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
+        billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
       goalSavings: goalSavingsInSpendingWallets,
       spentToday: spentToday,
       daysLeft: period.daysLeft(now),
-      customDailyLimit: customDailyLimit,
-      periodBudget: periodBudget,
+        periodBudget: periodBudget,
       periodSpent: discretionarySpending(
         transactions,
         from: period.start,

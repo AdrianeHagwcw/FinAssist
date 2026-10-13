@@ -82,9 +82,11 @@ DashboardTip dashboardTipFor({
   if (transactions != null && !loggedToday) {
     return const DashboardTip(
       title: 'Nothing logged today',
+      // Names the figure it protects. "The figure on this screen" left
+      // the reader to guess which of the four on Home it meant.
       message:
-          'Even small spending counts. Add today\'s expenses with + so the '
-          'figure on this screen stays true.',
+          'Add what you spent with + so Safe to Spend stays right. Even '
+          'small amounts count.',
     );
   }
 

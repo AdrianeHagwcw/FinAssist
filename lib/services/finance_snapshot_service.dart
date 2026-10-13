@@ -53,8 +53,6 @@ Stream<FinanceSnapshot> watchFinanceSnapshot() {
         incomeFrequency: profile?['incomeFrequency'] as String?,
         usualIncome: income is num && income > 0 ? income.toDouble() : null,
         lastIncomeAt: periodAnchor(cycles, profile),
-        savingsReserve: savingsReserveFrom(profile),
-        customDailyLimit: customDailyLimitFrom(profile),
       ),
     );
   }

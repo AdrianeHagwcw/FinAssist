@@ -594,6 +594,11 @@ void main() {
         ('open bill planner', VoiceDestination.bills),
         ('open wallets', VoiceDestination.wallet),
         ('open savings', VoiceDestination.savings),
+        // The screen is called Installments now, and the older words are
+        // kept because people still say them.
+        ('open installments', VoiceDestination.debts),
+        ('open installment', VoiceDestination.debts),
+        ('show my loans', VoiceDestination.debts),
         ('open debts', VoiceDestination.debts),
         ('open goals', VoiceDestination.goals),
         ('open reports', VoiceDestination.reports),

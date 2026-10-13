@@ -453,13 +453,6 @@ ChatReply _safeToday(FinanceSnapshot records) {
       'up before payday on ${formatMonthDay(payday)}.',
     );
   }
-  if (s.usesCustomLimit) {
-    return ChatReply(
-      'You can still spend ${formatPeso(_down(s.leftToday))} today, out of '
-      'your own daily limit of ${formatPeso(_down(s.dailyLimit))}. '
-      '${_days(s.daysLeft)} left until payday on ${formatMonthDay(payday)}.',
-    );
-  }
   return ChatReply(
     'You can still spend ${formatPeso(_down(s.leftToday))} today, out of '
     "today's ${formatPeso(_down(s.dailyLimit))} limit. That keeps bills "
@@ -593,9 +586,7 @@ ChatReply _savings(FinanceSnapshot records) {
   final goals = records.goals
       .where((goal) => goal.status == GoalStatus.active)
       .toList();
-  final reserve = records.savingsReserve;
-
-  if (goals.isEmpty && reserve <= 0) {
+  if (goals.isEmpty) {
     return const ChatReply(
       "You don't have any savings set aside or goals yet. Making a goal, "
       'even a small one, is the easiest way to start.',
@@ -614,7 +605,6 @@ ChatReply _savings(FinanceSnapshot records) {
         "You've set aside ${formatPeso(records.goalSavings)} for "
             '${goals.length} ${goals.length == 1 ? 'goal' : 'goals'}:\n'
             '${lines.join('\n')}',
-      if (reserve > 0) 'You also keep ${formatPeso(reserve)} as savings.',
     ].join('\n\n'),
   );
 }
@@ -938,10 +928,7 @@ ChatReply _purchaseAnswer(PurchaseQuestion q, FinanceSnapshot records) {
   final days = math.max(1, q.deadline.difference(today).inDays);
   final bills = billsDueBefore(records.bills, q.deadline);
   final available =
-      records.walletBalance -
-      bills -
-      records.savingsReserve -
-      records.goalSavingsInSpendingWallets;
+      records.walletBalance - bills - records.goalSavingsInSpendingWallets;
 
   final daily = records.usualDailySpending;
   // Today's spending is already out of the wallets; only the rest of today
@@ -965,8 +952,7 @@ ChatReply _purchaseAnswer(PurchaseQuestion q, FinanceSnapshot records) {
   ];
   // What the spare money is worked out after, naming only what there is:
   // no "bills (₱0)" for someone with no bills.
-  final setAside =
-      records.savingsReserve + records.goalSavingsInSpendingWallets;
+  final setAside = records.goalSavingsInSpendingWallets;
   final coveredParts = [
     if (bills > 0) 'bills (${formatPeso(bills)})',
     if (setAside > 0) 'money set aside (${formatPeso(setAside)})',

@@ -25,7 +25,7 @@ class DebtsScreen extends StatelessWidget {
       backgroundColor: context.appColors.pageBackground,
       appBar: AppBar(
         title: const Text(
-          'Debts',
+          'Installments',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
@@ -134,7 +134,7 @@ class _DebtsViewState extends State<DebtsView> {
                 padding: const EdgeInsets.only(top: 30, bottom: 10),
                 child: EmptyStateView(
                   iconAsset: 'assets/icons/icons8-money-box-96.png',
-                  title: 'Nothing to pay off',
+                  title: 'No installments yet',
                   message:
                       'Add an installment and its payments show up '
                       'in your Bill Planner so you never miss one.',

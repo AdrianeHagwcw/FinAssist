@@ -113,7 +113,6 @@ FinanceSnapshot records() => FinanceSnapshot(
   incomeFrequency: 'Monthly',
   usualIncome: 20000,
   lastIncomeAt: DateTime(2026, 9, 1),
-  savingsReserve: 1000,
 );
 
 ChatReply ask(
@@ -159,8 +158,8 @@ void main() {
       // (₱20,000 + ₱150 spent today − ₱2,100 bills − ₱1,000 − ₱6,000) over
       // 12 days is ₱920.83 a day; ₱150 of it is spent.
       final reply = ask('How much can I spend today?');
-      expect(reply.text, contains('₱770 today'));
-      expect(reply.text, contains('₱920 limit'));
+      expect(reply.text, contains('₱854 today'));
+      expect(reply.text, contains('₱1,004 limit'));
       expect(reply.text, contains('12 days left until payday on Oct 1'));
     });
 
@@ -208,14 +207,16 @@ void main() {
       final reply = ask('How much money do I have?');
       expect(reply.text, contains('₱20,000 across 2 wallets'));
       expect(reply.text, contains('GCash ₱15,000'));
-      // ₱20,000 − ₱2,100 bills − ₱1,000 kept aside − ₱6,000 for goals.
-      expect(reply.text, contains('₱10,900 is free to spend until Oct 1'));
+      // ₱20,000 − ₱2,100 bills − ₱6,000 for goals.
+      expect(reply.text, contains('₱11,900 is free to spend until Oct 1'));
     });
 
     test('savings and goals', () {
       final reply = ask('Ilan na ipon ko?');
       expect(reply.text, contains('Laptop: ₱6,000 of ₱30,000 (20%)'));
-      expect(reply.text, contains('₱1,000 as savings'));
+      // Savings live in a savings record now, so there is no separate
+      // reserve to report beside the goals.
+      expect(reply.text, isNot(contains('as savings')));
     });
 
     test('the debts the user is paying', () {
@@ -305,12 +306,13 @@ void main() {
       expect(second.text, contains('About how much is the AirPods Pro?'));
       expect(second.pending?.waitingFor, PurchaseStep.price);
 
-      // ₱10,900 free, less the usual ₱156 a day (food and one ride), leaves ₱9,172 by payday.
+      // ₱11,900 free, less the usual ₱156 a day (food and one ride),
+      // leaves ₱10,172 by payday.
       final answer = ask('₱14,990', pending: second.pending);
       expect(answer.text, contains("It doesn't fit before payday (Oct 1)"));
-      expect(answer.text, contains('₱9,172 spare, ₱5,818 short of ₱14,990'));
-      // ₱250 a week is within 30% of the ₱1,095 usually spent in a week.
-      expect(answer.text, contains('Saving ₱250 a week'));
+      expect(answer.text, contains('₱10,172 spare, ₱4,818 short of ₱14,990'));
+      // ₱200 a week is within 30% of the ₱1,095 usually spent in a week.
+      expect(answer.text, contains('Saving ₱200 a week'));
       expect(answer.goal?.name, 'AirPods Pro');
       expect(answer.goal?.target, 14990);
       expect(answer.goal?.date, DateTime(2027, 3, 20));
@@ -326,12 +328,12 @@ void main() {
           'this month',
         ),
       );
-      expect(reply.text, contains('about ₱5,672 spare'));
+      expect(reply.text, contains('about ₱6,672 spare'));
       expect(reply.pending, isNull);
     });
 
     test('a little short: spend less a day, from the user\'s habits', () {
-      final reply = ask('Can I afford a ₱10,000 phone?');
+      final reply = ask('Can I afford a ₱11,000 phone?');
       expect(reply.text, contains('Yes, if you spend a little less'));
       expect(reply.text, contains('₱828 short'));
       expect(
@@ -349,7 +351,7 @@ void main() {
         answer.text,
         contains(
           'Before payday (Oct 1), the most you can spend on the laptop is '
-          'about ₱9,172',
+          'about ₱10,172',
         ),
       );
     });
@@ -379,7 +381,7 @@ void main() {
       expect(answer.text, startsWith("Without a price, I can't check it"));
       expect(
         answer.text,
-        contains('the most you can spend on the bike is about ₱9,172'),
+        contains('the most you can spend on the bike is about ₱10,172'),
       );
       // The price can still be typed after.
       expect(answer.pending?.waitingFor, PurchaseStep.price);
@@ -404,7 +406,7 @@ void main() {
     test('another question in the middle starts over', () {
       final first = ask('Can I buy AirPods?');
       final reply = ask('How much can I spend today?', pending: first.pending);
-      expect(reply.text, contains('₱770 today'));
+      expect(reply.text, contains('₱854 today'));
       expect(reply.pending, isNull);
     });
 

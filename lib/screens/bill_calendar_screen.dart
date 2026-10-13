@@ -127,7 +127,7 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
       backgroundColor: colors.pageBackground,
       appBar: AppBar(
         title: Text(
-          _showDebts ? 'Debts' : 'Bill Planner',
+          _showDebts ? 'Installments' : 'Bill Planner',
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,

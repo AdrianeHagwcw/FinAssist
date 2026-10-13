@@ -32,7 +32,7 @@ class LedgerService {
     }
 
     if (transaction.isDebtMovement) {
-      return 'This came from a loan or money lent. Manage it from Debts, so '
+      return 'This came from a loan. Manage it from Installments, so '
           'what is owed stays right.';
     }
 

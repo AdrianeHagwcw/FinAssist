@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../utils/amount_input_formatter.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
@@ -103,6 +102,64 @@ class SafeToSpendCard extends StatefulWidget {
   State<SafeToSpendCard> createState() => _SafeToSpendCardState();
 }
 
+/// One line of the working behind Safe to Spend: a label, and the amount
+/// being added or taken off.
+class _Working extends StatelessWidget {
+  const _Working(
+    this.label,
+    this.amount, {
+    this.take = false,
+    this.add = false,
+    this.strong = false,
+  });
+
+  final String label;
+  final double amount;
+
+  /// Shown with a minus, because it is money the user cannot spend.
+  final bool take;
+
+  /// Shown with a plus: money already spent today is added back before the
+  /// day's share is worked out.
+  final bool add;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final weight = strong ? FontWeight.bold : FontWeight.normal;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: strong ? colors.textPrimary : colors.textBody,
+                fontWeight: weight,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '${take
+                ? '− '
+                : add
+                ? '+ '
+                : ''}${formatPeso(amount)}',
+            style: TextStyle(
+              fontWeight: strong ? FontWeight.bold : FontWeight.w600,
+              color: colors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SafeToSpendCardState extends State<SafeToSpendCard> {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
@@ -195,7 +252,6 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       safeToSpend: SafeToSpend(
         walletBalance: totalWalletBalance(wallets),
         billsDue: billsDueBefore(_bills, period.end),
-        savingsReserve: savingsReserveFrom(profile),
         billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
         goalSavings: totalSetAsideInSpendingWallets(_goalsData, wallets),
         spentToday: discretionarySpending(
@@ -204,7 +260,6 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
           until: startOfToday.add(const Duration(days: 1)),
         ),
         daysLeft: period.daysLeft(now),
-        customDailyLimit: customDailyLimitFrom(profile),
       ),
       wallets: wallets,
       period: period,
@@ -219,21 +274,6 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
     );
   }
 
-  /// The daily limit sheet. Reached from the card's More menu, which is the
-  /// only way to set a limit of one's own.
-  Future<void> _openEditor(SafeToSpend safeToSpend) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: context.appColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => EditSafeToSpendSheet(safeToSpend: safeToSpend),
-    );
-  }
-
   void _explain(SafeToSpendInputs inputs) {
     final s = inputs.safeToSpend;
 
@@ -242,17 +282,64 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       builder: (context) => AlertDialog(
         shape: dialogShape,
         title: const Text('How this is worked out'),
-        content: Text(
-          'Your wallets hold ${formatPeso(s.walletBalance)}'
-          '${s.spentToday > 0 ? ', plus ${formatPeso(s.spentToday)} spent today' : ''}.\n\n'
-          'Less ${formatPeso(s.billsDue)} owed on bills due this pay period'
-          '${s.savingsReserve > 0 ? ', ${formatPeso(s.savingsReserve)} set aside as savings' : ''}'
-          '${s.goalSavings > 0 ? ', ${formatPeso(s.goalSavings)} saved toward goals' : ''}, '
-          'that leaves ${formatPeso(s.spendableThisPeriod)} for the '
-          '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'} left: '
-          '${formatPeso(s.recommendedDailyLimit)} a day.'
-          '${s.usesCustomLimit ? '\n\nYou set your own limit of ${formatPeso(s.dailyLimit)}, which is used instead.' : ''}',
-          style: const TextStyle(height: 1.45),
+        // Laid out like a receipt rather than written as a paragraph: the
+        // reader follows one line at a time and arrives at the figure on the
+        // card, instead of parsing a sentence full of amounts.
+        content: SingleChildScrollView(
+          child: Builder(
+            builder: (context) {
+              final days =
+                  '${s.daysLeft} '
+                  '${s.daysLeft == 1 ? 'day' : 'days'}';
+              // With nothing taken off, a total line would repeat the line
+              // above it and read like a mistake.
+              final takesSomeOff =
+                  s.billsDue > 0 || s.goalSavings > 0 || s.spentToday > 0;
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _Working('Money in your wallets', s.walletBalance),
+                  if (s.spentToday > 0)
+                    _Working('What you spent today', s.spentToday, add: true),
+                  if (s.billsDue > 0)
+                    _Working('Bills to pay this pay', s.billsDue, take: true),
+                  if (s.goalSavings > 0)
+                    _Working('Saved for your goals', s.goalSavings, take: true),
+                  if (takesSomeOff) ...[
+                    const Divider(height: 22),
+                    // Named for the stretch it covers, so it is not read as
+                    // what can be spent today.
+                    _Working(
+                      'Left until your next pay',
+                      s.spendableThisPeriod,
+                      strong: true,
+                    ),
+                  ] else if (s.walletBalance > 0) ...[
+                    const SizedBox(height: 10),
+                    const Text(
+                      'You have no bills due and nothing saved for goals out '
+                      'of this money, so all of it is yours to spend.',
+                      style: TextStyle(height: 1.45),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  // A brand new account has nothing to share out yet, so it
+                  // is told what to do rather than shown ₱0 a day.
+                  Text(
+                    s.walletBalance <= 0
+                        ? 'Once you add income or a wallet balance, this '
+                              'shows how much of it you can spend each day '
+                              'until your next pay.'
+                        : 'That is ${formatPeso(s.recommendedDailyLimit)} a '
+                              'day for the $days until your next pay.',
+                    style: const TextStyle(height: 1.45),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
         actions: [
           TextButton(
@@ -305,7 +392,6 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                           inputs: inputs,
                           now: _now,
                           onExplain: () => _explain(inputs),
-                          onEditLimit: () => _openEditor(inputs.safeToSpend),
                           footer: widget.footerBuilder?.call(context),
                         ),
                         if (widget.belowCard != null)
@@ -328,14 +414,12 @@ class _HeroCard extends StatelessWidget {
     required this.inputs,
     required this.now,
     required this.onExplain,
-    required this.onEditLimit,
     required this.footer,
   });
 
   final SafeToSpendInputs inputs;
   final DateTime now;
   final VoidCallback onExplain;
-  final VoidCallback onEditLimit;
   final Widget? footer;
 
   @override
@@ -397,15 +481,8 @@ class _HeroCard extends StatelessWidget {
                 icon: const Icon(Icons.more_vert, size: 20),
                 onSelected: (value) {
                   if (value == 'explain') onExplain();
-                  if (value == 'limit') onEditLimit();
                 },
                 itemBuilder: (context) => [
-                  menuItem(
-                    value: 'limit',
-                    label: 'Set my daily limit',
-                    icon: Icons.edit_outlined,
-                    color: appPrimaryBlue,
-                  ),
                   menuItem(
                     value: 'explain',
                     label: 'How this is worked out',
@@ -439,7 +516,7 @@ class _HeroCard extends StatelessWidget {
                       ? 'over your ${formatPeso(s.dailyLimit, masked: masked)} '
                             'daily limit'
                       : 'of ${formatPeso(s.dailyLimit, masked: masked)} daily '
-                            'limit${s.usesCustomLimit ? ' (yours)' : ''}',
+                            'limit',
                   style: const TextStyle(fontSize: 13, color: Colors.grey),
                 ),
                 const SizedBox(height: 14),
@@ -478,200 +555,6 @@ class _HeroCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Lets the user see the recommended daily limit, set their own, and adjust
-/// how much is set aside as savings.
-class EditSafeToSpendSheet extends StatefulWidget {
-  const EditSafeToSpendSheet({
-    required this.safeToSpend,
-    this.onSave,
-    super.key,
-  });
-
-  final SafeToSpend safeToSpend;
-
-  /// Replaces saving. [customLimit] is null when the recommendation is used.
-  /// Used by tests.
-  final void Function(double? customLimit, double savingsReserve)? onSave;
-
-  @override
-  State<EditSafeToSpendSheet> createState() => _EditSafeToSpendSheetState();
-}
-
-class _EditSafeToSpendSheetState extends State<EditSafeToSpendSheet> {
-  late final SafeToSpend _s = widget.safeToSpend;
-
-  // Empty means the recommendation, which is shown as the hint instead.
-  late final _limitController = TextEditingController(
-    text: _s.usesCustomLimit ? formatAmountInput(_s.dailyLimit) : '',
-  );
-  late final _reserveController = TextEditingController(
-    text: formatAmountInput(_s.savingsReserve),
-  );
-
-  String? _error;
-
-  bool get _useRecommendation => _limitController.text.trim().isEmpty;
-
-  @override
-  void dispose() {
-    _limitController.dispose();
-    _reserveController.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    final limit = _useRecommendation
-        ? _s.recommendedDailyLimit
-        : double.tryParse(_limitController.text.trim().replaceAll(',', ''));
-    final reserve = double.tryParse(
-      _reserveController.text.trim().replaceAll(',', ''),
-    );
-
-    if (limit == null || limit < 0) {
-      setState(
-        () => _error =
-            'Enter a daily limit, or leave it empty to use the recommendation.',
-      );
-      return;
-    }
-    if (reserve == null || reserve < 0) {
-      setState(() => _error = 'Enter how much is set aside, or 0.');
-      return;
-    }
-
-    final custom = _useRecommendation ? null : limit;
-
-    if (widget.onSave != null) {
-      widget.onSave!(custom, reserve);
-    } else {
-      BudgetService.setDailyLimit(custom);
-      if ((reserve - _s.savingsReserve).abs() > 0.005) {
-        BudgetService.setSavingsReserve(reserve);
-      }
-    }
-
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Daily Limit',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: colors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _limitController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: const [ThousandsSeparatorFormatter()],
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-                onChanged: (_) => setState(() => _error = null),
-                decoration:
-                    dialogFieldDecoration(
-                      context,
-                      'Your daily limit',
-                      helper: _useRecommendation
-                          ? 'Empty, so the recommendation is used. It updates '
-                                'every day.'
-                          : 'Your own limit. It stays the same every day. Clear '
-                                'it to use the recommendation.',
-                    ).copyWith(
-                      prefixText: '₱ ',
-                      hintText: formatAmountInput(_s.recommendedDailyLimit),
-                      // The hint is the recommendation, so keep it in view.
-                      floatingLabelBehavior: FloatingLabelBehavior.always,
-                    ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _reserveController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: const [ThousandsSeparatorFormatter()],
-                decoration: dialogFieldDecoration(
-                  context,
-                  'Set aside as savings',
-                  helper:
-                      'Not counted as spendable. Lower it if you have used '
-                      'some of your savings.',
-                ).copyWith(prefixText: '₱ ', hintText: '0.00'),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  _error!,
-                  style: TextStyle(
-                    color: dangerColorOn(context),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: cancelTextStyle(context),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton(
-                      onPressed: _save,
-                      style: confirmButtonStyle(),
-                      child: const Text(
-                        'Save',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

@@ -330,14 +330,6 @@ class _HomeScreenState extends State<HomeScreen> {
           onAction: widget.onOpenTransactions,
         ),
         _RecentTransactions(transactions: transactions, wallets: wallets),
-
-        const SizedBox(height: 25),
-        _SectionTitle('Spending Insight'),
-        _InsightCard(
-          transactions: transactions,
-          now: now,
-          onOpenReports: () => _push(const ReportsScreen()),
-        ),
       ],
     );
   }
@@ -365,9 +357,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Money that cannot be drawn on yet is named here rather than counted
     // into the figure above, so the two never blur together.
     final locked = lockedSavingsBalance(wallets);
-    final lockedNote = locked > 0
-        ? 'Locked away: ${formatPeso(locked)}'
-        : null;
+    final lockedNote = locked > 0 ? 'Locked away: ${formatPeso(locked)}' : null;
 
     if (goalCount == 0) {
       return lockedNote ?? 'No money set aside for goals';
@@ -431,7 +421,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 12),
             tile(
               'assets/icons/lend-96.png',
-              'Debts',
+              'Installments',
               widget.onOpenDebts ??
                   () => _push(const BillCalendarScreen(initialShowDebts: true)),
             ),
@@ -910,75 +900,6 @@ class _RecentTransactions extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-/// The most useful observation about this month, from the same rules as
-/// Reports.
-class _InsightCard extends StatelessWidget {
-  const _InsightCard({
-    required this.transactions,
-    required this.now,
-    required this.onOpenReports,
-  });
-
-  final List<AppTransaction>? transactions;
-  final DateTime now;
-  final VoidCallback onOpenReports;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final insights = transactions == null
-        ? const <String>[]
-        : insightsFor(
-            transactions!,
-            period: ReportPeriod.monthOf(now),
-            range: ReportRange.month,
-            limit: 1,
-          );
-
-    return _Card(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 45,
-            height: 45,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: colors.primaryTint,
-              shape: BoxShape.circle,
-            ),
-            child: Image.asset('assets/icons/icons8-idea-96.png'),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  insights.isEmpty
-                      ? 'Log your spending for a few days and FinAssist will '
-                            'point out patterns worth knowing.'
-                      : insights.first,
-                  style: TextStyle(color: colors.textBody, height: 1.5),
-                ),
-                const SizedBox(height: 6),
-                TextButton(
-                  onPressed: onOpenReports,
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    foregroundColor: colors.primaryText,
-                  ),
-                  child: const Text('View Reports →'),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
