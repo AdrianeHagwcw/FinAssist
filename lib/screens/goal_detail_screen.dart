@@ -139,7 +139,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   menuItem(
                     value: 'edit',
                     label: 'Edit goal',
-                    icon: Icons.edit,
+                    icon: Icons.edit_outlined,
                     color: appPrimaryBlue,
                   ),
                   menuItem(

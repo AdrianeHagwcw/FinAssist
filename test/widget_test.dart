@@ -5963,9 +5963,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.byTooltip('More'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('How this is worked out'));
+      await tester.tap(find.byKey(const Key('safe-to-spend-info')));
       await tester.pumpAndSettle();
 
       // "All of it is yours to spend" would be an odd thing to say about
@@ -6010,16 +6008,14 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.byTooltip('More'));
-      await tester.pumpAndSettle();
-
       // Safe to Spend is worked out from the user's own records, so there
-      // is nothing here to type over it or hold money back with.
-      expect(find.text('How this is worked out'), findsOneWidget);
+      // is nothing to type over it or hold money back with: the one thing
+      // on the card explains, it does not set.
+      expect(find.byTooltip('More'), findsNothing);
       expect(find.text('Set my daily limit'), findsNothing);
       expect(find.text('Money I keep for savings'), findsNothing);
 
-      await tester.tap(find.text('How this is worked out'));
+      await tester.tap(find.byKey(const Key('safe-to-spend-info')));
       await tester.pumpAndSettle();
       expect(find.text('Money in your wallets'), findsOneWidget);
       // Nothing is taken off this account, so no total line repeats the
@@ -7158,6 +7154,15 @@ void main() {
       expect(find.text('About ₱2,000'), findsOneWidget);
       expect(find.textContaining('not financial advice'), findsOneWidget);
 
+      // An information icon says this section explains rather than tells
+      // the reader what to do.
+      await tester.tap(find.byKey(const Key('guide-info')));
+      await tester.pumpAndSettle();
+      expect(find.text('About this guide'), findsOneWidget);
+      expect(find.textContaining('names no banks and no rates'), findsOneWidget);
+      await tester.tap(find.text('Got it'));
+      await tester.pumpAndSettle();
+
       // Only what the saving is for belongs here. Where to keep it is
       // explained inside Add savings, beside the choice itself, so the two
       // are never mistaken for one list.
@@ -7994,7 +7999,7 @@ void main() {
       expect(find.text('Financial tips'), findsOneWidget);
       expect(find.textContaining('trusted sources'), findsNothing);
       expect(
-        find.byIcon(Icons.tips_and_updates_outlined),
+        find.byIcon(Icons.lightbulb_outline),
         findsWidgets,
         reason: 'at least one tip is always shown',
       );

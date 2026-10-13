@@ -388,12 +388,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           child: _records == null
               ? const _EmptyNote(
                   'Tips show up once your records load.',
-                  icon: Icons.tips_and_updates_outlined,
+                  icon: Icons.lightbulb_outline,
                 )
               : Column(
                   children: [
                     for (final tip in moneyTipsFor(_records!.at(_now)))
-                      _Line(icon: Icons.tips_and_updates_outlined, text: tip),
+                      _Line(icon: Icons.lightbulb_outline, text: tip),
                   ],
                 ),
         ),

@@ -255,20 +255,38 @@ class SavingsGuide extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Grow Your Money',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: colors.textPrimary,
-          ),
+        // The icon says this section explains rather than instructs, before
+        // the reader has taken any of it as a recommendation.
+        Row(
+          children: [
+            Text(
+              'Grow Your Money',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: colors.textPrimary,
+              ),
+            ),
+            IconButton(
+              key: const Key('guide-info'),
+              onPressed: () => _aboutThisGuide(context),
+              tooltip: 'What is this?',
+              visualDensity: VisualDensity.compact,
+              icon: Icon(
+                Icons.info_outline,
+                size: 20,
+                color: colors.primaryText,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 4),
         _SuggestionCard(monthlyIncome: monthlyIncome),
         const SizedBox(height: 18),
         _GroupTitle(
           title: 'What you can save for',
-          subtitle: 'The one to start with. For anything else, use Add '
+          subtitle:
+              'The one to start with. For anything else, use Add '
               'New Goal above.',
         ),
         for (final option in savingsOptions.where((o) => o.startsAGoal)) ...[
@@ -392,6 +410,33 @@ class _CardShell extends StatelessWidget {
       ),
     );
   }
+}
+
+/// What this section is, and what it is not, for a reader who has not met
+/// it before.
+void _aboutThisGuide(BuildContext context) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('About this guide'),
+      content: const Text(
+        'This part explains ways people save, in plain words, so you can '
+        'choose for yourself.\n\n'
+        'It names no banks and no rates, because those change and it is not '
+        'here to tell you where to put your money. Check the fees, rates and '
+        'rules yourself before you do.\n\n'
+        'The suggested amount comes from the income you gave when setting '
+        'up. It is a guide, not a rule.',
+        style: TextStyle(height: 1.45),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Got it'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _SuggestionCard extends StatelessWidget {

@@ -768,7 +768,7 @@ class _BillsError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off, size: 42, color: Colors.grey),
+            const Icon(Icons.cloud_off_outlined, size: 42, color: Colors.grey),
             const SizedBox(height: 14),
             Text(
               'We could not load your bills',

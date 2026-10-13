@@ -264,7 +264,7 @@ class _PreferencesFormState extends State<_PreferencesForm> {
                 leading: Icon(
                   _leftover == choice
                       ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
+                      : Icons.radio_button_unchecked,
                   color: context.appColors.primaryText,
                 ),
                 title: Text(switch (choice) {

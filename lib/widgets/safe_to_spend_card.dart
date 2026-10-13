@@ -18,7 +18,6 @@ import '../services/user_profile_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_theme.dart';
 import '../utils/money_format.dart';
 import 'dialog_kit.dart';
 import 'money_text.dart';
@@ -438,7 +437,7 @@ class _HeroCard extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 10, 8, 18),
+      padding: const EdgeInsets.fromLTRB(18, 10, 12, 18),
       decoration: BoxDecoration(
         color: colors.card,
         borderRadius: BorderRadius.circular(16),
@@ -476,20 +475,11 @@ class _HeroCard extends StatelessWidget {
                 onPressed: () =>
                     context.read<AppSettingsProvider>().toggleAmountsMasked(),
               ),
-              PopupMenuButton<String>(
-                tooltip: 'More',
-                icon: const Icon(Icons.more_vert, size: 20),
-                onSelected: (value) {
-                  if (value == 'explain') onExplain();
-                },
-                itemBuilder: (context) => [
-                  menuItem(
-                    value: 'explain',
-                    label: 'How this is worked out',
-                    icon: Icons.info_outline,
-                    color: appPrimaryBlue,
-                  ),
-                ],
+              IconButton(
+                key: const Key('safe-to-spend-info'),
+                tooltip: 'How this is worked out',
+                icon: const Icon(Icons.info_outline, size: 20),
+                onPressed: onExplain,
               ),
             ],
           ),

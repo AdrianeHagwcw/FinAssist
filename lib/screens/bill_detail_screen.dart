@@ -266,14 +266,14 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                       menuItem(
                         value: 'occurrence',
                         label: "Change this date's amount",
-                        icon: Icons.edit_calendar,
+                        icon: Icons.edit_calendar_outlined,
                         color: appPrimaryBlue,
                       ),
                       if (bill != null) ...[
                         menuItem(
                           value: 'schedule',
                           label: 'Edit the bill and next dates',
-                          icon: Icons.edit,
+                          icon: Icons.edit_outlined,
                           color: appPrimaryBlue,
                         ),
                         menuItem(

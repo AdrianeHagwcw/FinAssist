@@ -477,7 +477,7 @@ class _ChoiceTile extends StatelessWidget {
                 Icon(
                   selected
                       ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
+                      : Icons.radio_button_unchecked,
                   color: selected ? appPrimaryBlue : Colors.grey,
                 ),
               ],

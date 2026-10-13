@@ -226,7 +226,7 @@ class _CycleCard extends StatelessWidget {
       ),
       CycleStatus.done => (
         'Done',
-        Icons.check_circle_outline,
+        Icons.check_circle,
         confirmColorOn(context),
       ),
       CycleStatus.declined => (

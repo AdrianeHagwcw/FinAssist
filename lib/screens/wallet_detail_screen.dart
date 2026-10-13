@@ -155,7 +155,7 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                   menuItem(
                     value: 'edit',
                     label: 'Edit wallet',
-                    icon: Icons.edit,
+                    icon: Icons.edit_outlined,
                     color: appPrimaryBlue,
                   ),
                   if (!wallet.receivesIncome)
