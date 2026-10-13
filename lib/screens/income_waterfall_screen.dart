@@ -157,9 +157,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         _otherSourceController.text = widget.initialSource!;
       }
     }
-    if (widget.initialAmount != null) {
-      _amountController.text = formatAmountInput(widget.initialAmount!);
-    }
+    _amountController.text = formatAmountInput(widget.initialAmount ?? 0);
     _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
     _billsAmountController.addListener(_refresh);
@@ -218,13 +216,14 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
       setState(() {
         final today = DateTime(_today.year, _today.month, _today.day);
+        final nextMonth = DateTime(today.year, today.month + 1);
         final shownBills = bills.where((bill) {
           final due = DateTime(
             bill.dueDate.year,
             bill.dueDate.month,
             bill.dueDate.day,
           );
-          return !due.isAfter(today.add(const Duration(days: 10)));
+          return due.isBefore(nextMonth);
         }).toList();
         _allocations = [
           for (final bill in shownBills) BillAllocation.full(bill),
@@ -254,14 +253,14 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
   List<BillAllocation> get _upcomingBills {
     final today = DateTime(_today.year, _today.month, _today.day);
+    final nextMonth = DateTime(today.year, today.month + 1);
     return (_allocations ?? const <BillAllocation>[]).where((bill) {
       final dueDate = DateTime(
         bill.instance.dueDate.year,
         bill.instance.dueDate.month,
         bill.instance.dueDate.day,
       );
-      final daysUntilDue = dueDate.difference(today).inDays;
-      return daysUntilDue >= 0 && daysUntilDue <= 10;
+      return dueDate.isBefore(nextMonth);
     }).toList();
   }
 
@@ -762,8 +761,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             children: [
               Text(
                 upcoming.isEmpty
-                    ? 'No bills due in the next 10 days'
-                    : 'Bills due in the next 10 days',
+                    ? 'No bills due this month'
+                    : 'Bills due this month',
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontWeight: FontWeight.w600,
@@ -796,8 +795,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               const SizedBox(height: 10),
               Text(
                 shortfall > 0
-                    ? 'Still needed for these bills: ${formatPeso(shortfall)}'
-                    : 'Your Bills wallet will cover the upcoming bills.',
+                    ? 'Still needed for this month’s bills: '
+                          '${formatPeso(shortfall)}'
+                    : 'Your Bills wallet will cover this month’s bills.',
                 style: TextStyle(
                   color: shortfall > 0
                       ? dangerColorOn(context)

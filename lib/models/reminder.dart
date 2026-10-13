@@ -208,6 +208,7 @@ List<PlannedReminder> planReminders({
   required List<AppTransaction> transactions,
   required DateTime now,
   String? incomeSource,
+  DateTime? setupLastPayday,
 }) {
   if (!settings.enabled) return const [];
 
@@ -265,7 +266,12 @@ List<PlannedReminder> planReminders({
   // none is logged, since pay can be late. Income is never added by itself:
   // tapping opens Add Income for the user to confirm.
   if (settings.isOn(ReminderKind.payday)) {
-    final lastPay = lastPayday(cycles, usualSource: incomeSource);
+    final lastLoggedPayday = lastPayday(cycles, usualSource: incomeSource);
+    final lastPay = setupLastPayday == null ||
+            (lastLoggedPayday != null &&
+                !lastLoggedPayday.isBefore(setupLastPayday))
+        ? lastLoggedPayday ?? setupLastPayday
+        : setupLastPayday;
     final pay = _payWord(incomeSource);
 
     for (final payday in expectedPaydays(

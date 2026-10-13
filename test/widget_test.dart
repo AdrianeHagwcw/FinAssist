@@ -741,6 +741,50 @@ void main() {
       expect(recorded, 5000, reason: 'a typo at sign up can be corrected');
     });
 
+    testWidgets('cannot correct savings below the amount assigned to goals', (
+      tester,
+    ) async {
+      var saves = 0;
+      double? recorded;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: SetAsideRecordSheet(
+              wallet: deposit(name: 'Savings', balance: 2500),
+              minimumBalance: 2500,
+              onSave: (_, amount) {
+                saves++;
+                recorded = amount;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(find.byKey(const Key('set-aside-balance')), '0');
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+
+      expect(saves, 0);
+      expect(
+        find.textContaining('₱2,500 is already assigned to goals'),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('set-aside-balance')),
+        '2500',
+      );
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+
+      expect(saves, 1);
+      expect(recorded, 2500);
+    });
+
     testWidgets('savings left empty at sign up can be started later', (
       tester,
     ) async {
@@ -2897,6 +2941,50 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    testWidgets('starts at zero instead of prefilling the setup estimate', (
+      tester,
+    ) async {
+      final settings = AppSettingsProvider()
+        ..updateFinancialProfile({
+          'incomeSource': 'Salary',
+          'incomeFrequency': 'Semi-monthly',
+          // Onboarding stores monthly income divided by two paychecks.
+          'income': 30000,
+        });
+      addTearDown(settings.dispose);
+      tester.view.physicalSize = const Size(700, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: settings,
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: IncomeWaterfallScreen(
+              today: today,
+              wallets: Stream.value([cash]),
+              loadBills: () async => const [],
+              goals: Stream.value(const []),
+              cycles: Stream.value(const []),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final amountField = tester.widget<TextField>(
+        find.byType(TextField).first,
+      );
+      expect(amountField.controller!.text, '0');
+      expect(find.textContaining('Usual amount per paycheck'), findsNothing);
+
+      await tester.enterText(find.byType(TextField).first, '28500');
+      expect(amountField.controller!.text, '28,500');
+    });
+
     testWidgets('asks for the amount before moving on', (tester) async {
       await pumpWaterfall(tester);
 
@@ -2968,34 +3056,40 @@ void main() {
       expect(find.text('Confirm'), findsOneWidget);
     });
 
-    testWidgets('step 2 shows only bills due within 10 days and labels them', (
+    testWidgets('step 2 shows overdue and this month’s bills only', (
       tester,
     ) async {
       await pumpWaterfall(
         tester,
         bills: [
+          bill('Overdue', 50, dueDate: DateTime(2026, 3, 9)),
           bill('Today', 100, dueDate: DateTime(2026, 3, 10)),
           bill('Soon', 200, dueDate: DateTime(2026, 3, 13)),
           bill('Between', 300, dueDate: DateTime(2026, 3, 14)),
           bill('Last day', 400, dueDate: DateTime(2026, 3, 20)),
-          bill('Too far', 500, dueDate: DateTime(2026, 3, 21)),
+          bill('End of month', 500, dueDate: DateTime(2026, 3, 31)),
+          bill('Next month', 600, dueDate: DateTime(2026, 4, 1)),
+          bill('Far future', 700, dueDate: DateTime(2026, 5, 20)),
         ],
       );
 
       await fillIncome(tester, '2000');
       await next(tester);
 
+      expect(find.text('Overdue'), findsWidgets);
       expect(find.text('Today'), findsOneWidget);
       expect(find.text('Due today'), findsOneWidget);
       expect(find.text('Soon'), findsOneWidget);
       expect(find.text('Due soon'), findsOneWidget);
-      expect(find.text('Upcoming'), findsNWidgets(2));
+      expect(find.text('Upcoming'), findsNWidgets(3));
       expect(find.text('Between'), findsOneWidget);
       expect(find.text('Last day'), findsOneWidget);
-      expect(find.text('Too far'), findsNothing);
+      expect(find.text('End of month'), findsOneWidget);
+      expect(find.text('Next month'), findsNothing);
+      expect(find.text('Far future'), findsNothing);
     });
 
-    testWidgets('salary step lists bills due in the next 10 days', (
+    testWidgets('salary step lists overdue and this month’s bills', (
       tester,
     ) async {
       await pumpWaterfall(
@@ -3004,21 +3098,23 @@ void main() {
           bill('Internet', 100, dueDate: DateTime(2026, 3, 10)),
           bill('Electricity', 200, dueDate: DateTime(2026, 3, 12)),
           bill('Rent', 300, dueDate: DateTime(2026, 3, 14)),
-          bill('Too far', 400, dueDate: DateTime(2026, 3, 21)),
+          bill('End of month', 400, dueDate: DateTime(2026, 3, 31)),
+          bill('Next month', 500, dueDate: DateTime(2026, 4, 1)),
         ],
       );
       await tester.enterText(find.byType(TextField).first, '2000');
       await pickSource(tester, 'Salary');
       await next(tester);
 
-      expect(find.text('Bills due in the next 10 days'), findsOneWidget);
+      expect(find.text('Bills due this month'), findsOneWidget);
       expect(find.text('Internet'), findsOneWidget);
       expect(find.text('Electricity'), findsOneWidget);
       expect(find.text('Rent'), findsOneWidget);
+      expect(find.text('End of month'), findsOneWidget);
       expect(find.text('Due today'), findsOneWidget);
       expect(find.text('Due soon'), findsOneWidget);
-      expect(find.text('Upcoming'), findsOneWidget);
-      expect(find.text('Too far'), findsNothing);
+      expect(find.text('Upcoming'), findsNWidgets(2));
+      expect(find.text('Next month'), findsNothing);
     });
 
     testWidgets('defaults income to the first spending wallet', (tester) async {
@@ -3833,41 +3929,42 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('changing one bill rejects a blank amount and cancels cleanly', (
-      tester,
-    ) async {
-      await pumpDetail(tester, current: instance());
+    testWidgets(
+      'changing one bill rejects a blank amount and cancels cleanly',
+      (tester) async {
+        await pumpDetail(tester, current: instance());
 
-      Future<void> openMenu() async {
-        await tester.tap(find.byTooltip('Bill options'));
+        Future<void> openMenu() async {
+          await tester.tap(find.byTooltip('Bill options'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text("Change this date's amount"));
+          await tester.pumpAndSettle();
+        }
+
+        await openMenu();
+        expect(find.text('This date only'), findsOneWidget);
+
+        // Backing out tears the dialog down while its text field is still on
+        // screen, which is where it used to fall over.
+        await tester.tap(find.text('Cancel'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text("Change this date's amount"));
+        expect(find.text('This date only'), findsNothing);
+        expect(tester.takeException(), isNull);
+
+        // A missing amount stays open and explains what needs correcting.
+        await openMenu();
+        await tester.enterText(find.byType(TextField).last, '');
+        await tester.tap(find.text('Save'));
         await tester.pumpAndSettle();
-      }
 
-      await openMenu();
-      expect(find.text('This date only'), findsOneWidget);
-
-      // Backing out tears the dialog down while its text field is still on
-      // screen, which is where it used to fall over.
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-      expect(find.text('This date only'), findsNothing);
-      expect(tester.takeException(), isNull);
-
-      // A missing amount stays open and explains what needs correcting.
-      await openMenu();
-      await tester.enterText(find.byType(TextField).last, '');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
-      expect(find.text('This date only'), findsOneWidget);
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-      expect(find.text('This date only'), findsNothing);
-      expect(tester.takeException(), isNull);
-    });
+        expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
+        expect(find.text('This date only'), findsOneWidget);
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(find.text('This date only'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
 
     testWidgets('shows what is owed, when, and how it repeats', (tester) async {
       await pumpDetail(tester, current: instance());
@@ -4026,7 +4123,10 @@ void main() {
       );
 
       expect(find.text('Feb 5, 2026'), findsOneWidget);
-      expect(find.text('This is the only scheduled bill so far.'), findsNothing);
+      expect(
+        find.text('This is the only scheduled bill so far.'),
+        findsNothing,
+      );
     });
 
     testWidgets('a single cycle says so instead of showing an empty list', (
@@ -4034,7 +4134,10 @@ void main() {
     ) async {
       await pumpDetail(tester, current: instance(), history: [instance()]);
 
-      expect(find.text('This is the only scheduled bill so far.'), findsOneWidget);
+      expect(
+        find.text('This is the only scheduled bill so far.'),
+        findsOneWidget,
+      );
     });
   });
 
@@ -4657,10 +4760,11 @@ void main() {
         ),
       ]);
 
-      expect(result.map((e) => '${e.key}=${e.value}'), [
-        'Bills=900.0',
-        'Food=250.0',
-      ], reason: 'money lent out is not spending');
+      expect(
+        result.map((e) => '${e.key}=${e.value}'),
+        ['Bills=900.0', 'Food=250.0'],
+        reason: 'money lent out is not spending',
+      );
     });
   });
 
@@ -5166,6 +5270,37 @@ void main() {
       expect(find.text('₱0'), findsOneWidget);
       // The wallet still reads its real ₱1,000, in the card and the record.
       expect(find.text('₱1,000'), findsNWidgets(2));
+    });
+
+    testWidgets('editing savings keeps goal-assigned money backed', (
+      tester,
+    ) async {
+      await pumpSetAside(
+        tester,
+        wallets: [holding('s', 2500, WalletPurpose.savings)],
+        goals: const [
+          Goal(
+            id: 'laptop',
+            name: 'Laptop',
+            targetAmount: 5000,
+            savedAmount: 2500,
+            priority: 0,
+            status: GoalStatus.active,
+            savedByWallet: {'s': 2500},
+          ),
+        ],
+      );
+
+      await tester.tap(find.byKey(const Key('set-aside-record-s')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('set-aside-balance')), '0');
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+
+      expect(
+        find.textContaining('₱2,500 is already assigned to goals'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('bills opens with its total and what is still to pay', (
@@ -8966,11 +9101,15 @@ void main() {
         ],
       );
 
-      expect(planned.map((r) => '${r.title} @ ${r.at}'), [
-        'Water is due today @ 2026-09-19 09:00:00.000',
-        'Internet is due in 3 days @ 2026-09-22 09:00:00.000',
-        'Internet is due today @ 2026-09-25 09:00:00.000',
-      ], reason: "Water's early reminder was this morning, already past");
+      expect(
+        planned.map((r) => '${r.title} @ ${r.at}'),
+        [
+          'Water is due today @ 2026-09-19 09:00:00.000',
+          'Internet is due in 3 days @ 2026-09-22 09:00:00.000',
+          'Internet is due today @ 2026-09-25 09:00:00.000',
+        ],
+        reason: "Water's early reminder was this morning, already past",
+      );
       expect(planned.first.body, '₱1,000 to pay. Tap to pay it now.');
       expect(planned.first.payload, 'bill:Water');
     });
@@ -9316,6 +9455,7 @@ void main() {
         String frequency, {
         List<AllocationCycle> cycles = const [],
         String? source = 'Salary',
+        DateTime? setupLastPayday,
         required DateTime now,
       }) => planReminders(
         settings: settings,
@@ -9324,9 +9464,24 @@ void main() {
         cycles: cycles,
         incomeFrequency: frequency,
         incomeSource: source,
+        setupLastPayday: setupLastPayday,
         transactions: const [],
         now: now,
       ).where((r) => r.kind == ReminderKind.payday).toList();
+
+      test(
+        'uses the setup payday to schedule before the first income is logged',
+        () {
+          final planned = paydays(
+            'Weekly',
+            setupLastPayday: DateTime(2026, 9, 11),
+            now: DateTime(2026, 9, 17, 10),
+          );
+
+          expect(planned.first.at, DateTime(2026, 9, 18, 12));
+          expect(planned.first.payload, 'income');
+        },
+      );
 
       test('comes on payday at noon, then each day while pay is late', () {
         final planned = paydays(
@@ -9336,16 +9491,20 @@ void main() {
           now: DateTime(2026, 9, 1, 10),
         );
 
-        expect(planned.map((r) => r.at), [
-          DateTime(2026, 9, 7, 12),
-          DateTime(2026, 9, 8, 12),
-          DateTime(2026, 9, 9, 12),
-          DateTime(2026, 9, 10, 12),
-          DateTime(2026, 10, 7, 12),
-          DateTime(2026, 10, 8, 12),
-          DateTime(2026, 10, 9, 12),
-          DateTime(2026, 10, 10, 12),
-        ], reason: 'a month after the last allowance, within six weeks');
+        expect(
+          planned.map((r) => r.at),
+          [
+            DateTime(2026, 9, 7, 12),
+            DateTime(2026, 9, 8, 12),
+            DateTime(2026, 9, 9, 12),
+            DateTime(2026, 9, 10, 12),
+            DateTime(2026, 10, 7, 12),
+            DateTime(2026, 10, 8, 12),
+            DateTime(2026, 10, 9, 12),
+            DateTime(2026, 10, 10, 12),
+          ],
+          reason: 'a month after the last allowance, within six weeks',
+        );
         expect(planned.first.title, 'Payday today?');
         expect(
           planned.first.body,
@@ -9362,12 +9521,16 @@ void main() {
         final august = pay(DateTime(2026, 8, 30));
 
         final waiting = paydays('Semi-monthly', cycles: [august], now: now);
-        expect(waiting.map((r) => '${r.title} @ ${r.at}').take(4), [
-          'Has your salary come in? @ 2026-09-16 12:00:00.000',
-          'Has your salary come in? @ 2026-09-17 12:00:00.000',
-          'Has your salary come in? @ 2026-09-18 12:00:00.000',
-          'Payday today? @ 2026-09-30 12:00:00.000',
-        ], reason: "the 15th's own reminder has passed");
+        expect(
+          waiting.map((r) => '${r.title} @ ${r.at}').take(4),
+          [
+            'Has your salary come in? @ 2026-09-16 12:00:00.000',
+            'Has your salary come in? @ 2026-09-17 12:00:00.000',
+            'Has your salary come in? @ 2026-09-18 12:00:00.000',
+            'Payday today? @ 2026-09-30 12:00:00.000',
+          ],
+          reason: "the 15th's own reminder has passed",
+        );
 
         // A gift isn't the salary.
         final gift = pay(DateTime(2026, 9, 16, 9), source: 'Gift');

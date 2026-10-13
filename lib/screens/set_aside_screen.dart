@@ -144,7 +144,12 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
 
   /// The records behind a total, so a figure typed at sign up can still be
   /// fixed. Without this there is no way back into them.
-  List<Widget> _records(List<Wallet> wallets, WalletPurpose purpose) {
+  List<Widget> _records(
+    List<Wallet> wallets,
+    WalletPurpose purpose, {
+    List<Goal> goals = const [],
+    bool goalsLoaded = true,
+  }) {
     final colors = context.appColors;
     final kept = [
       for (final wallet in wallets)
@@ -163,7 +168,14 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
         InkWell(
           key: Key('set-aside-record-${wallet.id}'),
           borderRadius: BorderRadius.circular(14),
-          onTap: () => _editRecord(wallet),
+          onTap: purpose == WalletPurpose.savings && !goalsLoaded
+              ? null
+              : () => _editRecord(
+                  wallet,
+                  minimumBalance: purpose == WalletPurpose.savings
+                      ? goalMoneyInWallet(goals, wallet.id)
+                      : 0,
+                ),
           child: Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
@@ -214,8 +226,12 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     ];
   }
 
-  Future<void> _editRecord(Wallet wallet) async {
-    final saved = await showSetAsideRecordSheet(context, wallet: wallet);
+  Future<void> _editRecord(Wallet wallet, {double minimumBalance = 0}) async {
+    final saved = await showSetAsideRecordSheet(
+      context,
+      wallet: wallet,
+      minimumBalance: minimumBalance,
+    );
     if (saved == true && mounted) setState(() {});
   }
 
@@ -351,7 +367,12 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                ..._records(wallets, WalletPurpose.savings),
+                ..._records(
+                  wallets,
+                  WalletPurpose.savings,
+                  goals: allGoals,
+                  goalsLoaded: snapshot.hasData,
+                ),
                 _addRecordButton(wallets, WalletPurpose.savings),
               ],
             );
@@ -396,7 +417,12 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              ..._records(wallets, WalletPurpose.savings),
+              ..._records(
+                wallets,
+                WalletPurpose.savings,
+                goals: allGoals,
+                goalsLoaded: snapshot.hasData,
+              ),
               _addRecordButton(wallets, WalletPurpose.savings),
             ],
           );

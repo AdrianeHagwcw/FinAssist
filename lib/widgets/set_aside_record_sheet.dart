@@ -21,6 +21,7 @@ Future<bool?> showSetAsideRecordSheet(
   List<Wallet> wallets = const [],
   WalletPurpose purpose = WalletPurpose.savings,
   SavingsKind? initialKind,
+  double minimumBalance = 0,
   void Function(String name, double recorded)? onSave,
 }) {
   return showModalBottomSheet<bool>(
@@ -36,6 +37,7 @@ Future<bool?> showSetAsideRecordSheet(
       wallets: wallets,
       purpose: purpose,
       initialKind: initialKind,
+      minimumBalance: minimumBalance,
       onSave: onSave,
     ),
   );
@@ -47,6 +49,7 @@ class SetAsideRecordSheet extends StatefulWidget {
     this.wallets = const [],
     this.purpose = WalletPurpose.savings,
     this.initialKind,
+    this.minimumBalance = 0,
     this.onSave,
     super.key,
   });
@@ -64,6 +67,9 @@ class SetAsideRecordSheet extends StatefulWidget {
 
   /// The kind to open on, for a new record started from the savings guide.
   final SavingsKind? initialKind;
+
+  /// Money in this savings record already assigned to goals.
+  final double minimumBalance;
 
   /// Replaces the write. Used by tests.
   final void Function(String name, double recorded)? onSave;
@@ -163,6 +169,15 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet> {
     final recorded = text.isEmpty ? 0.0 : double.tryParse(text);
     if (recorded == null || !recorded.isFinite || recorded < 0) {
       setState(() => _error = 'Enter an amount of zero or more.');
+      return;
+    }
+
+    if (_isSavings && recorded + 0.005 < widget.minimumBalance) {
+      setState(
+        () => _error =
+            'At least ${formatPeso(widget.minimumBalance)} is already '
+            'assigned to goals. Reduce the goal contributions first.',
+      );
       return;
     }
 
@@ -320,6 +335,10 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet> {
               Text(
                 _isNew
                     ? 'What you have in it today. Enter 0 if it is empty.'
+                    : _isSavings && widget.minimumBalance > 0
+                    ? 'At least ${formatPeso(widget.minimumBalance)} is assigned '
+                          'to goals. Reduce those goal contributions before '
+                          'lowering this balance below that amount.'
                     : 'Changing this only fixes a figure you typed. It is '
                           'not money coming in or going out, so your reports '
                           'stay the same.',
