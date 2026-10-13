@@ -67,11 +67,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       },
       onError: (Object _) {},
     );
-    _recordsSubscription = (widget.records ?? watchFinanceSnapshot()).listen((
-      records,
-    ) {
-      if (mounted) setState(() => _records = records);
-    }, onError: (Object _) {});
+    _recordsSubscription = (widget.records ?? watchFinanceSnapshot()).listen(
+      (records) {
+        if (mounted) setState(() => _records = records);
+      },
+      onError: (Object _) {
+        if (mounted) setState(() => _records = null);
+      },
+    );
   }
 
   @override

@@ -355,7 +355,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(saved, isNull);
     await scrollTo(tester, find.byKey(const Key('usual-income')), delta: -250);
-    expect(find.text('Enter an amount greater than zero.'), findsOneWidget);
+    expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('usual-income')), '4500.50');
     await scrollTo(tester, find.text('Save it'));
     await tester.tap(find.text('Save it'));

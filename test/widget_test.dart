@@ -1498,6 +1498,14 @@ void main() {
       await tester.enterText(find.byType(TextFormField).last, '1250.50');
       await tapText(tester, 'Add Wallet');
 
+      // The note explains the default destination without claiming that
+      // this wallet controls the income schedule.
+      expect(find.textContaining('Where does your'), findsOneWidget);
+      expect(
+        find.textContaining('selects that wallet when you record income'),
+        findsOneWidget,
+      );
+
       await tapText(tester, 'Add Another');
       await tester.tap(find.text('Bank'));
       await tester.pumpAndSettle();
@@ -1618,7 +1626,7 @@ void main() {
       );
 
       expect(
-        find.textContaining('No fixed payday? No problem.'),
+        find.textContaining('FinAssist plans to the end of the month'),
         findsOneWidget,
       );
       expect(find.text('Estimated monthly income (optional)'), findsOneWidget);
@@ -1672,7 +1680,7 @@ void main() {
       await chooseDropdown(tester, 'Select how often', 'Monthly');
       await tapText(tester, 'Next');
 
-      expect(find.text('Enter a valid positive amount.'), findsOneWidget);
+      expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
       expect(find.text('Your income'), findsOneWidget);
       expect(find.text('Monthly income'), findsOneWidget);
       expect(find.text('Daily spending limit (optional)'), findsNothing);
@@ -1696,7 +1704,7 @@ void main() {
         findsOneWidget,
       );
       await tapText(tester, 'Next');
-      expect(find.text('Please specify your income source.'), findsOneWidget);
+      expect(find.text('Enter where your income comes from.'), findsOneWidget);
       expect(find.text('Your income'), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('other-income-source-specification')),
@@ -2612,17 +2620,20 @@ void main() {
       expect(find.text('Savings'), findsOneWidget);
     });
 
-    testWidgets('explains that a transfer needs a second wallet', (
+    testWidgets('one spending wallet can start a savings wallet by transfer', (
       tester,
     ) async {
       await pumpTransfer(tester, wallets: [cash]);
 
-      expect(find.textContaining('need a second wallet'), findsOneWidget);
+      expect(find.textContaining('need a second wallet'), findsNothing);
       expect(
         find.widgetWithText(ElevatedButton, 'Transfer'),
-        findsNothing,
-        reason: 'nothing to transfer to',
+        findsOneWidget,
+        reason: 'a Bills or Savings wallet can be created by the transfer',
       );
+      await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+      await tester.pumpAndSettle();
+      expect(find.text('Savings'), findsOneWidget);
     });
 
     testWidgets('shows what the source wallet holds', (tester) async {
@@ -2650,7 +2661,7 @@ void main() {
       await tester.tap(find.widgetWithText(ElevatedButton, 'Transfer'));
       await tester.pump();
 
-      expect(find.text('Enter an amount to transfer.'), findsOneWidget);
+      expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
       expect(find.text('Choose a wallet.'), findsOneWidget);
     });
   });
@@ -2892,7 +2903,7 @@ void main() {
       expect(find.text('Step 1 of 2'), findsOneWidget);
       await next(tester);
 
-      expect(find.text('Enter how much came in.'), findsOneWidget);
+      expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
       expect(find.text('Step 1 of 2'), findsOneWidget);
     });
 
@@ -3822,7 +3833,7 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('changing just this one closes cleanly, saved or cancelled', (
+    testWidgets('changing one bill rejects a blank amount and cancels cleanly', (
       tester,
     ) async {
       await pumpDetail(tester, current: instance());
@@ -3844,13 +3855,16 @@ void main() {
       expect(find.text('This date only'), findsNothing);
       expect(tester.takeException(), isNull);
 
-      // Leaving it blank closes the dialog without saving anything, which
-      // tears it down the same way a real save does.
+      // A missing amount stays open and explains what needs correcting.
       await openMenu();
       await tester.enterText(find.byType(TextField).last, '');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
+      expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
+      expect(find.text('This date only'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
       expect(find.text('This date only'), findsNothing);
       expect(tester.takeException(), isNull);
     });
@@ -3971,7 +3985,7 @@ void main() {
       );
 
       expect(
-        find.textContaining('left unpaid from the cycle before'),
+        find.textContaining('left unpaid from the bill before'),
         findsOneWidget,
       );
     });
@@ -4012,7 +4026,7 @@ void main() {
       );
 
       expect(find.text('Feb 5, 2026'), findsOneWidget);
-      expect(find.text('This is the only cycle so far.'), findsNothing);
+      expect(find.text('This is the only scheduled bill so far.'), findsNothing);
     });
 
     testWidgets('a single cycle says so instead of showing an empty list', (
@@ -4020,7 +4034,7 @@ void main() {
     ) async {
       await pumpDetail(tester, current: instance(), history: [instance()]);
 
-      expect(find.text('This is the only cycle so far.'), findsOneWidget);
+      expect(find.text('This is the only scheduled bill so far.'), findsOneWidget);
     });
   });
 
@@ -4493,7 +4507,7 @@ void main() {
 
     test('no income means nothing can be confirmed', () {
       expect(const AllocationPlan(income: 0).problems, [
-        'Enter how much came in.',
+        'Enter an amount of at least ₱0.01.',
       ]);
     });
 
@@ -7159,7 +7173,10 @@ void main() {
       await tester.tap(find.byKey(const Key('guide-info')));
       await tester.pumpAndSettle();
       expect(find.text('About this guide'), findsOneWidget);
-      expect(find.textContaining('names no banks and no rates'), findsOneWidget);
+      expect(
+        find.textContaining('names no banks and no rates'),
+        findsOneWidget,
+      );
       await tester.tap(find.text('Got it'));
       await tester.pumpAndSettle();
 
@@ -8129,7 +8146,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.text('Pay cycle'));
+      await tester.tap(find.text('Between payments'));
       await tester.pump();
 
       // Paid on the 15th, so the stretch runs from payday, not from the 1st.
@@ -8230,6 +8247,14 @@ void main() {
       await tester.pump();
       await tester.pump();
     }
+
+    testWidgets('Home information icon opens the app guide', (tester) async {
+      await pumpHome(tester, const []);
+      await tester.tap(find.byTooltip('App guide'));
+      await tester.pumpAndSettle();
+      expect(find.text('Help & Support'), findsOneWidget);
+      expect(find.text('How are the amounts calculated?'), findsOneWidget);
+    });
 
     testWidgets('shows a balance for spending, bills and savings', (
       tester,

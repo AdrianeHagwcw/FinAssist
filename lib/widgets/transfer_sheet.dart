@@ -14,6 +14,7 @@ Future<bool> showTransferSheet(
   Stream<List<Wallet>>? wallets,
   String? fromWalletId,
   String? toWalletId,
+  double? initialAmount,
 }) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
@@ -27,6 +28,7 @@ Future<bool> showTransferSheet(
       wallets: wallets,
       initialFromWalletId: fromWalletId,
       initialToWalletId: toWalletId,
+      initialAmount: initialAmount,
     ),
   );
 
@@ -40,6 +42,7 @@ class TransferSheet extends StatefulWidget {
     this.wallets,
     this.initialFromWalletId,
     this.initialToWalletId,
+    this.initialAmount,
     super.key,
   });
 
@@ -53,6 +56,7 @@ class TransferSheet extends StatefulWidget {
   /// The wallet the money is headed for, set when the sheet is opened to top
   /// one up, such as the bills wallet before paying a bill.
   final String? initialToWalletId;
+  final double? initialAmount;
 
   @override
   State<TransferSheet> createState() => _TransferSheetState();
@@ -63,7 +67,11 @@ class _TransferSheetState extends State<TransferSheet> {
       widget.wallets ?? WalletService.watchWallets();
 
   final _formKey = GlobalKey<FormState>();
-  final _amountController = TextEditingController();
+  late final _amountController = TextEditingController(
+    text: widget.initialAmount == null
+        ? ''
+        : formatAmountInput(widget.initialAmount!),
+  );
   final _noteController = TextEditingController();
 
   late String? _fromId = widget.initialFromWalletId;
@@ -194,7 +202,7 @@ class _TransferSheetState extends State<TransferSheet> {
                       style: TextStyle(fontSize: 13, color: Colors.grey),
                     ),
                     const SizedBox(height: 20),
-                    if (wallets.length < 2)
+                    if (wallets.isEmpty)
                       _NeedsTwoWallets(walletCount: wallets.length)
                     else ...[
                       WalletPicker(
@@ -287,7 +295,7 @@ class _TransferSheetState extends State<TransferSheet> {
     final amount = double.tryParse((value ?? '').trim().replaceAll(',', ''));
 
     if (amount == null || !isRecordableAmount(amount)) {
-      return 'Enter an amount to transfer.';
+      return minimumAmountError;
     }
 
     if (source != null && amount > source.balance) {

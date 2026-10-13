@@ -93,7 +93,7 @@ String? _incomeSourceFor(String words) {
 }
 
 VoiceDestination? _destinationFor(String words, double? amount) {
-  if (RegExp(r'\b(pay cycle|pay period|paycheck) history\b').hasMatch(words)) {
+  if (RegExp(r'\b(pay cycle|pay period|paycheck|income) history\b').hasMatch(words)) {
     return VoiceDestination.payCycleHistory;
   }
 

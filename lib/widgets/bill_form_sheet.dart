@@ -219,7 +219,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
                       (value ?? '').trim().replaceAll(',', ''),
                     );
                     return !isRecordableAmount(amount)
-                        ? 'Enter how much this bill is.'
+                        ? minimumAmountError
                         : null;
                   },
                 ),
@@ -227,7 +227,14 @@ class _BillFormSheetState extends State<BillFormSheet> {
                 DropdownButtonFormField<String>(
                   initialValue: _category,
                   isExpanded: true,
-                  decoration: dialogFieldDecoration(context, 'Category'),
+                  decoration: dialogFieldDecoration(
+                    context,
+                    'Category',
+                    helper: _category == 'Others'
+                        ? 'Use Others when no category fits. In Bill name, '
+                              'say what you pay for, such as a storage unit.'
+                        : null,
+                  ).copyWith(helperMaxLines: 3),
                   items: [
                     for (final category in categoryOptions(
                       context,

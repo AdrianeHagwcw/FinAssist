@@ -28,6 +28,19 @@ class HelpScreen extends StatelessWidget {
         ),
         SizedBox(height: 20),
         ExpansionTile(
+          title: Text('How are the amounts calculated?'),
+          children: [
+            ListTile(
+              title: Text(
+                'Ask Fin “Anong formula ang ginamit?” or “Safe to Spend formula”. '
+                'You can also ask about suggested savings, goals, installments '
+                'and reports. The explanation uses your recorded amounts. '
+                'Keep them up to date so the results match your situation.',
+              ),
+            ),
+          ],
+        ),
+        ExpansionTile(
           title: Text('How do I record money?'),
           children: [
             ListTile(
@@ -48,11 +61,11 @@ class HelpScreen extends StatelessWidget {
           ],
         ),
         ExpansionTile(
-          title: Text('How do I finish an old pay cycle?'),
+          title: Text('How do I review money left from earlier income?'),
           children: [
             ListTile(
               title: Text(
-                'Open Pay-cycle history from Transactions or Settings, then Needs review. Choose Review leftover to save, spend or split it. Your default choice is only a suggestion until you confirm.',
+                'Open Income history from Transactions or Settings, then Needs review. Choose Review leftover to save, spend or split it. Your default choice is only a suggestion until you confirm.',
               ),
             ),
           ],
@@ -62,7 +75,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Previously loaded records remain available offline. New records queue for sync. Connect before signing out or changing devices so your latest changes can sync.',
+                'Previously loaded records remain available offline. New entries wait on your device until you reconnect. Connect before signing out or changing devices so your latest changes are saved to your account.',
               ),
             ),
           ],

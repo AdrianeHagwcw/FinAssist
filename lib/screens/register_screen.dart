@@ -484,6 +484,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                 ),
 
+                const SizedBox(height: 6),
+                Text(
+                  'Your password is used to sign in. It is not saved in your '
+                  'financial records or shown to other users.',
+                  style: TextStyle(fontSize: 12, color: colors.textBody),
+                ),
+
                 const SizedBox(height: 8),
 
                 TextField(

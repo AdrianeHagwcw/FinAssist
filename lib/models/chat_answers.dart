@@ -10,6 +10,7 @@ import 'finance_snapshot.dart';
 import 'goal.dart';
 import 'report.dart';
 import 'safe_to_spend.dart';
+import 'savings_suggestion.dart';
 import 'transaction_filter.dart';
 
 /// The assistant's answers, worked out by rules from the user's own records.
@@ -122,6 +123,7 @@ const suggestedQuestions = [
   'Where am I spending the most?',
   'May bills ba ako this week?',
   'Can I buy AirPods?',
+  'Anong formula ang ginamit?',
 ];
 
 /// Answers [message] from [records], the user's own data, which is null
@@ -133,6 +135,10 @@ ChatReply answerChat(
   PurchaseQuestion? pending,
 }) {
   final text = ' ${_plain(message)} ';
+
+  // A calculation question interrupts a purchase follow-up instead of
+  // being mistaken for an item name or price.
+  if (_asksForFormula(text)) return _formula(text, records);
 
   if (pending != null) {
     final followUp = _continuePurchase(message, text, pending, records);
@@ -202,6 +208,207 @@ ChatReply answerChat(
 }
 
 // ------------------------------------------------------------ understanding
+
+bool _asksForFormula(String text) => _has(text, [
+  'formula',
+  'formulas',
+  'calculation',
+  'calculations',
+  'calculate',
+  'calculated',
+  'compute',
+  'computed',
+  'computation',
+  'worked out',
+  'paano kinuha',
+  'pano kinuha',
+  'kinukuwenta',
+  'kinukwenta',
+  'kwenta',
+  'kuwenta',
+  'paano nakuha',
+  'pano nakuha',
+  'how does safe to spend work',
+]);
+
+enum _FormulaTopic {
+  safeToSpend,
+  savings,
+  installment,
+  goal,
+  bills,
+  reports,
+  wallet,
+}
+
+_FormulaTopic _formulaTopic(String text) {
+  // A named calculation takes priority over amounts used inside it:
+  // "installment balance" is about the loan, not a wallet balance.
+  if (_has(text, ['safe to spend', 'daily limit', 'daily spending limit'])) {
+    return _FormulaTopic.safeToSpend;
+  }
+  if (_has(text, [
+    'suggested savings',
+    'suggested contribution',
+    'savings suggestion',
+    'suggested to save',
+  ])) {
+    return _FormulaTopic.savings;
+  }
+  if (_has(text, [
+    'installment',
+    'installments',
+    'loan',
+    'debt',
+    'utang',
+    'hulog',
+  ])) {
+    return _FormulaTopic.installment;
+  }
+  if (_has(text, ['goal', 'goals', 'target'])) return _FormulaTopic.goal;
+  if (_has(text, ['reports', 'report'])) return _FormulaTopic.reports;
+  if (_has(text, ['savings', 'save', 'ipon', 'contribution'])) {
+    return _FormulaTopic.savings;
+  }
+  if (_has(text, ['bill', 'bills', 'bayarin'])) return _FormulaTopic.bills;
+  if (_has(text, ['income', 'expenses', 'spending total'])) {
+    return _FormulaTopic.reports;
+  }
+  if (_has(text, ['wallet', 'wallets', 'balance'])) return _FormulaTopic.wallet;
+  return _FormulaTopic.safeToSpend;
+}
+
+ChatReply _formula(String text, FinanceSnapshot? records) {
+  final topic = _formulaTopic(text);
+  const choices = [
+    'Safe to Spend formula',
+    'Suggested savings formula',
+    'Installment formula',
+    'Goal formula',
+  ];
+  if (topic == _FormulaTopic.reports) {
+    return const ChatReply(
+      'Reports add recorded income and expenses within '
+      'the dates you selected. Income leaves out borrowed money and loan '
+      'repayments received. Expenses include bill payments but leave out '
+      'money lent. Transfers between your wallets count as neither income '
+      'nor expenses.\n\n'
+      'Money left = income − expenses. Saved for goals = contributions '
+      'during those dates − money taken back out of goals. A category’s '
+      'share = spending in that category ÷ total spending × 100. '
+      'With no spending, there is no percentage to divide.',
+      choices: choices,
+    );
+  }
+  if (topic == _FormulaTopic.wallet) {
+    return const ChatReply(
+      'A wallet balance starts with its opening amount, '
+      'adds money received and transfers in, and subtracts expenses and '
+      'transfers out. Balance corrections also change it. Home’s spending '
+      'balance adds active spending wallets; Bills and Savings are shown '
+      'separately. A transfer changes the two wallets, but not their combined '
+      'total.',
+      choices: choices,
+    );
+  }
+  if (topic == _FormulaTopic.installment) {
+    return const ChatReply(
+      'For an installment, total to pay = regular payment × '
+      '(number of payments − 1) + the last payment. If the last payment '
+      'is the same, this is just payment amount × number of payments.\n\n'
+      'Remaining balance = total to pay − recorded payments. Part payments '
+      'reduce the balance, but only fully paid scheduled payments count '
+      'as completed. Next due date is the earliest unpaid scheduled payment. '
+      'Open the installment statement to see its full payment history. '
+      'FinAssist uses the terms you entered; it does not invent an interest rate.',
+      choices: choices,
+    );
+  }
+  if (topic == _FormulaTopic.goal) {
+    return const ChatReply(
+      'Goal amount still needed = target − money already saved for that goal '
+      '(never below zero).\n\n'
+      'Amount needed each time = amount still needed ÷ saving dates left '
+      'up to your target date. The dates follow your chosen saving schedule. '
+      'If no saving date remains, the full remaining amount '
+      'is needed now. Without a target date, there is no deadline-based amount. '
+      'This shows what the target needs, not what you can afford to save.',
+      choices: choices,
+    );
+  }
+  if (topic == _FormulaTopic.bills) {
+    return const ChatReply(
+      'Unpaid bill amount = bill amount − payments recorded for it, '
+      'never below zero. Safe to Spend adds the unpaid bills due before '
+      'the next expected income date, including overdue payments and scheduled '
+      'installments. It subtracts only what the Bills wallet does not already '
+      'cover. Paid bills are not subtracted again.',
+      choices: choices,
+    );
+  }
+  if (records == null) {
+    return const ChatReply(
+      'I need your records to show your actual figures. '
+      'Safe to Spend divides available money across the days it needs to last, '
+      'then subtracts what you spent today. Please try again once your records load.',
+      choices: choices,
+    );
+  }
+  if (topic == _FormulaTopic.savings) {
+    final suggestion = SavingsSuggestion.from(records);
+    if (!suggestion.hasHistory) {
+      return const ChatReply(
+        'Suggested savings = 10% of money left after '
+        'uncovered bills, money already saved and estimated everyday costs. '
+        'The other 90% stays as a buffer. Record everyday spending on at least '
+        '7 different days in the last 30 days before I suggest an amount. '
+        'This avoids assuming your everyday costs are zero.',
+        choices: choices,
+      );
+    }
+    return ChatReply(
+      'Suggested savings = 10% × max(0, available money − '
+      'estimated everyday costs).\n\n'
+      'Your available money after bills and money already saved: '
+      '${formatPeso(suggestion.available)}.\n'
+      'Estimated everyday costs for the remaining days: '
+      '${formatPeso(suggestion.dailyCosts)}.\n'
+      'Suggested to save: ${formatPeso(suggestion.amount)} (rounded down '
+      'to a centavo). The other 90% stays as a buffer. Everyday costs use '
+      'your recent average spending per day, with today’s spending already '
+      'accounted for. This depends on complete records; you choose whether '
+      'and how much to save.',
+      choices: choices,
+    );
+  }
+  final s = records.safeToSpend;
+  final shortfall = math.max(0.0, s.billsDue - s.billsWalletBalance);
+  final irregular =
+      records.incomeFrequency == null || records.incomeFrequency == 'Irregular';
+  return ChatReply(
+    'Here is how Safe to Spend is worked out from your records:\n\n'
+    '1. Spending wallets ${formatPeso(s.walletBalance)} + today’s spending '
+    '${formatPeso(s.spentToday)} − bills still needing money '
+    '${formatPeso(shortfall)} − goal money held in spending wallets '
+    '${formatPeso(s.goalSavings)}. Negative amounts become zero. '
+    'Bills and Savings wallets are kept separate, so saved money is not '
+    'subtracted twice.\n'
+    '${s.periodBudget == null ? '' : 'Your remaining spending plan also caps this amount. '}'
+    '2. Money available at the start of today '
+    '${formatPeso(s.spendableThisPeriod)} ÷ ${s.daysLeft} days = '
+    '${formatPeso(s.recommendedDailyLimit)} per day'
+    '${s.periodBudget == null ? '.' : ', also capped by your planned daily share.'}\n'
+    '3. Today’s share ${formatPeso(s.dailyLimit)} − what you spent today '
+    '${formatPeso(s.spentToday)} = ${formatPeso(s.leftToday)} left today. '
+    'A negative result means you have gone over today’s amount.\n\n'
+    'Today’s spending is added back in step 1 because your wallet balance '
+    'already went down, then subtracted in step 3. Bill payments and money '
+    'lent are excluded from everyday spending. '
+    '${irregular ? 'With no fixed income date, the days run through the end of this month.' : 'The days follow the income date and schedule in Financial preferences; recording income does not restart the countdown.'} '
+    'Figures depend on what you record. Which calculation would you like next?',
+    choices: choices,
+  );
+}
 
 enum _Intent {
   greeting,

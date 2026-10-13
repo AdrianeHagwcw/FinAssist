@@ -417,8 +417,14 @@ class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
 
   void _save() {
     final amount = double.tryParse(_controller.text.trim().replaceAll(',', ''));
+    if (!isRecordableAmount(amount)) {
+      setState(() => _error = minimumAmountError);
+      return;
+    }
     Navigator.pop(context, amount);
   }
+
+  String? _error;
 
   @override
   Widget build(BuildContext context) {
@@ -442,10 +448,11 @@ class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: const [ThousandsSeparatorFormatter()],
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Amount',
               prefixText: '₱ ',
               hintText: '0.00',
+              errorText: _error,
             ),
             onSubmitted: (_) => _save(),
           ),
@@ -557,7 +564,7 @@ class _BillHeader extends StatelessWidget {
               ),
               child: Text(
                 'Includes ${_peso(instance.carriedOver)} left unpaid from the '
-                'cycle before.',
+                'bill before.',
                 style: TextStyle(fontSize: 12, color: colors.textBody),
               ),
             ),
@@ -740,7 +747,7 @@ class _BillHistory extends StatelessWidget {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
         child: Text(
-          'This is the only cycle so far.',
+          'This is the only scheduled bill so far.',
           style: TextStyle(color: Colors.grey, fontSize: 13),
         ),
       );

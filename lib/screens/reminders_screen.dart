@@ -327,7 +327,8 @@ class _KindCard extends StatelessWidget {
     ReminderKind.payday =>
       'On payday at 12 PM, then daily for 3 days until you log it.',
     ReminderKind.goals => "On your goal's saving days, at 9 AM.",
-    ReminderKind.leftover => 'When a pay period ends, to save or spend it.',
+    ReminderKind.leftover =>
+      'The day before your next pay, to save or spend what is left.',
     ReminderKind.dailyLog => '8 PM on days nothing was logged yet.',
   };
 

@@ -18,9 +18,19 @@ import 'wallet_service.dart';
 /// The user's records for the assistant, kept up to date as they change.
 ///
 /// Read the same way as Home's Safe to Spend card, from the phone's saved
-/// copy, so it works offline. A part that can't be read is left empty rather
-/// than holding back the rest.
-Stream<FinanceSnapshot> watchFinanceSnapshot() {
+/// copy, so it works offline when cached records are available. Incomplete
+/// records emit an error rather than presenting missing obligations as zero.
+Stream<FinanceSnapshot> watchFinanceSnapshot({
+  Stream<List<Wallet>>? walletStream,
+  Stream<List<AppTransaction>>? transactionStream,
+  Stream<Map<String, dynamic>?>? profileStream,
+  Stream<List<AllocationCycle>>? cycleStream,
+  Stream<List<Goal>>? goalStream,
+  Stream<List<Debt>>? debtStream,
+  Stream<List<Bill>>? billStream,
+  Future<List<BillInstance>> Function()? loadBills,
+  DateTime Function()? clock,
+}) {
   final subscriptions = <StreamSubscription<Object?>>[];
   late final StreamController<FinanceSnapshot> controller;
 
@@ -37,14 +47,26 @@ Stream<FinanceSnapshot> watchFinanceSnapshot() {
   var walletsRead = false;
   var transactionsRead = false;
   var profileRead = false;
+  var goalsRead = false;
+  var debtsRead = false;
+  var billsRead = false;
+  var schedulesRead = false;
 
   void send() {
-    if (!walletsRead || !transactionsRead || !profileRead) return;
+    if (!walletsRead ||
+        !transactionsRead ||
+        !profileRead ||
+        !goalsRead ||
+        !debtsRead ||
+        !billsRead ||
+        !schedulesRead) {
+      return;
+    }
     if (controller.isClosed) return;
     final income = profile?['income'];
     controller.add(
       FinanceSnapshot(
-        now: DateTime.now(),
+        now: (clock ?? DateTime.now)(),
         wallets: wallets,
         transactions: transactions,
         bills: bills,
@@ -68,13 +90,17 @@ Stream<FinanceSnapshot> watchFinanceSnapshot() {
     );
     if (signature == billsReadFor) return;
     billsReadFor = signature;
-    AllocationService.loadOutstandingBills()
+    billsRead = false;
+    (loadBills ?? AllocationService.loadOutstandingBills)()
         .then((loaded) {
+          if (signature != billsReadFor || controller.isClosed) return;
           bills = loaded;
+          billsRead = true;
           send();
         })
-        .catchError((Object _) {
-          // Offline and never saved: answer as if no bills are due.
+        .catchError((Object error) {
+          if (signature != billsReadFor || controller.isClosed) return;
+          controller.addError(error);
         });
   }
 
@@ -92,38 +118,65 @@ Stream<FinanceSnapshot> watchFinanceSnapshot() {
           },
           onError: (Object _) {
             onFail?.call();
-            send();
+            if (!controller.isClosed) {
+              controller.addError(
+                StateError('Could not load financial records.'),
+              );
+            }
           },
         ),
       );
     } catch (_) {
       // Signed out between screens: nothing to read.
       onFail?.call();
+      if (!controller.isClosed) {
+        controller.addError(StateError('Could not load financial records.'));
+      }
     }
   }
 
   controller = StreamController<FinanceSnapshot>(
     onListen: () {
-      watch(WalletService.watchWallets, (value) {
+      watch(() => walletStream ?? WalletService.watchWallets(), (value) {
         wallets = value;
         walletsRead = true;
-      }, onFail: () => walletsRead = true);
-      watch(WalletService.watchTransactions, (value) {
+      }, onFail: () => walletsRead = false);
+      watch(() => transactionStream ?? WalletService.watchTransactions(), (
+        value,
+      ) {
         transactions = value;
         transactionsRead = true;
         readBills();
-      }, onFail: () => transactionsRead = true);
-      watch(UserProfileService.watchProfile, (snapshot) {
-        profile = snapshot.data();
-        profileRead = true;
-      }, onFail: () => profileRead = true);
-      watch(BudgetService.watchRecentCycles, (value) => cycles = value);
-      watch(GoalService.watchGoals, (value) => goals = value);
-      watch(DebtService.watchDebts, (value) => debts = value);
-      watch(BillService.watchBills, (_) {
+      }, onFail: () => transactionsRead = false);
+      watch(
+        () =>
+            profileStream ??
+            UserProfileService.watchProfile().map(
+              (snapshot) => snapshot.data(),
+            ),
+        (value) {
+          profile = value;
+          profileRead = true;
+        },
+        onFail: () => profileRead = false,
+      );
+      watch(
+        () => cycleStream ?? BudgetService.watchRecentCycles(),
+        (value) => cycles = value,
+      );
+      watch(() => goalStream ?? GoalService.watchGoals(), (value) {
+        goals = value;
+        goalsRead = true;
+      }, onFail: () => goalsRead = false);
+      watch(() => debtStream ?? DebtService.watchDebts(), (value) {
+        debts = value;
+        debtsRead = true;
+      }, onFail: () => debtsRead = false);
+      watch(() => billStream ?? BillService.watchBills(), (_) {
+        schedulesRead = true;
         billsVersion++;
         readBills();
-      });
+      }, onFail: () => schedulesRead = false);
     },
     onCancel: () async {
       for (final subscription in subscriptions) {

@@ -90,7 +90,7 @@ class AllocationPlan {
     final problems = <String>[];
 
     if (!isRecordableAmount(income)) {
-      problems.add('Enter how much came in.');
+      problems.add(minimumAmountError);
     }
 
     for (final bill in bills) {

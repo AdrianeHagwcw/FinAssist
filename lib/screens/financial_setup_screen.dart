@@ -608,7 +608,10 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           const SizedBox(height: 16),
           _title('Your income'),
           const SizedBox(height: 8),
-          _subtitle('This helps FinAssist plan your money each pay period.'),
+          _subtitle(
+            'This helps FinAssist plan your money between one pay and the '
+            'next.',
+          ),
           const SizedBox(height: 24),
           _label('Main source of income'),
           DropdownButtonFormField<String>(
@@ -630,15 +633,20 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           ),
           if (_incomeSource == 'Other') ...[
             const SizedBox(height: 16),
-            _label('Please specify your income source'),
+            _label('Where does your income come from?'),
             const SizedBox(height: 8),
             TextFormField(
               key: const Key('other-income-source-specification'),
               controller: _otherIncomeSourceController,
               textCapitalization: TextCapitalization.sentences,
-              decoration: _inputDecoration('e.g. Rental income'),
+              decoration: _inputDecoration('e.g. Rental income').copyWith(
+                helperText:
+                    'Name the source that is missing from the list, '
+                    'such as rent from a tenant or support from family.',
+                helperMaxLines: 3,
+              ),
               validator: (value) => value == null || value.trim().isEmpty
-                  ? 'Please specify your income source.'
+                  ? 'Enter where your income comes from.'
                   : null,
             ),
           ],
@@ -665,8 +673,9 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             const SizedBox(height: 8),
             _noteRow(
               Icons.lightbulb_outline,
-              "No fixed payday? No problem. Each time you add income, you'll "
-              'choose how long it should last.',
+              'Choose this if the dates change, such as occasional work or '
+              'family support. FinAssist plans to the end of the month '
+              'because there is no fixed next payment date.',
             ),
           ] else ...[
             const SizedBox(height: 20),
@@ -725,8 +734,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
                   const SizedBox(height: 8),
                   _noteRow(
                     Icons.info_outline,
-                    'Your pay period is counted from this day, so Home can '
-                    'show how many days it still has to last.',
+                    'The days until your next pay are counted from this '
+                    'day, so Home can show how long your money has to last.',
                   ),
                 ],
               ),
@@ -751,10 +760,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
               // Irregular income changes, so the estimate may be left blank.
               if (isIrregular && (value?.trim() ?? '').isEmpty) return null;
               final amount = _parseAmount(value ?? '');
-              if (amount == null || amount <= 0) {
-                return isIrregular
-                    ? 'Enter a positive amount, or leave it blank.'
-                    : 'Enter a valid positive amount.';
+              if (!isRecordableAmount(amount)) {
+                return minimumAmountError;
               }
               return null;
             },
@@ -1443,6 +1450,11 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
 
   Widget _buildWallets() {
     final colors = context.appColors;
+    // "Other" can still be blank here, and "Where does your  go?" reads as
+    // a bug rather than a question.
+    final source = _resolvedIncomeSource.trim().isEmpty
+        ? 'income'
+        : _resolvedIncomeSource.trim().toLowerCase();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1484,6 +1496,26 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             ],
           ),
         ),
+        // This selects the default destination; the saved income schedule
+        // controls the countdown independently of the wallet.
+        if (_wallets.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          Text(
+            'Where does your $source go?',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Tap "Receives my $source" on the wallet where you receive it. '
+            'FinAssist selects that wallet when you record income. You can '
+            'choose a different wallet each time.',
+            style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
+          ),
+        ],
         const SizedBox(height: 20),
         if (_wallets.isEmpty)
           Container(
@@ -1523,7 +1555,9 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
           for (var index = 0; index < _wallets.length; index++)
             _WalletDraftCard(
               wallet: _wallets[index],
-              incomeSource: _resolvedIncomeSource,
+              incomeSource: _resolvedIncomeSource.trim().isEmpty
+                  ? 'income'
+                  : _resolvedIncomeSource,
               onEdit: () => _editWallet(index),
               onRemove: () => _removeWallet(index),
               onSetIncome: () => _setIncomeWallet(index),

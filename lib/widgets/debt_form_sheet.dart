@@ -253,9 +253,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     if (name.isEmpty) {
       problem = _iOwe ? 'Give it a name.' : 'Who owes you?';
     } else if (!isRecordableAmount(principal)) {
-      problem = _iOwe ? 'Enter the amount borrowed.' : 'Enter how much.';
+      problem = minimumAmountError;
     } else if (_iOwe && !isRecordableAmount(perPayment)) {
-      problem = 'Enter how much each payment is.';
+      problem = minimumAmountError;
     } else if (_iOwe && _paymentCount < 1) {
       problem = 'Enter how many payments.';
     } else if (_iOwe && _date == null) {
@@ -540,7 +540,14 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                       DropdownButtonFormField<DebtCategory>(
                         initialValue: _category,
                         isExpanded: true,
-                        decoration: dialogFieldDecoration(context, 'Kind'),
+                        decoration: dialogFieldDecoration(
+                          context,
+                          'Kind',
+                          helper: _category == DebtCategory.other
+                              ? 'Choose Other if none fits. In Name, describe '
+                                    'what you are paying off, such as dental treatment.'
+                              : null,
+                        ).copyWith(helperMaxLines: 3),
                         items: [
                           for (final category in DebtCategory.values)
                             DropdownMenuItem(

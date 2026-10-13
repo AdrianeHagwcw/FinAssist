@@ -10,7 +10,7 @@ import '../utils/money_format.dart';
 /// paid: someone paid on the 15th and the 30th lives in two stretches a
 /// month, and a report cut to the calendar splits their money in half.
 enum ReportRange {
-  cycle('Pay cycle'),
+  cycle('Between payments'),
   week('This week'),
   month('This month'),
   quarter('Quarter'),

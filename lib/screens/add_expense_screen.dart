@@ -232,8 +232,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       _amountController.text.trim().replaceAll(',', ''),
     );
 
-    if (amount == null || !amount.isFinite || amount <= 0) {
-      _showError('Please enter a valid expense amount.');
+    if (amount == null || !isRecordableAmount(amount)) {
+      _showError(minimumAmountError);
       return;
     }
 
@@ -491,7 +491,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               initialValue: _selectedCategory,
               isExpanded: true,
 
-              decoration: dialogFieldDecoration(context, 'Category').copyWith(
+              decoration: dialogFieldDecoration(
+                context,
+                'Category',
+                helper: _selectedCategory == 'Others'
+                    ? 'Use Others when no category fits. In Description, '
+                        'say what you paid for, such as a replacement key.'
+                    : null,
+              ).copyWith(
+                helperMaxLines: 3,
                 prefixIcon: Padding(
                   padding: const EdgeInsets.all(12),
                   child: _selectedCategory == null

@@ -45,7 +45,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text(
-        'Pay-cycle history',
+        'Income history',
         style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
       ),
       centerTitle: true,
@@ -109,14 +109,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         title: 'Every payday, a clearer picture',
                         message: pending == 0
                             ? 'Every pay you log: what came in, where it went, and what was left.'
-                            : '$pending ${pending == 1 ? 'cycle is' : 'cycles are'} waiting for a leftover decision.',
+                            : '$pending ${pending == 1 ? 'entry is' : 'entries are'} waiting for a leftover decision.',
                       ),
                       const SizedBox(height: 16),
                       Wrap(
                         spacing: 8,
                         children: [
                           ChoiceChip(
-                            label: Text('All cycles (${all.length})'),
+                            label: Text('All entries (${all.length})'),
                             selected: !_pendingOnly,
                             onSelected: (_) =>
                                 setState(() => _pendingOnly = false),
@@ -141,7 +141,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       if (visible.isEmpty)
                         const Padding(
                           padding: EdgeInsets.all(24),
-                          child: Text('All caught up. No cycles need review.'),
+                          child: Text('All caught up. No entries need review.'),
                         ),
                     ],
                   );

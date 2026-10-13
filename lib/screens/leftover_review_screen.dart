@@ -293,7 +293,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Pay period ${formatShortDate(widget.cycle.receivedAt)} – '
+                  'Money for ${formatShortDate(widget.cycle.receivedAt)} – '
                   '${formatShortDate(lastDay)}',
                   style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),

@@ -4,6 +4,10 @@ import '../models/bill.dart';
 import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/allocation_service.dart';
+import '../models/finance_snapshot.dart';
+import '../services/finance_snapshot_service.dart';
+import '../widgets/savings_suggestion_card.dart';
+import '../widgets/transfer_sheet.dart';
 import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
@@ -33,6 +37,7 @@ class SetAsideScreen extends StatefulWidget {
     this.goals,
     this.loadBills,
     this.today,
+    this.finances,
     this.initialPart = SetAsidePart.savings,
     super.key,
   });
@@ -48,6 +53,7 @@ class SetAsideScreen extends StatefulWidget {
 
   /// Replaces the clock. Used by tests.
   final DateTime? today;
+  final Stream<FinanceSnapshot>? finances;
 
   final SetAsidePart initialPart;
 
@@ -63,6 +69,12 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
       widget.goals ?? GoalService.watchGoals();
 
   bool get _isBills => widget.initialPart == SetAsidePart.bills;
+
+  late final Stream<FinanceSnapshot> _finances =
+      widget.finances ??
+      (widget.wallets == null && !_isBills
+          ? watchFinanceSnapshot()
+          : const Stream<FinanceSnapshot>.empty());
 
   List<BillInstance> _bills = const [];
 
@@ -141,9 +153,11 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     if (kept.isEmpty) return const [];
 
     return [
-      _SectionTitle(purpose == WalletPurpose.bills
-          ? 'Where it is kept'
-          : 'Your savings records'),
+      _SectionTitle(
+        purpose == WalletPurpose.bills
+            ? 'Where it is kept'
+            : 'Your savings records',
+      ),
       const SizedBox(height: 10),
       for (final wallet in kept)
         InkWell(
@@ -244,6 +258,40 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
         : 'Everything you have saved, and what it is spoken for.';
 
     return [
+      StreamBuilder<FinanceSnapshot>(
+        stream: _finances,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Text(
+                'Savings suggestion is unavailable while your records '
+                'cannot be loaded. Please try again later.',
+              ),
+            );
+          }
+          final records = snapshot.data;
+          if (records == null) return const SizedBox.shrink();
+          return SavingsSuggestionCard(
+            records: records.at(_now),
+            onTransfer: (amount) {
+              final destinations = promisableSavingsRecords(wallets);
+              showTransferSheet(
+                context,
+                toWalletId:
+                    !wallets.any(
+                      (w) => !w.archived && w.purpose == WalletPurpose.savings,
+                    )
+                    ? TransferSheet.newSavingsWalletId
+                    : destinations.length == 1
+                    ? destinations.single.id
+                    : null,
+                initialAmount: amount,
+              );
+            },
+          );
+        },
+      ),
       StreamBuilder<List<Goal>>(
         stream: _goals,
         builder: (context, snapshot) {
@@ -369,7 +417,8 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
         title: 'Bills wallet',
         total: total,
         iconAsset: 'assets/icons/icons8-receipt-96.png',
-        note: 'Money waiting for your bills. Paying a bill takes it from here '
+        note:
+            'Money waiting for your bills. Paying a bill takes it from here '
             'first.',
       ),
       const SizedBox(height: 20),
@@ -651,7 +700,9 @@ class _BillRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final overdue = bill.dueDate.isBefore(DateTime(now.year, now.month, now.day));
+    final overdue = bill.dueDate.isBefore(
+      DateTime(now.year, now.month, now.day),
+    );
 
     return Container(
       padding: const EdgeInsets.all(16),

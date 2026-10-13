@@ -387,8 +387,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   });
 
   void _fromIncomeStep() {
-    final problem = _income <= 0
-        ? 'Enter how much came in.'
+    final problem = !isRecordableAmount(_income)
+        ? minimumAmountError
         : _source == null
         ? 'Choose where the money came from.'
         : _source == otherIncomeSource &&
@@ -603,7 +603,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               context,
               'Where did it come from?',
               hint: 'e.g. Sold my old phone',
-              helper: 'Please specify the source.',
+              helper:
+                  'Name where the money came from, such as selling an '
+                  'item, rental income or support from family.',
             ),
           ),
         ],
@@ -1019,7 +1021,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             for (final bill in skipped)
               _SummaryLine(
                 label: bill.instance.name,
-                detail: 'Skipped this cycle',
+                detail: 'Skipped this time',
                 amount: formatPeso(0),
                 color: Colors.grey,
               ),

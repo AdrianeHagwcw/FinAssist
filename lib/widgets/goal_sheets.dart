@@ -525,7 +525,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     if (name.isEmpty) {
       problem = 'Give the goal a name.';
     } else if (!isRecordableAmount(target)) {
-      problem = 'Enter how much you want to save.';
+      problem = minimumAmountError;
     } else if (saved > 0 && record == null) {
       problem = 'Add a Savings wallet before recording money already saved.';
     } else if (saved > free + 0.005) {
@@ -1008,7 +1008,7 @@ class _ContributionSheetState extends State<ContributionSheet> {
     final available = record == null ? 0.0 : freeInWallet(record, goals);
 
     final problem = amount == null || !isRecordableAmount(amount)
-        ? 'Enter an amount.'
+        ? minimumAmountError
         : record == null
         ? 'Add a Savings wallet and move money into it first.'
         : widget.takeOut && amount > heldHere + 0.005

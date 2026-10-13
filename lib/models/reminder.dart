@@ -347,9 +347,7 @@ List<PlannedReminder> planReminders({
       ).length;
       final saved = goal.savedAmount - goal.startingSaved;
       final behind = perCycle * asked - (saved < 0 ? 0 : saved);
-      final owing = behind <= 0
-          ? 0.0
-          : (behind > perCycle ? perCycle : behind);
+      final owing = behind <= 0 ? 0.0 : (behind > perCycle ? perCycle : behind);
 
       // Saving days that have just passed stay in range, so one that was
       // missed can still be chased today.
@@ -497,7 +495,7 @@ List<PlannedReminder> planReminders({
           kind: ReminderKind.leftover,
           key: 'leftover:${newest.id}',
           at: at(lastDay, leftoverHour),
-          title: 'Your pay period ends today',
+          title: 'Your next pay is tomorrow',
           body:
               'See what is left of your ${newest.source.toLowerCase()} and '
               'choose to save it or spend it.',

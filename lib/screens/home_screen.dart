@@ -204,6 +204,11 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const AppLogo(width: 82, height: 52),
         actions: [
           IconButton(
+            tooltip: 'App guide',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => _push(const HelpScreen()),
+          ),
+          IconButton(
             tooltip: 'AI Assistant',
             icon: Image.asset(
               'assets/icons/assistant-robot-192.png',

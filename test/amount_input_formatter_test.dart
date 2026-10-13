@@ -99,7 +99,8 @@ void main() {
       expect(isRecordableAmount(0.004), isFalse);
       expect(formatPeso(0.004), '₱0');
 
-      expect(isRecordableAmount(0.005), isTrue);
+      expect(isRecordableAmount(0.005), isFalse);
+      expect(isRecordableAmount(0.009), isFalse);
       expect(formatPeso(0.005), '₱0.01');
       expect(isRecordableAmount(minimumAmount), isTrue);
     });

@@ -100,7 +100,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
   String get _consequence {
     final amount = _typed;
     if (amount == null || !isRecordableAmount(amount)) {
-      return 'Enter how much came back to you.';
+      return minimumAmountError;
     }
     final taken = (amount * 100).round() / 100;
     final balance = (widget.wallet.balance * 100).round() / 100;
@@ -135,7 +135,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
   void _settle() {
     final amount = _typed;
     if (amount == null || !isRecordableAmount(amount)) {
-      setState(() => _error = 'Enter how much came back to you.');
+      setState(() => _error = minimumAmountError);
       return;
     }
     final toWalletId = _toWalletId;

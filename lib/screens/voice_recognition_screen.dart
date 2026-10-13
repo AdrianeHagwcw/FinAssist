@@ -419,7 +419,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         VoiceDestination.expenseCategories => 'Expense Categories',
         VoiceDestination.financialPreferences =>
           'Income & Leftover Preferences',
-        VoiceDestination.payCycleHistory => 'Pay-cycle History',
+        VoiceDestination.payCycleHistory => 'Income history',
         VoiceDestination.reminders => 'Reminders',
         VoiceDestination.help => 'Help & Support',
         null => 'the selected section',

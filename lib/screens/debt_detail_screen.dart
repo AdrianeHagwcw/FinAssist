@@ -742,7 +742,7 @@ class _RepaymentSheetState extends State<RepaymentSheet> {
     final owed = widget.debt.stillOwedToMe;
 
     final problem = amount == null || !isRecordableAmount(amount)
-        ? 'Enter how much was paid back.'
+        ? minimumAmountError
         : amount > owed + 0.005
         ? 'Only ${formatPeso(owed)} is still owed.'
         : walletId == null

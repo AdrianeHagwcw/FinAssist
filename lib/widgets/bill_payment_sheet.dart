@@ -194,7 +194,7 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
     final amount = double.tryParse((value ?? '').trim().replaceAll(',', ''));
 
     if (amount == null || !isRecordableAmount(amount)) {
-      return 'Enter how much you are paying.';
+      return minimumAmountError;
     }
 
     if (amount > widget.instance.remaining + 0.005) {

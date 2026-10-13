@@ -303,7 +303,14 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                   if (s.spentToday > 0)
                     _Working('What you spent today', s.spentToday, add: true),
                   if (s.billsDue > 0)
-                    _Working('Bills to pay this pay', s.billsDue, take: true),
+                    _Working(
+                      'Bills not yet covered',
+                      (s.billsDue - s.billsWalletBalance).clamp(
+                        0.0,
+                        double.infinity,
+                      ),
+                      take: true,
+                    ),
                   if (s.goalSavings > 0)
                     _Working('Saved for your goals', s.goalSavings, take: true),
                   if (takesSomeOff) ...[

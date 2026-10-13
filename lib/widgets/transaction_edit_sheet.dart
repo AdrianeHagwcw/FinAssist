@@ -126,8 +126,8 @@ class _TransactionEditSheetState extends State<TransactionEditSheet> {
       _amountController.text.trim().replaceAll(',', ''),
     );
 
-    final problem = amount == null || amount <= 0
-        ? 'Enter a valid amount.'
+    final problem = amount == null || !isRecordableAmount(amount)
+        ? minimumAmountError
         : _walletId == null
         ? 'Choose a wallet.'
         : _isTransfer && (_toWalletId == null || _toWalletId == _walletId)

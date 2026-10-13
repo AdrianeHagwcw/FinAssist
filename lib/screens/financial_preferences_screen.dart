@@ -197,8 +197,8 @@ class _PreferencesFormState extends State<_PreferencesForm> {
               decoration: const InputDecoration(
                 labelText: 'When did you last receive it?',
                 helperText:
-                    'Your pay period is counted from this day, and the days '
-                    'left on Home follow it.',
+                    'The days until your next pay are counted from this '
+                    'day, and the days left on Home follow it.',
                 border: OutlineInputBorder(),
               ),
               child: Row(
@@ -236,7 +236,7 @@ class _PreferencesFormState extends State<_PreferencesForm> {
             if (value == null || value.trim().isEmpty) return null;
             return isRecordableAmount(double.tryParse(_clean(value)))
                 ? null
-                : 'Enter an amount greater than zero.';
+                : minimumAmountError;
           },
         ),
         const SizedBox(height: 28),

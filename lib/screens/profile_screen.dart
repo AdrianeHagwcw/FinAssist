@@ -493,7 +493,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Divider(height: 1, indent: 65),
                         _buildActionTile(
                           iconAsset: 'assets/icons/icons8-calendar-96.png',
-                          title: 'Pay-cycle history',
+                          title: 'Income history',
                           onTap: () => _open(const HistoryScreen()),
                         ),
                         const Divider(height: 1, indent: 65),
