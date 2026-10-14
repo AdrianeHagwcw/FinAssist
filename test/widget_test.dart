@@ -2938,7 +2938,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('starts at zero instead of prefilling the setup estimate', (
+    testWidgets('starts blank instead of prefilling the setup estimate', (
       tester,
     ) async {
       final settings = AppSettingsProvider()
@@ -2975,7 +2975,7 @@ void main() {
       final amountField = tester.widget<TextField>(
         find.byType(TextField).first,
       );
-      expect(amountField.controller!.text, '0');
+      expect(amountField.controller!.text, isEmpty);
       expect(find.textContaining('Usual amount per paycheck'), findsNothing);
 
       await tester.enterText(find.byType(TextField).first, '28500');
