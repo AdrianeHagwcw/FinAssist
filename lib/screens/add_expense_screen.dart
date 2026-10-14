@@ -30,6 +30,8 @@ class AddExpenseScreen extends StatefulWidget {
   final Timestamp? initialDate;
   final String? initialPaymentMethod;
   final String? initialNotes;
+  final bool requireCategorySelection;
+  final bool requireWalletSelection;
 
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
@@ -46,6 +48,8 @@ class AddExpenseScreen extends StatefulWidget {
     this.initialDate,
     this.initialPaymentMethod,
     this.initialNotes,
+    this.requireCategorySelection = false,
+    this.requireWalletSelection = false,
   });
 
   @override
@@ -140,7 +144,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
           setState(() {
             _wallets = wallets;
-            _walletId ??= defaultWalletId(wallets);
+            if (!widget.requireWalletSelection) {
+              _walletId ??= defaultWalletId(wallets);
+            }
           });
         });
   }
@@ -172,6 +178,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   // =========================================================
 
   void _suggestCategory() {
+    if (widget.requireCategorySelection) return;
+
     // A category the user picked is theirs; only a suggestion is replaced.
     if (_selectedCategory != null && !_categoryIsSuggestion) return;
 
@@ -261,7 +269,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     // Users who have not added a wallet yet can still record the expense; it
     // is kept as history and no balance moves.
-    if (_wallets.isNotEmpty && _walletId == null) {
+    if ((_wallets.isNotEmpty || widget.requireWalletSelection) &&
+        _walletId == null) {
+      if (_wallets.isEmpty && widget.requireWalletSelection) {
+        _showError('Add a wallet before recording this expense.');
+        return;
+      }
       _showError('Please choose which wallet this was paid from.');
       return;
     }
@@ -361,7 +374,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       ),
     );
 
-    Navigator.pop(context);
+    Navigator.pop(context, true);
   }
 
   /// Asks before saving an expense larger than what [wallet] holds.
@@ -452,173 +465,177 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-            // =================================================
-            // AMOUNT: the number the user came to type, as large
-            // as on Add Income
-            // =================================================
-            AmountField(
-              controller: _amountController,
-              label: 'Amount',
-              // Filled in from voice, a receipt or an edit, the form is
-              // checked first, so the keyboard stays closed.
-              autofocus: !_isEditMode && widget.initialAmount == null,
-            ),
+                  // =================================================
+                  // AMOUNT: the number the user came to type, as large
+                  // as on Add Income
+                  // =================================================
+                  AmountField(
+                    controller: _amountController,
+                    label: 'Amount',
+                    // Filled in from voice, a receipt or an edit, the form is
+                    // checked first, so the keyboard stays closed.
+                    autofocus: !_isEditMode && widget.initialAmount == null,
+                  ),
 
-            const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-            // =================================================
-            // DESCRIPTION: before the category, which is
-            // suggested from it
-            // =================================================
-            TextField(
-              controller: _descriptionController,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: dialogFieldDecoration(
-                context,
-                'Description',
-                hint: 'What did you spend money on?',
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // =================================================
-            // CATEGORY: shown with its own icon
-            // =================================================
-            DropdownButtonFormField<String>(
-              // Rebuilt when a suggestion changes the category.
-              key: ValueKey(_selectedCategory),
-              initialValue: _selectedCategory,
-              isExpanded: true,
-
-              decoration: dialogFieldDecoration(
-                context,
-                'Category',
-                helper: _selectedCategory == 'Others'
-                    ? 'Use Others when no category fits. In Description, '
-                        'say what you paid for, such as a replacement key.'
-                    : null,
-              ).copyWith(
-                helperMaxLines: 3,
-                prefixIcon: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: _selectedCategory == null
-                      ? Image.asset(
-                          'assets/icons/icons8-pie-chart-96.png',
-                          width: 24,
-                          height: 24,
-                        )
-                      : CategoryIcon(_selectedCategory!),
-                ),
-              ),
-
-              // The chosen one's icon is already at the start of the field.
-              selectedItemBuilder: (context) => [
-                for (final category in _categories) Text(category),
-              ],
-
-              items: [
-                for (final category in _categories)
-                  DropdownMenuItem<String>(
-                    value: category,
-                    child: Row(
-                      children: [
-                        CategoryIcon(category, size: 22),
-                        const SizedBox(width: 12),
-                        Text(category),
-                      ],
+                  // =================================================
+                  // DESCRIPTION: before the category, which is
+                  // suggested from it
+                  // =================================================
+                  TextField(
+                    controller: _descriptionController,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: dialogFieldDecoration(
+                      context,
+                      'Description',
+                      hint: 'What did you spend money on?',
                     ),
                   ),
-              ],
 
-              onChanged: (value) {
-                setState(() {
-                  _selectedCategory = value;
-                  _categoryIsSuggestion = false;
-                });
-              },
-            ),
+                  const SizedBox(height: 16),
 
-            if (_categoryIsSuggestion && _selectedCategory != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 6, left: 4),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.lightbulb_outline,
-                      size: 14,
-                      color: colors.textBody,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        "Suggested for you. Change it if it's wrong.",
-                        style: TextStyle(fontSize: 12, color: colors.textBody),
+                  // =================================================
+                  // CATEGORY: shown with its own icon
+                  // =================================================
+                  DropdownButtonFormField<String>(
+                    // Rebuilt when a suggestion changes the category.
+                    key: ValueKey(_selectedCategory),
+                    initialValue: _selectedCategory,
+                    isExpanded: true,
+
+                    decoration:
+                        dialogFieldDecoration(
+                          context,
+                          'Category',
+                          helper: _selectedCategory == 'Others'
+                              ? 'Use Others when no category fits. In Description, '
+                                    'say what you paid for, such as a replacement key.'
+                              : null,
+                        ).copyWith(
+                          helperMaxLines: 3,
+                          prefixIcon: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: _selectedCategory == null
+                                ? Image.asset(
+                                    'assets/icons/icons8-pie-chart-96.png',
+                                    width: 24,
+                                    height: 24,
+                                  )
+                                : CategoryIcon(_selectedCategory!),
+                          ),
+                        ),
+
+                    // The chosen one's icon is already at the start of the field.
+                    selectedItemBuilder: (context) => [
+                      for (final category in _categories) Text(category),
+                    ],
+
+                    items: [
+                      for (final category in _categories)
+                        DropdownMenuItem<String>(
+                          value: category,
+                          child: Row(
+                            children: [
+                              CategoryIcon(category, size: 22),
+                              const SizedBox(width: 12),
+                              Text(category),
+                            ],
+                          ),
+                        ),
+                    ],
+
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedCategory = value;
+                        _categoryIsSuggestion = false;
+                      });
+                    },
+                  ),
+
+                  if (_categoryIsSuggestion && _selectedCategory != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6, left: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.lightbulb_outline,
+                            size: 14,
+                            color: colors.textBody,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              "Suggested for you. Change it if it's wrong.",
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colors.textBody,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
 
-            const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-            // =================================================
-            // DATE: written the way Add Income writes it
-            // =================================================
-            InkWell(
-              onTap: _selectDate,
-              borderRadius: BorderRadius.circular(12),
-              child: InputDecorator(
-                decoration: dialogFieldDecoration(context, 'Date'),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(formatShortDate(_selectedDate))),
-                    Image.asset(
-                      'assets/icons/icons8-calendar-96.png',
-                      width: 22,
-                      height: 22,
+                  // =================================================
+                  // DATE: written the way Add Income writes it
+                  // =================================================
+                  InkWell(
+                    onTap: _selectDate,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InputDecorator(
+                      decoration: dialogFieldDecoration(context, 'Date'),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(formatShortDate(_selectedDate))),
+                          Image.asset(
+                            'assets/icons/icons8-calendar-96.png',
+                            width: 22,
+                            height: 22,
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
-              ),
-            ),
+                  ),
 
-            const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-            // =================================================
-            // WALLET
-            // =================================================
-            if (_wallets.isEmpty)
-              Text(
-                'You have no wallets yet. This expense will be saved to your '
-                'history, but no wallet balance will change.',
-                style: TextStyle(fontSize: 13, color: colors.textBody),
-              )
-            else
-              WalletPicker(
-                wallets: _wallets,
-                selectedId: _walletId,
-                label: 'Paid from',
-                onChanged: (value) => setState(() => _walletId = value),
-              ),
+                  // =================================================
+                  // WALLET
+                  // =================================================
+                  if (_wallets.isEmpty)
+                    Text(
+                      'You have no wallets yet. This expense will be saved to your '
+                      'history, but no wallet balance will change.',
+                      style: TextStyle(fontSize: 13, color: colors.textBody),
+                    )
+                  else
+                    WalletPicker(
+                      wallets: _wallets,
+                      selectedId: _walletId,
+                      label: 'Paid from',
+                      onChanged: (value) => setState(() => _walletId = value),
+                    ),
 
-            const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-            // =================================================
-            // NOTES
-            // =================================================
-            TextField(
-              controller: _notesController,
-              maxLines: 4,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: dialogFieldDecoration(
-                context,
-                'Notes (optional)',
-                hint: 'Add additional notes...',
-              ).copyWith(alignLabelWithHint: true),
-            ),
+                  // =================================================
+                  // NOTES
+                  // =================================================
+                  TextField(
+                    controller: _notesController,
+                    maxLines: 4,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: dialogFieldDecoration(
+                      context,
+                      'Notes (optional)',
+                      hint: 'Add additional notes...',
+                    ).copyWith(alignLabelWithHint: true),
+                  ),
 
-            const SizedBox(height: 30),
+                  const SizedBox(height: 30),
                 ],
               ),
             ),

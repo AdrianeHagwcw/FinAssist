@@ -487,7 +487,11 @@ class WalletService {
     DateTime? date,
   }) {
     if (!received.isFinite || received <= 0) {
-      throw ArgumentError.value(received, 'received', 'Must be more than zero.');
+      throw ArgumentError.value(
+        received,
+        'received',
+        'Must be more than zero.',
+      );
     }
     if (toWalletId == wallet.id) {
       throw ArgumentError('Choose a different wallet to move it into.');
@@ -627,16 +631,9 @@ class WalletService {
     _applyDeltas(batch, deltas);
   }
 
-  /// Removes a transaction and puts the money it moved back, in one batch.
-  static void deleteTransaction(AppTransaction transaction) {
-    final batch = _firestore.batch();
-    removeTransactionFromBatch(batch, transaction);
-
-    commitFirestoreWrite(batch.commit(), 'delete transaction');
-  }
-
   /// Adds the removal of [transaction], and the balance it gives back, to
-  /// [batch]. The batch counterpart of [deleteTransaction].
+  /// [batch]. Used by bill and debt workflows that must update related records
+  /// together with their transaction.
   static void removeTransactionFromBatch(
     WriteBatch batch,
     AppTransaction transaction,

@@ -65,37 +65,6 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
     if (removed && mounted) Navigator.pop(context);
   }
 
-  Future<void> _deleteTransaction(AppTransaction transaction) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete this transaction?'),
-        content: Text(
-          transaction.isLegacy
-              ? 'It will be removed from your history. No balance changes, '
-                    'because this record came from before you had wallets.'
-              : 'The money it moved will be put back into your wallet.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: cancelTextStyle(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: dangerTextStyle(context),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    WalletService.deleteTransaction(transaction);
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Wallet>>(
@@ -208,7 +177,6 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                       transactions: transactions,
                       wallet: wallet,
                       wallets: wallets,
-                      onDelete: _deleteTransaction,
                     );
                   },
                 ),
@@ -293,14 +261,11 @@ class _TransactionList extends StatelessWidget {
     required this.transactions,
     required this.wallet,
     required this.wallets,
-    required this.onDelete,
   });
 
   final List<AppTransaction> transactions;
   final Wallet wallet;
   final List<Wallet> wallets;
-  final void Function(AppTransaction) onDelete;
-
   @override
   Widget build(BuildContext context) {
     final children = <Widget>[];
@@ -331,7 +296,6 @@ class _TransactionList extends StatelessWidget {
           transaction: transaction,
           wallet: wallet,
           wallets: wallets,
-          onDelete: () => onDelete(transaction),
         ),
       );
       children.add(const SizedBox(height: 8));
@@ -350,14 +314,11 @@ class _TransactionRow extends StatelessWidget {
     required this.transaction,
     required this.wallet,
     required this.wallets,
-    required this.onDelete,
   });
 
   final AppTransaction transaction;
   final Wallet wallet;
   final List<Wallet> wallets;
-  final VoidCallback onDelete;
-
   /// The other wallet's name, for transfers.
   String get _otherWalletName {
     final otherId = transaction.walletId == wallet.id
@@ -422,12 +383,7 @@ class _TransactionRow extends StatelessWidget {
     return Material(
       color: colors.card,
       borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        // Long press rather than swipe, so a scroll through history can't
-        // delete anything by accident.
-        onLongPress: onDelete,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
+      child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
@@ -489,7 +445,6 @@ class _TransactionRow extends StatelessWidget {
               ),
             ],
           ),
-        ),
       ),
     );
   }

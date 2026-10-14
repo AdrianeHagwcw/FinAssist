@@ -157,7 +157,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         _otherSourceController.text = widget.initialSource!;
       }
     }
-    _amountController.text = formatAmountInput(widget.initialAmount ?? 0);
+    if (widget.initialAmount != null) {
+      _amountController.text = formatAmountInput(widget.initialAmount!);
+    }
     _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
     _billsAmountController.addListener(_refresh);

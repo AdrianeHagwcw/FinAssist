@@ -1,4 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+const billsPlaceholderWalletId = 'new:bills';
+const savingsPlaceholderWalletId = 'new:savings';
+
 /// Kind of money holder. Decides the wallet's icon and default name.
 enum WalletType {
   cash('Cash', 'assets/icons/icons8-banknotes-96.png'),

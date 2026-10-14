@@ -20,7 +20,6 @@ import '../widgets/money_text.dart';
 import '../widgets/quick_action_tile.dart';
 import '../widgets/safe_to_spend_card.dart';
 import '../widgets/spending_chart.dart';
-import '../widgets/transaction_edit_sheet.dart';
 import '../widgets/transaction_row.dart';
 import '../widgets/due_soon_notice.dart';
 import '../widgets/matured_savings_notice.dart';
@@ -901,7 +900,6 @@ class _RecentTransactions extends StatelessWidget {
             child: TransactionRow(
               transaction: transaction,
               wallets: wallets ?? const [],
-              onTap: () => showTransactionEditSheet(context, transaction),
             ),
           ),
       ],

@@ -44,7 +44,6 @@ import 'package:testapp/screens/transactions_screen.dart';
 import 'package:testapp/screens/wallet_detail_screen.dart';
 import 'package:testapp/screens/wallets_screen.dart';
 import 'package:testapp/services/legacy_migration.dart';
-import 'package:testapp/services/ledger_service.dart';
 import 'package:testapp/services/budget_service.dart';
 import 'package:testapp/services/transaction_export.dart';
 import 'package:testapp/theme/app_buttons.dart';
@@ -69,7 +68,6 @@ import 'package:testapp/widgets/due_soon_notice.dart';
 import 'package:testapp/widgets/savings_guide.dart';
 import 'package:testapp/widgets/safe_to_spend_card.dart';
 import 'package:testapp/widgets/spending_chart.dart';
-import 'package:testapp/widgets/transaction_edit_sheet.dart';
 import 'package:testapp/widgets/transaction_row.dart';
 import 'package:testapp/widgets/transfer_sheet.dart';
 import 'package:testapp/widgets/wallet_picker.dart';
@@ -1833,7 +1831,9 @@ void main() {
     testWidgets('politely redirects questions that are not about money', (
       tester,
     ) async {
-      await pumpChat(tester, Stream.value(true));
+      await pumpChat(tester, Stream.value(false));
+
+      expect(find.text('Offline'), findsOneWidget);
 
       await ask(tester, 'What is the weather tomorrow?');
       expect(
@@ -2459,7 +2459,7 @@ void main() {
       expect(find.text('Today'), findsNothing);
     });
 
-    testWidgets('asks before deleting and promises the money comes back', (
+    testWidgets('long-pressing a transaction does not expose delete', (
       tester,
     ) async {
       await pumpDetail(tester, wallet: cash, transactions: [transfer()]);
@@ -2467,11 +2467,8 @@ void main() {
       await tester.longPress(find.text('To My GCash'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Delete this transaction?'), findsOneWidget);
-      expect(find.textContaining('put back'), findsOneWidget);
-
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
+      expect(find.text('Delete this transaction?'), findsNothing);
+      expect(find.text('Delete'), findsNothing);
       expect(find.text('To My GCash'), findsOneWidget);
     });
   });
@@ -4792,9 +4789,8 @@ void main() {
 
     Future<void> pumpList(
       WidgetTester tester,
-      List<AppTransaction> transactions, {
-      void Function(AppTransaction)? onOpen,
-    }) async {
+      List<AppTransaction> transactions,
+    ) async {
       tester.view.physicalSize = const Size(700, 1800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -4809,7 +4805,6 @@ void main() {
               transactions: Stream.value(transactions),
               wallets: Stream.value([cash, gcash]),
               showLegacyImport: false,
-              onOpen: onOpen,
             ),
           ),
         ),
@@ -4896,8 +4891,7 @@ void main() {
       expect(find.textContaining('Before wallets'), findsOneWidget);
     });
 
-    testWidgets('tapping a transaction opens it', (tester) async {
-      AppTransaction? opened;
+    testWidgets('transaction history rows are not interactive', (tester) async {
       await pumpList(tester, [
         AppTransaction(
           id: 'e',
@@ -4907,10 +4901,12 @@ void main() {
           date: now,
           walletId: 'cash',
         ),
-      ], onOpen: (t) => opened = t);
+      ]);
 
       await tester.tap(find.text('Food'));
-      expect(opened?.id, 'e');
+      await tester.pump();
+      expect(find.text('Save Changes'), findsNothing);
+      expect(find.text('Delete'), findsNothing);
     });
 
     testWidgets('search button opens search and transaction filters', (
@@ -4950,124 +4946,6 @@ void main() {
       expect(find.textContaining('Showing:'), findsOneWidget);
       expect(find.textContaining('Monthly rent'), findsOneWidget);
       expect(find.text('Food'), findsNothing);
-    });
-  });
-
-  group('Transaction edit sheet', () {
-    final cash = Wallet(
-      id: 'cash',
-      name: 'Cash',
-      type: WalletType.cash,
-      balance: 1000,
-      startingBalance: 1000,
-      receivesIncome: true,
-      archived: false,
-      sortOrder: 0,
-    );
-
-    Future<void> pumpSheet(
-      WidgetTester tester,
-      AppTransaction transaction, {
-      void Function(double amount)? onSave,
-      VoidCallback? onDelete,
-    }) async {
-      tester.view.physicalSize = const Size(700, 1800);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: TransactionEditSheet(
-              transaction: transaction,
-              wallets: Stream.value([cash]),
-              onSave:
-                  ({
-                    required double amount,
-                    required String label,
-                    required String? walletId,
-                    required String? toWalletId,
-                    required String? note,
-                    required DateTime date,
-                  }) => onSave?.call(amount),
-              onDelete: onDelete,
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-    }
-
-    testWidgets('a recorded expense is read-only', (tester) async {
-      await pumpSheet(
-        tester,
-        AppTransaction(
-          id: 'e',
-          type: TransactionType.expense,
-          amount: 120,
-          label: 'Food',
-          date: DateTime(2026, 3, 10),
-          walletId: 'cash',
-        ),
-      );
-
-      expect(
-        find.textContaining(
-          'Expenses cannot be edited after they are recorded',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('Save Changes'), findsNothing);
-      expect(find.text('Delete'), findsOneWidget);
-    });
-
-    testWidgets('a bill payment is changed from its bill, not here', (
-      tester,
-    ) async {
-      await pumpSheet(
-        tester,
-        AppTransaction(
-          id: 'b',
-          type: TransactionType.expense,
-          amount: 3000,
-          label: 'Bills',
-          date: DateTime(2026, 3, 10),
-          walletId: 'cash',
-          billInstanceId: 'rent_1',
-        ),
-      );
-
-      expect(find.textContaining('Change it from the bill'), findsOneWidget);
-      expect(find.text('Save Changes'), findsNothing);
-      expect(find.text('Delete'), findsOneWidget);
-    });
-
-    testWidgets('deleting asks first and explains what happens', (
-      tester,
-    ) async {
-      var deleted = false;
-      await pumpSheet(
-        tester,
-        AppTransaction(
-          id: 'l',
-          type: TransactionType.expense,
-          amount: 50,
-          label: 'Food',
-          date: DateTime(2026, 3, 10),
-          isLegacy: true,
-        ),
-        onDelete: () => deleted = true,
-      );
-
-      await tester.tap(find.text('Delete'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('No balance changes'), findsOneWidget);
-
-      await tester.tap(find.text('Delete').last);
-      await tester.pumpAndSettle();
-      expect(deleted, isTrue);
     });
   });
 
@@ -6897,10 +6775,6 @@ void main() {
         200,
       );
 
-      final loan = list[1];
-      expect(LedgerService.whyNotEditable(loan), contains('Installments'));
-      expect(LedgerService.canDeleteHere(loan), isFalse);
-      expect(LedgerService.canDeleteHere(list[0]), isTrue);
     });
 
     test('income is turned into a monthly figure for the suggestion', () {

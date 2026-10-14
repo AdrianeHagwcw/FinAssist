@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
 import 'providers/app_settings_provider.dart';
+import 'services/firebase_app_check_setup.dart';
 import 'services/launch_screen.dart';
 import 'services/reminder_service.dart';
 import 'screens/splash_screen.dart';
@@ -18,8 +19,10 @@ Future<void> main() async {
   // is ready, instead of a blank frame or a second welcome screen.
   LaunchScreen.hold();
 
-  final (_, settings, _) = await (
-    Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await activateFirebaseAppCheck();
+
+  final (settings, _) = await (
     AppSettingsProvider.load(),
     // So the first screen's logo is there on its first frame.
     AppLogo.precache(),

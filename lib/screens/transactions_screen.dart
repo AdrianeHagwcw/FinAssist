@@ -14,7 +14,6 @@ import '../widgets/back_to_home.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/legacy_import_card.dart';
 import '../widgets/money_text.dart';
-import '../widgets/transaction_edit_sheet.dart';
 import '../widgets/transaction_row.dart';
 
 /// Every income, expense and transfer across all wallets, newest first.
@@ -23,7 +22,6 @@ class TransactionsScreen extends StatefulWidget {
     this.transactions,
     this.wallets,
     this.showLegacyImport = true,
-    this.onOpen,
     this.initialFilter,
     super.key,
   });
@@ -41,9 +39,6 @@ class TransactionsScreen extends StatefulWidget {
   /// can't reach Firestore.
   final bool showLegacyImport;
 
-  /// Replaces opening the edit sheet. Used by tests.
-  final void Function(AppTransaction transaction)? onOpen;
-
   @override
   State<TransactionsScreen> createState() => _TransactionsScreenState();
 }
@@ -57,17 +52,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   late TransactionFilter _filter =
       widget.initialFilter ?? const TransactionFilter();
-
-  void _open(AppTransaction transaction) {
-    if (widget.onOpen != null) {
-      widget.onOpen!(transaction);
-      return;
-    }
-
-    // The sheet opens its own wallet feed; a live feed only hands its data
-    // to the first listener, and this screen is already listening.
-    showTransactionEditSheet(context, transaction, wallets: widget.wallets);
-  }
 
   Future<void> _editFilter(
     List<Wallet> wallets,
@@ -274,7 +258,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       child: TransactionRow(
                         transaction: transaction,
                         wallets: wallets,
-                        onTap: () => _open(transaction),
                       ),
                     );
                   },

@@ -281,6 +281,68 @@ void main() {
       expect(reply.text, contains('about ₱285 a month'));
     });
 
+    test('plans a purchase goal from the stated price and timeline', () {
+      final reply = ask(
+        'I want to buy a house worth 4999999 in the next 2 years '
+        'how should i save my money?',
+      );
+
+      expect(reply.isVerifiedGoalPlan, isTrue);
+      expect(
+        reply.text,
+        contains('₱208,333.30 per month for 24 months (₱4,999,999 remaining)'),
+      );
+      expect(reply.text, contains('does not assume investment returns'));
+      expect(reply.text, contains('rather than cutting necessary expenses'));
+    });
+
+    test('plans a daily savings target from a Taglish house question', () {
+      final reply = ask(
+        'gusto kong bumili ng bahay worth 5000000 in the next 2 years '
+        'magkano ang dapat kong I save everyday para makabili ng bahay?',
+      );
+
+      expect(reply.isVerifiedGoalPlan, isTrue);
+      expect(reply.text, contains('₱6,839.95 araw-araw'));
+      expect(reply.text, contains('₱5,000,000 pa ang kailangang ipunin'));
+      expect(reply.text, contains('Ihambing ang target sa aktuwal mong kita'));
+    });
+
+    test('uses only savings recorded in a matching active goal', () {
+      final snapshot = FinanceSnapshot(
+        now: now,
+        goals: const [
+          Goal(
+            id: 'home',
+            name: 'House',
+            targetAmount: 4999999,
+            savedAmount: 999999,
+            priority: 0,
+            status: GoalStatus.active,
+          ),
+        ],
+      );
+      final reply = ask(
+        'I want to buy a house worth 4999999 in the next 2 years '
+        'how should i save my money?',
+        from: snapshot,
+      );
+
+      expect(reply.text, contains('₱166,666.67 per month'));
+      expect(reply.text, contains('₱999,999 set aside'));
+    });
+
+    test('does not claim goal savings when records are still loading', () {
+      final reply = ask(
+        'I want to buy a house worth 4999999 in the next 2 years '
+        'how should i save my money?',
+        loading: true,
+      );
+
+      expect(reply.text, contains('saved goals have not loaded'));
+      expect(reply.text, isNot(contains('No savings are recorded')));
+    });
+
     test('greets, redirects what is not about money, and waits for data', () {
       expect(ask('Hi').text, contains("I'm Fin"));
       expect(ask('Hi').choices, suggestedQuestions);

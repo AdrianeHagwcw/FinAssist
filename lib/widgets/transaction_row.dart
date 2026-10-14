@@ -69,13 +69,13 @@ class TransactionRow extends StatelessWidget {
   const TransactionRow({
     required this.transaction,
     required this.wallets,
-    required this.onTap,
+    this.onTap,
     super.key,
   });
 
   final AppTransaction transaction;
   final List<Wallet> wallets;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
