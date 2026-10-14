@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/chat_answers.dart';
 import '../models/chat_action.dart';
 import '../models/financial_topic_validator.dart';
+import '../models/financial_ai_guardrails.dart';
 import '../models/finance_snapshot.dart';
 import '../screens/add_expense_screen.dart';
 import '../screens/income_waterfall_screen.dart';
@@ -130,7 +131,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       return;
     }
 
-    final financialTopic = isFinancialTopic(text);
+    final financialTopic = isFinancialTopic(
+      text,
+      hasFinancialContext: _messages.last['financialContext'] == true,
+    );
     final epoch = _conversationEpoch;
     setState(() {
       _messages.add({
@@ -156,6 +160,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       final records = _records?.at(DateTime.now());
       final action = parseChatAction(text, records: records);
       final localReply = answerChat(text, records: records, pending: _pending);
+      if (localReply.useLocalAnswer || action != null) {
+        _messages.last['financialContext'] = true;
+      }
+      var usedAi = false;
       var answer = switch (action?.type) {
         ChatActionType.expense =>
           action!.description == null
@@ -181,11 +189,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           localReply.text != answerChat(text, records: records).text;
       final needsRuleBasedFlow =
           action != null ||
+          localReply.useLocalAnswer ||
           localReply.pending != null ||
           localReply.goal != null ||
           isPurchaseFollowUp;
 
       if (financialTopic && !needsRuleBasedFlow && _isOnline) {
+        final contextKey = financialContextKey(records);
         final history = [
           for (final message in _messages.take(_messages.length - 1))
             if (message['financialContext'] == true)
@@ -195,16 +205,21 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               ),
         ];
         try {
-          final geminiAnswer =
-              await (widget.assistant ?? FirebaseFinancialAssistant())
-                  .answerQuestion(
-                    question: text,
-                    records: records,
-                    history: history,
-                    verifiedGoalPlan: localReply.isVerifiedGoalPlan
-                        ? localReply.text
-                        : null,
-                  );
+          final geminiAnswer = await requestFinancialAssistant(
+            () => (widget.assistant ?? FirebaseFinancialAssistant())
+                .answerQuestion(
+                  question: text,
+                  records: records,
+                  history: history,
+                  verifiedGoalPlan: localReply.isVerifiedGoalPlan
+                      ? localReply.text
+                      : null,
+                ),
+          );
+          if (!isUsableFinancialExplanation(geminiAnswer)) {
+            throw const FinancialAssistantFailure('Unverified AI response.');
+          }
+          usedAi = true;
           if (localReply.isVerifiedGoalPlan) {
             answer =
                 RegExp(
@@ -216,11 +231,22 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           } else {
             answer = geminiAnswer;
           }
+          if (contextKey != financialContextKey(_records?.at(DateTime.now()))) {
+            usedAi = false;
+            answer =
+                'Your records changed while I was answering. '
+                'Please ask again so I can use the updated information.';
+          }
         } on FinancialAssistantFailure catch (error) {
           debugPrint(
             'FinAssist Gemini chat failed; using rule-based reply: '
             '${error.message}',
           );
+          answer =
+              'AI is unavailable right now. '
+              'This answer uses the app\'s local guidance and available records.\n\n'
+              '${isFinancialFollowUp(text) ? 'Please restate your money question, '
+                        'including any amount or goal you want checked.' : localReply.text}';
         }
       }
 
@@ -230,10 +256,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         _messages.add({
           'message': answer,
           'isUser': false,
-          'choices': localReply.choices,
+          'choices': usedAi ? const <String>[] : localReply.choices,
           'goal': localReply.goal,
           'action': action,
-          'financialContext': financialTopic || action != null,
+          'financialContext':
+              financialTopic || action != null || localReply.useLocalAnswer,
         });
       });
     } on FinancialAssistantFailure catch (error) {
@@ -474,7 +501,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                           style: openOutlineStyle(context, height: 40),
                           icon: const Icon(Icons.edit_note_outlined, size: 18),
                           label: Text(action.label),
-                          ),
+                        ),
                       ),
                     if (isLatest && choices.isNotEmpty && _messages.length > 1)
                       Padding(

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../models/app_transaction.dart';
 import '../models/financial_insights.dart';
+import '../models/financial_ai_guardrails.dart';
 import '../models/finance_snapshot.dart';
 import '../models/goal.dart';
 import '../models/money_tips.dart';
@@ -88,15 +89,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
   bool _loadingAiSuggestions = false;
   List<String> _aiSuggestions = const [];
   String? _aiSuggestionsError;
+  String? _aiSuggestionsKey;
+  String? _currentInsightsKey;
 
   @override
   void initState() {
     super.initState();
-    _recordsSubscription = (widget.records ?? watchFinanceSnapshot()).listen((
-      records,
-    ) {
-      if (mounted) setState(() => _records = records);
-    }, onError: (Object _) {});
+    _recordsSubscription = (widget.records ?? watchFinanceSnapshot()).listen(
+      (records) {
+        if (mounted) setState(() => _records = records);
+      },
+      onError: (Object _) {
+        if (mounted) setState(() => _records = null);
+      },
+    );
   }
 
   @override
@@ -107,20 +113,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Future<void> _loadAiSuggestions(FinancialInsights metrics) async {
     if (_loadingAiSuggestions) return;
+    final requestKey = financialInsightsKey(metrics);
     setState(() {
       _loadingAiSuggestions = true;
       _aiSuggestionsError = null;
+      _aiSuggestions = const [];
+      _aiSuggestionsKey = requestKey;
     });
 
     try {
-      final suggestions =
-          await (widget.assistant ?? FirebaseFinancialAssistant())
-              .explainInsights(metrics);
-      if (!mounted) return;
+      final suggestions = await requestFinancialAssistant(
+        () => (widget.assistant ?? FirebaseFinancialAssistant())
+            .explainInsights(metrics),
+      );
+      if (!mounted || requestKey != _currentInsightsKey) return;
+      if (suggestions.isEmpty ||
+          !suggestions.every(isUsableFinancialExplanation)) {
+        throw const FinancialAssistantFailure('Unverified AI suggestions.');
+      }
       setState(() => _aiSuggestions = suggestions);
     } on FinancialAssistantFailure catch (error) {
       debugPrint('FinAssist Gemini insights failed: ${error.message}');
-      if (!mounted) return;
+      if (!mounted || requestKey != _currentInsightsKey) return;
       setState(() {
         _aiSuggestionsError =
             'Gemini suggestions are unavailable right now. Your financial '
@@ -249,6 +263,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         stream: _transactions,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
+            _currentInsightsKey = null;
             return const _Message(
               icon: Icons.cloud_off_outlined,
               title: 'Reports could not load',
@@ -258,10 +273,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
           final transactions = snapshot.data;
           if (transactions == null) {
+            _currentInsightsKey = null;
             return const Center(child: CircularProgressIndicator());
           }
 
           if (transactions.isEmpty) {
+            _currentInsightsKey = null;
             return const _Message(
               icon: Icons.insert_chart_outlined,
               title: 'Nothing to report yet',
@@ -310,6 +327,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       now: _now,
       spendingBudget: _records?.periodBudget,
     );
+    _currentInsightsKey = financialInsightsKey(financialInsights);
+    final suggestionsAreCurrent = _aiSuggestionsKey == _currentInsightsKey;
     final amountsMasked = context.select<AppSettingsProvider, bool>(
       (settings) => settings.amountsMasked,
     );
@@ -517,12 +536,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   style: TextStyle(fontSize: 11, height: 1.35),
                 ),
               ),
-              if (_aiSuggestionsError != null)
+              if (_aiSuggestionsKey != null && !suggestionsAreCurrent)
+                const _Line(
+                  icon: Icons.info_outline,
+                  text:
+                      'Your records changed. Get new AI suggestions for the updated figures.',
+                ),
+              if (suggestionsAreCurrent && _aiSuggestionsError != null)
                 _Line(
                   icon: Icons.cloud_off_outlined,
                   text: _aiSuggestionsError!,
                 ),
-              for (final suggestion in _aiSuggestions)
+              for (final suggestion
+                  in suggestionsAreCurrent ? _aiSuggestions : const <String>[])
                 _Line(icon: Icons.lightbulb_outline, text: suggestion),
             ],
           ),

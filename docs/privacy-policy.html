@@ -35,7 +35,7 @@
     <h1>FinAssist Privacy Policy</h1>
 
     <p class="updated">
-        Last updated: September 22, 2026
+        Last updated: October 15, 2026
     </p>
 
     <p>
@@ -80,6 +80,11 @@
             (including the name of the person a user types in), savings
             goals and contributions, savings set aside, and pay-cycle
             history.
+        </li>
+        <li>
+            Assistant messages: questions you type, recent conversation
+            messages, and financial summaries used to answer questions or
+            provide AI saving suggestions, as explained below.
         </li>
     </ul>
 
@@ -130,10 +135,62 @@
     <h2>4. The In-App Assistant</h2>
 
     <p>
-        The assistant answers questions using the records already in the
-        user's account, and the answers are worked out on the phone. Questions
-        are not sent to an outside service, and the conversation is not saved;
-        it is cleared when the chat is closed.
+        FinAssist combines answers calculated on your device with online
+        answers from Google's Gemini models through Firebase AI Logic and
+        the Gemini Developer API. On supported devices, financial questions
+        may be sent to Gemini when a network connection is available. Some
+        calculations and actions are handled locally. If the device is
+        offline or an AI request fails, the chat uses its local answers and
+        available saved records instead.
+    </p>
+
+    <p>
+        An online chat request includes your question, up to 12 recent
+        finance-related conversation messages (including assistant replies),
+        and a summary of recorded income, expenses, spending categories and
+        related financial figures when available. A savings-plan question
+        may also include a plan calculated by the app, including its target,
+        timeline and relevant saved-goal information. Tapping "Get AI saving
+        suggestions" in Reports sends summary financial figures to Gemini.
+    </p>
+
+    <p>
+        The financial summary does not include raw transaction records,
+        transaction identifiers, notes or wallet names. However, personal
+        details you type into chat, or that appear in an included assistant
+        reply or savings plan, can be sent as part of that request. Do not
+        enter passwords, PINs, full bank account numbers or other secrets
+        into chat.
+    </p>
+
+    <p>
+        FinAssist does not save a persistent chat history to your account.
+        The conversation is held temporarily while the chat screen is open;
+        you can remove it using "Clear conversation" or by leaving the chat
+        screen. This removes the app's conversation, but does not delete
+        requests already processed by Google or cancel a request already
+        sent. Google handles submitted content under its
+        <a href="https://ai.google.dev/gemini-api/terms">Gemini API terms</a>
+        and the applicable
+        <a href="https://firebase.google.com/docs/ai-logic/data-governance">Firebase AI Logic data terms</a>.
+    </p>
+
+    <p>
+        Google's data handling depends on the service configuration. Under
+        its Unpaid Services terms, submitted content and responses may be
+        used to improve Google products and reviewed by people; those terms
+        prohibit submitting sensitive, confidential or personal information.
+        Under its Paid Services terms, prompts and responses are not used to
+        improve Google's products, but limited logging for abuse monitoring
+        can still apply. FinAssist does not promise that Google immediately
+        deletes AI requests or that they are never reviewed.
+    </p>
+
+    <p>
+        AI responses can be incorrect. Review suggestions against your saved
+        records. Chat requests to record income or expenses, move recorded
+        money between wallets, or create a goal open a form for you to review
+        and confirm; the AI does not save those changes on its own.
     </p>
 
     <h2>5. Reminders</h2>
@@ -179,6 +236,8 @@
     <ul>
         <li>Firebase Authentication</li>
         <li>Firebase Cloud Firestore</li>
+        <li>Firebase AI Logic and the Google Gemini Developer API</li>
+        <li>Firebase App Check (checks app or device authenticity to reduce abuse)</li>
         <li>Google Sign-In</li>
         <li>Google ML Kit Text Recognition (runs on the phone)</li>
         <li>The phone's speech recognition service (for Voice Entry)</li>
@@ -195,8 +254,12 @@
     <h2>10. Data Retention</h2>
 
     <p>
-        User information is kept while the user's FinAssist account is active,
-        or until the user asks for it to be deleted.
+        Saved account and financial records are kept while the user's
+        FinAssist account is active, or until the user asks for them to be
+        deleted. Chat is not saved as account history. Content sent to Google
+        for AI processing is handled separately under the provider terms
+        described in Section 4; clearing chat or requesting account deletion
+        does not itself remove Google's retained copies.
     </p>
 
     <h2>11. User Data Deletion</h2>
