@@ -439,14 +439,14 @@ void main() {
     testWidgets('has four tabs that switch in place', (tester) async {
       await pumpShell(tester, actions: const []);
 
-      for (final label in ['Home', 'Transactions', 'Bills', 'Wallet']) {
+      for (final label in ['Home', 'Transactions', 'Bills', 'Wallets']) {
         expect(find.text(label), findsOneWidget);
       }
       // Savings and debts are opened from Home, not from the bar.
       expect(find.text('Goals'), findsNothing);
       expect(find.text('Set aside'), findsNothing);
 
-      await tester.tap(find.text('Wallet'));
+      await tester.tap(find.text('Wallets'));
       await tester.pump();
       expect(
         find.text('Wallet page').hitTestable(),
@@ -484,7 +484,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Wallet'));
+      await tester.tap(find.text('Wallets'));
       await tester.pump();
       final back = find.byTooltip('Back to Home').hitTestable();
       expect(back, findsOneWidget);
@@ -608,7 +608,7 @@ void main() {
     testWidgets('back button returns to Home before leaving', (tester) async {
       await pumpShell(tester, actions: const []);
 
-      await tester.tap(find.text('Wallet'));
+      await tester.tap(find.text('Wallets'));
       await tester.pump();
       expect(find.text('Wallet page').hitTestable(), findsOneWidget);
 

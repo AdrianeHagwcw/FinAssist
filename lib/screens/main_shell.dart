@@ -436,7 +436,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               ),
               _NavItem(
                 iconAsset: 'assets/icons/icons8-wallet-96.png',
-                label: 'Wallet',
+                label: 'Wallets',
                 selected: _currentIndex == _walletIndex,
                 onTap: () => _selectTab(_walletIndex),
               ),
