@@ -22,8 +22,11 @@ import '../widgets/safe_to_spend_card.dart';
 import '../widgets/spending_chart.dart';
 import '../widgets/transaction_row.dart';
 import '../widgets/due_soon_notice.dart';
+import '../widgets/goal_sheets.dart';
 import '../widgets/matured_savings_notice.dart';
 import '../widgets/dashboard_tip.dart';
+import '../widgets/transfer_sheet.dart';
+import 'add_expense_screen.dart';
 import 'history_screen.dart';
 import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
@@ -203,11 +206,6 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const AppLogo(width: 82, height: 52),
         actions: [
           IconButton(
-            tooltip: 'App guide',
-            icon: const Icon(Icons.info_outline),
-            onPressed: () => _push(const HelpScreen()),
-          ),
-          IconButton(
             tooltip: 'AI Assistant',
             icon: Image.asset(
               'assets/icons/assistant-robot-192.png',
@@ -280,7 +278,6 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.safeToSpend ??
             SafeToSpendCard(
               key: ValueKey(_refreshKey),
-              footerBuilder: _overviewButtons,
               belowCard: _belowCard,
             ),
         const SizedBox(height: 16),
@@ -405,10 +402,66 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // Two full rows of three: places first, then Reports and the two other
-    // ways to log an expense.
+    // Keep the Quick Add recording actions on Home too. Scan Receipt and
+    // Voice Entry are already here, so only the four missing actions are added.
     return Column(
       children: [
+        Row(
+          children: [
+            tile(
+              'assets/icons/icons8-expenses-64.png',
+              'Expense',
+              () => _push(AddExpenseScreen(wallets: widget.wallets)),
+            ),
+            const SizedBox(width: 12),
+            tile(
+              'assets/icons/icons8-money-transfer-96.png',
+              'Income',
+              () async {
+                final saved = await showIncomeWaterfall(context);
+                if (saved && mounted) setState(() => _refreshKey++);
+              },
+            ),
+            const SizedBox(width: 12),
+            tile(
+              'assets/icons/icons8-transactions-96.png',
+              'Transfer',
+              () async {
+                final saved = await showTransferSheet(
+                  context,
+                  wallets: widget.wallets,
+                );
+                if (saved && mounted) setState(() => _refreshKey++);
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            tile(
+              'assets/icons/icons8-goal-96.png',
+              'Save to Goal',
+              () async {
+                final saved = await showSaveToGoal(context);
+                if (saved && mounted) setState(() => _refreshKey++);
+              },
+            ),
+            const SizedBox(width: 12),
+            tile(
+              'assets/icons/icons8-camera-96.png',
+              'Scan Receipt',
+              () => _push(const OcrScreen()),
+            ),
+            const SizedBox(width: 12),
+            tile(
+              'assets/icons/icons8-microphone-96.png',
+              'Voice Entry',
+              _startVoiceEntry,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
         Row(
           children: [
             tile(
@@ -434,46 +487,16 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 12),
         Row(
           children: [
+            const Spacer(),
             tile(
               'assets/icons/icons8-combo-chart-100.png',
               'Reports',
               () => _push(const ReportsScreen()),
             ),
-            const SizedBox(width: 12),
-            tile(
-              'assets/icons/icons8-camera-96.png',
-              'Scan Receipt',
-              () => _push(const OcrScreen()),
-            ),
-            const SizedBox(width: 12),
-            tile(
-              'assets/icons/icons8-microphone-96.png',
-              'Voice Entry',
-              _startVoiceEntry,
-            ),
+            const Spacer(),
           ],
         ),
       ],
-    );
-  }
-
-  /// The full-width action under the Safe to Spend figure.
-  Widget _overviewButtons(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: () async {
-          final saved = await showIncomeWaterfall(context);
-          if (saved && mounted) setState(() => _refreshKey++);
-        },
-        icon: Image.asset(
-          'assets/icons/icons8-money-transfer-96.png',
-          width: 18,
-          height: 18,
-        ),
-        label: const Text('Add Income'),
-        style: _overviewButtonStyle,
-      ),
     );
   }
 
@@ -532,16 +555,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Same blue as the + button in both light and dark mode, so these
-  /// buttons keep one look across themes.
-  static final ButtonStyle _overviewButtonStyle = ElevatedButton.styleFrom(
-    backgroundColor: appPrimaryBlue,
-    foregroundColor: Colors.white,
-    elevation: 0,
-    minimumSize: const Size(0, 46),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    textStyle: const TextStyle(fontWeight: FontWeight.w600),
-  );
 }
 
 /// A balance the user has already promised: what is kept for bills, and what

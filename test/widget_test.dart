@@ -494,7 +494,7 @@ void main() {
       expect(find.text('Home page').hitTestable(), findsOneWidget);
     });
 
-    testWidgets('Bill Planner on Home opens the tab rather than a screen', (
+    testWidgets('Home has the Quick Add actions without duplicating shortcuts', (
       tester,
     ) async {
       var opened = 0;
@@ -522,6 +522,22 @@ void main() {
       );
       await tester.pump();
       await tester.pump();
+
+      for (final label in [
+        'Expense',
+        'Income',
+        'Transfer',
+        'Save to Goal',
+        'Scan Receipt',
+        'Voice Entry',
+        'Bill Planner',
+        'Savings',
+        'Installments',
+        'Reports',
+      ]) {
+        expect(find.text(label), findsOneWidget);
+      }
+      expect(find.text('Add Income'), findsNothing);
 
       final tile = find
           .ancestor(
@@ -5179,6 +5195,7 @@ void main() {
         find.textContaining('₱2,500 is already assigned to goals'),
         findsOneWidget,
       );
+
     });
 
     testWidgets('bills opens with its total and what is still to pay', (
@@ -6774,7 +6791,6 @@ void main() {
         ),
         200,
       );
-
     });
 
     test('income is turned into a monthly figure for the suggestion', () {
@@ -8257,12 +8273,13 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('Home information icon opens the app guide', (tester) async {
+    testWidgets('Home keeps support in Settings, not its top bar', (
+      tester,
+    ) async {
       await pumpHome(tester, const []);
-      await tester.tap(find.byTooltip('App guide'));
-      await tester.pumpAndSettle();
-      expect(find.text('Help & Support'), findsOneWidget);
-      expect(find.text('How are the amounts calculated?'), findsOneWidget);
+      expect(find.byTooltip('App guide'), findsNothing);
+      expect(find.byTooltip('AI Assistant'), findsOneWidget);
+      expect(find.byTooltip('Settings'), findsOneWidget);
     });
 
     testWidgets('shows a balance for spending, bills and savings', (

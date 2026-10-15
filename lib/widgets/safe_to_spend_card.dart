@@ -73,7 +73,6 @@ class SafeToSpendCard extends StatefulWidget {
     this.goals,
     this.billSchedules,
     this.today,
-    this.footerBuilder,
     this.belowCard,
     super.key,
   });
@@ -89,9 +88,6 @@ class SafeToSpendCard extends StatefulWidget {
   /// Replaces watching the bill schedules for changes. Used by tests.
   final Stream<List<Bill>>? billSchedules;
   final DateTime? today;
-
-  /// Buttons shown under the figure.
-  final Widget Function(BuildContext context)? footerBuilder;
 
   /// Shown below the card with the same inputs, such as the leftover notice.
   final Widget Function(BuildContext context, SafeToSpendInputs inputs)?
@@ -398,7 +394,6 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                           inputs: inputs,
                           now: _now,
                           onExplain: () => _explain(inputs),
-                          footer: widget.footerBuilder?.call(context),
                         ),
                         if (widget.belowCard != null)
                           widget.belowCard!(context, inputs),
@@ -420,13 +415,11 @@ class _HeroCard extends StatelessWidget {
     required this.inputs,
     required this.now,
     required this.onExplain,
-    required this.footer,
   });
 
   final SafeToSpendInputs inputs;
   final DateTime now;
   final VoidCallback onExplain;
-  final Widget? footer;
 
   @override
   Widget build(BuildContext context) {
@@ -547,7 +540,6 @@ class _HeroCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (footer != null) ...[const SizedBox(height: 16), footer!],
               ],
             ),
           ),
