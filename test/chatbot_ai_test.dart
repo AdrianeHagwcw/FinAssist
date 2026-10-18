@@ -16,6 +16,8 @@ class _FakeFinancialAssistant implements FinancialAssistant {
   List<FinancialChatTurn>? receivedHistory;
   Completer<String>? pendingAnswer;
   bool fail = false;
+  int productPriceRequests = 0;
+  String? requestedProduct;
   String response = 'Compound interest can help savings grow over time.';
 
   @override
@@ -38,6 +40,24 @@ class _FakeFinancialAssistant implements FinancialAssistant {
 
   @override
   Future<List<String>> explainInsights(_) async => const [];
+
+  @override
+  Future<GroundedProductPriceAnswer> lookupProductPrices({
+    required String product,
+  }) async {
+    productPriceRequests++;
+    requestedProduct = product;
+    return GroundedProductPriceAnswer(
+      text: 'AirPods Pro listings show prices from ₱9,990.',
+      sources: const [
+        GroundedPriceSource(
+          title: 'Apple Philippines',
+          url: 'https://www.apple.com/ph/',
+        ),
+      ],
+      searchSuggestionsHtml: '',
+    );
+  }
 }
 
 Future<void> _pumpChat(
@@ -87,47 +107,75 @@ void main() {
     });
   }
 
-  testWidgets('understands short follow-ups but does not inherit unrelated topics', (tester) async {
-    final assistant = _FakeFinancialAssistant();
-    await _pumpChat(tester, assistant: assistant);
-    await _ask(tester, 'How do I save more?');
-    await _ask(tester, 'Bakit?');
-    expect(assistant.questionsAsked, 2);
-    expect(assistant.receivedHistory!.any((turn) => turn.text == 'How do I save more?'), isTrue);
-    await _ask(tester, 'What is the weather tomorrow?');
-    await _ask(tester, 'Why?');
-    expect(assistant.questionsAsked, 2);
-  });
+  testWidgets(
+    'understands short follow-ups but does not inherit unrelated topics',
+    (tester) async {
+      final assistant = _FakeFinancialAssistant();
+      await _pumpChat(tester, assistant: assistant);
+      await _ask(tester, 'How do I save more?');
+      await _ask(tester, 'Bakit?');
+      expect(assistant.questionsAsked, 2);
+      expect(
+        assistant.receivedHistory!.any(
+          (turn) => turn.text == 'How do I save more?',
+        ),
+        isTrue,
+      );
+      await _ask(tester, 'What is the weather tomorrow?');
+      await _ask(tester, 'Why?');
+      expect(assistant.questionsAsked, 2);
+    },
+  );
 
-  testWidgets('rejects invented amounts and keeps the verified goal plan', (tester) async {
+  testWidgets('rejects invented amounts and keeps the verified goal plan', (
+    tester,
+  ) async {
     final assistant = _FakeFinancialAssistant()
       ..response = 'Save 999999 pesos per day. You can afford it.';
     await _pumpChat(tester, assistant: assistant);
-    await _ask(tester, 'I want to buy a house worth 4999999 in the next 2 years how should i save my money?');
+    await _ask(
+      tester,
+      'I want to buy a house worth 4999999 in the next 2 years how should i save my money?',
+    );
     expect(assistant.questionsAsked, 1);
     expect(find.textContaining('Save 999999'), findsNothing);
-    expect(find.textContaining('₱208,333.30 per month for 24 months'), findsOneWidget);
+    expect(
+      find.textContaining('₱208,333.30 per month for 24 months'),
+      findsOneWidget,
+    );
     expect(find.textContaining('AI is unavailable right now'), findsOneWidget);
   });
 
-  testWidgets('times out and ignores late replies while allowing another question', (tester) async {
-    final assistant = _FakeFinancialAssistant()..pendingAnswer = Completer<String>();
-    await _pumpChat(tester, assistant: assistant);
-    await _ask(tester, 'How do I save more?');
-    await tester.pump(financialAssistantTimeout + const Duration(seconds: 1));
-    await tester.pump();
-    expect(find.textContaining('AI is unavailable right now'), findsOneWidget);
-    expect(tester.widget<TextField>(find.byType(TextField)).enabled, isTrue);
-    assistant.pendingAnswer!.complete('A late answer that should not appear.');
-    await tester.pump();
-    expect(find.textContaining('A late answer'), findsNothing);
-    await _ask(tester, 'Safe to Spend formula');
-    expect(assistant.questionsAsked, 1);
-    await tester.pump(const Duration(seconds: 1));
-  });
+  testWidgets(
+    'times out and ignores late replies while allowing another question',
+    (tester) async {
+      final assistant = _FakeFinancialAssistant()
+        ..pendingAnswer = Completer<String>();
+      await _pumpChat(tester, assistant: assistant);
+      await _ask(tester, 'How do I save more?');
+      await tester.pump(financialAssistantTimeout + const Duration(seconds: 1));
+      await tester.pump();
+      expect(
+        find.textContaining('AI is unavailable right now'),
+        findsOneWidget,
+      );
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isTrue);
+      assistant.pendingAnswer!.complete(
+        'A late answer that should not appear.',
+      );
+      await tester.pump();
+      expect(find.textContaining('A late answer'), findsNothing);
+      await _ask(tester, 'Safe to Spend formula');
+      expect(assistant.questionsAsked, 1);
+      await tester.pump(const Duration(seconds: 1));
+    },
+  );
 
-  testWidgets('clearing conversation discards the pending AI response', (tester) async {
-    final assistant = _FakeFinancialAssistant()..pendingAnswer = Completer<String>();
+  testWidgets('clearing conversation discards the pending AI response', (
+    tester,
+  ) async {
+    final assistant = _FakeFinancialAssistant()
+      ..pendingAnswer = Completer<String>();
     await _pumpChat(tester, assistant: assistant);
     await _ask(tester, 'How do I save more?');
     await tester.tap(find.byIcon(Icons.more_vert));
@@ -170,6 +218,65 @@ void main() {
     );
     expect(
       find.textContaining('Start by recording every expense'),
+      findsNothing,
+    );
+  });
+
+  testWidgets('looks up product prices and displays grounded sources', (
+    tester,
+  ) async {
+    final assistant = _FakeFinancialAssistant();
+    await _pumpChat(tester, assistant: assistant);
+
+    await _ask(tester, 'How much are AirPods?');
+
+    expect(assistant.productPriceRequests, 1);
+    expect(assistant.requestedProduct, 'AirPods');
+    expect(assistant.questionsAsked, 0);
+    expect(find.textContaining('₱9,990'), findsOneWidget);
+    expect(find.text('Apple Philippines'), findsOneWidget);
+    expect(
+      find.textContaining('Prices checked today. Seller prices and stock can change.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('sends a Taglish financial-insights request to Gemini', (
+    tester,
+  ) async {
+    final assistant = _FakeFinancialAssistant()
+      ..response = 'Oo, susuriin ko ang mga naitala mong gastos.';
+    await _pumpChat(tester, assistant: assistant);
+
+    await _ask(
+      tester,
+      'kaya mo ba akong bigyan ng maayos na insights sa susunod',
+    );
+
+    expect(assistant.questionsAsked, 1);
+    expect(find.textContaining('susuriin ko'), findsOneWidget);
+    expect(
+      find.textContaining('I can only help with money questions'),
+      findsNothing,
+    );
+  });
+
+  testWidgets('answers an insights capability request locally when offline', (
+    tester,
+  ) async {
+    final assistant = _FakeFinancialAssistant();
+    await _pumpChat(tester, assistant: assistant, isOnline: false);
+
+    await _ask(
+      tester,
+      'kaya mo ba akong bigyan ng maayos na insights sa susunod',
+    );
+
+    expect(assistant.questionsAsked, 0);
+    expect(find.textContaining('clear insights'), findsOneWidget);
+    expect(find.textContaining('records na nasa FinAssist'), findsOneWidget);
+    expect(
+      find.textContaining('I can only help with money questions'),
       findsNothing,
     );
   });

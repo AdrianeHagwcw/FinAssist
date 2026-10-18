@@ -115,6 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Changing this rebuilds the Safe to Spend card after income is added.
   int _refreshKey = 0;
+  bool _showAllQuickActions = false;
 
   /// The bills the Safe to Spend card loaded, reused by the tip so the screen
   /// doesn't read them twice.
@@ -276,10 +277,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // What can be spent today comes first: it's the number checked every
         // day. What the wallets hold follows.
         widget.safeToSpend ??
-            SafeToSpendCard(
-              key: ValueKey(_refreshKey),
-              belowCard: _belowCard,
-            ),
+            SafeToSpendCard(key: ValueKey(_refreshKey), belowCard: _belowCard),
         const SizedBox(height: 16),
         _BalanceCard(wallets: wallets, onTap: widget.onOpenWallets),
         const SizedBox(height: 12),
@@ -299,15 +297,19 @@ class _HomeScreenState extends State<HomeScreen> {
           title: 'Savings Total Balance',
           note: _savingsGoalCaption(wallets, goals),
           iconAsset: 'assets/icons/icons8-money-box-96.png',
-          // Only savings the user could actually reach. A time deposit or
-          // money with SSS, GSIS or Pag-IBIG is named on its own line below,
-          // so this figure never promises money that is years away.
-          amount: wallets == null ? null : reachableSavingsBalance(wallets),
+          // Only savings that are reachable and not already promised to a
+          // goal. Contributions are still shown in the caption below.
+          amount: _availableSavingsBalance(wallets, goals),
           onTap: () => _openSetAside(SetAsidePart.savings),
         ),
 
         const SizedBox(height: 25),
-        _SectionTitle('Quick Actions'),
+        _SectionTitle(
+          'Quick Actions',
+          action: _showAllQuickActions ? 'Show less' : 'View all',
+          onAction: () =>
+              setState(() => _showAllQuickActions = !_showAllQuickActions),
+        ),
         _quickActions(),
         const SizedBox(height: 20),
         _tip(wallets: wallets, transactions: transactions, now: now),
@@ -363,10 +365,24 @@ class _HomeScreenState extends State<HomeScreen> {
     if (goalCount == 0) {
       return lockedNote ?? 'No money set aside for goals';
     }
+
     final goalNote =
         'Across $goalCount goal${goalCount == 1 ? '' : 's'} · '
         '${formatPeso(assigned)} set aside';
     return lockedNote == null ? goalNote : '$goalNote\n$lockedNote';
+  }
+
+  double? _availableSavingsBalance(List<Wallet>? wallets, List<Goal>? goals) {
+    if (wallets == null || goals == null) return null;
+
+    final assigned = totalSetAsideInPurposeWallets(
+      goals,
+      wallets,
+      WalletPurpose.savings,
+    );
+    return (reachableSavingsBalance(wallets) - assigned)
+        .clamp(0.0, double.infinity)
+        .toDouble();
   }
 
   /// The tip needs the bills the Safe to Spend card already loaded, so it is
@@ -402,101 +418,100 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    final actions = <({String asset, String title, VoidCallback onTap})>[
+      (
+        asset: 'assets/icons/icons8-expenses-64.png',
+        title: 'Expense',
+        onTap: () => _push(AddExpenseScreen(wallets: widget.wallets)),
+      ),
+      (
+        asset: 'assets/icons/icons8-money-transfer-96.png',
+        title: 'Income',
+        onTap: () async {
+          final saved = await showIncomeWaterfall(context);
+          if (saved && mounted) setState(() => _refreshKey++);
+        },
+      ),
+      (
+        asset: 'assets/icons/icons8-transactions-96.png',
+        title: 'Transfer',
+        onTap: () async {
+          final saved = await showTransferSheet(
+            context,
+            wallets: widget.wallets,
+          );
+          if (saved && mounted) setState(() => _refreshKey++);
+        },
+      ),
+      (
+        asset: 'assets/icons/icons8-goal-96.png',
+        title: 'Save to Goal',
+        onTap: () async {
+          final saved = await showSaveToGoal(context);
+          if (saved && mounted) setState(() => _refreshKey++);
+        },
+      ),
+      (
+        asset: 'assets/icons/icons8-camera-96.png',
+        title: 'Scan Receipt',
+        onTap: () => _push(const OcrScreen()),
+      ),
+      (
+        asset: 'assets/icons/icons8-microphone-96.png',
+        title: 'Voice Entry',
+        onTap: _startVoiceEntry,
+      ),
+      (
+        asset: 'assets/icons/icons8-calendar-96.png',
+        title: 'Bill Planner',
+        onTap: widget.onOpenBills ?? () => _push(const BillCalendarScreen()),
+      ),
+      (
+        asset: 'assets/icons/icons8-money-box-96.png',
+        title: 'Savings',
+        onTap:
+            widget.onOpenSavings ?? () => _openSetAside(SetAsidePart.savings),
+      ),
+      (
+        asset: 'assets/icons/lend-96.png',
+        title: 'Installments',
+        onTap:
+            widget.onOpenDebts ??
+            () => _push(const BillCalendarScreen(initialShowDebts: true)),
+      ),
+      (
+        asset: 'assets/icons/icons8-combo-chart-100.png',
+        title: 'Reports',
+        onTap: () => _push(const ReportsScreen()),
+      ),
+    ];
+    final visibleActions = _showAllQuickActions
+        ? actions
+        : actions.take(3).toList();
+
     // Keep the Quick Add recording actions on Home too. Scan Receipt and
     // Voice Entry are already here, so only the four missing actions are added.
     return Column(
-      children: [
-        Row(
-          children: [
-            tile(
-              'assets/icons/icons8-expenses-64.png',
-              'Expense',
-              () => _push(AddExpenseScreen(wallets: widget.wallets)),
-            ),
-            const SizedBox(width: 12),
-            tile(
-              'assets/icons/icons8-money-transfer-96.png',
-              'Income',
-              () async {
-                final saved = await showIncomeWaterfall(context);
-                if (saved && mounted) setState(() => _refreshKey++);
-              },
-            ),
-            const SizedBox(width: 12),
-            tile(
-              'assets/icons/icons8-transactions-96.png',
-              'Transfer',
-              () async {
-                final saved = await showTransferSheet(
-                  context,
-                  wallets: widget.wallets,
-                );
-                if (saved && mounted) setState(() => _refreshKey++);
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            tile(
-              'assets/icons/icons8-goal-96.png',
-              'Save to Goal',
-              () async {
-                final saved = await showSaveToGoal(context);
-                if (saved && mounted) setState(() => _refreshKey++);
-              },
-            ),
-            const SizedBox(width: 12),
-            tile(
-              'assets/icons/icons8-camera-96.png',
-              'Scan Receipt',
-              () => _push(const OcrScreen()),
-            ),
-            const SizedBox(width: 12),
-            tile(
-              'assets/icons/icons8-microphone-96.png',
-              'Voice Entry',
-              _startVoiceEntry,
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            tile(
-              'assets/icons/icons8-calendar-96.png',
-              'Bill Planner',
-              widget.onOpenBills ?? () => _push(const BillCalendarScreen()),
-            ),
-            const SizedBox(width: 12),
-            tile(
-              'assets/icons/icons8-money-box-96.png',
-              'Savings',
-              widget.onOpenSavings ?? () => _openSetAside(SetAsidePart.savings),
-            ),
-            const SizedBox(width: 12),
-            tile(
-              'assets/icons/lend-96.png',
-              'Installments',
-              widget.onOpenDebts ??
-                  () => _push(const BillCalendarScreen(initialShowDebts: true)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            const Spacer(),
-            tile(
-              'assets/icons/icons8-combo-chart-100.png',
-              'Reports',
-              () => _push(const ReportsScreen()),
-            ),
-            const Spacer(),
-          ],
-        ),
-      ],
+      children: List.generate((visibleActions.length + 2) ~/ 3, (rowIndex) {
+        final rowActions = visibleActions.skip(rowIndex * 3).take(3).toList();
+        return Padding(
+          padding: EdgeInsets.only(top: rowIndex == 0 ? 0 : 12),
+          child: Row(
+            children: [
+              if (rowActions.length < 3) const Spacer(),
+              for (var index = 0; index < rowActions.length; index++) ...[
+                if (index > 0) const SizedBox(width: 12),
+                tile(
+                  rowActions[index].asset,
+                  rowActions[index].title,
+                  rowActions[index].onTap,
+                ),
+              ],
+              if (rowActions.length < 3) const Spacer(),
+            ],
+          ),
+        );
+      }),
     );
   }
 
@@ -554,7 +569,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
 }
 
 /// A balance the user has already promised: what is kept for bills, and what

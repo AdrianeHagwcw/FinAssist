@@ -23,6 +23,55 @@ void main() {
   group('calculateFinancialInsights', () {
     final now = DateTime(2026, 10, 14, 12);
 
+    test('compares matching recent periods and groups eligible expenses', () {
+      final comparison = compareSpendingPeriods(
+        [
+          transaction('recent-food', TransactionType.expense, 200, now),
+          transaction(
+            'previous-bills',
+            TransactionType.expense,
+            100,
+            DateTime(2026, 10, 10),
+            category: 'Bills',
+          ),
+          transaction(
+            'lent',
+            TransactionType.expense,
+            900,
+            DateTime(2026, 10, 13),
+            debtMovement: true,
+          ),
+          transaction(
+            'outside-window',
+            TransactionType.expense,
+            500,
+            DateTime(2026, 10, 8),
+          ),
+          transaction('transfer', TransactionType.transfer, 300, now),
+        ],
+        now: now,
+        days: 3,
+      );
+
+      expect(comparison.recent.amount, 200);
+      expect(comparison.recent.expenseCount, 1);
+      expect(comparison.recent.categoryTotals, {'Food': 200});
+      expect(comparison.previous.amount, 100);
+      expect(comparison.previous.expenseCount, 1);
+      expect(comparison.previous.categoryTotals, {'Bills': 100});
+    });
+
+    test('rejects a zero-length comparison window', () {
+      expect(
+        () => compareSpendingPeriods(
+          const [],
+          now: now,
+          days: 0,
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('calculates cash flow and category totals from eligible records', () {
       final result = calculateFinancialInsights([
         transaction('pay', TransactionType.income, 2000, DateTime(2026, 10)),
@@ -184,6 +233,17 @@ void main() {
       expect(isFinancialTopic('Anong gastos ko sa pagkain?'), isTrue);
       expect(isFinancialTopic('Explain compound interest'), isTrue);
       expect(isFinancialTopic('Explain inflation and my budget'), isTrue);
+      expect(
+        isFinancialTopic(
+          'kaya mo ba akong bigyan ng maayos na insights sa susunod',
+        ),
+        isTrue,
+      );
+      expect(isFinancialTopic('Give me insights about my spending'), isTrue);
+      expect(
+        isFinancialTopic('Can you analyze my financial situation?'),
+        isTrue,
+      );
       expect(isFinancialTopic('How do I track expenses in FinAssist?'), isTrue);
       expect(
         isFinancialTopic(

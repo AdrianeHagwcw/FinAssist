@@ -34,6 +34,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const int _maxTextLength = 50;
+
   // =========================================================
   // CONTROLLERS
   // =========================================================
@@ -48,6 +50,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
+  String? _emailError;
+  String? _passwordError;
 
   @override
   void initState() {
@@ -63,22 +67,29 @@ class _LoginScreenState extends State<LoginScreen> {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+    });
+
     // ---------------------------------------------------------
     // CHECK EMPTY FIELDS
     // ---------------------------------------------------------
 
-    if (email.isEmpty && password.isEmpty) {
-      _showMessage('Please enter your email and password.');
-      return;
-    }
+    final emailError = email.isEmpty
+        ? 'Please enter your email.'
+        : !_validEmail(email)
+        ? 'Enter a valid email address.'
+        : null;
+    final passwordError = password.isEmpty
+        ? 'Please enter your password.'
+        : null;
 
-    if (email.isEmpty) {
-      _showMessage('Please enter your email.');
-      return;
-    }
-
-    if (password.isEmpty) {
-      _showMessage('Please enter your password.');
+    if (emailError != null || passwordError != null) {
+      setState(() {
+        _emailError = emailError;
+        _passwordError = passwordError;
+      });
       return;
     }
 
@@ -106,23 +117,26 @@ class _LoginScreenState extends State<LoginScreen> {
 
       await _navigateAfterAuthentication();
     } on FirebaseAuthException catch (e) {
-      String message;
+      String message = '';
 
       switch (e.code) {
         case 'user-not-found':
-          message = 'No account found with this email.';
+          _setFieldErrors(email: 'No account found with this email.');
           break;
 
         case 'wrong-password':
-          message = 'Incorrect password.';
+          _setFieldErrors(password: 'Incorrect password.');
           break;
 
         case 'invalid-credential':
-          message = 'Incorrect email or password.';
+          _setFieldErrors(
+            email: 'Incorrect email or password.',
+            password: 'Incorrect email or password.',
+          );
           break;
 
         case 'invalid-email':
-          message = 'Please enter a valid email address.';
+          _setFieldErrors(email: 'Please enter a valid email address.');
           break;
 
         case 'user-disabled':
@@ -141,7 +155,12 @@ class _LoginScreenState extends State<LoginScreen> {
           message = 'Login failed. Please try again.';
       }
 
-      _showMessage(message);
+      if (e.code != 'user-not-found' &&
+          e.code != 'wrong-password' &&
+          e.code != 'invalid-credential' &&
+          e.code != 'invalid-email') {
+        _showMessage(message);
+      }
     } catch (e) {
       _showMessage('Something went wrong. Please try again.');
     } finally {
@@ -151,6 +170,39 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     }
+  }
+
+  bool _validEmail(String email) =>
+      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+
+  Widget? _buildCharacterCounter(
+    BuildContext context, {
+    required int currentLength,
+    required bool isFocused,
+    required int? maxLength,
+  }) {
+    if (maxLength == null || currentLength < maxLength) {
+      return null;
+    }
+    return Text('$currentLength/$maxLength');
+  }
+
+  void _setFieldErrors({String? email, String? password}) {
+    if (!mounted) return;
+    setState(() {
+      _emailError = email;
+      _passwordError = password;
+    });
+  }
+
+  void _clearEmailError() {
+    if (_emailError == null) return;
+    setState(() => _emailError = null);
+  }
+
+  void _clearPasswordError() {
+    if (_passwordError == null) return;
+    setState(() => _passwordError = null);
   }
 
   // =========================================================
@@ -229,11 +281,10 @@ class _LoginScreenState extends State<LoginScreen> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) =>
-                  EmailVerificationScreen(
-                    email: refreshedUser.email,
-                    user: refreshedUser,
-                  ),
+              builder: (context) => EmailVerificationScreen(
+                email: refreshedUser.email,
+                user: refreshedUser,
+              ),
             ),
           );
           return;
@@ -376,8 +427,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   enabled: !_isLoading,
 
+                  onChanged: (_) => _clearEmailError(),
+
                   decoration: InputDecoration(
                     hintText: 'Enter your email',
+                    errorText: _emailError,
 
                     prefixIcon: const Icon(
                       Icons.email_outlined,
@@ -405,6 +459,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+
+                  maxLength: _maxTextLength,
+                  buildCounter: _buildCharacterCounter,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(_maxTextLength),
+                  ],
                 ),
 
                 const SizedBox(height: 20),
@@ -430,8 +490,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   enabled: !_isLoading,
 
+                  onChanged: (_) => _clearPasswordError(),
+
                   decoration: InputDecoration(
                     hintText: 'Enter your password',
+                    errorText: _passwordError,
 
                     prefixIcon: const Icon(
                       Icons.lock_outline,
@@ -478,6 +541,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+
+                  maxLength: _maxTextLength,
+                  buildCounter: _buildCharacterCounter,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(_maxTextLength),
+                  ],
                 ),
 
                 const SizedBox(height: 10),

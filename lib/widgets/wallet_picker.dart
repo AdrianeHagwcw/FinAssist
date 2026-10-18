@@ -22,6 +22,8 @@ String? defaultWalletId(List<Wallet> wallets) {
 /// The caller owns the selection, so the same picker works inside a form, a
 /// dialog or a sheet.
 class WalletPicker extends StatelessWidget {
+  static const _addWalletValue = '__add_wallet__';
+
   const WalletPicker({
     required this.wallets,
     required this.selectedId,
@@ -29,6 +31,7 @@ class WalletPicker extends StatelessWidget {
     this.label = 'Wallet',
     this.excludeId,
     this.allowed = const {WalletPurpose.spending},
+    this.onAddWallet,
     super.key,
   });
 
@@ -45,6 +48,7 @@ class WalletPicker extends StatelessWidget {
   /// they are offered only where spending them is the point, such as paying a
   /// bill, or moving money on purpose with a transfer.
   final Set<WalletPurpose> allowed;
+  final VoidCallback? onAddWallet;
 
   @override
   Widget build(BuildContext context) {
@@ -86,8 +90,25 @@ class WalletPicker extends StatelessWidget {
               ],
             ),
           ),
+        if (onAddWallet != null)
+          const DropdownMenuItem(
+            value: _addWalletValue,
+            child: Row(
+              children: [
+                Icon(Icons.add, size: 20),
+                SizedBox(width: 10),
+                Text('Add wallet'),
+              ],
+            ),
+          ),
       ],
-      onChanged: onChanged,
+      onChanged: (value) {
+        if (value == _addWalletValue) {
+          onAddWallet!();
+          return;
+        }
+        onChanged(value);
+      },
       validator: (selected) => selected == null ? 'Choose a wallet.' : null,
     );
   }

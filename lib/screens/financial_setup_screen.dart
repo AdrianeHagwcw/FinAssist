@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../utils/amount_input_formatter.dart';
 import '../models/onboarding_data.dart';
@@ -47,6 +48,9 @@ class FinancialSetupScreen extends StatefulWidget {
 }
 
 class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
+  static final TextInputFormatter _nameCharacterFormatter =
+      FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9 ]'));
+
   static const _welcomeStep = 0;
   static const _nameStep = 1;
   static const _incomeStep = 2;
@@ -501,10 +505,15 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen> {
             textCapitalization: TextCapitalization.words,
             textInputAction: TextInputAction.done,
             maxLength: 40,
+            inputFormatters: [_nameCharacterFormatter],
             onFieldSubmitted: (_) => _next(),
             decoration: _inputDecoration('e.g. Dave'),
             validator: (value) => (value?.trim() ?? '').isEmpty
                 ? 'Please enter your name.'
+                : !RegExp(
+                    r'^[a-zA-Z0-9]+(?: [a-zA-Z0-9]+)*$',
+                  ).hasMatch(value!.trim())
+                ? 'Use only letters, numbers, and spaces.'
                 : null,
           ),
           const SizedBox(height: 4),

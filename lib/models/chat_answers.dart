@@ -8,10 +8,12 @@ import 'debt.dart';
 import 'expense_guess.dart';
 import 'finance_snapshot.dart';
 import 'goal.dart';
+import 'financial_insights.dart';
 import 'report.dart';
 import 'safe_to_spend.dart';
 import 'savings_suggestion.dart';
 import 'transaction_filter.dart';
+import 'chat_language.dart';
 
 /// The assistant's answers, worked out by rules from the user's own records.
 ///
@@ -30,6 +32,30 @@ class GoalOffer {
   final String name;
   final double target;
   final DateTime date;
+}
+
+ChatReply _insightsResponse(String question) {
+  final language = detectChatLanguage(question) ?? ChatLanguage.english;
+  final message = switch (language) {
+    ChatLanguage.english =>
+      'Yes. I can help explain your recorded spending, compare recent '
+          'periods, point out your main expense categories, and suggest '
+          'practical ways to save. I will use the records available in '
+          'FinAssist, so keeping them up to date helps make the insights more useful.',
+    ChatLanguage.tagalog =>
+      'Oo. Matutulungan kitang unawain ang mga naitala mong gastos, '
+          'ikumpara ang mga nakaraang panahon, makita kung saan napupunta '
+          'ang pera, at magbigay ng praktikal na paraan para makatipid. '
+          'Gagamitin ko lang ang mga rekord na nasa FinAssist, kaya mas '
+          'makakatulong kung regular mong itatala ang kita at gastos.',
+    ChatLanguage.taglish =>
+      'Oo. I can give you clear insights tungkol sa mga naitala mong gastos, '
+          'compare recent periods, tukuyin kung saan napupunta ang pera, at '
+          'mag-suggest ng practical ways para makatipid. Ibase ko ito sa '
+          'records na nasa FinAssist, kaya mas useful kung updated ang mga '
+          'tala mo.',
+  };
+  return ChatReply(message);
 }
 
 /// What the assistant is waiting to hear in a "Can I buy it?" conversation.
@@ -218,17 +244,22 @@ ChatReply answerChat(
 
   final reply = switch (intent) {
     _Intent.safeToday => _safeToday(records),
+    _Intent.safeTodayComparison => _safeTodayComparison(text, records),
+    _Intent.insights => _insightsResponse(text),
     _Intent.spent => _spent(text, records),
+    _Intent.savingsCapacity => _savingsCapacity(text, records),
     _Intent.topSpending => _topSpending(text, records),
     _Intent.bills => _bills(text, records),
     _Intent.balance => _balance(records),
     _Intent.savings => _savings(records),
     _Intent.debts => _debts(text, records),
     _Intent.income => _income(text, records),
-    _Intent.advice => _advice(records),
+    _Intent.advice => _advice(records, text),
     _Intent.greeting || _Intent.help => throw StateError('answered above'),
   };
-  return intent == _Intent.advice ? reply : reply.protected();
+  return intent == _Intent.advice || intent == _Intent.insights
+      ? reply
+      : reply.protected();
 }
 
 ChatReply? _goalSavingsPlan(String message, FinanceSnapshot? records) {
@@ -542,7 +573,10 @@ enum _Intent {
   greeting,
   help,
   safeToday,
+  safeTodayComparison,
+  insights,
   spent,
+  savingsCapacity,
   topSpending,
   bills,
   balance,
@@ -573,6 +607,19 @@ _Intent? _intentOf(String text) {
   final words = text.trim().split(' ');
   if (words.every(_greetings.contains)) return _Intent.greeting;
 
+  if (_asksSpendingComparison(text)) return _Intent.advice;
+  if (_has(text, [
+    'insight',
+    'insights',
+    'financial analysis',
+    'money analysis',
+    'analyze my finances',
+    'analyse my finances',
+    'suriin ang aking pananalapi',
+  ])) {
+    return _Intent.insights;
+  }
+
   if (_has(text, [
     'what can you do',
     'help',
@@ -594,8 +641,23 @@ _Intent? _intentOf(String text) {
     'pwede ko pang gastusin',
     'pwede ko gastusin',
     'natitira ngayon',
+    'gumastos ngayon',
+    'gumastos today',
+    'gastos ngayon',
+    'gastos today',
   ])) {
     return _Intent.safeToday;
+  }
+  if (RegExp(
+    r'\b(?:pwede|can i|could i|may i)\b.*\b(?:gastos|gumastos|spend)\b'
+    r'.*\b(?:today|ngayon)\b',
+    caseSensitive: false,
+  ).hasMatch(text)) {
+    return _Intent.safeTodayComparison;
+  }
+  if (findAmount(text) != null &&
+      (_has(text, ['how about', 'what about']) || _has(text, ['paano kung']))) {
+    return _Intent.safeTodayComparison;
   }
   if (_has(text, [
     'how can i save',
@@ -613,6 +675,36 @@ _Intent? _intentOf(String text) {
     'budget',
   ])) {
     return _Intent.advice;
+  }
+  if (_has(text, [
+        'how much can i save',
+        'how much could i save',
+        'how much should i save',
+        'how much can i put aside',
+        'how much can i set aside',
+        'magkano ang maipon',
+        'magkano ang maiipon',
+        'magkano ang pwede kong ipon',
+        'magkano ang pwede ko ipon',
+        'magkano ang kaya kong ipon',
+        'magkano ang kaya kong maipon',
+      ]) ||
+      (_hasRoot(text, ['maipon', 'maiipon', 'makapagipon']) &&
+          _has(text, [
+            'income',
+            'salary',
+            'sahod',
+            'sweldo',
+            'expense',
+            'expenses',
+            'gastos',
+            'spending',
+            'this week',
+            'this month',
+            'linggo',
+            'buwan',
+          ]))) {
+    return _Intent.savingsCapacity;
   }
   if (_has(text, [
     'the most',
@@ -796,6 +888,25 @@ ChatReply _safeToday(FinanceSnapshot records) {
   );
 }
 
+ChatReply _safeTodayComparison(String text, FinanceSnapshot records) {
+  final amount = findAmount(text)?.value;
+  if (amount == null) return _safeToday(records);
+
+  final available = _down(records.safeToSpend.leftToday);
+  if (amount <= available) {
+    return ChatReply(
+      'Yes, ${formatPeso(amount)} fits within your ${formatPeso(available)} '
+      'left-to-spend amount for today. Keep the rest for your planned '
+      'expenses, bills and savings.',
+    );
+  }
+  return ChatReply(
+    '${formatPeso(amount)} is more than the ${formatPeso(available)} you '
+    'have left to spend today. Spending that much could affect your bills '
+    'or money set aside.',
+  );
+}
+
 ChatReply _spent(String text, FinanceSnapshot records) {
   final (period, label) = _periodIn(text, records.now);
   final during = transactionsIn(records.transactions, period);
@@ -810,6 +921,7 @@ ChatReply _spent(String text, FinanceSnapshot records) {
     if (spent <= 0) {
       return ChatReply("You haven't spent anything on $category $label.");
     }
+
     final count = during
         .where(
           (t) =>
@@ -832,6 +944,35 @@ ChatReply _spent(String text, FinanceSnapshot records) {
   return ChatReply(
     "You've spent ${formatPeso(total)} $label. Most of it went to "
     '${top.map((e) => '${e.key} (${formatPeso(e.value)})').join(' and ')}.',
+  );
+}
+
+ChatReply _savingsCapacity(String text, FinanceSnapshot records) {
+  final (period, label) = _periodIn(text, records.now);
+  final during = transactionsIn(records.transactions, period);
+  final flow = inAndOut(during);
+  final spending = spendingByCategory(
+    during,
+  ).fold<double>(0, (sum, entry) => sum + entry.value);
+
+  if (flow.moneyIn <= 0) {
+    return ChatReply(
+      "I don't have any recorded income for $label, so I can't calculate "
+      'how much you could save yet.',
+    );
+  }
+  final available = flow.moneyIn - spending;
+  if (available <= 0) {
+    return ChatReply(
+      "Based on your recorded income and everyday expenses $label, there "
+      'is no recorded amount left over to save yet.',
+    );
+  }
+  return ChatReply(
+    'Based on your records, you could have about ${formatPeso(available)} '
+    'left to save $label: ${formatPeso(flow.moneyIn)} received minus '
+    '${formatPeso(spending)} in everyday expenses. This does not include '
+    'unrecorded bills or spending, so keep a buffer before setting it aside.',
   );
 }
 
@@ -1019,7 +1160,10 @@ ChatReply _income(String text, FinanceSnapshot records) {
   return ChatReply("You've received ${formatPeso(received)} $label.");
 }
 
-ChatReply _advice(FinanceSnapshot records) {
+ChatReply _advice(FinanceSnapshot records, String question) {
+  if (_asksSpendingComparison(question)) {
+    return _spendingPatternComparison(records, question);
+  }
   final month = ReportPeriod.monthOf(records.now);
   final byCategory = spendingByCategory(
     transactionsIn(records.transactions, month),
@@ -1051,6 +1195,111 @@ ChatReply _advice(FinanceSnapshot records) {
           'easier to stick to.',
     ].join('\n\n'),
   );
+}
+
+bool _asksSpendingComparison(String text) {
+  final asksToCompare = _has(text, [
+    'compare',
+    'compared',
+    'comparison',
+    'pattern',
+    'patterns',
+    'trend',
+    'trends',
+    'change',
+    'changed',
+    'increased',
+    'decreased',
+    'kumpara',
+    'ikumpara',
+    'paghambingin',
+  ]);
+  final mentionsSpending =
+      _has(text, ['spending', 'spend', 'expense', 'expenses', 'gastos']) ||
+      _hasRoot(text, ['gastos', 'ginastos', 'gumastos']);
+  return asksToCompare && mentionsSpending;
+}
+
+ChatReply _spendingPatternComparison(FinanceSnapshot records, String question) {
+  final normalized = question.toLowerCase();
+  final periods = <int>[];
+  if (RegExp(r'\b(days?|daily)\b').hasMatch(normalized)) periods.add(3);
+  if (RegExp(r'\b(weeks?|weekly)\b').hasMatch(normalized)) periods.add(7);
+  if (RegExp(r'\b(months?|monthly)\b').hasMatch(normalized)) {
+    periods.addAll([30, 90]);
+  }
+  final selectedPeriods = periods.isEmpty
+      ? const [3, 7, 30, 90]
+      : periods.toSet();
+
+  final lines = <String>[];
+  for (final days in selectedPeriods) {
+    final comparison = compareSpendingPeriods(
+      records.transactions,
+      now: records.now,
+      days: days,
+    );
+    final recent = comparison.recent;
+    final previous = comparison.previous;
+    final windowLabel = days == 3
+        ? 'the last three days'
+        : days == 7
+        ? 'the last week'
+        : days == 90
+        ? 'the last three months'
+        : 'the last thirty days';
+    final priorLabel = days == 3
+        ? 'the three days before that'
+        : days == 7
+        ? 'the week before that'
+        : days == 90
+        ? 'the three months before that'
+        : 'the thirty days before that';
+
+    if (recent.expenseCount == 0 || previous.expenseCount == 0) {
+      final recordedPeriod = recent.expenseCount > 0 ? windowLabel : priorLabel;
+      final recorded = recent.expenseCount > 0 ? recent : previous;
+      lines.add(
+        recent.expenseCount == 0 && previous.expenseCount == 0
+            ? 'I do not have enough recorded expenses to compare $windowLabel '
+                  'with $priorLabel. Missing records do not mean no spending '
+                  'happened.'
+            : 'I found ${formatPeso(recorded.amount)} in recorded expenses '
+                  'for $recordedPeriod, but no recorded expenses for the '
+                  'matching period. I cannot tell whether your spending '
+                  'changed because your records may be incomplete.',
+      );
+      continue;
+    }
+
+    final direction = recent.amount > previous.amount
+        ? 'higher'
+        : recent.amount < previous.amount
+        ? 'lower'
+        : 'about the same';
+    final recentCategory = _topRecordedCategory(recent);
+    final previousCategory = _topRecordedCategory(previous);
+    lines.add(
+      'You recorded ${formatPeso(recent.amount)} in expenses for $windowLabel '
+      'and ${formatPeso(previous.amount)} for $priorLabel. Recorded spending '
+      'was $direction. '
+      '${recentCategory == null ? '' : 'Most spending was ${recentCategory.key} recently.'} '
+      '${previousCategory == null ? '' : 'In the earlier period, it was mostly ${previousCategory.key}.'}',
+    );
+  }
+
+  lines.add(
+    'These comparisons use only expenses recorded in FinAssist, so missing '
+    'entries may change the picture.',
+  );
+  return ChatReply(lines.join('\n\n'));
+}
+
+MapEntry<String, double>? _topRecordedCategory(SpendingPeriodTotals totals) {
+  if (totals.categoryTotals.isEmpty) return null;
+  final categories = totals.categoryTotals.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  return categories.first;
 }
 
 const _noWallets = ChatReply(
@@ -1232,6 +1481,74 @@ ChatReply _nextPurchaseStep(PurchaseQuestion q, FinanceSnapshot records) {
     choices: const [notSure],
     pending: q.copyWith(waitingFor: PurchaseStep.price, asked: q.asked + 1),
   );
+}
+
+/// Extracts only the product name for a live price lookup. Financial records
+/// and the rest of the user's message are deliberately excluded.
+String? productPriceLookupQuery(String message) {
+  if (RegExp(
+    r'\b(?:save|saving|savings|set aside|put aside|mag[- ]?ipon|'
+    r'makaipon|dapat kong|para makabili|worth|income|salary|expense|'
+    r'expenses|spend|spending|budget|wallet|bills?|utang|debt|'
+    r'cash flow|financial|finances?)\b',
+    caseSensitive: false,
+  ).hasMatch(message)) {
+    return null;
+  }
+  final priceRequest = RegExp(
+    r'\bhow much (?:is|are)\s+(?:the\s+)?(.+?)(?=[?.!,]|$)|'
+    r'\bhow much (?:does|do)\s+(.+?)\s+cost\b|'
+    r'\b(?:current|latest|retail)?\s*price\s+(?:of|for)\s+(.+?)(?=[?.!,]|$)|'
+    r'\bmagkano\s+(?:ang\s+)?(.+?)(?=[?.!,]|$)',
+    caseSensitive: false,
+  ).firstMatch(message.trim());
+
+  String? product;
+  if (priceRequest != null) {
+    product = [
+      priceRequest.group(1),
+      priceRequest.group(2),
+      priceRequest.group(3),
+      priceRequest.group(4),
+    ].whereType<String>().firstOrNull;
+  } else {
+    final purchaseRequest = _buyTrigger.firstMatch(message.toLowerCase());
+    if (purchaseRequest == null) return null;
+    final itemText = message.substring(purchaseRequest.end);
+    if (_priceIn(itemText) != null) return null;
+    if (RegExp(
+      r'\b(?:afford|salary|income|budget|save|saving|savings|'
+      r'ipon|kaya\s+(?:ko|kong|mong)|mabili\s+(?:lahat|ang))\b',
+      caseSensitive: false,
+    ).hasMatch(message)) {
+      return null;
+    }
+    product = _itemIn(itemText, null);
+  }
+
+  if (product == null) return null;
+  product = product
+      .replaceFirst(
+        RegExp(
+          r'\s+(?:in the philippines|in philippines|sa philippines|near me|'
+          r'for me|today)$',
+          caseSensitive: false,
+        ),
+        '',
+      )
+      .replaceAll(RegExp(r'[^\p{L}\p{N} &+()._-]', unicode: true), '')
+      .trim();
+  if (RegExp(
+    r'\b(?:save|saving|savings|set aside|put aside|mag[- ]?ipon|'
+    r'makaipon|dapat kong|para makabili|income|salary|expense|expenses|'
+    r'spend|spending|budget|wallet|bills?|utang|debt|cash flow|'
+    r'financial|finances?|this week|this month|ko)\b',
+    caseSensitive: false,
+  ).hasMatch(product)) {
+    return null;
+  }
+  if (product.isEmpty || product.length > 100) return null;
+  return product;
 }
 
 /// Choices to offer for [item], or null for anything else, or when a brand

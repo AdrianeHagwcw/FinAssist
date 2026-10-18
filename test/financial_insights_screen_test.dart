@@ -31,6 +31,15 @@ class _FakeFinancialAssistant implements FinancialAssistant {
       'Review optional recurring costs before changing essentials.',
     ];
   }
+
+  @override
+  Future<GroundedProductPriceAnswer> lookupProductPrices({
+    required String product,
+  }) async => const GroundedProductPriceAnswer(
+    text: '',
+    sources: [],
+    searchSuggestionsHtml: '',
+  );
 }
 
 final _transactions = [

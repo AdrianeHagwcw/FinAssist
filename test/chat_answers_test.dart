@@ -195,6 +195,34 @@ void main() {
       expect(reply.text, contains('2. Bills: ₱2,000 (40%)'));
     });
 
+    test('responds to a Taglish request for better financial insights', () {
+      final reply = ask(
+        'kaya mo ba akong bigyan ng maayos na insights sa susunod',
+      );
+
+      expect(reply.text, contains('clear insights'));
+      expect(reply.text, contains('records na nasa FinAssist'));
+    });
+
+    test(
+      'compares recorded spending over requested day, week and month windows',
+      () {
+        final reply = ask(
+          'Compare my spending pattern from the past few days, weeks and months',
+        );
+
+        expect(reply.text, contains('the last three days'));
+        expect(reply.text, contains('the last week'));
+        expect(reply.text, contains('the last thirty days'));
+        expect(reply.text, contains('the last three months'));
+        expect(reply.text, contains('missing entries may change the picture'));
+        expect(
+          reply.text,
+          contains('These comparisons use only expenses recorded'),
+        );
+      },
+    );
+
     test('bills this week, overdue first', () {
       final reply = ask('May bills ba ako this week?');
       expect(reply.text, contains('Overdue:\n• PLDT: ₱1,500, Sep 17'));
@@ -217,6 +245,28 @@ void main() {
       // Savings live in a savings record now, so there is no separate
       // reserve to report beside the goals.
       expect(reply.text, isNot(contains('as savings')));
+    });
+
+    test('calculates possible savings separately from saved goals', () {
+      final weekly = ask(
+        'Magkano ang maipon ko this week based sa expenses ko?',
+      );
+      expect(weekly.text, contains("don't have any recorded income"));
+      expect(weekly.text, contains('this week'));
+      expect(weekly.text, isNot(contains("You've spent")));
+
+      final fromIncome = ask('How much can I save from my income?');
+      expect(fromIncome.text, contains('left to save this month'));
+      expect(fromIncome.text, isNot(contains("You've received")));
+    });
+
+    test('compares a proposed amount with the safe amount for today', () {
+      final reply = ask('How about 400?');
+      expect(reply.text, contains('fits within'));
+      expect(reply.text, contains('left-to-spend amount'));
+
+      final direct = ask('Pwede ba akong gumastos ng 300 today?');
+      expect(direct.text, contains('fits within'));
     });
 
     test('the debts the user is paying', () {
@@ -358,6 +408,40 @@ void main() {
   });
 
   group('can I buy it?', () {
+    test('extracts only a product name for current-price searches', () {
+      expect(productPriceLookupQuery('How much are AirPods?'), 'AirPods');
+      expect(
+        productPriceLookupQuery('What is the current price of AirPods Pro?'),
+        'AirPods Pro',
+      );
+      expect(
+        productPriceLookupQuery(
+          'How much does Apple AirPods Pro 3 cost in the Philippines today? '
+          'Please show current sellers and source links.',
+        ),
+        'Apple AirPods Pro 3',
+      );
+      expect(
+        productPriceLookupQuery('Magkano ang iPhone 17 sa Philippines?'),
+        'iPhone 17',
+      );
+      expect(
+        productPriceLookupQuery(
+          'magkano ang maipon ko this week based sa expenses ko',
+        ),
+        isNull,
+      );
+      expect(productPriceLookupQuery('magkano ang ipon ko'), isNull);
+      expect(
+        productPriceLookupQuery('Can I buy AirPods with my ₱50,000 salary?'),
+        isNull,
+        reason:
+            'Explicit purchase price or personal finance should not be '
+            'sent to web search.',
+      );
+      expect(productPriceLookupQuery('Can I buy AirPods?'), 'AirPods');
+    });
+
     test('asks which AirPods, then the price, then answers', () {
       final first = ask('Can I buy AirPods?');
       expect(first.text, contains('Which AirPods'));

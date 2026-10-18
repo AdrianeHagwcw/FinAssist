@@ -94,6 +94,67 @@ void main() {
     );
   });
 
+  testWidgets('login shows inline errors for missing credentials', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const LoginScreen()),
+    );
+
+    await tester.ensureVisible(find.text('Log In'));
+    await tester.tap(find.text('Log In'));
+    await tester.pump();
+
+    expect(find.text('Please enter your email.'), findsOneWidget);
+    expect(find.text('Please enter your password.'), findsOneWidget);
+
+    final fields = tester
+        .widgetList<TextField>(find.byType(TextField))
+        .toList();
+    expect(fields[0].decoration?.errorText, 'Please enter your email.');
+    expect(fields[1].decoration?.errorText, 'Please enter your password.');
+  });
+
+  testWidgets('login shows inline error for an invalid email', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const LoginScreen()),
+    );
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.first, 'not-an-email');
+    await tester.enterText(fields.at(1), 'password');
+    await tester.ensureVisible(find.text('Log In'));
+    await tester.tap(find.text('Log In'));
+    await tester.pump();
+
+    expect(find.text('Enter a valid email address.'), findsOneWidget);
+    final emailField = tester.widget<TextField>(fields.first);
+    expect(emailField.decoration?.errorText, 'Enter a valid email address.');
+  });
+
+  testWidgets('login limits fields and hides counters until the limit', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const LoginScreen()),
+    );
+
+    final fields = find.byType(TextField);
+    expect(fields, findsNWidgets(2));
+    for (final field in tester.widgetList<TextField>(fields)) {
+      expect(field.maxLength, 50);
+    }
+    expect(find.text('0/50'), findsNothing);
+
+    await tester.enterText(fields.first, 'a' * 50);
+    await tester.pump();
+
+    expect(find.text('50/50'), findsOneWidget);
+    expect(tester.widget<TextField>(fields.first).controller?.text.length, 50);
+  });
+
   testWidgets('create account shows inline required field errors', (
     WidgetTester tester,
   ) async {
@@ -120,6 +181,28 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
     await tester.pump();
     expect(find.text('This field is required.'), findsNWidgets(3));
+  });
+
+  testWidgets('create account limits fields and filters full name characters', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const RegisterScreen()),
+    );
+
+    final fields = find.byType(TextField);
+    expect(fields, findsNWidgets(4));
+    for (final field in tester.widgetList<TextField>(fields)) {
+      expect(field.maxLength, 50);
+    }
+    expect(find.text('0/50'), findsNothing);
+
+    await tester.enterText(fields.first, 'Ada-Lovelace!${'a' * 60}');
+    await tester.pump();
+
+    final nameField = tester.widget<TextField>(fields.first);
+    expect(nameField.controller?.text, 'AdaLovelace${'a' * 39}');
+    expect(find.text('50/50'), findsOneWidget);
   });
 
   testWidgets('password policy errors appear beneath the password field', (
@@ -494,63 +577,81 @@ void main() {
       expect(find.text('Home page').hitTestable(), findsOneWidget);
     });
 
-    testWidgets('Home has the Quick Add actions without duplicating shortcuts', (
-      tester,
-    ) async {
-      var opened = 0;
-      tester.view.physicalSize = const Size(800, 3200);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets(
+      'Home has the Quick Add actions without duplicating shortcuts',
+      (tester) async {
+        var opened = 0;
+        tester.view.physicalSize = const Size(800, 3200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        ChangeNotifierProvider(
-          create: (_) => AppSettingsProvider(),
-          child: MaterialApp(
-            theme: AppTheme.light,
-            home: HomeScreen(
-              userName: 'Dave',
-              wallets: Stream.value(const []),
-              transactions: Stream.value(const []),
-              goals: Stream.value(const <Goal>[]),
-              safeToSpend: const SizedBox(height: 40),
-              today: DateTime(2026, 9, 28),
-              onOpenBills: () => opened++,
+        await tester.pumpWidget(
+          ChangeNotifierProvider(
+            create: (_) => AppSettingsProvider(),
+            child: MaterialApp(
+              theme: AppTheme.light,
+              home: HomeScreen(
+                userName: 'Dave',
+                wallets: Stream.value(const []),
+                transactions: Stream.value(const []),
+                goals: Stream.value(const <Goal>[]),
+                safeToSpend: const SizedBox(height: 40),
+                today: DateTime(2026, 9, 28),
+                onOpenBills: () => opened++,
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
+        );
+        await tester.pump();
+        await tester.pump();
 
-      for (final label in [
-        'Expense',
-        'Income',
-        'Transfer',
-        'Save to Goal',
-        'Scan Receipt',
-        'Voice Entry',
-        'Bill Planner',
-        'Savings',
-        'Installments',
-        'Reports',
-      ]) {
-        expect(find.text(label), findsOneWidget);
-      }
-      expect(find.text('Add Income'), findsNothing);
+        for (final label in ['Expense', 'Income', 'Transfer']) {
+          expect(find.text(label), findsOneWidget);
+        }
+        for (final label in [
+          'Save to Goal',
+          'Scan Receipt',
+          'Voice Entry',
+          'Bill Planner',
+          'Savings',
+          'Installments',
+          'Reports',
+        ]) {
+          expect(find.text(label), findsNothing);
+        }
+        expect(find.text('View all'), findsOneWidget);
+        expect(find.text('Add Income'), findsNothing);
 
-      final tile = find
-          .ancestor(
-            of: find.text('Bill Planner'),
-            matching: find.byType(InkWell),
-          )
-          .first;
-      await tester.ensureVisible(tile);
-      await tester.tap(tile);
-      await tester.pump();
+        await tester.tap(find.text('View all'));
+        await tester.pump();
 
-      expect(opened, 1);
-    });
+        for (final label in [
+          'Save to Goal',
+          'Scan Receipt',
+          'Voice Entry',
+          'Bill Planner',
+          'Savings',
+          'Installments',
+          'Reports',
+        ]) {
+          expect(find.text(label), findsOneWidget);
+        }
+        expect(find.text('Show less'), findsOneWidget);
+
+        final tile = find
+            .ancestor(
+              of: find.text('Bill Planner'),
+              matching: find.byType(InkWell),
+            )
+            .first;
+        await tester.ensureVisible(tile);
+        await tester.tap(tile);
+        await tester.pump();
+
+        expect(opened, 1);
+      },
+    );
 
     testWidgets('the + sheet holds the six ways of recording money', (
       tester,
@@ -1261,6 +1362,22 @@ void main() {
       await tester.tap(find.text(option).last);
       await tester.pumpAndSettle();
     }
+
+    testWidgets('setup name accepts only letters, numbers, and spaces', (
+      tester,
+    ) async {
+      await pumpOnboarding(tester, save: (_) async {});
+
+      await tapText(tester, 'Get Started');
+      final nameField = find.byType(TextFormField).first;
+      await tester.enterText(nameField, 'Ada-Lovelace!123');
+      await tester.pump();
+
+      expect(
+        tester.widget<TextFormField>(nameField).controller?.text,
+        'AdaLovelace123',
+      );
+    });
 
     testWidgets('a blocked notification prompt still moves on', (tester) async {
       OnboardingData? saved;
@@ -2948,6 +3065,15 @@ void main() {
       await tester.enterText(find.byType(TextField).first, amount);
       await pickSource(tester, 'Allowance');
     }
+
+    testWidgets('income step offers adding a wallet', (tester) async {
+      await pumpWaterfall(tester);
+
+      expect(find.text('Into which wallet?'), findsOneWidget);
+      await tester.tap(find.text('Cash'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add wallet'), findsOneWidget);
+    });
 
     Future<void> next(WidgetTester tester) async {
       await tester.tap(find.text('Next'));
@@ -5129,15 +5255,15 @@ void main() {
       expect(find.text('Savings wallet'), findsWidgets);
       expect(find.text('Total balance'), findsOneWidget);
       expect(find.text('Emergency fund'), findsOneWidget);
+      expect(find.text('Transfer money'), findsOneWidget);
 
-      // The total is the savings themselves, and the card says underneath
-      // how they are spoken for: ₱2,000 saved, ₱1,500 inside the goal, so
-      // ₱500 is still free. The record below adds up to the same ₱2,000.
-      expect(find.text('₱2,000'), findsNWidgets(2));
+      // The headline total is what remains available after ₱1,500 is
+      // contributed to the goal. The record below still shows the wallet's
+      // real ₱2,000 balance.
+      expect(find.text('₱500'), findsOneWidget);
       expect(find.text('Towards your goals'), findsOneWidget);
       expect(find.text('₱1,500'), findsNWidgets(2));
-      expect(find.text('Not promised to a goal yet'), findsOneWidget);
-      expect(find.text('₱500'), findsOneWidget);
+      expect(find.text('₱2,000'), findsOneWidget);
     });
 
     testWidgets('savings reads zero when the goals hold it all', (
@@ -5159,11 +5285,10 @@ void main() {
         ],
       );
 
-      // Goal money never shows as a negative balance here.
-      expect(find.text('Not promised to a goal yet'), findsOneWidget);
+      // The available total is zero when the goal claim exceeds the wallet.
       expect(find.text('₱0'), findsOneWidget);
-      // The wallet still reads its real ₱1,000, in the card and the record.
-      expect(find.text('₱1,000'), findsNWidgets(2));
+      // The record still reads the wallet's real ₱1,000 balance.
+      expect(find.text('₱1,000'), findsOneWidget);
     });
 
     testWidgets('editing savings keeps goal-assigned money backed', (
@@ -5195,7 +5320,6 @@ void main() {
         find.textContaining('₱2,500 is already assigned to goals'),
         findsOneWidget,
       );
-
     });
 
     testWidgets('bills opens with its total and what is still to pay', (
@@ -5213,6 +5337,7 @@ void main() {
 
       expect(find.text('Bills wallet'), findsWidgets);
       expect(find.text('Total balance'), findsOneWidget);
+      expect(find.text('Transfer money'), findsOneWidget);
       // Once in the total, once in the record it can be edited from.
       expect(find.text('₱1,200'), findsNWidgets(2));
       expect(find.text('Where it is kept'), findsOneWidget);
@@ -8242,6 +8367,7 @@ void main() {
       WidgetTester tester,
       List<AppTransaction> transactions, {
       List<Wallet>? wallets,
+      List<Goal> goals = const [],
     }) async {
       tester.view.physicalSize = const Size(800, 3200);
       tester.view.devicePixelRatio = 1.0;
@@ -8257,7 +8383,7 @@ void main() {
               userName: 'Hayato',
               wallets: Stream.value(wallets ?? [cash, gcash]),
               transactions: Stream.value(transactions),
-              goals: Stream.value(const <Goal>[]),
+              goals: Stream.value(goals),
               safeToSpend: const SizedBox(
                 height: 80,
                 child: Text('Safe to Spend placeholder'),
@@ -8307,6 +8433,31 @@ void main() {
       expect(find.text('₱8,000'), findsOneWidget);
     });
 
+    testWidgets('home savings balance excludes money contributed to goals', (
+      tester,
+    ) async {
+      await pumpHome(
+        tester,
+        const [],
+        wallets: [cash, holding('s', 1000, WalletPurpose.savings)],
+        goals: const [
+          Goal(
+            id: 'goal',
+            name: 'Emergency fund',
+            targetAmount: 2000,
+            savedAmount: 500,
+            priority: 0,
+            status: GoalStatus.active,
+            savedByWallet: {'s': 500},
+          ),
+        ],
+      );
+
+      expect(find.text('Savings Total Balance'), findsOneWidget);
+      expect(find.text('₱500'), findsOneWidget);
+      expect(find.textContaining('₱500 set aside'), findsOneWidget);
+    });
+
     testWidgets('the bills and savings balances read zero when empty', (
       tester,
     ) async {
@@ -8346,6 +8497,12 @@ void main() {
       expect(find.text('Across 2 wallets'), findsOneWidget);
       expect(find.textContaining('transactions recorded'), findsNothing);
       expect(find.text('Manage Category Budgets'), findsNothing);
+      for (final shortcut in ['Expense', 'Income', 'Transfer']) {
+        expect(find.text(shortcut), findsOneWidget);
+      }
+      expect(find.text('Bill Planner'), findsNothing);
+      await tester.tap(find.text('View all'));
+      await tester.pumpAndSettle();
       for (final shortcut in [
         'Bill Planner',
         'Savings',

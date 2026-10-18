@@ -266,12 +266,11 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
   List<Widget> _savings(List<Wallet> wallets) {
     // Matches Home: only savings that can actually be drawn on. A time
     // deposit or government savings is named on its own.
-    final walletTotal = reachableSavingsBalance(wallets);
+    final walletTotal = walletBalanceFor(wallets, WalletPurpose.savings);
     final locked = lockedSavingsBalance(wallets);
     final savingsNote = locked > 0
-        ? 'Everything you have saved. ${formatPeso(locked)} more is locked '
-              'away and is not counted here.'
-        : 'Everything you have saved, and what it is spoken for.';
+        ? '${formatPeso(locked)} is locked away and unavailable to spend.'
+        : 'Available after money promised to your goals.';
 
     return [
       StreamBuilder<FinanceSnapshot>(
@@ -333,21 +332,17 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               children: [
                 _TotalCard(
                   title: 'Savings wallet',
-                  total: walletTotal,
+                  total: available,
                   iconAsset: 'assets/icons/icons8-money-box-96.png',
                   note: savingsNote,
-                  // Nothing to split until a goal holds something, and two
-                  // zero lines would only be noise.
+                  onTransfer: () => showTransferSheet(context),
+                  // Show only money that has been assigned to goals.
                   breakdown: assignedToGoals <= 0
                       ? const []
                       : [
                           (
                             label: 'Towards your goals',
                             amount: assignedToGoals,
-                          ),
-                          (
-                            label: 'Not promised to a goal yet',
-                            amount: available,
                           ),
                         ],
                 ),
@@ -383,18 +378,13 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
             children: [
               _TotalCard(
                 title: 'Savings wallet',
-                total: walletTotal,
+                total: available,
                 iconAsset: 'assets/icons/icons8-money-box-96.png',
                 note: savingsNote,
+                onTransfer: () => showTransferSheet(context),
                 breakdown: assignedToGoals <= 0
                     ? const []
-                    : [
-                        (label: 'Towards your goals', amount: assignedToGoals),
-                        (
-                          label: 'Not promised to a goal yet',
-                          amount: available,
-                        ),
-                      ],
+                    : [(label: 'Towards your goals', amount: assignedToGoals)],
               ),
               const SizedBox(height: 20),
               _SectionTitle('What it is for'),
@@ -446,6 +436,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
         note:
             'Money waiting for your bills. Paying a bill takes it from here '
             'first.',
+        onTransfer: () => showTransferSheet(context),
       ),
       const SizedBox(height: 20),
       if (_bills.isEmpty)
@@ -486,6 +477,7 @@ class _TotalCard extends StatelessWidget {
     required this.note,
     required this.iconAsset,
     this.breakdown = const [],
+    this.onTransfer,
   });
 
   final String title;
@@ -498,6 +490,7 @@ class _TotalCard extends StatelessWidget {
 
   /// The same icon this money carries on Home, so the two read as one thing.
   final String iconAsset;
+  final VoidCallback? onTransfer;
 
   @override
   Widget build(BuildContext context) {
@@ -589,6 +582,18 @@ class _TotalCard extends StatelessWidget {
             note,
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
+          if (onTransfer != null) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onTransfer,
+                icon: const Icon(Icons.swap_horiz),
+                label: const Text('Transfer money'),
+                style: openOutlineStyle(context),
+              ),
+            ),
+          ],
         ],
       ),
     );

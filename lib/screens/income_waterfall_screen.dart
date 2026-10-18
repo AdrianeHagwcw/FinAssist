@@ -23,6 +23,7 @@ import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/wallet_picker.dart';
+import '../widgets/wallet_form_sheet.dart';
 
 /// Walks the user through new income: what came in, which bills to pay from
 /// it, and what is left. Returns true when the income was saved.
@@ -126,6 +127,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   final _goalAmountController = TextEditingController();
   String? _source;
   String? _walletId;
+  bool _walletSelectionCleared = false;
   late DateTime _receivedAt = _today;
   List<Wallet> _walletList = const [];
 
@@ -287,6 +289,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   }
 
   String? get _selectedWalletId {
+    if (_walletSelectionCleared) return null;
     if (_walletId != null) return _walletId;
     for (final wallet in _walletList) {
       if (!wallet.archived && !wallet.isSetAside) return wallet.id;
@@ -299,6 +302,29 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       if (wallet.id == _selectedWalletId) return wallet;
     }
     return null;
+  }
+
+  Future<void> _addWallet() async {
+    setState(() {
+      _walletSelectionCleared = true;
+      _walletId = null;
+      _error = null;
+    });
+
+    final draft = await showWalletFormSheet(context);
+    if (draft == null) return;
+
+    final walletId = await WalletService.addWallet(
+      type: draft.type,
+      name: draft.name,
+      startingBalance: draft.startingBalance,
+      currentWallets: _walletList,
+    );
+    if (!mounted) return;
+    setState(() {
+      _walletSelectionCleared = false;
+      _walletId = walletId;
+    });
   }
 
   /// The plan as it stands, read from what is typed on screen.
@@ -613,7 +639,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         const SizedBox(height: 16),
         if (_walletList.isEmpty)
           const Text(
-            'You have no wallets yet. Add one from the Wallet tab first.',
+            'You have no wallets yet. Add one to receive this income.',
             style: TextStyle(color: Colors.grey),
           )
         else
@@ -621,7 +647,11 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             wallets: _walletList,
             selectedId: _selectedWalletId,
             label: 'Into which wallet?',
-            onChanged: (value) => setState(() => _walletId = value),
+            onChanged: (value) => setState(() {
+              _walletSelectionCleared = false;
+              _walletId = value;
+            }),
+            onAddWallet: _addWallet,
           ),
         const SizedBox(height: 16),
         InkWell(

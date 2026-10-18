@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:testapp/models/financial_ai_guardrails.dart';
 import 'package:testapp/models/financial_topic_validator.dart';
 import 'package:testapp/models/finance_snapshot.dart';
+import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/wallet.dart';
 import 'package:testapp/services/financial_ai_service.dart';
 
@@ -48,5 +49,44 @@ void main() {
     expect(summary.toString(), isNot(contains('Private wallet')));
     expect(summary.toString(), isNot(contains('private-id')));
     expect(FirebaseFinancialAssistant.financialSummary(null), {'available': false});
+  });
+
+  test('financial summary includes like-for-like spending comparisons', () {
+    final summary = FirebaseFinancialAssistant.financialSummary(
+      FinanceSnapshot(
+        now: DateTime(2026, 10, 14),
+        transactions: [
+          AppTransaction(
+            id: 'recent',
+            type: TransactionType.expense,
+            amount: 200,
+            label: 'Food',
+            date: DateTime(2026, 10, 14),
+            note: 'private note',
+          ),
+          AppTransaction(
+            id: 'previous',
+            type: TransactionType.expense,
+            amount: 100,
+            label: 'Bills',
+            date: DateTime(2026, 10, 10),
+          ),
+        ],
+      ),
+    );
+
+    final periods =
+        (summary['recentSpendingComparisons'] as Map)['periods'] as List;
+    final threeDayComparison = periods.first as Map;
+    expect(threeDayComparison['daysPerPeriod'], 3);
+    expect(
+      (threeDayComparison['recent'] as Map)['recordedSpending'],
+      200,
+    );
+    expect(
+      (threeDayComparison['previous'] as Map)['recordedSpending'],
+      100,
+    );
+    expect(summary.toString(), isNot(contains('private note')));
   });
 }

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../models/chat_answers.dart';
 import '../models/chat_action.dart';
@@ -50,6 +52,48 @@ class ChatbotScreen extends StatefulWidget {
 
   @override
   State<ChatbotScreen> createState() => _ChatbotScreenState();
+}
+
+class _GoogleSearchSuggestions extends StatefulWidget {
+  const _GoogleSearchSuggestions({required this.html});
+
+  final String html;
+
+  @override
+  State<_GoogleSearchSuggestions> createState() =>
+      _GoogleSearchSuggestionsState();
+}
+
+class _GoogleSearchSuggestionsState extends State<_GoogleSearchSuggestions> {
+  late final WebViewController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.disabled)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri?.scheme == 'https' &&
+                uri?.host == 'www.google.com' &&
+                uri?.path.startsWith('/search') == true) {
+              return NavigationDecision.navigate;
+            }
+            return NavigationDecision.prevent;
+          },
+        ),
+      )
+      ..loadHtmlString(widget.html);
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 64,
+    width: 280,
+    child: WebViewWidget(controller: _controller),
+  );
 }
 
 class _ChatbotScreenState extends State<ChatbotScreen> {
@@ -158,12 +202,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   }) async {
     try {
       final records = _records?.at(DateTime.now());
+      final productPriceQuery = productPriceLookupQuery(text);
       final action = parseChatAction(text, records: records);
       final localReply = answerChat(text, records: records, pending: _pending);
       if (localReply.useLocalAnswer || action != null) {
         _messages.last['financialContext'] = true;
       }
       var usedAi = false;
+      GroundedProductPriceAnswer? groundedPriceAnswer;
       var answer = switch (action?.type) {
         ChatActionType.expense =>
           action!.description == null
@@ -188,14 +234,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           _pending != null &&
           localReply.text != answerChat(text, records: records).text;
       final needsRuleBasedFlow =
-          action != null ||
-          localReply.useLocalAnswer ||
-          localReply.pending != null ||
-          localReply.goal != null ||
-          isPurchaseFollowUp;
+          productPriceQuery == null &&
+          (action != null ||
+              localReply.useLocalAnswer ||
+              localReply.pending != null ||
+              localReply.goal != null ||
+              isPurchaseFollowUp);
 
       if (financialTopic && !needsRuleBasedFlow && _isOnline) {
-        final contextKey = financialContextKey(records);
+        final contextKey = productPriceQuery == null
+            ? financialContextKey(records)
+            : null;
         final history = [
           for (final message in _messages.take(_messages.length - 1))
             if (message['financialContext'] == true)
@@ -205,22 +254,31 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               ),
         ];
         try {
-          final geminiAnswer = await requestFinancialAssistant(
-            () => (widget.assistant ?? FirebaseFinancialAssistant())
-                .answerQuestion(
-                  question: text,
-                  records: records,
-                  history: history,
-                  verifiedGoalPlan: localReply.isVerifiedGoalPlan
-                      ? localReply.text
-                      : null,
-                ),
-          );
-          if (!isUsableFinancialExplanation(geminiAnswer)) {
+          final assistant = widget.assistant ?? FirebaseFinancialAssistant();
+          final geminiAnswer = await requestFinancialAssistant(() async {
+            if (productPriceQuery != null) {
+              groundedPriceAnswer = await assistant.lookupProductPrices(
+                product: productPriceQuery,
+              );
+              return groundedPriceAnswer!.text;
+            }
+            return assistant.answerQuestion(
+              question: text,
+              records: records,
+              history: history,
+              verifiedGoalPlan: localReply.isVerifiedGoalPlan
+                  ? localReply.text
+                  : null,
+            );
+          });
+          if (productPriceQuery == null &&
+              !isUsableFinancialExplanation(geminiAnswer)) {
             throw const FinancialAssistantFailure('Unverified AI response.');
           }
           usedAi = true;
-          if (localReply.isVerifiedGoalPlan) {
+          if (groundedPriceAnswer != null) {
+            answer = geminiAnswer;
+          } else if (localReply.isVerifiedGoalPlan) {
             answer =
                 RegExp(
                   r"\bnot sure what you're asking\b",
@@ -231,7 +289,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           } else {
             answer = geminiAnswer;
           }
-          if (contextKey != financialContextKey(_records?.at(DateTime.now()))) {
+          if (contextKey != null &&
+              contextKey != financialContextKey(_records?.at(DateTime.now()))) {
             usedAi = false;
             answer =
                 'Your records changed while I was answering. '
@@ -242,11 +301,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             'FinAssist Gemini chat failed; using rule-based reply: '
             '${error.message}',
           );
-          answer =
-              'AI is unavailable right now. '
-              'This answer uses the app\'s local guidance and available records.\n\n'
-              '${isFinancialFollowUp(text) ? 'Please restate your money question, '
-                        'including any amount or goal you want checked.' : localReply.text}';
+          answer = productPriceQuery != null
+              ? 'I could not find a reliable current price right now. '
+                    'Please try again in a moment. I will not guess the price.'
+              : 'AI is unavailable right now. '
+                    'This answer uses the app\'s local guidance and available records.\n\n'
+                    '${isFinancialFollowUp(text) ? 'Please restate your money question, '
+                              'including any amount or goal you want checked.' : localReply.text}';
         }
       }
 
@@ -259,6 +320,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           'choices': usedAi ? const <String>[] : localReply.choices,
           'goal': localReply.goal,
           'action': action,
+          'priceSources': groundedPriceAnswer?.sources,
+          'searchSuggestionsHtml': groundedPriceAnswer?.searchSuggestionsHtml,
           'financialContext':
               financialTopic || action != null || localReply.useLocalAnswer,
         });
@@ -474,6 +537,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 final choices = message['choices'] as List<String>? ?? const [];
                 final goal = message['goal'] as GoalOffer?;
                 final action = message['action'] as ChatAction?;
+                final priceSources =
+                    message['priceSources'] as List<GroundedPriceSource>? ??
+                    const [];
+                final searchSuggestionsHtml =
+                    message['searchSuggestionsHtml'] as String?;
                 // Only the latest answer's quick replies still apply.
                 final isLatest = index == _messages.length - 1;
 
@@ -483,6 +551,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       : CrossAxisAlignment.start,
                   children: [
                     _messageBubble(message: message['message'], isUser: isUser),
+                    if (!isUser && priceSources.isNotEmpty)
+                      _groundedPriceSources(
+                        priceSources,
+                        searchSuggestionsHtml,
+                      ),
                     if (goal != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -504,26 +577,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                         ),
                       ),
                     if (isLatest && choices.isNotEmpty && _messages.length > 1)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final choice in choices)
-                              ActionChip(
-                                label: Text(choice),
-                                backgroundColor: context.appColors.primaryTint,
-                                side: BorderSide.none,
-                                labelStyle: TextStyle(
-                                  color: context.appColors.primaryText,
-                                  fontSize: 12,
-                                ),
-                                onPressed: () => _sendMessage(choice),
-                              ),
-                          ],
-                        ),
-                      ),
+                      _quickActionChoices(choices),
                   ],
                 );
               },
@@ -547,6 +601,48 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // =========================================================
   // MESSAGE BUBBLE
   // =========================================================
+
+  Widget _groundedPriceSources(
+    List<GroundedPriceSource> sources,
+    String? searchSuggestionsHtml,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Prices checked today. Seller prices and stock can change.',
+            style: TextStyle(fontSize: 11, color: context.appColors.textBody),
+          ),
+          for (final source in sources)
+            TextButton.icon(
+              onPressed: () => _openPriceSource(source.url),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: const Icon(Icons.open_in_new, size: 14),
+              label: Text(source.title, textAlign: TextAlign.left),
+            ),
+          if (searchSuggestionsHtml != null && searchSuggestionsHtml.isNotEmpty)
+            _GoogleSearchSuggestions(html: searchSuggestionsHtml),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openPriceSource(String value) async {
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        (uri.scheme != 'https' && uri.scheme != 'http') ||
+        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open this price source.')),
+      );
+    }
+  }
 
   Widget _messageBubble({required String message, required bool isUser}) {
     return Align(
@@ -631,43 +727,61 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Try asking:',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
-          SizedBox(
-            height: 38,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: questions.length,
-              itemBuilder: (context, index) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ActionChip(
-                    label: Text(questions[index]),
-
-                    backgroundColor: context.appColors.primaryTint,
-
-                    side: BorderSide.none,
-
-                    labelStyle: TextStyle(
-                      color: context.appColors.primaryText,
-                      fontSize: 11,
-                    ),
-
-                    onPressed: () => _sendMessage(questions[index]),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Try asking:',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w600,
                   ),
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final question in questions)
+                ActionChip(
+                  label: Text(question),
+                  backgroundColor: context.appColors.primaryTint,
+                  side: BorderSide.none,
+                  labelStyle: TextStyle(
+                    color: context.appColors.primaryText,
+                    fontSize: 11,
+                  ),
+                  onPressed: () => _sendMessage(question),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quickActionChoices(List<String> choices) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final choice in choices)
+            ActionChip(
+              label: Text(choice),
+              backgroundColor: context.appColors.primaryTint,
+              side: BorderSide.none,
+              labelStyle: TextStyle(
+                color: context.appColors.primaryText,
+                fontSize: 12,
+              ),
+              onPressed: () => _sendMessage(choice),
+            ),
         ],
       ),
     );
@@ -845,7 +959,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     _isSending = false;
                     _messages.clear();
                     _pending = null;
-
                     _messages.add({
                       'message':
                           'Hello! I\'m Fin AI. How can I help you with your finances today?',

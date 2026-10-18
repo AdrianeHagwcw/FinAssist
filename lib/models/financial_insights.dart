@@ -129,6 +129,75 @@ class FinancialInsights {
   final SpendingForecast forecast;
 }
 
+/// Recorded expenses within one period, grouped for a like-for-like comparison.
+class SpendingPeriodTotals {
+  const SpendingPeriodTotals({
+    required this.amount,
+    required this.expenseCount,
+    required this.categoryTotals,
+  });
+
+  final double amount;
+  final int expenseCount;
+  final Map<String, double> categoryTotals;
+}
+
+class SpendingPeriodComparison {
+  const SpendingPeriodComparison({
+    required this.days,
+    required this.recent,
+    required this.previous,
+  });
+
+  final int days;
+  final SpendingPeriodTotals recent;
+  final SpendingPeriodTotals previous;
+}
+
+/// Compares the latest [days] calendar days with the same-length period just
+/// before them. Only saved, positive expense records are counted.
+SpendingPeriodComparison compareSpendingPeriods(
+  Iterable<AppTransaction> source, {
+  required DateTime now,
+  required int days,
+}) {
+  if (days < 1) {
+    throw ArgumentError.value(days, 'days', 'Must be greater than zero.');
+  }
+
+  final today = DateTime(now.year, now.month, now.day);
+  final recentStart = today.subtract(Duration(days: days - 1));
+  final previousStart = recentStart.subtract(Duration(days: days));
+  final tomorrow = today.add(const Duration(days: 1));
+  final transactions = source.where(_isSpending).toList();
+
+  SpendingPeriodTotals totalFor(DateTime start, DateTime end) {
+    final totals = <String, double>{};
+    var amount = 0.0;
+    var expenseCount = 0;
+    for (final transaction in transactions) {
+      if (transaction.date.isBefore(start) || !transaction.date.isBefore(end)) {
+        continue;
+      }
+      amount += transaction.amount;
+      expenseCount++;
+      totals[transaction.label] =
+          (totals[transaction.label] ?? 0) + transaction.amount;
+    }
+    return SpendingPeriodTotals(
+      amount: amount,
+      expenseCount: expenseCount,
+      categoryTotals: Map.unmodifiable(totals),
+    );
+  }
+
+  return SpendingPeriodComparison(
+    days: days,
+    recent: totalFor(recentStart, tomorrow),
+    previous: totalFor(previousStart, recentStart),
+  );
+}
+
 class ExpenseCategoryTotal {
   const ExpenseCategoryTotal(this.category, this.amount);
 

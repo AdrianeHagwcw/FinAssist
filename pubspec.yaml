@@ -51,6 +51,8 @@ dependencies:
   flutter_file_dialog: ^3.3.3
   firebase_ai: ^4.0.0
   firebase_app_check: ^0.4.8
+  webview_flutter: ^4.14.1
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:

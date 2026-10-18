@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 
 import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
@@ -16,6 +17,22 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  static const int _maxTextLength = 50;
+  static final TextInputFormatter _nameCharacterFormatter =
+      FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9 ]'));
+
+  Widget? _buildCharacterCounter(
+    BuildContext context, {
+    required int currentLength,
+    required bool isFocused,
+    required int? maxLength,
+  }) {
+    if (maxLength == null || currentLength < maxLength) {
+      return null;
+    }
+    return Text('$currentLength/$maxLength');
+  }
+
   // =========================================================
   // CONTROLLERS
   // =========================================================
@@ -53,16 +70,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final password = _passwordController.text;
     final confirmPassword = _confirmPasswordController.text;
 
-    final nameError = name.isEmpty ? 'This field is required.' : null;
+    final nameError = name.isEmpty
+        ? 'This field is required.'
+        : !RegExp(r'^[a-zA-Z0-9]+(?: [a-zA-Z0-9]+)*$').hasMatch(name)
+        ? 'Use only letters, numbers, and spaces.'
+        : null;
     final emailError = email.isEmpty
         ? 'This field is required.'
         : !_validEmail(email)
         ? 'Enter a valid email address.'
         : null;
     final passwordError = password.isEmpty ? 'This field is required.' : null;
-    final passwordMeetsPolicy = _passwordRequirementsFor(password).every(
-      (requirement) => requirement.value,
-    );
+    final passwordMeetsPolicy = _passwordRequirementsFor(
+      password,
+    ).every((requirement) => requirement.value);
     final confirmPasswordError = confirmPassword.isEmpty
         ? 'This field is required.'
         : password != confirmPassword
@@ -127,10 +148,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
-          builder: (context) => EmailVerificationScreen(
-            email: email,
-            user: user,
-          ),
+          builder: (context) =>
+              EmailVerificationScreen(email: email, user: user),
         ),
         (route) => false,
       );
@@ -185,9 +204,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   List<MapEntry<String, bool>> _passwordRequirementsFor(String password) => [
     MapEntry('At least 6 characters', password.length >= 6),
-    MapEntry('Require uppercase character', RegExp(r'[A-Z]').hasMatch(password)),
-    MapEntry('Require lowercase character', RegExp(r'[a-z]').hasMatch(password)),
-    MapEntry('Require special character', RegExp(r'[^A-Za-z0-9\s]').hasMatch(password)),
+    MapEntry(
+      'Require uppercase character',
+      RegExp(r'[A-Z]').hasMatch(password),
+    ),
+    MapEntry(
+      'Require lowercase character',
+      RegExp(r'[a-z]').hasMatch(password),
+    ),
+    MapEntry(
+      'Require special character',
+      RegExp(r'[^A-Za-z0-9\s]').hasMatch(password),
+    ),
     MapEntry('Require numeric character', RegExp(r'[0-9]').hasMatch(password)),
   ];
 
@@ -357,6 +385,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   textCapitalization: TextCapitalization.words,
 
+                  maxLength: _maxTextLength,
+                  buildCounter: _buildCharacterCounter,
+                  inputFormatters: [
+                    _nameCharacterFormatter,
+                    LengthLimitingTextInputFormatter(_maxTextLength),
+                  ],
+
                   onChanged: (_) => _onFieldChanged('name'),
 
                   decoration: InputDecoration(
@@ -424,6 +459,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   enabled: !_isLoading,
 
                   keyboardType: TextInputType.emailAddress,
+
+                  maxLength: _maxTextLength,
+                  buildCounter: _buildCharacterCounter,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(_maxTextLength),
+                  ],
 
                   onChanged: (_) => _onFieldChanged('email'),
 
@@ -500,6 +541,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   obscureText: _obscurePassword,
 
+                  maxLength: _maxTextLength,
+                  buildCounter: _buildCharacterCounter,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(_maxTextLength),
+                  ],
+
                   onChanged: (_) => _onFieldChanged('password'),
 
                   decoration: InputDecoration(
@@ -515,22 +562,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ).any((requirement) => !requirement.value)
                         ? Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: _passwordRequirementsFor(
-                              _passwordController.text,
-                            ).where((requirement) => !requirement.value).map((
-                              requirement,
-                            ) {
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  requirement.key,
-                                  style: TextStyle(
-                                    color: dangerColorOn(context),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              );
-                            }).toList(),
+                            children:
+                                _passwordRequirementsFor(
+                                      _passwordController.text,
+                                    )
+                                    .where((requirement) => !requirement.value)
+                                    .map((requirement) {
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          requirement.key,
+                                          style: TextStyle(
+                                            color: dangerColorOn(context),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      );
+                                    })
+                                    .toList(),
                           )
                         : null,
 
@@ -614,6 +663,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   enabled: !_isLoading,
 
                   obscureText: _obscureConfirmPassword,
+
+                  maxLength: _maxTextLength,
+                  buildCounter: _buildCharacterCounter,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(_maxTextLength),
+                  ],
 
                   onChanged: (_) => _onFieldChanged('confirmPassword'),
 
