@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:testapp/models/chat_action.dart';
 import 'package:testapp/models/chat_answers.dart';
+import 'package:testapp/models/chat_language.dart';
 import 'package:testapp/models/finance_snapshot.dart';
 import 'package:testapp/models/financial_topic_validator.dart';
 import 'package:testapp/models/wallet.dart';
@@ -43,11 +44,15 @@ class _FakeFinancialAssistant implements FinancialAssistant {
   }
 
   @override
-  Future<List<String>> explainInsights(_) async => insightsResponse;
+  Future<List<String>> explainInsights(
+    _, {
+    ChatLanguage? responseLanguage,
+  }) async => insightsResponse;
 
   @override
   Future<GroundedProductPriceAnswer> lookupProductPrices({
     required String product,
+    ChatLanguage? responseLanguage,
   }) async {
     productPriceRequests++;
     requestedProduct = product;
@@ -577,6 +582,20 @@ void main() {
     expect(
       find.textContaining('I could not get a Gemini response just now'),
       findsNothing,
+    );
+  });
+
+  testWidgets('uses the latest Tagalog language for an AI failure fallback', (
+    tester,
+  ) async {
+    final assistant = _FakeFinancialAssistant()..fail = true;
+    await _pumpChat(tester, assistant: assistant);
+
+    await _ask(tester, 'May payo ka ba para sa aking pera?');
+
+    expect(
+      find.textContaining('Hindi available ang AI ngayon'),
+      findsOneWidget,
     );
   });
 

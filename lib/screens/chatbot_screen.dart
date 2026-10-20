@@ -7,6 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../models/chat_answers.dart';
 import '../models/chat_action.dart';
+import '../models/chat_language.dart';
 import '../models/financial_topic_validator.dart';
 import '../models/financial_ai_guardrails.dart';
 import '../models/finance_snapshot.dart';
@@ -32,6 +33,78 @@ Stream<bool> _deviceOnlineStatus() async* {
   yield isOnline(await connectivity.checkConnectivity());
   yield* connectivity.onConnectivityChanged.map(isOnline);
 }
+
+String _localizedActionMessage(
+  ChatLanguage language,
+  String english,
+) => switch (language) {
+  ChatLanguage.english => english,
+  ChatLanguage.tagalog =>
+    english.contains('expense amount')
+        ? 'Nailagay ko na ang halaga at description ng expense. Piliin ang '
+              'category at wallet na pagbabawasan, saka i-review at kumpirmahin. Walang mase-save '
+              'bago mo ito kumpirmahin.'
+        : english.contains('start an expense')
+        ? 'Maaari akong magsimula ng expense. Para saan ito? Piliin ang '
+              'category at wallet. Walang mase-save bago mo ito i-review at '
+              'kumpirmahin.'
+        : 'Maaari ko itong ihanda sa FinAssist. I-review at baguhin ang '
+              'detalye sa form, saka ikaw ang mag-save. Walang mase-save bago '
+              'mo ito kumpirmahin.',
+  ChatLanguage.taglish =>
+    english.contains('expense amount')
+        ? 'Nailagay ko na ang expense amount at description. Piliin ang '
+              'category at wallet, then i-review at i-confirm. Nothing is saved '
+              'until you confirm.'
+        : english.contains('start an expense')
+        ? 'I can start an expense. Para saan ito? Piliin ang category at '
+              'wallet na pagbabawasan. Nothing is saved until you review and confirm it.'
+        : 'I can prepare this in FinAssist. I-review at i-edit ang details '
+              'sa existing form, then ikaw ang mag-save. Nothing is saved until '
+              'you confirm.',
+};
+
+String _localizedFailureMessage(
+  ChatLanguage language,
+  String english,
+) => switch (language) {
+  ChatLanguage.english => english,
+  ChatLanguage.tagalog =>
+    english.startsWith('I could not find')
+        ? 'Hindi ako nakahanap ng mapagkakatiwalaang kasalukuyang presyo. '
+              'Subukan muli sandali. Hindi ako manghuhula ng presyo.'
+        : english.startsWith('I want to answer accurately')
+        ? 'Gusto kong sumagot nang tama. Paki-linaw kung gagamitin ko ang '
+              'naitalang kita, gastos, balanse, bills, o savings target. Isama '
+              'ang halaga at panahong tinutukoy mo.'
+        : english.startsWith('Your records changed')
+        ? 'Nagbago ang iyong records habang sumasagot ako. Magtanong muli '
+              'para magamit ko ang updated na impormasyon.'
+        : english.contains('The following is verified FinAssist guidance')
+        ? 'Hindi available ang AI ngayon. Ang sumusunod ay verified '
+              'FinAssist guidance mula sa iyong saved records, hindi ito '
+              'Gemini response:\n\n'
+              '${english.split('The following is verified FinAssist guidance').last.split('\n\n').last}'
+        : 'Hindi available ang AI ngayon. Hindi nabago ang iyong financial '
+              'records. Subukan muli mamaya.',
+  ChatLanguage.taglish =>
+    english.startsWith('I could not find')
+        ? 'Hindi ako nakahanap ng reliable na current price ngayon. '
+              'Try again shortly. Hindi ako manghuhula ng presyo.'
+        : english.startsWith('I want to answer accurately')
+        ? 'Gusto kong accurate ang sagot. Paki-clarify kung gagamitin ko ang '
+              'recorded income, expenses, balance, bills, o savings target. '
+              'Isama ang amount at time period.'
+        : english.startsWith('Your records changed')
+        ? 'Nagbago ang records mo habang sumasagot ako. Ask again para '
+              'magamit ko ang updated information.'
+        : english.contains('The following is verified FinAssist guidance')
+        ? 'AI unavailable ngayon. Ang sumusunod ay verified FinAssist '
+              'guidance mula sa saved records mo, hindi ito Gemini response:\n\n'
+              '${english.split('The following is verified FinAssist guidance').last.split('\n\n').last}'
+        : 'AI unavailable ngayon. Hindi nabago ang financial records mo. '
+              'Subukan muli mamaya.',
+};
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({
@@ -215,6 +288,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       final action = hasMultipleCategorizedExpenses
           ? null
           : parseChatAction(text, records: records);
+      final responseLanguage = chatResponseLanguage(
+        text,
+        history: [
+          for (final message in _messages.take(_messages.length - 1))
+            if (message['isUser'] == true)
+              FinancialChatTurn(
+                isUser: true,
+                text: message['message'] as String,
+              ),
+        ],
+      );
       final contextMessage = _messages.reversed
           .skip(1)
           .map(
@@ -236,20 +320,27 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       var answer = switch (action?.type) {
         ChatActionType.expense =>
           action!.description == null
-              ? 'Sure — I can start an expense for you. What was it for? '
-                    'Please choose its category and the wallet to deduct it '
-                    'from. I have put the amount in the expense form; nothing '
-                    'will be saved until you review it and tap Save Expense.'
-              : 'Sure — I can start an expense for you. I have filled in the '
-                    'amount and description. Please choose its category and '
-                    'the wallet to deduct it from, then review and tap Save '
-                    'Expense. Nothing is saved before you confirm.',
+              ? _localizedActionMessage(
+                  responseLanguage,
+                  'I can start an expense for you. What was it for? Please '
+                  'choose its category and the wallet to deduct it from. '
+                  'Nothing will be saved '
+                  'until you review and confirm it.',
+                )
+              : _localizedActionMessage(
+                  responseLanguage,
+                  'I filled in the expense amount and description. Choose its '
+                  'category and wallet, then review and confirm it. '
+                  'Nothing is saved before you confirm.',
+                ),
         ChatActionType.income ||
         ChatActionType.transfer ||
-        ChatActionType.savingsGoal =>
+        ChatActionType.savingsGoal => _localizedActionMessage(
+          responseLanguage,
           'I can prepare this in FinAssist. Review and edit the details in '
-              'the existing form, then save it yourself. Nothing is saved '
-              'until you confirm.',
+          'the existing form, then save it yourself. Nothing is saved '
+          'until you confirm.',
+        ),
         null => localReply.text,
       };
 
@@ -285,6 +376,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             if (productPriceQuery != null) {
               groundedPriceAnswer = await assistant.lookupProductPrices(
                 product: productPriceQuery,
+                responseLanguage: responseLanguage,
               );
               return groundedPriceAnswer!.text;
             }
@@ -294,7 +386,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 now: records.now,
                 spendingBudget: records.periodBudget,
               );
-              final suggestions = await assistant.explainInsights(insights);
+              final suggestions = await assistant.explainInsights(
+                insights,
+                responseLanguage: responseLanguage,
+              );
               if (suggestions.isEmpty ||
                   !suggestions.every(isUsableFinancialExplanation)) {
                 throw const FinancialAssistantFailure(
@@ -333,26 +428,38 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           if (contextKey != null &&
               contextKey != financialContextKey(_records?.at(DateTime.now()))) {
             usedAi = false;
-            answer =
-                'Your records changed while I was answering. '
-                'Please ask again so I can use the updated information.';
+            answer = _localizedFailureMessage(
+              responseLanguage,
+              'Your records changed while I was answering. Please ask again '
+              'so I can use the updated information.',
+            );
           }
         } on FinancialAssistantFailure catch (error) {
           debugPrint(
-            'FinAssist Gemini chat failed; using rule-based reply: '
-            '${error.message}',
+            'FinAssist Gemini chat failed (${error.kind.name}); '
+            'showing verified local guidance.',
           );
           answer = productPriceQuery != null
-              ? 'I could not find a reliable current price right now. '
-                    'Please try again in a moment. I will not guess the price.'
+              ? _localizedFailureMessage(
+                  responseLanguage,
+                  'I could not find a reliable current price right now. '
+                  'Please try again in a moment. I will not guess the price.',
+                )
               : isFinancialFollowUp(text)
-              ? 'I want to answer accurately. Please clarify whether you want '
-                    'me to use your recorded income, expenses, balance, bills, '
-                    'or a savings target. Include the amount and time period '
-                    'you mean.'
-              : '${error.transient ? 'Gemini is temporarily busy. ' : 'AI is unavailable right now. '}'
-                    'This answer uses the app\'s local guidance and available records.\n\n'
-                    '${localReply.text}';
+              ? _localizedFailureMessage(
+                  responseLanguage,
+                  'I want to answer accurately. Please clarify whether you '
+                  'want me to use your recorded income, expenses, balance, '
+                  'bills, or a savings target. Include the amount and time '
+                  'period you mean.',
+                )
+              : _localizedFailureMessage(
+                  responseLanguage,
+                  'AI is unavailable right now: ${error.message}\n\n'
+                  'The following is verified FinAssist guidance from your '
+                  'saved records, not a Gemini response:\n\n'
+                  '${localReply.text}',
+                );
         }
       }
 
@@ -392,11 +499,24 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     } on FinancialAssistantFailure catch (error) {
       debugPrint('FinAssist Gemini chat failed: ${error.message}');
       if (!mounted || epoch != _conversationEpoch) return;
+      final fallbackLanguage = chatResponseLanguage(
+        text,
+        history: [
+          for (final message in _messages)
+            if (message['isUser'] == true)
+              FinancialChatTurn(
+                isUser: true,
+                text: message['message'] as String,
+              ),
+        ],
+      );
       setState(() {
         _messages.add({
-          'message':
-              'I could not get a Gemini response just now. Your saved '
-              'financial records were not changed. Please try again later.',
+          'message': _localizedFailureMessage(
+            fallbackLanguage,
+            'AI is unavailable right now: ${error.message} Your saved '
+            'financial records were not changed. Please try again later.',
+          ),
           'isUser': false,
           'financialContext': financialTopic,
         });

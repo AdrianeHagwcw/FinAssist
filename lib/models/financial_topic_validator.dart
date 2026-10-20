@@ -8,6 +8,8 @@ bool isFinancialTopic(String message, {bool hasFinancialContext = false}) {
 
   if (RegExp(
     r"\bwhat(?:'s| is) the weather\b|"
+    r'\b(?:who are you|what are you|tell me about yourself|what can you do)\b|'
+    r'\b(?:translate|summarize|summarise) (?:this|the following)\b|'
     r'\b(?:write|compose|tell me) (?:a )?(?:poem|joke|story|song)\b|'
     r'\b(?:give me|share) (?:a )?recipe\b|'
     r'\b(?:sports score|who won|political debate|programming help|write code|'

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:testapp/models/app_transaction.dart';
+import 'package:testapp/models/chat_language.dart';
 import 'package:testapp/models/finance_snapshot.dart';
 import 'package:testapp/models/financial_insights.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
@@ -22,7 +23,10 @@ class _FakeFinancialAssistant implements FinancialAssistant {
   }) async => '';
 
   @override
-  Future<List<String>> explainInsights(FinancialInsights insights) async {
+  Future<List<String>> explainInsights(
+    FinancialInsights insights, {
+    ChatLanguage? responseLanguage,
+  }) async {
     insightRequests++;
     if (fail) {
       throw const FinancialAssistantFailure('simulated Gemini failure');
@@ -35,6 +39,7 @@ class _FakeFinancialAssistant implements FinancialAssistant {
   @override
   Future<GroundedProductPriceAnswer> lookupProductPrices({
     required String product,
+    ChatLanguage? responseLanguage,
   }) async => const GroundedProductPriceAnswer(
     text: '',
     sources: [],

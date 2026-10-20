@@ -74,6 +74,18 @@ void main() {
       );
       expect(
         chatResponseLanguage(
+          'Can I save kahit maliit lang?',
+          history: const [
+            FinancialChatTurn(
+              isUser: true,
+              text: 'Magkano ang dapat kong itabi?',
+            ),
+          ],
+        ),
+        ChatLanguage.taglish,
+      );
+      expect(
+        chatResponseLanguage(
           'Magkano ang dapat kong itabi?',
           history: const [
             FinancialChatTurn(isUser: true, text: 'How much should I save?'),
@@ -113,6 +125,33 @@ void main() {
         );
       },
     );
+
+    test('a recognizable language switch applies to the latest message', () {
+      expect(
+        chatResponseLanguage(
+          'Magkano ang gastos ko ngayong buwan?',
+          history: const [
+            FinancialChatTurn(
+              isUser: true,
+              text: 'How much did I spend this month?',
+            ),
+          ],
+        ),
+        ChatLanguage.tagalog,
+      );
+      expect(
+        chatResponseLanguage(
+          'How much did I spend this month?',
+          history: const [
+            FinancialChatTurn(
+              isUser: true,
+              text: 'Magkano ang gastos ko ngayong buwan?',
+            ),
+          ],
+        ),
+        ChatLanguage.english,
+      );
+    });
 
     test('defaults to English when there is no recognizable user language', () {
       expect(

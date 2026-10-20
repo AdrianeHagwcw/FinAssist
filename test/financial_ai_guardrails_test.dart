@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:testapp/models/financial_ai_guardrails.dart';
 import 'package:testapp/models/financial_topic_validator.dart';
@@ -50,6 +52,8 @@ void main() {
         isFinancialTopic('Who won the game?', hasFinancialContext: true),
         isFalse,
       );
+      expect(isFinancialTopic('Who are you?'), isFalse);
+      expect(isFinancialTopic('Tell me about yourself'), isFalse);
       for (final question in [
         'How should I manage my pension?',
         'Paano pagkasyahin ang baon?',
@@ -109,6 +113,18 @@ void main() {
     expect(
       const FinancialAssistantFailure('busy', null, true).transient,
       isTrue,
+    );
+    expect(
+      classifyGeminiFailure(Exception('Firebase App Check token rejected')),
+      FinancialAssistantFailureKind.appCheck,
+    );
+    expect(
+      classifyGeminiFailure(TimeoutException('request timed out')),
+      FinancialAssistantFailureKind.network,
+    );
+    expect(
+      failureMessageFor(FinancialAssistantFailureKind.quota),
+      contains('usage limit'),
     );
   });
 
