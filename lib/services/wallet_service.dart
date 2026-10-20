@@ -5,6 +5,18 @@ import '../models/app_transaction.dart';
 import '../models/wallet.dart';
 import 'firestore_write.dart';
 
+class ExpenseBatchEntry {
+  const ExpenseBatchEntry({
+    required this.amount,
+    required this.label,
+    required this.note,
+  });
+
+  final double amount;
+  final String label;
+  final String note;
+}
+
 /// Reads and writes the user's wallets and transactions.
 ///
 /// Anything that changes a balance is written as a single [WriteBatch] holding
@@ -295,6 +307,32 @@ class WalletService {
       note: note,
       date: date,
     );
+  }
+
+  /// Records multiple expenses in one Firestore batch. Each entry keeps its
+  /// own category and description while sharing the selected wallet.
+  static void recordExpenseBatch({
+    required List<ExpenseBatchEntry> expenses,
+    String? walletId,
+    DateTime? date,
+  }) {
+    if (expenses.isEmpty) {
+      throw ArgumentError('An expense batch cannot be empty.');
+    }
+
+    final batch = _firestore.batch();
+    for (final expense in expenses) {
+      addTransactionToBatch(
+        batch,
+        type: TransactionType.expense,
+        amount: expense.amount,
+        label: expense.label,
+        walletId: walletId,
+        note: expense.note,
+        date: date,
+      );
+    }
+    commitFirestoreWrite(batch.commit(), 'record expense batch');
   }
 
   /// Rewrites an existing transaction: takes back what the old version did to

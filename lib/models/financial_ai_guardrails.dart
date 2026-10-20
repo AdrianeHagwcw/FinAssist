@@ -23,3 +23,10 @@ bool isUsableFinancialExplanation(String text) {
   }
   return true;
 }
+
+bool isUncertainFinancialExplanation(String text) => RegExp(
+  r'\b(?:i\s+(?:do not|dont|can not|cant|cannot)\s+know|'
+  r'not\s+sure|unclear|need\s+more\s+(?:information|details)|'
+  r'could\s+not\s+determine|i\s+cannot\s+answer)\b',
+  caseSensitive: false,
+).hasMatch(text);

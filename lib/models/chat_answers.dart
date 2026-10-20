@@ -14,6 +14,7 @@ import 'safe_to_spend.dart';
 import 'savings_suggestion.dart';
 import 'transaction_filter.dart';
 import 'chat_language.dart';
+import '../utils/categories.dart';
 
 /// The assistant's answers, worked out by rules from the user's own records.
 ///
@@ -56,6 +57,73 @@ ChatReply _insightsResponse(String question) {
           'tala mo.',
   };
   return ChatReply(message);
+}
+
+class CategorizedChatExpense {
+  const CategorizedChatExpense({
+    required this.amount,
+    required this.description,
+    required this.category,
+  });
+
+  final double amount;
+  final String description;
+  final String? category;
+}
+
+List<CategorizedChatExpense>? categorizeChatExpenses(String message) {
+  final matches = RegExp(
+    r'(?:₱|php\s*)?(\d[\d,]*(?:\.\d{1,2})?)\s*'
+    r'(?:on|for)\s+(.+?)(?=\s*,\s*(?:and\s+)?(?:₱|php\s*)?\d|'
+    r'\s+and\s+(?:₱|php\s*)?\d|$)',
+    caseSensitive: false,
+  ).allMatches(message).toList();
+  if (matches.length < 2) return null;
+
+  final expenses = <CategorizedChatExpense>[];
+  for (final match in matches) {
+    final amount = double.tryParse(match.group(1)!.replaceAll(',', ''));
+    final description = match
+        .group(2)!
+        .trim()
+        .replaceFirst(RegExp(r'[,.!?]+$'), '');
+    final cleanedDescription = description
+        .replaceFirst(
+          RegExp(
+            r'[\s,.!?]+(?:categorize|classify|group)\s+(?:these|the)\s+'
+            r'expenses?\.?$',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+    if (amount == null || amount <= 0 || cleanedDescription.isEmpty) {
+      return null;
+    }
+    expenses.add(
+      CategorizedChatExpense(
+        amount: amount,
+        description: cleanedDescription,
+        category: suggestCategory(cleanedDescription, from: expenseCategories),
+      ),
+    );
+  }
+  return expenses;
+}
+
+bool isSavingsSuggestionsQuestion(String question) {
+  final text = ' ${_plain(question)} ';
+  return _has(text, [
+    'savings suggestions',
+    'saving suggestions',
+    'suggestions to save',
+    'ways to save',
+    'saving tips',
+    'savings tips',
+    'tips to save',
+    'suggest ways to save',
+    'suggest how to save',
+  ]);
 }
 
 /// What the assistant is waiting to hear in a "Can I buy it?" conversation.
@@ -177,8 +245,24 @@ ChatReply answerChat(
   String message, {
   required FinanceSnapshot? records,
   PurchaseQuestion? pending,
+  String? contextMessage,
 }) {
   final text = ' ${_plain(message)} ';
+
+  final categorizedExpenses = categorizeChatExpenses(message);
+  if (categorizedExpenses != null) {
+    final lines = categorizedExpenses.map((expense) {
+      final category = expense.category;
+      return category == null
+          ? '${formatPeso(expense.amount)} — ${expense.description}: '
+                'category unclear; choose the category in FinAssist'
+          : '${formatPeso(expense.amount)} — ${expense.description}: $category';
+    });
+    return ChatReply(
+      'Here is the categorization for each expense:\n${lines.join('\n')}\n\n'
+      'Are these categories correct? If yes, tap “Add all expenses”.',
+    ).protected();
+  }
 
   // A calculation question interrupts a purchase follow-up instead of
   // being mistaken for an item name or price.
@@ -192,8 +276,21 @@ ChatReply answerChat(
   final buy = _buyTrigger.firstMatch(message.toLowerCase());
   if (buy != null) return _startPurchase(message, buy.end, records);
 
+  final projection = _savingsProjection(message, records);
+  if (projection != null) return projection;
+
+  final targetAnswer = _savingsTargetAnswer(
+    message,
+    contextMessage: contextMessage,
+    records: records,
+  );
+  if (targetAnswer != null) return targetAnswer;
+
   final goalPlan = _goalSavingsPlan(message, records);
   if (goalPlan != null) return goalPlan;
+
+  final targetPlan = _targetSavingsPlan(message, records);
+  if (targetPlan != null) return targetPlan;
 
   var intent = _intentOf(text);
   // "Nagbayad na ba si Ana?" names someone the user lent to, with no debt
@@ -222,11 +319,7 @@ ChatReply answerChat(
   }
   if (intent == null) {
     return _looksFinancial(text)
-        ? const ChatReply(
-            "I'm not sure what you're asking. I can answer questions like "
-            'these:',
-            choices: suggestedQuestions,
-          )
+        ? _clarification()
         : const ChatReply(
             'Sorry, I can only help with money questions, like budgeting, '
             'expenses, bills and savings. What would you like to know about '
@@ -246,6 +339,7 @@ ChatReply answerChat(
     _Intent.safeToday => _safeToday(records),
     _Intent.safeTodayComparison => _safeTodayComparison(text, records),
     _Intent.insights => _insightsResponse(text),
+    _Intent.savingsPlan => _savingsPlan(records, text),
     _Intent.spent => _spent(text, records),
     _Intent.savingsCapacity => _savingsCapacity(text, records),
     _Intent.topSpending => _topSpending(text, records),
@@ -262,6 +356,205 @@ ChatReply answerChat(
       : reply.protected();
 }
 
+ChatReply _clarification() => const ChatReply(
+  "I'm not sure what you're asking yet. I want to give you an accurate "
+  'answer, but I need a little more detail. '
+  'Are you asking about your recorded income, expenses, available balance, '
+  'a savings target, or a future purchase? Include the amount and time period '
+  'if you want me to calculate it.',
+  choices: [
+    'How much income did I record this month?',
+    'How much did I spend this month?',
+    'How much can I save?',
+    'Can I afford this purchase?',
+  ],
+);
+
+ChatReply? _targetSavingsPlan(String message, FinanceSnapshot? records) {
+  final normalized = message.toLowerCase();
+  final asksToSave = RegExp(
+    r'\b(save|saving|savings|set aside|put aside|ipon|'
+    r'mag.?ipon|makaipon|makapag.?ipon)\b',
+  ).hasMatch(normalized);
+  if (!asksToSave) return null;
+
+  final duration = RegExp(
+    r'(?:in|within|over|for|next|sa loob ng|within)\s*'
+    r'(?:the\s+)?(?:(\d+)|a|an)\s*'
+    r'(day|days|week|weeks|month|months|year|years)\b',
+  ).firstMatch(normalized);
+  if (duration == null) return null;
+
+  final target = findAmount(message)?.value;
+  final count = int.tryParse(duration[1] ?? '1');
+  if (target == null || target <= 0 || count == null || count <= 0) {
+    return null;
+  }
+
+  final unit = duration[2]!;
+  final days = switch (unit) {
+    'day' || 'days' => count,
+    'week' || 'weeks' => count * 7,
+    'month' || 'months' => count * 30,
+    'year' || 'years' => count * 365,
+    _ => 0,
+  };
+  if (days <= 0) return null;
+
+  final daily = (target / days * 100).ceil() / 100;
+  final monthly = (target / (days / 30) * 100).ceil() / 100;
+  final isFilipino = RegExp(
+    r'\b(paano|pano|ako|makakaipon|sa loob|araw araw|araw-araw)\b',
+  ).hasMatch(normalized);
+  final context = records == null
+      ? ''
+      : ' Compare this target with your recorded income, expenses, bills, '
+            'and existing savings before committing to it.';
+
+  return ChatReply(
+    isFilipino
+        ? 'Para makaipon ng ${formatPeso(target)} sa loob ng $count $unit, '
+              'magtabi ng humigit-kumulang ${formatPeso(daily)} araw-araw '
+              '(${formatPeso(monthly)} kada buwan). Ito ay mathematical target '
+              'batay sa halaga at panahon na ibinigay mo; hindi pa nito '
+              'pinatutunayang kaya ng kasalukuyan mong budget.$context'
+        : 'To save ${formatPeso(target)} in $count $unit, set aside about '
+              '${formatPeso(daily)} per day (${formatPeso(monthly)} per month). '
+              'This is a mathematical target based on the amount and timeline '
+              'you gave; it does not prove that your current budget can afford '
+              'it.$context',
+    isVerifiedGoalPlan: true,
+  ).protected();
+}
+
+ChatReply? _savingsProjection(String message, FinanceSnapshot? records) {
+  final normalized = message.toLowerCase();
+  final contributionMatch = RegExp(
+    r'([\d,]+(?:\.\d+)?)\s*'
+    r'(?:per day|each day|a day|daily|araw araw|kada araw)',
+  ).firstMatch(normalized);
+  if (contributionMatch == null) return null;
+
+  final contribution = double.tryParse(
+    contributionMatch.group(1)!.replaceAll(',', ''),
+  );
+  if (contribution == null || contribution <= 0) return null;
+
+  final targetMatch =
+      RegExp(
+        r'\b(?:have|save|reach|get|accumulate|makakuha|makaipon)\b'
+        r'[^0-9]{0,20}([\d,]+(?:\.\d+)?)',
+      ).firstMatch(normalized) ??
+      RegExp(
+        r'([\d,]+(?:\.\d+)?)\s+'
+        r'(?:in|within|after|over|for)\s+',
+      ).firstMatch(normalized);
+  final durationMatch = RegExp(
+    r'\b(?:in|within|after|over|for)\s+(?:(\d+)|a|an)\s+'
+    r'(day|days|week|weeks|month|months|year|years)\b',
+  ).firstMatch(normalized);
+  if (targetMatch == null || durationMatch == null) return null;
+
+  final target = double.tryParse(targetMatch.group(1)!.replaceAll(',', ''));
+  final count = int.tryParse(durationMatch.group(1) ?? '1');
+  if (target == null || target <= 0 || count == null || count <= 0) {
+    return null;
+  }
+
+  final unit = durationMatch.group(2)!;
+  final days = switch (unit) {
+    'day' || 'days' => count,
+    'week' || 'weeks' => count * 7,
+    'month' || 'months' => count * 30,
+    'year' || 'years' => count * 365,
+    _ => 0,
+  };
+  if (days <= 0) return null;
+
+  final projected = contribution * days;
+  final difference = projected - target;
+  final result = difference >= 0
+      ? 'yes, by about ${formatPeso(difference)}'
+      : 'no, you would be short by about ${formatPeso(-difference)}';
+  final recordedNote = records == null
+      ? ''
+      : ' This is before your recorded expenses, bills, and other '
+            'commitments, so it is a projection rather than an affordability '
+            'guarantee.';
+  return ChatReply(
+    'At ${formatPeso(contribution)} per day for $count $unit, you would '
+    'save about ${formatPeso(projected)}. For a ${formatPeso(target)} goal, '
+    'the mathematical answer is $result.$recordedNote',
+  ).protected();
+}
+
+ChatReply? _savingsTargetAnswer(
+  String message, {
+  required String? contextMessage,
+  required FinanceSnapshot? records,
+}) {
+  final normalized = ' ${_plain(message)} ';
+  final asksToSave = _has(normalized, [
+    'save',
+    'saving',
+    'savings',
+    'set aside',
+    'put aside',
+    'ipon',
+    'mag ipon',
+  ]);
+  final asksDaily = _has(normalized, [
+    'per day',
+    'daily',
+    'every day',
+    'everyday',
+    'a day',
+    'araw araw',
+    'kada araw',
+  ]);
+  if (!asksToSave || !asksDaily) return null;
+
+  final context = contextMessage == null ? '' : ' $contextMessage';
+  final combined = '$message$context';
+  final monthlyMentioned = RegExp(
+    r'\b(per month|monthly|a month|each month|kada buwan|bawat buwan)\b',
+    caseSensitive: false,
+  ).hasMatch(combined);
+  if (!monthlyMentioned) return null;
+
+  final amount = findAmount(message)?.value ?? findAmount(context)?.value;
+  if (amount == null || amount <= 0) return null;
+
+  final dailyTarget = (amount / 30 * 100).ceil() / 100;
+  final affordability = records == null
+      ? ''
+      : _monthlySavingsContext(records, amount);
+  return ChatReply(
+    'To save ${formatPeso(amount)} per month, set aside about '
+    '${formatPeso(dailyTarget)} per day, using a 30-day month. '
+    'This is the target amount you asked for, not a claim that it is '
+    'affordable. $affordability',
+  );
+}
+
+String _monthlySavingsContext(FinanceSnapshot records, double target) {
+  final month = ReportPeriod.monthOf(records.now);
+  final flow = inAndOut(transactionsIn(records.transactions, month));
+  final spending = spendingByCategory(
+    transactionsIn(records.transactions, month),
+  ).fold<double>(0, (sum, entry) => sum + entry.value);
+  if (flow.moneyIn <= 0) {
+    return "I don't have recorded income this month to compare with this "
+        'target.';
+  }
+  final remaining = flow.moneyIn - spending;
+  return 'This month, the app records ${formatPeso(flow.moneyIn)} income and '
+      '${formatPeso(spending)} in recorded expenses, leaving about '
+      '${formatPeso(remaining < 0 ? 0 : remaining)} before unrecorded bills '
+      'and other commitments. Keep those commitments and an emergency buffer '
+      'in mind before setting this aside.';
+}
+
 ChatReply? _goalSavingsPlan(String message, FinanceSnapshot? records) {
   final normalized = message.toLowerCase();
   final asksToSave = RegExp(
@@ -270,7 +563,8 @@ ChatReply? _goalSavingsPlan(String message, FinanceSnapshot? records) {
   ).hasMatch(normalized);
   final mentionsPurchase = RegExp(
     r'\b(buy|purchase|house|home|property|car|vehicle|condo|land|'
-    r'bahay|bumili|bibili|bilhin|makabili)\b',
+    r'bahay|bumili|bibili|bilhin|makabili|get|reach|accumulate|'
+    r'goal|target)\b',
   ).hasMatch(normalized);
   if (!asksToSave || !mentionsPurchase) return null;
 
@@ -569,12 +863,56 @@ ChatReply _formula(String text, FinanceSnapshot? records) {
   );
 }
 
+enum _Extreme { smallest, biggest }
+
+_Extreme? _extremeRequested(String text) {
+  if (_has(text, [
+    'smallest',
+    'lowest',
+    'least',
+    'minimum',
+    'pinakamaliit',
+    'pinakamababa',
+  ])) {
+    return _Extreme.smallest;
+  }
+  if (_has(text, [
+    'biggest',
+    'largest',
+    'highest',
+    'greatest',
+    'maximum',
+    'pinakamalaki',
+    'pinakamataas',
+  ])) {
+    return _Extreme.biggest;
+  }
+  return null;
+}
+
+T _selectExtreme<T>(
+  List<T> values,
+  _Extreme extreme, {
+  required double Function(T) value,
+}) {
+  return values.reduce(
+    (first, next) => extreme == _Extreme.smallest
+        ? value(next) < value(first)
+              ? next
+              : first
+        : value(next) > value(first)
+        ? next
+        : first,
+  );
+}
+
 enum _Intent {
   greeting,
   help,
   safeToday,
   safeTodayComparison,
   insights,
+  savingsPlan,
   spent,
   savingsCapacity,
   topSpending,
@@ -664,6 +1002,13 @@ _Intent? _intentOf(String text) {
     'how to save',
     'how do i save',
     'save more',
+    'savings suggestions',
+    'saving suggestions',
+    'suggestions to save',
+    'ways to save',
+    'saving tips',
+    'savings tips',
+    'tips to save',
     'tips',
     'tip',
     'advice',
@@ -677,9 +1022,37 @@ _Intent? _intentOf(String text) {
     return _Intent.advice;
   }
   if (_has(text, [
+    'savings plan',
+    'saving plan',
+    'plan my savings',
+    'plan for saving',
+    'how should i save',
+    'how do i plan my savings',
+    'savings strategy',
+    'plano sa ipon',
+    'planong pag iipon',
+  ])) {
+    return _Intent.savingsPlan;
+  }
+  if (_has(text, [
+    'biggest income',
+    'largest income',
+    'highest income',
+    'smallest income',
+    'lowest income',
+    'pinakamalaking kita',
+    'pinakamataas na kita',
+    'pinakamaliit na kita',
+    'pinakamababang kita',
+  ])) {
+    return _Intent.income;
+  }
+  if (_has(text, [
         'how much can i save',
         'how much could i save',
         'how much should i save',
+        'how much do i need to save',
+        'how much money do i need to save',
         'how much can i put aside',
         'how much can i set aside',
         'magkano ang maipon',
@@ -705,6 +1078,21 @@ _Intent? _intentOf(String text) {
             'buwan',
           ]))) {
     return _Intent.savingsCapacity;
+  }
+  if (_has(text, [
+    'biggest expense',
+    'largest expense',
+    'highest expense',
+    'smallest expense',
+    'lowest expense',
+    'pinakamalaking gastos',
+    'pinakamaliit na gastos',
+  ])) {
+    return _Intent.spent;
+  }
+  if (_extremeRequested(text) != null &&
+      _has(text, ['bill', 'bills', 'bayarin', 'babayaran'])) {
+    return _Intent.bills;
   }
   if (_has(text, [
     'the most',
@@ -910,6 +1298,31 @@ ChatReply _safeTodayComparison(String text, FinanceSnapshot records) {
 ChatReply _spent(String text, FinanceSnapshot records) {
   final (period, label) = _periodIn(text, records.now);
   final during = transactionsIn(records.transactions, period);
+  final extreme = _extremeRequested(text);
+  if (extreme != null) {
+    final expenses = during
+        .where(
+          (transaction) =>
+              transaction.type == TransactionType.expense &&
+              !transaction.isBillPayment &&
+              !transaction.isDebtMovement &&
+              transaction.amount > 0,
+        )
+        .toList();
+    if (expenses.isEmpty) {
+      return ChatReply("You haven't recorded any ordinary expenses $label.");
+    }
+    final selected = _selectExtreme(
+      expenses,
+      extreme,
+      value: (transaction) => transaction.amount,
+    );
+    return ChatReply(
+      'Your ${extreme == _Extreme.smallest ? 'smallest' : 'biggest'} '
+      'ordinary expense $label was ${formatPeso(selected.amount)} for '
+      '${selected.label}.',
+    );
+  }
   final byCategory = spendingByCategory(during);
   final total = byCategory.fold<double>(0, (sum, entry) => sum + entry.value);
   final category = _categoryIn(text);
@@ -944,6 +1357,77 @@ ChatReply _spent(String text, FinanceSnapshot records) {
   return ChatReply(
     "You've spent ${formatPeso(total)} $label. Most of it went to "
     '${top.map((e) => '${e.key} (${formatPeso(e.value)})').join(' and ')}.',
+  );
+}
+
+ChatReply _savingsPlan(FinanceSnapshot records, String question) {
+  final suggestion = SavingsSuggestion.from(records);
+  final month = ReportPeriod.monthOf(records.now);
+  final currentMonth = transactionsIn(records.transactions, month);
+  final flow = inAndOut(currentMonth);
+  final recordedExpenses = spendingByCategory(
+    currentMonth,
+  ).fold<double>(0, (sum, entry) => sum + entry.value);
+  final missing = <String>[];
+
+  if (flow.moneyIn <= 0) {
+    missing.add('at least one recorded income entry for the planning period');
+  }
+  if (!suggestion.hasHistory) {
+    missing.add(
+      'ordinary spending recorded on at least 7 different days in the last '
+      '30 days',
+    );
+  }
+  if (missing.isNotEmpty) {
+    return ChatReply(
+      'I cannot make a reliable savings plan yet because I need ${missing.join(' and ')}. '
+      'Please record your income and everyday expenses, including bills and '
+      'debt payments, then ask me again. A missing record does not mean the '
+      'expense was zero.',
+    );
+  }
+
+  final billsDue = math.max(
+    0.0,
+    records.safeToSpend.billsDue - records.safeToSpend.billsWalletBalance,
+  );
+  final goalMoney = records.goalSavings;
+  final suggested = suggestion.amount;
+  final monthlySuggested = suggested;
+  final weeklySuggested = (monthlySuggested / 4 * 100).floor() / 100;
+  final dailySuggested = (monthlySuggested / 30 * 100).floor() / 100;
+  final questionNote =
+      _has(question, ['bill', 'bills', 'bayarin', 'utang', 'debt'])
+      ? ' This includes the bills currently due that are not covered by the '
+            'Bills wallets, while money already set aside for goals is protected.'
+      : '';
+
+  if (monthlySuggested <= 0) {
+    return ChatReply(
+      'Based on your recorded income of ${formatPeso(flow.moneyIn)} and '
+      'expenses of ${formatPeso(recordedExpenses)} this month, there is no '
+      'reliable amount left to suggest for savings after your recorded '
+      'commitments. Bills currently needing coverage total '
+      '${formatPeso(billsDue)}, and ${formatPeso(goalMoney)} is already set '
+      'aside for goals. Keep recording complete bills and expenses, protect '
+      'essentials, and review the plan after your next income cycle.'
+      '$questionNote',
+    );
+  }
+
+  return ChatReply(
+    'Here is a savings plan based on your recorded data: save about '
+    '${formatPeso(monthlySuggested)} per month, or about '
+    '${formatPeso(weeklySuggested)} per week or '
+    '${formatPeso(dailySuggested)} per day. This uses recorded income of '
+    '${formatPeso(flow.moneyIn)}, recorded expenses of '
+    '${formatPeso(recordedExpenses)}, bills currently needing coverage of '
+    '${formatPeso(billsDue)}, and ${formatPeso(goalMoney)} already set aside '
+    'for goals. The plan leaves most of the calculated remainder as a buffer. '
+    'Records may be incomplete, so keep checking essentials and new bills '
+    'before transferring the suggested amount.'
+    '$questionNote',
   );
 }
 
@@ -995,6 +1479,23 @@ ChatReply _topSpending(String text, FinanceSnapshot records) {
 }
 
 ChatReply _bills(String text, FinanceSnapshot records) {
+  final extreme = _extremeRequested(text);
+  if (extreme != null) {
+    final unpaid = records.bills.where((bill) => !bill.isSettled).toList();
+    if (unpaid.isEmpty) {
+      return const ChatReply("You don't have any unpaid bills recorded.");
+    }
+    final selected = _selectExtreme(
+      unpaid,
+      extreme,
+      value: (bill) => bill.remaining,
+    );
+    return ChatReply(
+      'Your ${extreme == _Extreme.smallest ? 'smallest' : 'biggest'} '
+      'unpaid bill is ${selected.name} at ${formatPeso(selected.remaining)}, '
+      'due ${formatMonthDay(selected.dueDate)}.',
+    );
+  }
   final today = records.today;
   final DateTime until;
   final String label;
@@ -1151,11 +1652,29 @@ String _aboutDebt(Debt debt) {
 
 ChatReply _income(String text, FinanceSnapshot records) {
   final (period, label) = _periodIn(text, records.now);
-  final received = inAndOut(
-    transactionsIn(records.transactions, period),
-  ).moneyIn;
+  final income = transactionsIn(
+    records.transactions,
+    period,
+  ).where((transaction) => transaction.type == TransactionType.income).toList();
+  final received = income.fold<double>(
+    0,
+    (sum, transaction) => sum + transaction.amount,
+  );
   if (received <= 0) {
     return ChatReply("You haven't recorded any income $label.");
+  }
+  final extreme = _extremeRequested(text);
+  if (extreme != null) {
+    final selected = _selectExtreme(
+      income,
+      extreme,
+      value: (transaction) => transaction.amount,
+    );
+    return ChatReply(
+      'Your ${extreme == _Extreme.smallest ? 'smallest' : 'biggest'} '
+      'income $label was ${formatPeso(selected.amount)} '
+      '(${selected.label}).',
+    );
   }
   return ChatReply("You've received ${formatPeso(received)} $label.");
 }

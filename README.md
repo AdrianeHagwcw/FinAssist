@@ -67,14 +67,28 @@ financial-assistant behaviors remain available.
 
 The chatbot first applies a local financial-topic gate. With an internet
 connection, Gemini answers in-scope questions using recent finance-scoped chat
-turns and (when loaded) a small current-month aggregate summary. When offline,
+turns and (when loaded) a current-month aggregate summary plus a capped
+record-level facts payload from the live snapshot. When offline,
 or when the Gemini request fails, the existing rule-based assistant answers
 from the user's saved records. Interactive purchase-affordability and goal
 creation flows continue to use their verified local calculations so their
 follow-up choices and app actions remain available. Transaction IDs, notes,
-wallet names, and raw transaction history are not sent to Gemini. The Insights
-request sends aggregate metrics only, and generated suggestions cannot replace
-or recalculate the numbers shown by the app.
+wallet names, and private wallet identifiers are not sent to Gemini. The
+record-level facts payload includes sanitized transactions, bills, goals, and
+debt records (with capped counts) so Gemini can reason from live user-entered
+data without exposing document IDs or free-text notes. The Insights request
+sends aggregate metrics only, and generated suggestions cannot replace or
+recalculate the numbers shown by the app.
+
+Gemini chat history and record-level facts are capped before sending to reduce
+request size and prefill pressure. If Firebase AI Logic reports a temporary
+overload, the app does not retry the request in a loop; it logs the transient
+failure after at most two short exponential-backoff retries and uses the local
+answer path instead. Request-deadline timeouts fail fast rather than extending
+the user's wait through retries. The trace viewer may still
+show the provider's overload event because that event occurs on Google's
+serving infrastructure, but it no longer prevents the user from receiving a
+local answer.
 
 For a stated purchase price and time horizon, the chatbot also calculates
 straight-line daily and monthly saving targets locally, including Taglish

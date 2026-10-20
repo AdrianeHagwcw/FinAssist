@@ -611,10 +611,19 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
             stream: _wallets,
             builder: (context, snapshot) {
               final wallets = snapshot.data ?? const <Wallet>[];
-              final savingsWallet = WalletService.walletFor(
-                wallets,
-                WalletPurpose.savings,
+              final savingsRecords = wallets
+                  .where(
+                    (wallet) =>
+                        !wallet.archived &&
+                        wallet.purpose == WalletPurpose.savings,
+                  )
+                  .toList(growable: false);
+              final availableSavingsRecords = promisableSavingsRecords(
+                savingsRecords,
               );
+              final savingsWallet = availableSavingsRecords.isNotEmpty
+                  ? availableSavingsRecords.first
+                  : savingsRecords.firstOrNull;
 
               return Column(
                 mainAxisSize: MainAxisSize.min,
@@ -726,14 +735,31 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     ),
                     if (!_isEditing && widget.allowAlreadySaved) ...[
                       const SizedBox(height: 16),
-                      if (promisableSavingsRecords(wallets).length > 1) ...[
+                      if (savingsRecords.length > 1) ...[
                         WalletPicker(
-                          wallets: promisableSavingsRecords(wallets),
+                          wallets: savingsRecords,
                           selectedId: _recordFor(wallets)?.id,
                           label: 'Where it is saved',
                           allowed: const {WalletPurpose.savings},
+                          disabledWalletIds: {
+                            for (final wallet in wallets)
+                              if (wallet.isLockedSavings) wallet.id,
+                          },
+                          displayBalances: {
+                            for (final wallet in savingsRecords)
+                              wallet.id: freeInWallet(wallet, _goals),
+                          },
                           onChanged: (id) =>
                               setState(() => _savedWalletId = id),
+                        ),
+                        const SizedBox(height: 6),
+                        const DialogNote(
+                          text:
+                              'Choose the savings wallet holding money you '
+                              'already saved. Locked time deposits and '
+                              'government savings are shown but cannot be '
+                              'used for a goal because they are not available '
+                              'to spend or move yet.',
                         ),
                         const SizedBox(height: 12),
                       ],
@@ -782,15 +808,33 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     // Only when the money has no say in where it sits:
                     // picking the record is done beside Already saved, and
                     // showing it twice would let the two disagree.
-                    if (savingsWallet != null &&
-                        promisableSavingsRecords(wallets).length < 2) ...[
+                    if (savingsWallet != null && savingsRecords.length < 2) ...[
                       sectionTitle('Wallet'),
                       WalletPicker(
                         wallets: [savingsWallet],
-                        selectedId: savingsWallet.id,
+                        selectedId: savingsWallet.isLockedSavings
+                            ? null
+                            : savingsWallet.id,
                         label: 'Savings wallet',
                         allowed: const {WalletPurpose.savings},
+                        disabledWalletIds: {
+                          if (savingsWallet.isLockedSavings) savingsWallet.id,
+                        },
+                        displayBalances: {
+                          savingsWallet.id: freeInWallet(savingsWallet, _goals),
+                        },
                         onChanged: (_) {},
+                      ),
+                      const SizedBox(height: 6),
+                      DialogNote(
+                        text: savingsWallet.isLockedSavings
+                            ? 'This wallet is locked because it is a '
+                                  'time deposit or government savings. Choose '
+                                  'an available savings wallet to link money '
+                                  'already saved to this goal.'
+                            : 'A savings wallet shows where money already '
+                                  'saved for this goal is held. It keeps that '
+                                  'amount separate from money available to spend.',
                       ),
                     ],
                     const SizedBox(height: 16),
@@ -1083,6 +1127,10 @@ class _ContributionSheetState extends State<ContributionSheet> {
                           wallets: records,
                           selectedId: record.id,
                           allowed: const {WalletPurpose.savings},
+                          displayBalances: {
+                            for (final wallet in records)
+                              wallet.id: freeInWallet(wallet, goals),
+                          },
                           label: widget.takeOut
                               ? 'Take it out of'
                               : 'Save it in',

@@ -10,7 +10,9 @@ bool isFinancialTopic(String message, {bool hasFinancialContext = false}) {
     r"\bwhat(?:'s| is) the weather\b|"
     r'\b(?:write|compose|tell me) (?:a )?(?:poem|joke|story|song)\b|'
     r'\b(?:give me|share) (?:a )?recipe\b|'
-    r'\b(?:sports score|political debate|programming help|write code|debug)\b',
+    r'\b(?:sports score|who won|political debate|programming help|write code|'
+    r'debug)\b|'
+    r'\b(?:create|make|develop|teach me) (?:a )?(?:video )?game\b',
   ).hasMatch(normalized)) {
     return false;
   }
@@ -29,6 +31,7 @@ bool isFinancialTopic(String message, {bool hasFinancialContext = false}) {
     r'laptop|laptops|house|home|bahay|car|sasakyan)\b',
   ).hasMatch(normalized);
   if (asksPurchaseAffordability && mentionsPurchase) return true;
+  if (!hasFinancialContext && isFinancialFollowUp(normalized)) return false;
 
   if (RegExp(
     r'\bhow much (?:is|are|does|do)\b|'
@@ -48,10 +51,36 @@ bool isFinancialTopic(String message, {bool hasFinancialContext = false}) {
     return true;
   }
 
+  // Common money situations are often described without finance terms.
+  // Keep this contextual rather than accepting every vague life question.
+  if (RegExp(
+    r'\b(running out of money|run out of money|no money left|'
+    r'left before payday|before payday|make ends meet|'
+    r'where did my money go|money disappears|cannot make it|'
+    r'can.t make it until payday|stretch (?:my|the) money|'
+    r'kakapusin ang pera|ubos ang pera|nauubusan ng pera|'
+    r'kulang ang pera|saan napunta ang pera|'
+    r'pagkasyahin ang pera|bago ang sweldo|bago sumahod)\b',
+  ).hasMatch(normalized)) {
+    return true;
+  }
+
+  // Do not make the finance vocabulary the only way into Gemini. Question
+  // shaped messages can be ambiguous financial follow-ups; Gemini can ask
+  // for clarification or redirect them, while explicit off-topic requests
+  // were rejected above.
+  if (RegExp(
+        r'^(?:can|could|would|should|what|why|how|where|when|who|is|are|'
+        r'do|does|did|may|will|please)\b',
+      ).hasMatch(normalized) ||
+      normalized.endsWith('?')) {
+    return true;
+  }
+
   return RegExp(
     r'\b('
     r'money|finance|financial|budget|expense|expenses|spend|spending|spent|'
-    r'income|salary|payday|paycheck|savings?|saving|save|saved|'
+    r'income|earn|earns|earned|salary|payday|paycheck|savings?|saving|save|saved|'
     r'save for|save toward|save towards|cash flow|net worth|'
     r'wallet|bill|bills|debt|loan|borrow|interest|inflation|credit|investment|invest|'
     r'bank|transaction|transactions|afford|affordable|cost|price|'

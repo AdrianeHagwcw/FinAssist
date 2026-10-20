@@ -284,22 +284,16 @@ class _HomeScreenState extends State<HomeScreen> {
         // Bills and savings money sits in its own wallet, so each has its own
         // balance here rather than being counted into the one above.
         _SetAsideBalanceCard(
-          title: 'Bills Total Balance',
-          note: 'Money reserved for your bills',
+          title: 'Bills',
+          note: 'View your bills total balance',
           iconAsset: 'assets/icons/icons8-receipt-96.png',
-          amount: wallets == null
-              ? null
-              : walletBalanceFor(wallets, WalletPurpose.bills),
           onTap: () => _openSetAside(SetAsidePart.bills),
         ),
         const SizedBox(height: 12),
         _SetAsideBalanceCard(
-          title: 'Savings Total Balance',
-          note: _savingsGoalCaption(wallets, goals),
+          title: 'Savings',
+          note: 'View your savings total balance and goals',
           iconAsset: 'assets/icons/icons8-money-box-96.png',
-          // Only savings that are reachable and not already promised to a
-          // goal. Contributions are still shown in the caption below.
-          amount: _availableSavingsBalance(wallets, goals),
           onTap: () => _openSetAside(SetAsidePart.savings),
         ),
 
@@ -335,54 +329,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _RecentTransactions(transactions: transactions, wallets: wallets),
       ],
     );
-  }
-
-  String _savingsGoalCaption(List<Wallet>? wallets, List<Goal>? goals) {
-    if (wallets == null || goals == null) return 'Loading your savings goals…';
-
-    final assigned = totalSetAsideInPurposeWallets(
-      goals,
-      wallets,
-      WalletPurpose.savings,
-    );
-    final goalCount = goals
-        .where(
-          (goal) =>
-              totalSetAsideInPurposeWallets(
-                [goal],
-                wallets,
-                WalletPurpose.savings,
-              ) >
-              0,
-        )
-        .length;
-
-    // Money that cannot be drawn on yet is named here rather than counted
-    // into the figure above, so the two never blur together.
-    final locked = lockedSavingsBalance(wallets);
-    final lockedNote = locked > 0 ? 'Locked away: ${formatPeso(locked)}' : null;
-
-    if (goalCount == 0) {
-      return lockedNote ?? 'No money set aside for goals';
-    }
-
-    final goalNote =
-        'Across $goalCount goal${goalCount == 1 ? '' : 's'} · '
-        '${formatPeso(assigned)} set aside';
-    return lockedNote == null ? goalNote : '$goalNote\n$lockedNote';
-  }
-
-  double? _availableSavingsBalance(List<Wallet>? wallets, List<Goal>? goals) {
-    if (wallets == null || goals == null) return null;
-
-    final assigned = totalSetAsideInPurposeWallets(
-      goals,
-      wallets,
-      WalletPurpose.savings,
-    );
-    return (reachableSavingsBalance(wallets) - assigned)
-        .clamp(0.0, double.infinity)
-        .toDouble();
   }
 
   /// The tip needs the bills the Safe to Spend card already loaded, so it is
@@ -578,7 +524,6 @@ class _SetAsideBalanceCard extends StatelessWidget {
     required this.title,
     required this.note,
     required this.iconAsset,
-    required this.amount,
     required this.onTap,
   });
 
@@ -586,8 +531,6 @@ class _SetAsideBalanceCard extends StatelessWidget {
   final String note;
   final String iconAsset;
 
-  /// Null while the wallets are still loading.
-  final double? amount;
   final VoidCallback onTap;
 
   @override
@@ -628,21 +571,15 @@ class _SetAsideBalanceCard extends StatelessWidget {
                       style: TextStyle(color: colors.textBody, fontSize: 13),
                     ),
                     const SizedBox(height: 2),
-                    MoneyText(
-                      amount ?? 0,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
                     Text(
                       note,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: colors.textBody, fontSize: 12),
+                      style: TextStyle(
+                        color: colors.primaryText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),

@@ -31,6 +31,8 @@ class WalletPicker extends StatelessWidget {
     this.label = 'Wallet',
     this.excludeId,
     this.allowed = const {WalletPurpose.spending},
+    this.disabledWalletIds = const {},
+    this.displayBalances,
     this.onAddWallet,
     super.key,
   });
@@ -48,6 +50,13 @@ class WalletPicker extends StatelessWidget {
   /// they are offered only where spending them is the point, such as paying a
   /// bill, or moving money on purpose with a transfer.
   final Set<WalletPurpose> allowed;
+
+  /// Wallets that should remain visible but cannot be selected.
+  final Set<String> disabledWalletIds;
+
+  /// Optional balances to show instead of the wallet's raw balance, such as
+  /// money still free after existing goal claims are deducted.
+  final Map<String, double>? displayBalances;
   final VoidCallback? onAddWallet;
 
   @override
@@ -59,7 +68,11 @@ class WalletPicker extends StatelessWidget {
               (allowed.contains(wallet.purpose) || wallet.id == selectedId),
         )
         .toList(growable: false);
-    final value = choices.any((wallet) => wallet.id == selectedId)
+    final value =
+        choices.any(
+          (wallet) =>
+              wallet.id == selectedId && !disabledWalletIds.contains(wallet.id),
+        )
         ? selectedId
         : null;
 
@@ -71,6 +84,7 @@ class WalletPicker extends StatelessWidget {
         for (final wallet in choices)
           DropdownMenuItem(
             value: wallet.id,
+            enabled: !disabledWalletIds.contains(wallet.id),
             child: Row(
               children: [
                 Image.asset(wallet.iconAsset, width: 20, height: 20),
@@ -84,7 +98,7 @@ class WalletPicker extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  formatPeso(wallet.balance),
+                  formatPeso(displayBalances?[wallet.id] ?? wallet.balance),
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],

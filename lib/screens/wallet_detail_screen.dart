@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../models/app_transaction.dart';
+import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/user_profile_service.dart';
 import '../services/wallet_service.dart';
+import '../services/goal_service.dart';
+import '../utils/money_format.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -58,6 +61,7 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
       UserProfileService.watchProfile().map(
         (profile) => profile.data()?['incomeSource'] as String?,
       );
+  late final Stream<List<Goal>> _goals = GoalService.watchGoals();
 
   Future<void> _remove(Wallet wallet) async {
     final removed = await removeWallet(context, wallet);
@@ -148,9 +152,13 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
             children: [
               StreamBuilder<String?>(
                 stream: _incomeSource,
-                builder: (context, incomeSnapshot) => _WalletHeader(
-                  wallet: wallet,
-                  incomeSource: incomeSnapshot.data,
+                builder: (context, incomeSnapshot) => StreamBuilder<List<Goal>>(
+                  stream: _goals,
+                  builder: (context, goalsSnapshot) => _WalletHeader(
+                    wallet: wallet,
+                    incomeSource: incomeSnapshot.data,
+                    goals: goalsSnapshot.data ?? const [],
+                  ),
                 ),
               ),
               Expanded(
@@ -190,10 +198,15 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
 }
 
 class _WalletHeader extends StatelessWidget {
-  const _WalletHeader({required this.wallet, required this.incomeSource});
+  const _WalletHeader({
+    required this.wallet,
+    required this.incomeSource,
+    required this.goals,
+  });
 
   final Wallet wallet;
   final String? incomeSource;
+  final List<Goal> goals;
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +245,10 @@ class _WalletHeader extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
+          if (wallet.purpose == WalletPurpose.savings) ...[
+            const SizedBox(height: 10),
+            _SavingsWalletBreakdown(wallet: wallet, goals: goals),
+          ],
           if (wallet.receivesIncome) ...[
             const SizedBox(height: 12),
             Container(
@@ -250,6 +267,61 @@ class _WalletHeader extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SavingsWalletBreakdown extends StatelessWidget {
+  const _SavingsWalletBreakdown({required this.wallet, required this.goals});
+
+  final Wallet wallet;
+  final List<Goal> goals;
+
+  @override
+  Widget build(BuildContext context) {
+    final assigned = goalMoneyInWallet(goals, wallet.id);
+    final available = wallet.isLockedSavings
+        ? 0.0
+        : freeInWallet(wallet, goals);
+    Widget row(String label, double amount) => Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          Text(
+            formatPeso(amount),
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          row('Currently holds', wallet.balance),
+          row('Assigned to goals', assigned),
+          row('Still available', available),
+          if (wallet.isLockedSavings)
+            const Padding(
+              padding: EdgeInsets.only(top: 5),
+              child: Text(
+                'Locked savings — not currently available to use',
+                style: TextStyle(color: Colors.white70, fontSize: 11),
+              ),
+            ),
         ],
       ),
     );
@@ -319,6 +391,7 @@ class _TransactionRow extends StatelessWidget {
   final AppTransaction transaction;
   final Wallet wallet;
   final List<Wallet> wallets;
+
   /// The other wallet's name, for transfers.
   String get _otherWalletName {
     final otherId = transaction.walletId == wallet.id
@@ -384,67 +457,67 @@ class _TransactionRow extends StatelessWidget {
       color: colors.card,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: colors.border),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: colors.primaryTint,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: _icon,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colors.border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: colors.primaryTint,
+                borderRadius: BorderRadius.circular(10),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: colors.textPrimary,
-                      ),
+              child: _icon,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: colors.textPrimary,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      [
-                        transactionDirection(
-                          transaction,
-                          wallets,
-                          forWalletId: wallet.id,
-                        ).label,
-                        if (note != null && note.isNotEmpty) note,
-                      ].join(' · '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    [
+                      transactionDirection(
+                        transaction,
+                        wallets,
+                        forWalletId: wallet.id,
+                      ).label,
+                      if (note != null && note.isNotEmpty) note,
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              MoneyText(
-                transaction.amount,
-                sign: delta < 0 ? '-' : '+',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: _color,
-                ),
+            ),
+            const SizedBox(width: 10),
+            MoneyText(
+              transaction.amount,
+              sign: delta < 0 ? '-' : '+',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: _color,
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
       ),
     );
   }

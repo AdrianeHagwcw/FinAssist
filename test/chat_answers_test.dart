@@ -120,10 +120,12 @@ ChatReply ask(
   PurchaseQuestion? pending,
   FinanceSnapshot? from,
   bool loading = false,
+  String? contextMessage,
 }) => answerChat(
   message,
   records: loading ? null : from ?? records(),
   pending: pending,
+  contextMessage: contextMessage,
 );
 
 void main() {
@@ -202,6 +204,17 @@ void main() {
 
       expect(reply.text, contains('clear insights'));
       expect(reply.text, contains('records na nasa FinAssist'));
+    });
+
+    test('categorizes multiple expenses using the shared category keywords', () {
+      final reply = ask(
+        'I spent ₱150 on lunch, ₱50 on jeepney fare, and ₱200 on mobile data.',
+      );
+
+      expect(reply.text, contains('₱150 — lunch: Food'));
+      expect(reply.text, contains('₱50 — jeepney fare: Transportation'));
+      expect(reply.text, contains('₱200 — mobile data: Bills'));
+      expect(reply.useLocalAnswer, isTrue);
     });
 
     test(
@@ -323,6 +336,160 @@ void main() {
 
     test('income', () {
       expect(ask('How much income this month?').text, contains('₱20,000'));
+    });
+
+    test('income questions are not routed to spending answers', () {
+      final reply = ask('What was my biggest income this month?');
+      expect(reply.text, contains('Your biggest income this month'));
+      expect(reply.text, contains('₱20,000'));
+      expect(reply.text, isNot(contains('spending')));
+    });
+
+    test('returns the smallest recorded income', () {
+      final base = records();
+      final snapshot = FinanceSnapshot(
+        now: base.now,
+        wallets: base.wallets,
+        transactions: [
+          ...base.transactions,
+          AppTransaction(
+            id: 'small-income',
+            type: TransactionType.income,
+            amount: 500,
+            label: 'Side job',
+            date: DateTime(2026, 9, 10),
+          ),
+        ],
+        bills: base.bills,
+        goals: base.goals,
+        debts: base.debts,
+        incomeFrequency: base.incomeFrequency,
+        usualIncome: base.usualIncome,
+        lastIncomeAt: base.lastIncomeAt,
+        periodBudget: base.periodBudget,
+      );
+      final reply = ask(
+        'What is my smallest income this month?',
+        from: snapshot,
+      );
+      expect(reply.text, contains('Your smallest income this month'));
+      expect(reply.text, contains('₱500'));
+      expect(reply.text, contains('Side job'));
+    });
+
+    test('returns the smallest expense and biggest unpaid bill', () {
+      final base = records();
+      final snapshot = FinanceSnapshot(
+        now: base.now,
+        wallets: base.wallets,
+        transactions: [
+          ...base.transactions,
+          spend('Snack', 25, DateTime(2026, 9, 11)),
+        ],
+        bills: base.bills,
+        goals: base.goals,
+        debts: base.debts,
+        incomeFrequency: base.incomeFrequency,
+        usualIncome: base.usualIncome,
+        lastIncomeAt: base.lastIncomeAt,
+        periodBudget: base.periodBudget,
+      );
+      expect(
+        ask('What is my smallest expense this month?', from: snapshot).text,
+        contains('₱25'),
+      );
+      expect(
+        ask('What is my biggest bill?', from: snapshot).text,
+        contains('Rent'),
+      );
+    });
+
+    test('calculates a savings target from an amount and timeline', () {
+      final reply = ask(
+        'Based on my current income, how much money do I need to save '
+        'every day to get 50000 in 3 months?',
+      );
+      expect(reply.isVerifiedGoalPlan, isTrue);
+      expect(reply.text, contains('per day for 3 months'));
+      expect(reply.text, contains('₱50,000 remaining'));
+      expect(reply.text, contains('recorded income and spending'));
+    });
+
+    test('calculates a general Tagalog savings target', () {
+      final reply = ask(
+        'pano ako makakaipon ng 40000 sa loob ng 3months kung araw araw '
+        'ako mag ipon',
+      );
+      expect(reply.isVerifiedGoalPlan, isTrue);
+      expect(reply.text, contains('₱40,000'));
+      expect(reply.text, contains('₱444.45 araw-araw'));
+      expect(reply.text, contains('₱13,333.34 kada buwan'));
+    });
+
+    test('converts a monthly savings target to a daily target', () {
+      final reply = ask(
+        'If I need 16666.67 per month, how much do I need to save per day?',
+      );
+      expect(reply.text, contains('₱16,666.67 per month'));
+      expect(reply.text, contains('₱555.56 per day'));
+      expect(reply.text, isNot(contains('₱13,470 left to save')));
+    });
+
+    test('uses the previous monthly target for a short daily follow-up', () {
+      final reply = ask(
+        'how much do I need to save per day?',
+        contextMessage: 'If I need 16666.67 per month',
+      );
+      expect(reply.text, contains('₱16,666.67 per month'));
+      expect(reply.text, contains('₱555.56 per day'));
+    });
+
+    test('calculates a daily savings projection against a target', () {
+      final reply = ask('If I saved 2000 daily can I have 100000 in a year?');
+      expect(reply.text, contains('₱730,000'));
+      expect(reply.text, contains('yes'));
+      expect(reply.text, contains('₱630,000'));
+      expect(reply.text, contains('recorded expenses'));
+    });
+
+    test('answers a savings plan from reliable income and spending data', () {
+      final reply = ask(
+        'Can you give me a savings plan based on my current income and '
+        'expenses including the bills?',
+      );
+      expect(reply.text, contains('Here is a savings plan based on your'));
+      expect(reply.text, contains('recorded income'));
+      expect(reply.text, contains('recorded expenses'));
+      expect(reply.text, contains('bills currently needing coverage'));
+      expect(reply.text, isNot(contains("You've spent")));
+    });
+
+    test('requests more data before making an unreliable savings plan', () {
+      final sparse = FinanceSnapshot(
+        now: now,
+        transactions: [
+          AppTransaction(
+            id: 'income',
+            type: TransactionType.income,
+            amount: 20000,
+            label: 'Salary',
+            date: now,
+          ),
+        ],
+      );
+      final reply = ask(
+        'Give me a savings plan based on my income and expenses.',
+        from: sparse,
+      );
+      expect(reply.text, contains('cannot make a reliable savings plan yet'));
+      expect(reply.text, contains('7 different days'));
+      expect(reply.text, contains('record your income and everyday expenses'));
+    });
+
+    test('asks for clarification for an unclear financial question', () {
+      final reply = ask('What should I do with my money situation?');
+      expect(reply.text, contains('need a little more detail'));
+      expect(reply.choices, contains('How much can I save?'));
     });
 
     test('advice points at the biggest category', () {

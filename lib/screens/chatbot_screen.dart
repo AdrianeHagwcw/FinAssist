@@ -10,14 +10,18 @@ import '../models/chat_action.dart';
 import '../models/financial_topic_validator.dart';
 import '../models/financial_ai_guardrails.dart';
 import '../models/finance_snapshot.dart';
+import '../models/financial_insights.dart';
 import '../screens/add_expense_screen.dart';
 import '../screens/income_waterfall_screen.dart';
 import '../services/finance_snapshot_service.dart';
 import '../services/financial_ai_service.dart';
+import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/transfer_sheet.dart';
+import '../widgets/wallet_picker.dart';
+import '../utils/money_format.dart';
 
 /// Reports whether the phone has a network connection, now and on change.
 Stream<bool> _deviceOnlineStatus() async* {
@@ -203,8 +207,27 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     try {
       final records = _records?.at(DateTime.now());
       final productPriceQuery = productPriceLookupQuery(text);
-      final action = parseChatAction(text, records: records);
-      final localReply = answerChat(text, records: records, pending: _pending);
+      final categorizedExpenses = categorizeChatExpenses(text);
+      final hasMultipleCategorizedExpenses = categorizedExpenses != null;
+      final expenseBatchMessage = categorizedExpenses == null
+          ? const <String, dynamic>{}
+          : <String, dynamic>{'expenseBatch': categorizedExpenses};
+      final action = hasMultipleCategorizedExpenses
+          ? null
+          : parseChatAction(text, records: records);
+      final contextMessage = _messages.reversed
+          .skip(1)
+          .map(
+            (message) => message['isUser'] == true ? message['message'] : null,
+          )
+          .whereType<String>()
+          .firstOrNull;
+      final localReply = answerChat(
+        text,
+        records: records,
+        pending: _pending,
+        contextMessage: contextMessage,
+      );
       if (localReply.useLocalAnswer || action != null) {
         _messages.last['financialContext'] = true;
       }
@@ -233,13 +256,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       final isPurchaseFollowUp =
           _pending != null &&
           localReply.text != answerChat(text, records: records).text;
+      final usesReportSavingsSuggestions =
+          records != null && isSavingsSuggestionsQuestion(text);
       final needsRuleBasedFlow =
           productPriceQuery == null &&
           (action != null ||
               localReply.useLocalAnswer ||
               localReply.pending != null ||
               localReply.goal != null ||
-              isPurchaseFollowUp);
+              isPurchaseFollowUp) &&
+          !usesReportSavingsSuggestions;
 
       if (financialTopic && !needsRuleBasedFlow && _isOnline) {
         final contextKey = productPriceQuery == null
@@ -261,6 +287,21 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 product: productPriceQuery,
               );
               return groundedPriceAnswer!.text;
+            }
+            if (usesReportSavingsSuggestions) {
+              final insights = calculateFinancialInsights(
+                records.transactions,
+                now: records.now,
+                spendingBudget: records.periodBudget,
+              );
+              final suggestions = await assistant.explainInsights(insights);
+              if (suggestions.isEmpty ||
+                  !suggestions.every(isUsableFinancialExplanation)) {
+                throw const FinancialAssistantFailure(
+                  'Gemini returned unusable savings suggestions.',
+                );
+              }
+              return suggestions.join('\n\n');
             }
             return assistant.answerQuestion(
               question: text,
@@ -304,11 +345,32 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           answer = productPriceQuery != null
               ? 'I could not find a reliable current price right now. '
                     'Please try again in a moment. I will not guess the price.'
-              : 'AI is unavailable right now. '
+              : isFinancialFollowUp(text)
+              ? 'I want to answer accurately. Please clarify whether you want '
+                    'me to use your recorded income, expenses, balance, bills, '
+                    'or a savings target. Include the amount and time period '
+                    'you mean.'
+              : '${error.transient ? 'Gemini is temporarily busy. ' : 'AI is unavailable right now. '}'
                     'This answer uses the app\'s local guidance and available records.\n\n'
-                    '${isFinancialFollowUp(text) ? 'Please restate your money question, '
-                              'including any amount or goal you want checked.' : localReply.text}';
+                    '${localReply.text}';
         }
+      }
+
+      if (usedAi) {
+        debugPrint('FinAssist answer source: Gemini');
+      } else {
+        final reason = action != null
+            ? 'chat action'
+            : localReply.pending != null
+            ? 'purchase follow-up'
+            : localReply.goal != null
+            ? 'verified savings goal plan'
+            : !_isOnline
+            ? 'offline'
+            : financialTopic
+            ? 'verified app data or Gemini fallback'
+            : 'unsupported or non-financial question';
+        debugPrint('FinAssist answer source: rule-based ($reason)');
       }
 
       if (!mounted || epoch != _conversationEpoch) return;
@@ -320,6 +382,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           'choices': usedAi ? const <String>[] : localReply.choices,
           'goal': localReply.goal,
           'action': action,
+          ...expenseBatchMessage,
           'priceSources': groundedPriceAnswer?.sources,
           'searchSuggestionsHtml': groundedPriceAnswer?.searchSuggestionsHtml,
           'financialContext':
@@ -344,6 +407,110 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         _scrollToBottom();
       }
     }
+  }
+
+  Future<void> _confirmAndAddExpenseBatch(
+    Map<String, dynamic> message,
+    List<CategorizedChatExpense> expenses,
+  ) async {
+    if (expenses.any((expense) => expense.category == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please clarify every expense category first.'),
+        ),
+      );
+      return;
+    }
+
+    final wallets = await WalletService.loadWallets();
+    if (!mounted) return;
+    if (wallets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Add a spending wallet before adding these expenses.'),
+        ),
+      );
+      return;
+    }
+
+    var selectedWalletId = defaultWalletId(wallets);
+    final confirmedWalletId = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add all expenses?'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Confirm that these categories are correct:'),
+                const SizedBox(height: 12),
+                for (final expense in expenses)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '${formatPeso(expense.amount)} — '
+                      '${expense.description}: ${expense.category}',
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                WalletPicker(
+                  wallets: wallets,
+                  selectedId: selectedWalletId,
+                  onChanged: (value) =>
+                      setDialogState(() => selectedWalletId = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: selectedWalletId == null
+                  ? null
+                  : () => Navigator.pop(dialogContext, selectedWalletId),
+              child: const Text('Add all expenses'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmedWalletId == null || !mounted) return;
+
+    try {
+      WalletService.recordExpenseBatch(
+        walletId: confirmedWalletId,
+        expenses: [
+          for (final expense in expenses)
+            ExpenseBatchEntry(
+              amount: expense.amount,
+              label: expense.category!,
+              note: expense.description,
+            ),
+        ],
+      );
+    } on Object catch (error, stackTrace) {
+      debugPrint('FinAssist expense batch save failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('The expenses could not be added. Please try again.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      message['expenseBatch'] = <CategorizedChatExpense>[];
+      message['message'] =
+          '${message['message']}\n\nAll listed expenses were added.';
+    });
+    _scrollToBottom();
   }
 
   Future<bool> _openAction(ChatAction action) async {
@@ -537,6 +704,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 final choices = message['choices'] as List<String>? ?? const [];
                 final goal = message['goal'] as GoalOffer?;
                 final action = message['action'] as ChatAction?;
+                final expenseBatch =
+                    message['expenseBatch'] as List<CategorizedChatExpense>?;
                 final priceSources =
                     message['priceSources'] as List<GroundedPriceSource>? ??
                     const [];
@@ -574,6 +743,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                           style: openOutlineStyle(context, height: 40),
                           icon: const Icon(Icons.edit_note_outlined, size: 18),
                           label: Text(action.label),
+                        ),
+                      ),
+                    if (expenseBatch != null && expenseBatch.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: OutlinedButton.icon(
+                          onPressed: () =>
+                              _confirmAndAddExpenseBatch(message, expenseBatch),
+                          style: openOutlineStyle(context, height: 40),
+                          icon: const Icon(Icons.playlist_add_check, size: 18),
+                          label: Text('Add all expenses'),
                         ),
                       ),
                     if (isLatest && choices.isNotEmpty && _messages.length > 1)

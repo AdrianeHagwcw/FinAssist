@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:testapp/models/chat_action.dart';
+import 'package:testapp/models/chat_answers.dart';
 import 'package:testapp/models/finance_snapshot.dart';
 import 'package:testapp/models/financial_topic_validator.dart';
 import 'package:testapp/models/wallet.dart';
@@ -19,6 +20,9 @@ class _FakeFinancialAssistant implements FinancialAssistant {
   int productPriceRequests = 0;
   String? requestedProduct;
   String response = 'Compound interest can help savings grow over time.';
+  List<String> insightsResponse = const [
+    'Protect essential expenses before choosing an optional savings contribution.',
+  ];
 
   @override
   Future<String> answerQuestion({
@@ -39,7 +43,7 @@ class _FakeFinancialAssistant implements FinancialAssistant {
   }
 
   @override
-  Future<List<String>> explainInsights(_) async => const [];
+  Future<List<String>> explainInsights(_) async => insightsResponse;
 
   @override
   Future<GroundedProductPriceAnswer> lookupProductPrices({
@@ -236,7 +240,9 @@ void main() {
     expect(find.textContaining('₱9,990'), findsOneWidget);
     expect(find.text('Apple Philippines'), findsOneWidget);
     expect(
-      find.textContaining('Prices checked today. Seller prices and stock can change.'),
+      find.textContaining(
+        'Prices checked today. Seller prices and stock can change.',
+      ),
       findsOneWidget,
     );
   });
@@ -260,6 +266,66 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets('uses the Reports savings suggestions path in chat', (
+    tester,
+  ) async {
+    final assistant = _FakeFinancialAssistant()
+      ..insightsResponse = const [
+        'Protect essential expenses before choosing an optional savings contribution.',
+      ];
+    await _pumpChat(tester, assistant: assistant);
+
+    expect(
+      isSavingsSuggestionsQuestion('Can you give me AI savings suggestions?'),
+      isTrue,
+    );
+    await _ask(tester, 'Can you give me AI savings suggestions?');
+    await tester.pump();
+
+    expect(find.textContaining('Protect essential expenses'), findsOneWidget);
+    expect(assistant.questionsAsked, 0);
+  });
+
+  testWidgets(
+    'categorizes each multi-expense input instead of opening one form',
+    (tester) async {
+      final assistant = _FakeFinancialAssistant();
+      var openedAction = false;
+      await _pumpChat(
+        tester,
+        assistant: assistant,
+        onAction: (_) async {
+          openedAction = true;
+          return false;
+        },
+      );
+
+      await _ask(
+        tester,
+        'I spent ₱150 on lunch, ₱50 on jeepney fare, and ₱200 on mobile data. '
+        'Categorize these expenses.',
+      );
+      await tester.pump();
+
+      expect(openedAction, isFalse);
+      expect(find.textContaining('₱150 — lunch: Food'), findsOneWidget);
+      expect(
+        find.textContaining('₱50 — jeepney fare: Transportation'),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              widget.data?.contains('mobile data: Bills') == true,
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Complete expense details'), findsNothing);
+      expect(assistant.questionsAsked, 0);
+    },
+  );
 
   testWidgets('answers an insights capability request locally when offline', (
     tester,
