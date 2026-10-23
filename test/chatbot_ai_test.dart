@@ -231,6 +231,18 @@ void main() {
     );
   });
 
+  testWidgets('keeps deterministic spending comparisons out of Gemini', (
+    tester,
+  ) async {
+    final assistant = _FakeFinancialAssistant();
+    await _pumpChat(tester, assistant: assistant);
+
+    await _ask(tester, 'Compare my spending this month with last month.');
+
+    expect(assistant.questionsAsked, 0);
+    expect(find.textContaining('Missing records'), findsOneWidget);
+  });
+
   testWidgets('looks up product prices and displays grounded sources', (
     tester,
   ) async {

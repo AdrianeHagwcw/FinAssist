@@ -1681,7 +1681,7 @@ ChatReply _income(String text, FinanceSnapshot records) {
 
 ChatReply _advice(FinanceSnapshot records, String question) {
   if (_asksSpendingComparison(question)) {
-    return _spendingPatternComparison(records, question);
+    return _spendingPatternComparison(records, question).protected();
   }
   final month = ReportPeriod.monthOf(records.now);
   final byCategory = spendingByCategory(
