@@ -70,7 +70,12 @@ VoiceCommand interpretVoiceCommand(
 }
 
 String? _incomeSourceFor(String words) {
-  if (RegExp(r'\b(salary|paycheck|payday|wages)\b').hasMatch(words)) {
+  // Pay by the day or the hour is a wage; checked first, so "daily wage"
+  // is never read as a salary.
+  if (RegExp(r'\b(wage|wages|arawan|daily pay)\b').hasMatch(words)) {
+    return 'Wage';
+  }
+  if (RegExp(r'\b(salary|paycheck|payday)\b').hasMatch(words)) {
     return 'Salary';
   }
   if (RegExp(r'\b(allowance|allowances)\b').hasMatch(words)) {
@@ -93,7 +98,9 @@ String? _incomeSourceFor(String words) {
 }
 
 VoiceDestination? _destinationFor(String words, double? amount) {
-  if (RegExp(r'\b(pay cycle|pay period|paycheck|income) history\b').hasMatch(words)) {
+  if (RegExp(
+    r'\b(pay cycle|pay period|paycheck|income) history\b',
+  ).hasMatch(words)) {
     return VoiceDestination.payCycleHistory;
   }
 

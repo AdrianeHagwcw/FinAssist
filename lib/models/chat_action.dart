@@ -78,11 +78,12 @@ ChatAction? parseChatAction(String text, {FinanceSnapshot? records}) {
   final isIncome = RegExp(
     r'\b(add|record|log)\s+(?:an?\s+)?income\b|'
     r'\b(received|got paid|sweldo ko|sahod ko)\b|'
-    r'\b(add|put|record|log)\b.*\b(salary|paycheck|sweldo|sahod)\b',
+    r'\b(add|put|record|log)\b.*\b(salary|paycheck|sweldo|sahod|wage|wages)\b',
   ).hasMatch(normalized);
   if (isIncome) {
-    final source =
-        RegExp(r'\b(salary|paycheck|sweldo|sahod)\b').hasMatch(normalized)
+    final source = RegExp(r'\b(wage|wages|arawan)\b').hasMatch(normalized)
+        ? 'Wage'
+        : RegExp(r'\b(salary|paycheck|sweldo|sahod)\b').hasMatch(normalized)
         ? 'Salary'
         : null;
     return ChatAction(
@@ -260,9 +261,10 @@ String? _expenseDescription(String original, String normalized) {
       .trim()
       .replaceAll(RegExp(r'^[,.\s]+|[,.\s]+$'), '');
   if (description.isEmpty ||
-      RegExp(r'^(expenses?|expense|the|my)$', caseSensitive: false).hasMatch(
-        description,
-      )) {
+      RegExp(
+        r'^(expenses?|expense|the|my)$',
+        caseSensitive: false,
+      ).hasMatch(description)) {
     return null;
   }
   return description;

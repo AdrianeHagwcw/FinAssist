@@ -37,7 +37,11 @@ class FoundDetails extends StatelessWidget {
       if (guess.date != null)
         (asset('icons8-calendar-96.png'), formatShortDate(guess.date!)),
     ];
-    if (items.isEmpty) return const SizedBox.shrink();
+    // Others only says nothing was recognised, so on its own it is not
+    // something found; the form still starts on it.
+    if (items.isEmpty || (items.length == 1 && guess.category == 'Others')) {
+      return const SizedBox.shrink();
+    }
 
     return Column(
       crossAxisAlignment: center

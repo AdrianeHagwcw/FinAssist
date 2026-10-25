@@ -7,6 +7,7 @@ import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
 import '../models/goal.dart';
+import 'app_icon_button.dart';
 import '../models/safe_to_spend.dart';
 import '../models/wallet.dart';
 import '../providers/app_settings_provider.dart';
@@ -73,6 +74,7 @@ class SafeToSpendCard extends StatefulWidget {
     this.goals,
     this.billSchedules,
     this.today,
+    this.showFigure = true,
     this.belowCard,
     super.key,
   });
@@ -88,6 +90,11 @@ class SafeToSpendCard extends StatefulWidget {
   /// Replaces watching the bill schedules for changes. Used by tests.
   final Stream<List<Bill>>? billSchedules;
   final DateTime? today;
+
+  /// False on Home, which shows the total balance instead: only what
+  /// [belowCard] builds is shown, from the same inputs (bills due soon,
+  /// matured savings, the leftover question).
+  final bool showFigure;
 
   /// Shown below the card with the same inputs, such as the leftover notice.
   final Widget Function(BuildContext context, SafeToSpendInputs inputs)?
@@ -375,10 +382,12 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                     }
 
                     if (!walletSnapshot.hasData) {
-                      return const SizedBox(
-                        height: 150,
-                        child: Center(child: CircularProgressIndicator()),
-                      );
+                      return widget.showFigure
+                          ? const SizedBox(
+                              height: 150,
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          : const SizedBox.shrink();
                     }
 
                     final inputs = _inputs(
@@ -390,11 +399,12 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
 
                     return Column(
                       children: [
-                        _HeroCard(
-                          inputs: inputs,
-                          now: _now,
-                          onExplain: () => _explain(inputs),
-                        ),
+                        if (widget.showFigure)
+                          _HeroCard(
+                            inputs: inputs,
+                            now: _now,
+                            onExplain: () => _explain(inputs),
+                          ),
                         if (widget.belowCard != null)
                           widget.belowCard!(context, inputs),
                       ],
@@ -464,21 +474,17 @@ class _HeroCard extends StatelessWidget {
                   ),
                 ),
               ),
-              IconButton(
+              // The same colored icons as Home's balance card.
+              AppIconButton(
+                iconAsset: masked ? amountsHiddenIcon : amountsShownIcon,
                 tooltip: masked ? 'Show amounts' : 'Hide amounts',
-                icon: Icon(
-                  masked
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                  size: 20,
-                ),
                 onPressed: () =>
                     context.read<AppSettingsProvider>().toggleAmountsMasked(),
               ),
-              IconButton(
+              AppIconButton(
                 key: const Key('safe-to-spend-info'),
+                iconAsset: infoIcon,
                 tooltip: 'How this is worked out',
-                icon: const Icon(Icons.info_outline, size: 20),
                 onPressed: onExplain,
               ),
             ],
@@ -507,7 +513,10 @@ class _HeroCard extends StatelessWidget {
                             'daily limit'
                       : 'of ${formatPeso(s.dailyLimit, masked: masked)} daily '
                             'limit',
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.appColors.textMuted,
+                  ),
                 ),
                 const SizedBox(height: 14),
                 ClipRRect(
@@ -536,7 +545,10 @@ class _HeroCard extends StatelessWidget {
                     Text(
                       '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'} left '
                       'this period',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.appColors.textMuted,
+                      ),
                     ),
                   ],
                 ),

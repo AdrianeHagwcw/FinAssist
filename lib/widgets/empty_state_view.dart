@@ -47,9 +47,9 @@ class EmptyStateView extends StatelessWidget {
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey,
+                color: context.appColors.textMuted,
                 height: 1.5,
               ),
             ),

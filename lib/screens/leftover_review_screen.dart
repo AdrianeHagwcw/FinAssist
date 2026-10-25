@@ -12,6 +12,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../widgets/check_after_save.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/money_text.dart';
 
@@ -146,11 +147,15 @@ class LeftoverReviewScreen extends StatefulWidget {
   State<LeftoverReviewScreen> createState() => _LeftoverReviewScreenState();
 }
 
-class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
+class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
+    with CheckAfterSave {
   _Choice? _choice;
   final _saveController = TextEditingController();
   final _spendController = TextEditingController();
-  String? _error;
+
+  /// Set when the leftover was already decided somewhere else. Nothing typed
+  /// here can fix that, so it stays.
+  String? _alreadyDecided;
   bool _resolved = false;
 
   /// Read once, so saving a leftover can move it into the savings wallet in
@@ -160,6 +165,8 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
   @override
   void initState() {
     super.initState();
+    recheckWhenChanged(_saveController);
+    recheckWhenChanged(_spendController);
     WalletService.loadWallets()
         .then((wallets) {
           if (mounted) _wallets = wallets;
@@ -205,7 +212,8 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
         // Already settled somewhere else, or the amounts no longer add up.
         setState(() {
           _resolved = false;
-          _error = 'This leftover was already decided. Reopen it to see how.';
+          _alreadyDecided =
+              'This leftover was already decided. Reopen it to see how.';
         });
         return;
       }
@@ -213,38 +221,48 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
     Navigator.pop(context, true);
   }
 
+  static double? _parse(TextEditingController controller) =>
+      double.tryParse(controller.text.trim().replaceAll(',', ''));
+
+  /// What stops the choice being confirmed as it stands, or null. Shown
+  /// once Confirm has been tapped, and gone as soon as it is fixed.
+  String? get _problem {
+    if (_choice == null) return 'Choose what to do with it first.';
+    if (_choice != _Choice.split) return null;
+
+    final saved = _parse(_saveController);
+    final spent = _parse(_spendController);
+    if (saved == null ||
+        spent == null ||
+        !saved.isFinite ||
+        !spent.isFinite ||
+        saved < 0 ||
+        spent < 0) {
+      return 'Enter both amounts.';
+    }
+    if ((saved + spent - widget.leftover).abs() > 0.005) {
+      return 'The two amounts must add up to ${formatPeso(widget.leftover)}. '
+          'Right now they make ${formatPeso(saved + spent)}.';
+    }
+    return null;
+  }
+
   void _confirm() {
+    markTriedToSave();
+    if (_problem != null) return;
     final leftover = widget.leftover;
 
-    switch (_choice) {
-      case null:
-        setState(() => _error = 'Choose what to do with it first.');
+    switch (_choice!) {
       case _Choice.save:
         _resolve(LeftoverDecision.saved, leftover, 0);
       case _Choice.spend:
         _resolve(LeftoverDecision.spent, 0, leftover);
       case _Choice.split:
-        final saved = double.tryParse(_saveController.text.trim());
-        final spent = double.tryParse(_spendController.text.trim());
-
-        if (saved == null ||
-            spent == null ||
-            !saved.isFinite ||
-            !spent.isFinite ||
-            saved < 0 ||
-            spent < 0) {
-          setState(() => _error = 'Enter both amounts.');
-          return;
-        }
-        if ((saved + spent - leftover).abs() > 0.005) {
-          setState(
-            () => _error =
-                'The two amounts must add up to ${formatPeso(leftover)}. '
-                'Right now they make ${formatPeso(saved + spent)}.',
-          );
-          return;
-        }
-        _resolve(LeftoverDecision.split, saved, spent);
+        _resolve(
+          LeftoverDecision.split,
+          _parse(_saveController)!,
+          _parse(_spendController)!,
+        );
     }
   }
 
@@ -252,6 +270,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final lastDay = widget.periodEnd.subtract(const Duration(days: 1));
+    final error = _alreadyDecided ?? (triedToSave ? _problem : null);
 
     return Scaffold(
       backgroundColor: colors.pageBackground,
@@ -315,10 +334,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
             icon: Icons.savings_outlined,
             title: 'Save it',
             subtitle: 'Set it aside. It stops counting as money you can spend.',
-            onTap: () => setState(() {
-              _choice = _Choice.save;
-              _error = null;
-            }),
+            onTap: () => setState(() => _choice = _Choice.save),
           ),
           _ChoiceTile(
             selected: _choice == _Choice.spend,
@@ -326,20 +342,14 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
             title: 'Use it for spending',
             subtitle:
                 'Keep it available. It is still recorded, not thrown away.',
-            onTap: () => setState(() {
-              _choice = _Choice.spend;
-              _error = null;
-            }),
+            onTap: () => setState(() => _choice = _Choice.spend),
           ),
           _ChoiceTile(
             selected: _choice == _Choice.split,
             icon: Icons.call_split,
             title: 'Split it',
             subtitle: 'Save part, keep the rest for spending.',
-            onTap: () => setState(() {
-              _choice = _Choice.split;
-              _error = null;
-            }),
+            onTap: () => setState(() => _choice = _Choice.split),
           ),
           if (_choice == _Choice.split) ...[
             const SizedBox(height: 8),
@@ -375,10 +385,10 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen> {
               ],
             ),
           ],
-          if (_error != null) ...[
+          if (error != null) ...[
             const SizedBox(height: 12),
             Text(
-              _error!,
+              error,
               style: TextStyle(
                 color: dangerColorOn(context),
                 fontWeight: FontWeight.w600,
@@ -466,9 +476,9 @@ class _ChoiceTile extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         subtitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey,
+                          color: context.appColors.textMuted,
                         ),
                       ),
                     ],
@@ -478,7 +488,9 @@ class _ChoiceTile extends StatelessWidget {
                   selected
                       ? Icons.radio_button_checked
                       : Icons.radio_button_unchecked,
-                  color: selected ? appPrimaryBlue : Colors.grey,
+                  color: selected
+                      ? appPrimaryBlue
+                      : context.appColors.textMuted,
                 ),
               ],
             ),

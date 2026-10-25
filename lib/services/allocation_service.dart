@@ -120,7 +120,8 @@ class AllocationService {
       wallets,
       WalletPurpose.bills,
     )?.balance;
-    final needed = plan.toBills - (billsHeld ?? 0);
+    // The Bills wallet pays the bills and any charge for paying them.
+    final needed = plan.toBills + plan.billsServiceCharge - (billsHeld ?? 0);
     final toBillsWallet = plan.billsSetAside == null
         ? _within(needed, plan.income)
         : plan.toBills;
@@ -206,6 +207,24 @@ class AllocationService {
           'amount': bill.amount,
           'transactionId': paymentId,
         });
+      }
+
+      // What was charged for paying them: an expense of its own, as on Pay
+      // Bill, and the amount the Bills wallet fills in next time.
+      if (billsPaidFrom != null && plan.billsServiceCharge > 0) {
+        WalletService.addServiceChargeToBatch(
+          batch,
+          walletId: billsPaidFrom,
+          amount: plan.billsServiceCharge,
+          note: 'For paying bills',
+          date: receivedAt,
+          collectDeltasInto: deltas,
+        );
+        WalletService.rememberServiceChargeInBatch(
+          batch,
+          billsPaidFrom,
+          plan.billsServiceCharge,
+        );
       }
     }
 

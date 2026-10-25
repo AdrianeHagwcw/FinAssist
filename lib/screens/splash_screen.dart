@@ -214,10 +214,10 @@ class _StartError extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
+              Text(
                 'Check your connection and try again.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, color: Colors.grey, height: 1.4),
+                style: TextStyle(fontSize: 15, color: context.appColors.textMuted, height: 1.4),
               ),
               const Spacer(),
               SizedBox(

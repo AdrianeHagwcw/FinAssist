@@ -10,6 +10,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../widgets/check_after_save.dart';
 
 /// Account-backed preferences. Stream/callback overrides keep the form testable.
 class FinancialPreferencesScreen extends StatefulWidget {
@@ -70,7 +71,8 @@ class _PreferencesForm extends StatefulWidget {
   State<_PreferencesForm> createState() => _PreferencesFormState();
 }
 
-class _PreferencesFormState extends State<_PreferencesForm> {
+class _PreferencesFormState extends State<_PreferencesForm>
+    with CheckAfterSave {
   final _form = GlobalKey<FormState>();
   late final _source = TextEditingController(text: widget.initial.source);
   late final _amount = TextEditingController(
@@ -110,7 +112,7 @@ class _PreferencesFormState extends State<_PreferencesForm> {
   static String _clean(String value) => value.trim().replaceAll(',', '');
 
   void _save() {
-    if (!_form.currentState!.validate()) return;
+    if (!checkForm(_form)) return;
     try {
       widget.onSave({
         'incomeSource': _source.text.trim(),
@@ -137,6 +139,7 @@ class _PreferencesFormState extends State<_PreferencesForm> {
   @override
   Widget build(BuildContext context) => Form(
     key: _form,
+    autovalidateMode: checkMode,
     child: ListView(
       padding: const EdgeInsets.all(20),
       children: [

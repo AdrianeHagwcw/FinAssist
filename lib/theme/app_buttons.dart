@@ -12,6 +12,11 @@ import 'app_theme.dart';
 /// * **Blue** — this opens or edits something, and nothing is decided yet:
 ///   Add Wallet, Add Budget, Edit, the "+" button.
 ///
+/// The one exception is the Add button under a list in first-time setup
+/// (Add a Bill, Add Savings, Add a Wallet, Add Goal, Add account). Those are
+/// the same solid green as the button that saves, so adding reads the same
+/// on every step.
+///
 /// The split that matters is *opening* versus *committing*. "Add Wallet" on
 /// the wallets screen is blue because it only opens a form; "Add Wallet"
 /// inside that form is green because it is the one that saves.

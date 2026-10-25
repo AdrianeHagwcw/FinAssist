@@ -14,7 +14,10 @@ enum ReminderKind {
   payday,
   goals,
   leftover,
-  dailyLog;
+  dailyLog,
+
+  /// Interest a bank or e-wallet may have paid, to check and add.
+  interest;
 
   static ReminderKind? fromName(String? name) {
     for (final kind in ReminderKind.values) {
@@ -24,21 +27,28 @@ enum ReminderKind {
   }
 }
 
-/// How early a bill reminder comes, in days before the due date.
-const List<int> billLeadDayChoices = [0, 1, 3, 7];
+/// How many reminders each rank gets: #1 four, #2 three, #3 two, #4 one.
+/// Whatever the user puts in a place gets that many, so every rank matters.
+const List<int> remindersByRank = [4, 3, 2, 1];
 
-/// Which reminders are on, worked out from the user's priorities unless the
-/// user has switched one by hand.
+/// "4 reminders" for #1, down to "1 reminder" for #4.
+String reminderCountText(int rank) {
+  final times = rank >= 1 && rank <= remindersByRank.length
+      ? remindersByRank[rank - 1]
+      : 1;
+  return '$times reminder${times == 1 ? '' : 's'}';
+}
+
+/// Which reminders are on, and how many each gets from the user's ranking.
 ///
-/// Only the hand-made choices are stored. Everything else follows the
-/// priority ranking, so re-ranking priorities changes the reminders that the
-/// user never touched, and leaves alone the ones they did.
+/// Every reminder starts on; the ranking decides how many come. Only the
+/// ones the user switched by hand are stored, so re-ranking changes the
+/// counts and leaves those choices alone.
 class ReminderSettings {
   const ReminderSettings({
     required this.enabled,
     required this.priorities,
     this.overrides = const {},
-    this.billLeadDaysOverride,
   });
 
   /// Reads the profile: the onboarding "Allow reminders" answer, the ranked
@@ -53,7 +63,6 @@ class ReminderSettings {
       if (value is bool) overrides[kind] = value;
     }
 
-    final lead = map['billLeadDays'];
     final enabled = map['enabled'];
 
     return ReminderSettings(
@@ -62,9 +71,6 @@ class ReminderSettings {
           : profile?['notificationsEnabled'] == true,
       priorities: prioritiesFrom(profile),
       overrides: overrides,
-      billLeadDaysOverride: lead is int && billLeadDayChoices.contains(lead)
-          ? lead
-          : null,
     );
   }
 
@@ -76,7 +82,6 @@ class ReminderSettings {
 
   /// Reminders the user switched on or off by hand.
   final Map<ReminderKind, bool> overrides;
-  final int? billLeadDaysOverride;
 
   /// Where a priority sits in the user's ranking, 0 being the top.
   int rankOf(FinancialPriority priority) {
@@ -84,40 +89,90 @@ class ReminderSettings {
     return index < 0 ? priorities.length : index;
   }
 
-  /// Whether a reminder is on by default for this ranking.
-  ///
-  /// Bills are always on: a missed bill costs money whatever else matters
-  /// most. So is payday: pay that isn't logged leaves Safe to Spend short.
-  /// Each other reminder belongs to one priority and is on when that
-  /// priority is in the user's top two.
-  bool suggested(ReminderKind kind) {
-    return switch (kind) {
-      ReminderKind.bills || ReminderKind.payday => true,
-      ReminderKind.goals => rankOf(FinancialPriority.saveForGoal) <= 1,
-      ReminderKind.leftover => rankOf(FinancialPriority.generalSavings) <= 1,
-      ReminderKind.dailyLog => rankOf(FinancialPriority.trackSpending) <= 1,
-    };
+  /// Whether a reminder is on. Each starts on, since even #4 gets one; the
+  /// user can still switch any of them off.
+  bool isOn(ReminderKind kind) => overrides[kind] ?? true;
+
+  /// How many reminders [kind] gets from its place in the ranking. Payday is
+  /// not ranked: it keeps its own pattern.
+  int timesFor(ReminderKind kind) {
+    final priority = priorityFor(kind);
+    if (priority == null) return 0;
+    final rank = rankOf(priority);
+    return rank < remindersByRank.length ? remindersByRank[rank] : 1;
   }
 
-  /// Whether a reminder is on: the user's own choice, or the suggestion.
-  bool isOn(ReminderKind kind) => overrides[kind] ?? suggested(kind);
-
-  /// Paying bills on time as the top priority means an earlier heads-up.
-  int get suggestedBillLeadDays =>
-      rankOf(FinancialPriority.payBills) == 0 ? 3 : 1;
-
-  int get billLeadDays => billLeadDaysOverride ?? suggestedBillLeadDays;
-
-  /// The priority a reminder follows, or null for bills and payday, which are
-  /// always on.
+  /// The priority a reminder follows, or null for payday, which is always
+  /// the same.
   static FinancialPriority? priorityFor(ReminderKind kind) {
     return switch (kind) {
-      ReminderKind.bills || ReminderKind.payday => null,
+      ReminderKind.payday || ReminderKind.interest => null,
+      ReminderKind.bills => FinancialPriority.payBills,
       ReminderKind.goals => FinancialPriority.saveForGoal,
       ReminderKind.leftover => FinancialPriority.generalSavings,
       ReminderKind.dailyLog => FinancialPriority.trackSpending,
     };
   }
+}
+
+/// Days before a bill's due date its reminders come, by how many it gets.
+const Map<int, List<int>> billReminderDays = {
+  4: [7, 3, 1, 0],
+  3: [3, 1, 0],
+  2: [1, 0],
+  1: [0],
+};
+
+/// Weekdays the logging reminder comes, by how many a week it gets.
+const Map<int, List<int>> logReminderWeekdays = {
+  4: [DateTime.monday, DateTime.wednesday, DateTime.friday, DateTime.sunday],
+  3: [DateTime.tuesday, DateTime.thursday, DateTime.sunday],
+  2: [DateTime.wednesday, DateTime.sunday],
+  1: [DateTime.sunday],
+};
+
+/// When a reminder comes, in plain words, for [times] reminders.
+String reminderTimingText(ReminderKind kind, int times) {
+  return switch (kind) {
+    ReminderKind.payday =>
+      'On payday at 12 PM, then daily for 3 days until you log it.',
+    ReminderKind.bills => switch (times) {
+      4 => '7 days, 3 days and 1 day before, and on the due day, at 9 AM.',
+      3 => '3 days and 1 day before, and on the due day, at 9 AM.',
+      2 => '1 day before and on the due day, at 9 AM.',
+      _ => 'On the due day, at 9 AM.',
+    },
+    ReminderKind.goals => switch (times) {
+      4 =>
+        'The day before each saving day, on it, then 1 and 3 days after '
+            "if you haven't saved.",
+      3 => "On each saving day, then 1 and 3 days after if you haven't saved.",
+      2 => "On each saving day, then 3 days after if you haven't saved.",
+      _ => 'On each saving day, at 9 AM.',
+    },
+    ReminderKind.leftover => switch (times) {
+      4 =>
+        '3 days and 1 day before your next pay, then on payday and 2 days '
+            "after if you haven't decided.",
+      3 =>
+        'The night before your next pay, then on payday and 2 days after '
+            "if you haven't decided.",
+      2 =>
+        "The night before your next pay, then on payday if you haven't "
+            'decided.',
+      _ => 'The night before your next pay.',
+    },
+    ReminderKind.dailyLog => switch (times) {
+      4 => 'Monday, Wednesday, Friday and Sunday at 8 PM.',
+      3 => 'Tuesday, Thursday and Sunday at 8 PM.',
+      2 => 'Wednesday and Sunday at 8 PM.',
+      _ => 'Sundays at 8 PM.',
+    },
+    ReminderKind.interest =>
+      'On the 1st after each account pays interest, at 9 AM. Skipped if you '
+          'already added it. Each January 1, the interest your installments '
+          'cost the year before.',
+  };
 }
 
 /// The ranked priorities saved at onboarding, in the default order when
@@ -222,9 +277,12 @@ List<PlannedReminder> planReminders({
   DateTime at(DateTime day, int hour) =>
       DateTime(day.year, day.month, day.day, hour);
 
-  // Bills: a heads-up, then the day itself.
+  // Bills: as many reminders as the ranking gives, the last on the due day.
+  // Every bill reminded on the same morning shares one notification, however
+  // many there are, so the phone never buzzes once per bill.
   if (settings.isOn(ReminderKind.bills)) {
-    final lead = settings.billLeadDays;
+    final daysBefore = billReminderDays[settings.timesFor(ReminderKind.bills)]!;
+    final byDay = <DateTime, List<(BillInstance, int)>>{};
 
     for (final bill in bills) {
       if (bill.isSettled || bill.remaining <= 0) continue;
@@ -233,30 +291,54 @@ List<PlannedReminder> planReminders({
         bill.dueDate.month,
         bill.dueDate.day,
       );
-      final amount = formatPeso(bill.remaining);
+      for (final before in daysBefore) {
+        final day = due.subtract(Duration(days: before));
+        if (!at(day, morningHour).isAfter(now)) continue;
+        (byDay[day] ??= []).add((bill, before));
+      }
+    }
 
-      if (lead > 0) {
+    for (final entry in byDay.entries) {
+      final day = entry.key;
+      final due = entry.value
+        ..sort((a, b) {
+          final byWhen = a.$2.compareTo(b.$2);
+          return byWhen != 0 ? byWhen : a.$1.name.compareTo(b.$1.name);
+        });
+
+      if (due.length == 1) {
+        final (bill, before) = due.single;
         add(
           PlannedReminder(
             kind: ReminderKind.bills,
-            key: 'bill-early:${bill.id}',
-            at: at(due.subtract(Duration(days: lead)), morningHour),
-            title: lead == 1
-                ? '${bill.name} is due tomorrow'
-                : '${bill.name} is due in $lead days',
-            body: '$amount to pay. Tap to pay it now.',
+            key: 'bill:${bill.id}:$before',
+            at: at(day, morningHour),
+            title: '${bill.name} is due ${_whenDue(before)}',
+            body: '${formatPeso(bill.remaining)} to pay. Tap to pay it now.',
             payload: 'bill:${bill.id}',
           ),
         );
+        continue;
       }
+
+      final sameDay = due.every((item) => item.$2 == due.first.$2);
+      final names = [
+        for (final (bill, before) in due)
+          sameDay
+              ? '${bill.name} ${formatPeso(bill.remaining)}'
+              : '${bill.name} ${formatPeso(bill.remaining)} '
+                    '(${_whenDue(before)})',
+      ];
       add(
         PlannedReminder(
           kind: ReminderKind.bills,
-          key: 'bill-due:${bill.id}',
-          at: at(due, morningHour),
-          title: '${bill.name} is due today',
-          body: '$amount to pay. Tap to pay it now.',
-          payload: 'bill:${bill.id}',
+          key: 'bills:${day.year}-${day.month}-${day.day}',
+          at: at(day, morningHour),
+          title: sameDay
+              ? '${due.length} bills due ${_whenDue(due.first.$2)}'
+              : '${due.length} bills to pay soon',
+          body: '${_listNames(names)}. Tap to see them.',
+          payload: 'bills',
         ),
       );
     }
@@ -267,7 +349,8 @@ List<PlannedReminder> planReminders({
   // tapping opens Add Income for the user to confirm.
   if (settings.isOn(ReminderKind.payday)) {
     final lastLoggedPayday = lastPayday(cycles, usualSource: incomeSource);
-    final lastPay = setupLastPayday == null ||
+    final lastPay =
+        setupLastPayday == null ||
             (lastLoggedPayday != null &&
                 !lastLoggedPayday.isBefore(setupLastPayday))
         ? lastLoggedPayday ?? setupLastPayday
@@ -319,12 +402,13 @@ List<PlannedReminder> planReminders({
 
   // Goals: on each day of the goal's saving rhythm, for the next six weeks.
   // With a plan amount the reminder repeats it; with only a target date it
-  // says what is needed each time to get there.
-  // Goals: one nudge on each saving day, and only while the cycle's amount
-  // is still missing. Nothing has gone in after a day, and again after three,
-  // so the last one says what the delay costs. Saving silences the rest.
+  // says what is needed each time to get there. The ranking adds, in order:
+  // the saving day, 3 days after, 1 day after, and the day before. The ones
+  // after only come while the cycle's amount is still missing; saving
+  // silences the rest.
   if (settings.isOn(ReminderKind.goals)) {
     final until = today.add(const Duration(days: 42));
+    final times = settings.timesFor(ReminderKind.goals);
 
     for (final goal in goals) {
       final start = goal.planStartedAt;
@@ -339,9 +423,19 @@ List<PlannedReminder> planReminders({
             frequency: goal.frequency,
             now: now,
             planStartedAt: start,
+            custom: goal.customInterval,
           );
       // No amount and no date: nothing honest to remind about.
       if (perCycle == null || perCycle <= 0) continue;
+
+      // Planned by its finish date: once that date has passed there is no
+      // plan to keep, only a new date to pick, and no saving day after it
+      // is asked for.
+      final finish = goal.planAmount == null ? goal.targetDate : null;
+      final lastDay = finish == null
+          ? null
+          : DateTime(finish.year, finish.month, finish.day);
+      if (lastDay != null && lastDay.isBefore(today)) continue;
 
       // What the plan has asked for since it started, against what went in.
       // Money saved before the goal existed is not part of the plan.
@@ -350,6 +444,7 @@ List<PlannedReminder> planReminders({
         goal.frequency,
         from: start,
         until: today,
+        custom: goal.customInterval,
       ).length;
       final saved = goal.savedAmount - goal.startingSaved;
       final behind = perCycle * asked - (saved < 0 ? 0 : saved);
@@ -357,12 +452,24 @@ List<PlannedReminder> planReminders({
 
       // Saving days that have just passed stay in range, so one that was
       // missed can still be chased today.
-      final days = planDates(
-        start,
-        goal.frequency,
-        from: today.subtract(const Duration(days: 3)),
-        until: until,
-      );
+      final days = [
+        for (final day in planDates(
+          start,
+          goal.frequency,
+          from: today.subtract(const Duration(days: 3)),
+          until: until,
+          custom: goal.customInterval,
+        ))
+          if (lastDay == null || !day.isAfter(lastDay)) day,
+      ];
+      // Due before its next saving day, so all of it by the date: that day
+      // is the one to be reminded of.
+      if (days.isEmpty &&
+          lastDay != null &&
+          !lastDay.isBefore(today) &&
+          !lastDay.isAfter(until)) {
+        days.add(lastDay);
+      }
 
       for (final day in days) {
         final isCurrent = !day.isAfter(today);
@@ -371,6 +478,19 @@ List<PlannedReminder> planReminders({
 
         final due = isCurrent ? owing : perCycle;
         final key = 'goal:${goal.id}:${day.year}-${day.month}-${day.day}';
+
+        if (times >= 4) {
+          add(
+            PlannedReminder(
+              kind: ReminderKind.goals,
+              key: '$key:before',
+              at: at(day.subtract(const Duration(days: 1)), morningHour),
+              title: 'Saving day tomorrow: ${goal.name}',
+              body: 'Get ${formatPeso(due)} ready to set aside.',
+              payload: 'goal:${goal.id}',
+            ),
+          );
+        }
 
         add(
           PlannedReminder(
@@ -381,24 +501,37 @@ List<PlannedReminder> planReminders({
             // With a plan the figure is the user's own; with only a target
             // date it is what that date asks for, so the date is named.
             body: goal.planAmount != null || goal.targetDate == null
-                ? '${formatPeso(due)} ${goal.frequency.per}. '
+                ? '${formatPeso(due)} ${goal.savingPer}. '
                       '${formatPeso(goal.remaining)} to go.'
-                : 'Save ${formatPeso(due)} ${goal.frequency.per} to reach it '
-                      'by ${formatShortDate(goal.targetDate!)}.',
+                : neededText(
+                    needed: due,
+                    targetDate: goal.targetDate!,
+                    savingDays: savingDaysLeft(
+                      targetDate: goal.targetDate!,
+                      frequency: goal.frequency,
+                      now: now,
+                      planStartedAt: start,
+                      custom: goal.customInterval,
+                    ),
+                    per: goal.savingPer,
+                  ),
             payload: 'goal:${goal.id}',
           ),
         );
 
-        add(
-          PlannedReminder(
-            kind: ReminderKind.goals,
-            key: '$key:late',
-            at: at(day.add(const Duration(days: 1)), morningHour),
-            title: 'Missed: ${goal.name}',
-            body: '${formatPeso(due)} is still to be set aside.',
-            payload: 'goal:${goal.id}',
-          ),
-        );
+        if (times >= 3) {
+          add(
+            PlannedReminder(
+              kind: ReminderKind.goals,
+              key: '$key:late',
+              at: at(day.add(const Duration(days: 1)), morningHour),
+              title: 'Missed: ${goal.name}',
+              body: '${formatPeso(due)} is still to be set aside.',
+              payload: 'goal:${goal.id}',
+            ),
+          );
+        }
+        if (times < 2) continue;
 
         // The last one names the date this pace now reaches, so the warning
         // is a fact rather than a scare.
@@ -408,6 +541,7 @@ List<PlannedReminder> planReminders({
           frequency: goal.frequency,
           now: day.add(const Duration(days: 3)),
           planStartedAt: start,
+          custom: goal.customInterval,
         );
 
         add(
@@ -440,6 +574,10 @@ List<PlannedReminder> planReminders({
       final day = DateTime(due.year, due.month, due.day);
       // Older than a fortnight is the card's job now, not a notification's.
       if (day.isBefore(today.subtract(const Duration(days: 14)))) continue;
+      // What it should have earned, after tax, so the user knows what to
+      // look for.
+      final gross = wallet.estimatedTimeDepositInterest();
+      final interest = gross == null || gross <= 0 ? null : afterTax(gross);
 
       add(
         PlannedReminder(
@@ -447,9 +585,12 @@ List<PlannedReminder> planReminders({
           key: 'savings:${wallet.id}:matured',
           at: at(day, morningHour),
           title: '${wallet.name} matures today',
-          body:
-              '${formatPeso(wallet.balance)} is recorded. Open FinAssist to '
-              'say what you did with it.',
+          body: interest == null
+              ? '${formatPeso(wallet.balance)} is recorded. Open FinAssist to '
+                    'say what you did with it.'
+              : '${formatPeso(wallet.balance)} is recorded, plus about '
+                    '${formatPeso(interest)} interest after tax. Open '
+                    'FinAssist to say what you got back.',
           payload: 'savings:${wallet.id}',
         ),
       );
@@ -467,52 +608,168 @@ List<PlannedReminder> planReminders({
     }
   }
 
-  // Leftover: the evening before the pay period ends, and the next morning
-  // while a past period is still undecided.
-  if (settings.isOn(ReminderKind.leftover) && cycles.isNotEmpty) {
-    final newest = cycles.reduce(
-      (a, b) => a.receivedAt.isAfter(b.receivedAt) ? a : b,
-    );
-    final waiting = cycleAwaitingReview(cycles, incomeFrequency, now: now);
+  // Interest: on the 1st after each time an account pays it, a nudge to
+  // check the account and add what came in. FinAssist cannot see the bank,
+  // so it never adds interest by itself, and an amount already added in the
+  // week before means there is nothing to ask.
+  if (settings.isOn(ReminderKind.interest)) {
+    for (final wallet in wallets) {
+      final expected = wallet.interestPerPayoutAfterTax;
+      if (expected == null || !isRecordableAmount(expected)) continue;
 
-    // A period that is already over, not one on its last day: days left is
-    // never counted below one, so the last-day test can't tell them apart.
-    if (waiting != null &&
-        !now.isBefore(periodOf(waiting, incomeFrequency).end)) {
+      final payout = wallet.interestPayout;
+      // The next two months' reminders, or for a longer schedule at least
+      // the next one, up to a year away.
+      var planned = 0;
+      for (var ahead = 0; ahead <= 12; ahead++) {
+        final day = DateTime(today.year, today.month + ahead, 1);
+        if (!payout.remindsOn(day) || !at(day, morningHour).isAfter(now)) {
+          continue;
+        }
+        if (ahead > 2 && planned > 0) break;
+        planned++;
+        final weekBefore = day.subtract(const Duration(days: 7));
+        final added = transactions.any(
+          (t) =>
+              t.type == TransactionType.income &&
+              t.walletId == wallet.id &&
+              t.label == interestIncomeLabel &&
+              !t.date.isBefore(weekBefore),
+        );
+        if (added) continue;
+
+        add(
+          PlannedReminder(
+            kind: ReminderKind.interest,
+            key: 'interest:${wallet.id}:${day.year}-${day.month}',
+            at: at(day, morningHour),
+            title: 'Interest from ${wallet.name} may be in',
+            // Paid daily, it is the month's total that is added.
+            body: payout.isDaily
+                ? 'About ${formatPeso(expected)} this month after tax. Check '
+                      "your app and add the month's total."
+                : 'About ${formatPeso(expected)} after tax. Check your app '
+                      'and add what it paid.',
+            payload: 'interest:${wallet.id}',
+          ),
+        );
+      }
+    }
+  }
+
+  // Installments: on January 1, what the year's payments cost in interest,
+  // the yearly figure an accountant would give. Only payments really
+  // recorded count, and recording one plans this again, so the figure is
+  // the year's own by the time it comes.
+  if (settings.isOn(ReminderKind.interest)) {
+    final year = today.year;
+    final byInstallment = <String, double>{};
+    for (final t in transactions) {
+      if (t.type != TransactionType.expense || t.interest <= 0) continue;
+      if (t.date.year != year) continue;
+      final name = t.note ?? 'Installment';
+      byInstallment[name] = (byInstallment[name] ?? 0) + t.interest;
+    }
+    final total = byInstallment.values.fold<double>(0, (sum, v) => sum + v);
+
+    if (isRecordableAmount(total)) {
+      final largest = byInstallment.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
       add(
         PlannedReminder(
-          kind: ReminderKind.leftover,
-          key: 'leftover-pending:${waiting.id}',
-          at: at(today.add(const Duration(days: 1)), morningHour),
-          title: 'Your leftover is still waiting',
-          body:
-              'Decide whether to save or spend what was left of your '
-              '${waiting.source.toLowerCase()}.',
-          payload: 'leftover',
-        ),
-      );
-    } else if (!newest.isResolved) {
-      final lastDay = periodOf(
-        newest,
-        incomeFrequency,
-      ).end.subtract(const Duration(days: 1));
-      add(
-        PlannedReminder(
-          kind: ReminderKind.leftover,
-          key: 'leftover:${newest.id}',
-          at: at(lastDay, leftoverHour),
-          title: 'Your next pay is tomorrow',
-          body:
-              'See what is left of your ${newest.source.toLowerCase()} and '
-              'choose to save it or spend it.',
-          payload: 'leftover',
+          kind: ReminderKind.interest,
+          key: 'installment-interest:$year',
+          at: at(DateTime(year + 1, 1, 1), morningHour),
+          title: 'Interest you paid in $year',
+          body: largest.length == 1
+              ? '${formatPeso(total)} of your ${largest.first.key} payments '
+                    'was interest. Tap to see what it has cost.'
+              : '${formatPeso(total)} of your installment payments was '
+                    'interest: ${[for (final e in largest.take(3)) '${e.key} ${formatPeso(e.value)}'].join(', ')}.',
+          payload: 'installments',
         ),
       );
     }
   }
 
-  // Logging: each evening this week, skipping today once something is in.
+  // Leftover: around the end of each pay period still undecided. The night
+  // before the next pay always; the ranking adds payday morning, 2 days
+  // after, then a heads-up 3 days before. Deciding silences the rest.
+  if (settings.isOn(ReminderKind.leftover) && cycles.isNotEmpty) {
+    final times = settings.timesFor(ReminderKind.leftover);
+    final newest = cycles.reduce(
+      (a, b) => a.receivedAt.isAfter(b.receivedAt) ? a : b,
+    );
+    final waiting = cycleAwaitingReview(cycles, incomeFrequency, now: now);
+    final undecided = {?waiting, if (!newest.isResolved) newest};
+
+    for (final cycle in undecided) {
+      final end = periodOf(cycle, incomeFrequency).end;
+      final nextPay = DateTime(end.year, end.month, end.day);
+      final source = cycle.source.toLowerCase();
+
+      if (times >= 4) {
+        add(
+          PlannedReminder(
+            kind: ReminderKind.leftover,
+            key: 'leftover:${cycle.id}:3-before',
+            at: at(nextPay.subtract(const Duration(days: 3)), leftoverHour),
+            title: '3 days until your next pay',
+            body:
+                'See what is left of your $source and plan to save it or '
+                'spend it.',
+            payload: 'leftover',
+          ),
+        );
+      }
+      add(
+        PlannedReminder(
+          kind: ReminderKind.leftover,
+          key: 'leftover:${cycle.id}',
+          at: at(nextPay.subtract(const Duration(days: 1)), leftoverHour),
+          title: 'Your next pay is tomorrow',
+          body:
+              'See what is left of your $source and choose to save it or '
+              'spend it.',
+          payload: 'leftover',
+        ),
+      );
+      if (times >= 2) {
+        add(
+          PlannedReminder(
+            kind: ReminderKind.leftover,
+            key: 'leftover-pending:${cycle.id}',
+            at: at(nextPay, morningHour),
+            title: 'Your leftover is still waiting',
+            body:
+                'Decide whether to save or spend what was left of your '
+                '$source.',
+            payload: 'leftover',
+          ),
+        );
+      }
+      if (times >= 3) {
+        add(
+          PlannedReminder(
+            kind: ReminderKind.leftover,
+            key: 'leftover-pending:${cycle.id}:last',
+            at: at(nextPay.add(const Duration(days: 2)), morningHour),
+            title: 'Last reminder: your leftover',
+            body:
+                'What was left of your $source is still undecided. Save it '
+                'or spend it.',
+            payload: 'leftover',
+          ),
+        );
+      }
+    }
+  }
+
+  // Logging: on the ranking's weekdays this week, skipping today once
+  // something is in.
   if (settings.isOn(ReminderKind.dailyLog)) {
+    final weekdays =
+        logReminderWeekdays[settings.timesFor(ReminderKind.dailyLog)]!;
     final loggedToday = transactions.any(
       (t) =>
           !t.isLegacy &&
@@ -523,14 +780,15 @@ List<PlannedReminder> planReminders({
 
     for (var offset = loggedToday ? 1 : 0; offset < 7; offset++) {
       final day = today.add(Duration(days: offset));
+      if (!weekdays.contains(day.weekday)) continue;
       add(
         PlannedReminder(
           kind: ReminderKind.dailyLog,
           key: 'log:${day.year}-${day.month}-${day.day}',
           at: at(day, eveningHour),
-          title: 'Anything spent today?',
+          title: 'Time to log your spending',
           body:
-              'Take a moment to log today\'s expenses so your Safe to '
+              "Add anything you've spent since you last logged, so Safe to "
               'Spend stays right.',
           payload: 'log',
         ),
@@ -540,6 +798,24 @@ List<PlannedReminder> planReminders({
 
   planned.sort((a, b) => a.at.compareTo(b.at));
   return planned.take(maxPlannedReminders).toList();
+}
+
+/// "today", "tomorrow" or "in 3 days", for a bill due [before] days on.
+String _whenDue(int before) => switch (before) {
+  0 => 'today',
+  1 => 'tomorrow',
+  _ => 'in $before days',
+};
+
+/// "A", "A and B", "A, B and C", or the first three "and 2 more", so a
+/// notification naming many bills still fits on the screen.
+String _listNames(List<String> names) {
+  if (names.length > 3) {
+    return '${names.take(3).join(', ')} and ${names.length - 3} more';
+  }
+  if (names.length < 2) return names.join();
+  return '${names.sublist(0, names.length - 1).join(', ')} and '
+      '${names.last}';
 }
 
 /// The days pay is expected from [from] up to [until], leaving out any

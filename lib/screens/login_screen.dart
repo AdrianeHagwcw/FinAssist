@@ -7,6 +7,7 @@ import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../utils/auth_errors.dart';
+import '../utils/text_limits.dart';
 import '../widgets/app_logo.dart';
 import 'email_verification_screen.dart';
 import 'financial_setup_screen.dart';
@@ -34,8 +35,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  static const int _maxTextLength = 50;
-
   // =========================================================
   // CONTROLLERS
   // =========================================================
@@ -53,6 +52,10 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _emailError;
   String? _passwordError;
 
+  /// Set by the first Log In tap. From then on the fields are checked as
+  /// they are typed, so a message goes as soon as its field is right.
+  bool _triedToLogIn = false;
+
   @override
   void initState() {
     super.initState();
@@ -67,23 +70,18 @@ class _LoginScreenState extends State<LoginScreen> {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    setState(() {
-      _emailError = null;
-      _passwordError = null;
-    });
-
     // ---------------------------------------------------------
     // CHECK EMPTY FIELDS
     // ---------------------------------------------------------
 
-    final emailError = email.isEmpty
-        ? 'Please enter your email.'
-        : !_validEmail(email)
-        ? 'Enter a valid email address.'
-        : null;
-    final passwordError = password.isEmpty
-        ? 'Please enter your password.'
-        : null;
+    final emailError = _emailProblem(email);
+    final passwordError = _passwordProblem(password);
+
+    setState(() {
+      _triedToLogIn = true;
+      _emailError = null;
+      _passwordError = null;
+    });
 
     if (emailError != null || passwordError != null) {
       setState(() {
@@ -130,8 +128,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         case 'invalid-credential':
           _setFieldErrors(
-            email: 'Incorrect email or password.',
-            password: 'Incorrect email or password.',
+            email: _wrongEmailOrPassword,
+            password: _wrongEmailOrPassword,
           );
           break;
 
@@ -175,6 +173,17 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _validEmail(String email) =>
       RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
 
+  static const _wrongEmailOrPassword = 'Incorrect email or password.';
+
+  String? _emailProblem(String email) => email.isEmpty
+      ? 'Please enter your email.'
+      : !_validEmail(email)
+      ? 'Enter a valid email address.'
+      : null;
+
+  String? _passwordProblem(String password) =>
+      password.isEmpty ? 'Please enter your password.' : null;
+
   Widget? _buildCharacterCounter(
     BuildContext context, {
     required int currentLength,
@@ -195,14 +204,24 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  void _clearEmailError() {
-    if (_emailError == null) return;
-    setState(() => _emailError = null);
+  // A changed field is checked again as it is typed. What the server said
+  // about the last try can't be checked here, so it goes once the field is
+  // changed, and "Incorrect email or password" goes from both, since
+  // either one may have been the wrong one.
+  void _onEmailChanged(String value) {
+    if (!_triedToLogIn) return;
+    setState(() {
+      _emailError = _emailProblem(value.trim());
+      if (_passwordError == _wrongEmailOrPassword) _passwordError = null;
+    });
   }
 
-  void _clearPasswordError() {
-    if (_passwordError == null) return;
-    setState(() => _passwordError = null);
+  void _onPasswordChanged(String value) {
+    if (!_triedToLogIn) return;
+    setState(() {
+      _passwordError = _passwordProblem(value);
+      if (_emailError == _wrongEmailOrPassword) _emailError = null;
+    });
   }
 
   // =========================================================
@@ -370,12 +389,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       const SizedBox(height: 8),
 
-                      const Text(
+                      Text(
                         'Smart insights. Better financial future.',
 
                         textAlign: TextAlign.center,
 
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: context.appColors.textMuted,
+                        ),
                       ),
                     ],
                   ),
@@ -398,10 +420,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 8),
 
-                const Text(
+                Text(
                   'Log in to continue to FinAssist',
 
-                  style: TextStyle(fontSize: 15, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: context.appColors.textMuted,
+                  ),
                 ),
 
                 const SizedBox(height: 30),
@@ -427,15 +452,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   enabled: !_isLoading,
 
-                  onChanged: (_) => _clearEmailError(),
+                  onChanged: _onEmailChanged,
 
                   decoration: InputDecoration(
                     hintText: 'Enter your email',
                     errorText: _emailError,
 
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.email_outlined,
-                      color: Colors.grey,
+                      color: context.appColors.textMuted,
                     ),
 
                     border: OutlineInputBorder(
@@ -460,10 +485,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
 
-                  maxLength: _maxTextLength,
+                  maxLength: maxEmailLength,
                   buildCounter: _buildCharacterCounter,
                   inputFormatters: [
-                    LengthLimitingTextInputFormatter(_maxTextLength),
+                    FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                    LengthLimitingTextInputFormatter(maxEmailLength),
                   ],
                 ),
 
@@ -490,15 +516,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   enabled: !_isLoading,
 
-                  onChanged: (_) => _clearPasswordError(),
+                  onChanged: _onPasswordChanged,
 
                   decoration: InputDecoration(
                     hintText: 'Enter your password',
                     errorText: _passwordError,
 
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.lock_outline,
-                      color: Colors.grey,
+                      color: context.appColors.textMuted,
                     ),
 
                     suffixIcon: IconButton(
@@ -542,10 +568,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
 
-                  maxLength: _maxTextLength,
+                  maxLength: maxPasswordLength,
                   buildCounter: _buildCharacterCounter,
                   inputFormatters: [
-                    LengthLimitingTextInputFormatter(_maxTextLength),
+                    LengthLimitingTextInputFormatter(maxPasswordLength),
                   ],
                 ),
 
@@ -690,7 +716,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     text: TextSpan(
                       text: "Don't have an account? ",
 
-                      style: const TextStyle(color: Colors.grey, fontSize: 14),
+                      style: TextStyle(
+                        color: context.appColors.textMuted,
+                        fontSize: 14,
+                      ),
 
                       children: [
                         WidgetSpan(

@@ -6,12 +6,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/app_transaction.dart';
 import '../models/expense_guess.dart';
+import '../models/goal.dart';
 import '../models/wallet.dart';
+import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../utils/category_options.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/category_icon.dart';
+import '../widgets/check_after_save.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/wallet_picker.dart';
 import '../utils/date_format.dart';
@@ -36,10 +39,15 @@ class AddExpenseScreen extends StatefulWidget {
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
 
+  /// Replaces the live goals, read for what they hold in each wallet. Used
+  /// by tests.
+  final Stream<List<Goal>>? goals;
+
   const AddExpenseScreen({
     super.key,
 
     this.wallets,
+    this.goals,
 
     this.documentId,
     this.initialAmount,
@@ -56,7 +64,8 @@ class AddExpenseScreen extends StatefulWidget {
   State<AddExpenseScreen> createState() => _AddExpenseScreenState();
 }
 
-class _AddExpenseScreenState extends State<AddExpenseScreen> {
+class _AddExpenseScreenState extends State<AddExpenseScreen>
+    with CheckAfterSave {
   static const Color primaryBlue = Color(0xFF1976D2);
 
   // =========================================================
@@ -84,6 +93,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   String? _walletId;
   List<Wallet> _wallets = const [];
   StreamSubscription<List<Wallet>>? _walletsSubscription;
+
+  /// Every goal, for the money each holds in a wallet: that money is not
+  /// free to spend.
+  List<Goal> _goals = const [];
+  StreamSubscription<List<Goal>>? _goalsSubscription;
 
   DateTime _selectedDate = DateTime.now();
 
@@ -129,6 +143,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     _descriptionController.text = widget.initialDescription ?? '';
     _notesController.text = widget.initialNotes ?? '';
+    recheckWhenChanged(_amountController);
+    recheckWhenChanged(_descriptionController);
 
     // A new expense gets its category suggested from the description, until
     // the user picks one.
@@ -149,6 +165,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             }
           });
         });
+    // Tests that hand in wallets have no goals behind them.
+    _goalsSubscription =
+        (widget.goals ??
+                (widget.wallets == null
+                    ? GoalService.watchGoals()
+                    : Stream.value(const <Goal>[])))
+            .listen((goals) {
+              if (mounted) setState(() => _goals = goals);
+            }, onError: (Object _) {});
   }
 
   // =========================================================
@@ -158,11 +183,44 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   @override
   void dispose() {
     _walletsSubscription?.cancel();
+    _goalsSubscription?.cancel();
     _amountController.dispose();
     _descriptionController.dispose();
     _notesController.dispose();
 
     super.dispose();
+  }
+
+  // What is wrong with each field as it stands, or null where it is right.
+  // Shown under the field once Save has been tapped, and gone as soon as
+  // that field is fixed.
+
+  String? get _amountProblem {
+    final text = _amountController.text.trim();
+    if (text.isEmpty) return 'Please enter an expense amount.';
+    final amount = double.tryParse(text.replaceAll(',', ''));
+    return amount == null || !isRecordableAmount(amount)
+        ? minimumAmountError
+        : null;
+  }
+
+  String? get _categoryProblem =>
+      _selectedCategory == null ? 'Please select an expense category.' : null;
+
+  String? get _descriptionProblem => _descriptionController.text.trim().isEmpty
+      ? 'Please enter a description.'
+      : null;
+
+  // Users who have not added a wallet yet can still record the expense; it
+  // is kept as history and no balance moves.
+  String? get _walletProblem {
+    if ((_wallets.isEmpty && !widget.requireWalletSelection) ||
+        _walletId != null) {
+      return null;
+    }
+    return _wallets.isEmpty
+        ? 'Add a wallet before recording this expense.'
+        : 'Please choose which wallet this was paid from.';
   }
 
   /// The wallet this expense is paid from, or null when there is none.
@@ -227,63 +285,26 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       return;
     }
 
-    // ---------------------------------------------------------
-    // AMOUNT
-    // ---------------------------------------------------------
-
-    if (_amountController.text.trim().isEmpty) {
-      _showError('Please enter an expense amount.');
+    // Every problem shows at once, each under its own field.
+    markTriedToSave();
+    if (_amountProblem != null ||
+        _descriptionProblem != null ||
+        _categoryProblem != null ||
+        _walletProblem != null) {
       return;
     }
-
-    final double? amount = double.tryParse(
+    final amount = double.parse(
       _amountController.text.trim().replaceAll(',', ''),
     );
 
-    if (amount == null || !isRecordableAmount(amount)) {
-      _showError(minimumAmountError);
-      return;
-    }
-
-    // ---------------------------------------------------------
-    // CATEGORY
-    // ---------------------------------------------------------
-
-    if (_selectedCategory == null) {
-      _showError('Please select an expense category.');
-      return;
-    }
-
-    // ---------------------------------------------------------
-    // DESCRIPTION
-    // ---------------------------------------------------------
-
-    if (_descriptionController.text.trim().isEmpty) {
-      _showError('Please enter a description.');
-      return;
-    }
-
-    // ---------------------------------------------------------
-    // WALLET
-    // ---------------------------------------------------------
-
-    // Users who have not added a wallet yet can still record the expense; it
-    // is kept as history and no balance moves.
-    if ((_wallets.isNotEmpty || widget.requireWalletSelection) &&
-        _walletId == null) {
-      if (_wallets.isEmpty && widget.requireWalletSelection) {
-        _showError('Add a wallet before recording this expense.');
-        return;
-      }
-      _showError('Please choose which wallet this was paid from.');
-      return;
-    }
-
-    // More than the wallet holds is allowed, since money may have come in
-    // that isn't logged yet, but it is checked first so a typo such as
-    // 65000 for 6500 doesn't go through unnoticed.
+    // More than the wallet has free is allowed, since money may have come
+    // in that isn't logged yet, or goal money may really be needed, but it
+    // is checked first so a typo such as 65000 for 6500 doesn't go through
+    // unnoticed.
     final paidFrom = _selectedWallet;
-    if (!_isEditMode && paidFrom != null && amount > paidFrom.balance + 0.005) {
+    if (!_isEditMode &&
+        paidFrom != null &&
+        amount > freeInWallet(paidFrom, _goals) + 0.005) {
       final saveAnyway = await _confirmOverBalance(paidFrom, amount);
       if (!mounted) return;
       if (!saveAnyway) return;
@@ -377,17 +398,31 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     Navigator.pop(context, true);
   }
 
-  /// Asks before saving an expense larger than what [wallet] holds.
+  /// Asks before saving an expense larger than what [wallet] has free:
+  /// more than it holds, or reaching into money set aside for goals.
   Future<bool> _confirmOverBalance(Wallet wallet, double amount) async {
+    final free = freeInWallet(wallet, _goals);
+    final forGoals = wallet.balance - free;
+    final overBalance = amount > wallet.balance + 0.005;
+
     final save = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("More than what's in ${wallet.name}"),
+        title: Text(
+          overBalance
+              ? "More than what's in ${wallet.name}"
+              : 'This uses money set aside for goals',
+        ),
         content: Text(
-          'This expense is ${formatPeso(amount)}, but ${wallet.name} has '
-          '${formatPeso(wallet.balance)}, so it would show '
-          '${formatPeso(wallet.balance - amount)}. If money came in that '
-          "isn't logged yet, add it as income too.",
+          overBalance
+              ? 'This expense is ${formatPeso(amount)}, but ${wallet.name} '
+                    'has ${formatPeso(wallet.balance)}, so it would show '
+                    '${formatPeso(wallet.balance - amount)}. If money came in '
+                    "that isn't logged yet, add it as income too."
+              : 'Only ${formatPeso(free)} in ${wallet.name} is free to '
+                    'spend. The other ${formatPeso(forGoals)} is set aside '
+                    'for your goals, so ${formatPeso(amount - free)} of this '
+                    'would come out of it.',
         ),
         actions: [
           TextButton(
@@ -466,8 +501,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // =================================================
-                  // AMOUNT: the number the user came to type, as large
-                  // as on Add Income
+                  // AMOUNT: the number the user came to type, the same
+                  // size as every other field
                   // =================================================
                   AmountField(
                     controller: _amountController,
@@ -475,6 +510,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     // Filled in from voice, a receipt or an edit, the form is
                     // checked first, so the keyboard stays closed.
                     autofocus: !_isEditMode && widget.initialAmount == null,
+                    errorText: triedToSave ? _amountProblem : null,
                   ),
 
                   const SizedBox(height: 16),
@@ -486,11 +522,14 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   TextField(
                     controller: _descriptionController,
                     textCapitalization: TextCapitalization.sentences,
-                    decoration: dialogFieldDecoration(
-                      context,
-                      'Description',
-                      hint: 'What did you spend money on?',
-                    ),
+                    decoration:
+                        dialogFieldDecoration(
+                          context,
+                          'Description',
+                          hint: 'What did you spend money on?',
+                        ).copyWith(
+                          errorText: triedToSave ? _descriptionProblem : null,
+                        ),
                   ),
 
                   const SizedBox(height: 16),
@@ -514,6 +553,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                               : null,
                         ).copyWith(
                           helperMaxLines: 3,
+                          errorText: triedToSave ? _categoryProblem : null,
                           prefixIcon: Padding(
                             padding: const EdgeInsets.all(12),
                             child: _selectedCategory == null
@@ -605,18 +645,31 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   // =================================================
                   // WALLET
                   // =================================================
-                  if (_wallets.isEmpty)
+                  if (_wallets.isEmpty) ...[
                     Text(
                       'You have no wallets yet. This expense will be saved to your '
                       'history, but no wallet balance will change.',
                       style: TextStyle(fontSize: 13, color: colors.textBody),
-                    )
-                  else
+                    ),
+                    if (triedToSave && _walletProblem != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        _walletProblem!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: dangerColorOn(context),
+                        ),
+                      ),
+                    ],
+                  ] else
                     WalletPicker(
                       wallets: _wallets,
                       selectedId: _walletId,
                       label: 'Paid from',
+                      // What can be spent, not what goals hold.
+                      goals: _goals,
                       onChanged: (value) => setState(() => _walletId = value),
+                      errorText: triedToSave ? _walletProblem : null,
                     ),
 
                   const SizedBox(height: 16),

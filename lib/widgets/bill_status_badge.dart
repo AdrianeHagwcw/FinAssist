@@ -17,7 +17,7 @@ Color billUrgencyColor(BuildContext context, BillUrgency urgency) {
     case BillUrgency.skipped:
     case BillUrgency.moved:
     case BillUrgency.upcoming:
-      return context.isDarkMode ? Colors.grey.shade500 : Colors.grey;
+      return context.appColors.textMuted;
   }
 }
 

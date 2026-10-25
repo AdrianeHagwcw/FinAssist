@@ -18,7 +18,6 @@ class RemindersScreen extends StatefulWidget {
     this.sendTest = ReminderService.showTest,
     this.onSetEnabled = ReminderSettingsService.setEnabled,
     this.onSetKind = ReminderSettingsService.setKind,
-    this.onSetBillLeadDays = ReminderSettingsService.setBillLeadDays,
     this.onSetPriorities = ReminderSettingsService.setPriorities,
     super.key,
   });
@@ -30,7 +29,6 @@ class RemindersScreen extends StatefulWidget {
   final Future<bool> Function() sendTest;
   final void Function(bool enabled) onSetEnabled;
   final void Function(ReminderKind kind, bool? on) onSetKind;
-  final void Function(int? days) onSetBillLeadDays;
   final void Function(List<FinancialPriority> priorities) onSetPriorities;
 
   @override
@@ -124,9 +122,9 @@ class _RemindersScreenState extends State<RemindersScreen> {
               ),
               const SizedBox(height: 24),
               _Heading(
-                'What matters most to you',
-                'Reminders follow this order. Your top two decide which ones '
-                    'start on.',
+                'What should we remind you about most?',
+                'The higher it is, the more reminders it gets: #1 gets 4, '
+                    '#2 gets 3, #3 gets 2 and #4 gets 1.',
               ),
               _Card(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -153,14 +151,10 @@ class _RemindersScreenState extends State<RemindersScreen> {
                   kind: kind,
                   settings: settings,
                   enabled: on,
-                  // Matching the suggestion again hands it back to the
-                  // priorities, so later re-ranking still moves it.
-                  onChanged: (value) => widget.onSetKind(
-                    kind,
-                    value == settings.suggested(kind) ? null : value,
-                  ),
-                  onFollowPriorities: () => widget.onSetKind(kind, null),
-                  onLeadDays: widget.onSetBillLeadDays,
+                  // Every reminder starts on, so turning one back on just
+                  // clears the choice and it follows the ranking again.
+                  onChanged: (value) =>
+                      widget.onSetKind(kind, value ? null : false),
                 ),
                 const SizedBox(height: 10),
               ],
@@ -269,14 +263,23 @@ class _PriorityRow extends StatelessWidget {
               '$rank',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: rank <= 2 ? colors.primaryText : colors.textBody,
+                color: colors.primaryText,
               ),
             ),
           ),
           Expanded(
-            child: Text(
-              priority.label,
-              style: TextStyle(color: colors.textPrimary),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  priority.label,
+                  style: TextStyle(color: colors.textPrimary),
+                ),
+                Text(
+                  reminderCountText(rank),
+                  style: TextStyle(fontSize: 12, color: colors.textBody),
+                ),
+              ],
             ),
           ),
           IconButton(
@@ -301,8 +304,6 @@ class _KindCard extends StatelessWidget {
     required this.settings,
     required this.enabled,
     required this.onChanged,
-    required this.onFollowPriorities,
-    required this.onLeadDays,
   });
 
   final ReminderKind kind;
@@ -311,8 +312,6 @@ class _KindCard extends StatelessWidget {
   /// False while reminders as a whole are off.
   final bool enabled;
   final ValueChanged<bool> onChanged;
-  final VoidCallback onFollowPriorities;
-  final ValueChanged<int?> onLeadDays;
 
   static String titleOf(ReminderKind kind) => switch (kind) {
     ReminderKind.bills => 'Bills due',
@@ -320,42 +319,28 @@ class _KindCard extends StatelessWidget {
     ReminderKind.goals => 'Saving plans',
     ReminderKind.leftover => 'Leftover money',
     ReminderKind.dailyLog => 'Log your spending',
+    ReminderKind.interest => 'Interest paid',
   };
 
-  static String whenOf(ReminderKind kind) => switch (kind) {
-    ReminderKind.bills => 'Before and on the due date, at 9 AM.',
-    ReminderKind.payday =>
-      'On payday at 12 PM, then daily for 3 days until you log it.',
-    ReminderKind.goals => "On your goal's saving days, at 9 AM.",
-    ReminderKind.leftover =>
-      'The day before your next pay, to save or spend what is left.',
-    ReminderKind.dailyLog => '8 PM on days nothing was logged yet.',
-  };
-
+  /// Why it gets what it gets: its place in the ranking, or for payday, why
+  /// it always comes.
   String get _why {
+    if (!settings.isOn(kind)) return "Turned off. You won't get these.";
     final priority = ReminderSettings.priorityFor(kind);
     if (priority == null) {
-      return kind == ReminderKind.payday
-          ? 'Always suggested: logged pay keeps Safe to Spend right.'
-          : 'Always suggested: a missed bill costs money.';
+      return kind == ReminderKind.interest
+          ? 'Not ranked: when an account pays interest, and each '
+                'January for your installments.'
+          : 'Not ranked: logged pay keeps Safe to Spend right.';
     }
-
     final rank = settings.rankOf(priority) + 1;
-    return settings.suggested(kind)
-        ? 'Suggested: "${priority.label}" is #$rank for you.'
-        : 'Off by default: "${priority.label}" is #$rank for you.';
+    return '"${priority.label}" is #$rank for you: '
+        '${reminderCountText(rank).toLowerCase()}.';
   }
-
-  static String _leadLabel(int days) => switch (days) {
-    0 => 'On the day',
-    1 => '1 day before',
-    _ => '$days days before',
-  };
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final byHand = settings.overrides.containsKey(kind);
     final isOn = settings.isOn(kind);
 
     return Opacity(
@@ -372,71 +357,15 @@ class _KindCard extends StatelessWidget {
                 titleOf(kind),
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              subtitle: Text(whenOf(kind)),
+              subtitle: Text(reminderTimingText(kind, settings.timesFor(kind))),
             ),
-            if (kind == ReminderKind.bills && isOn) ...[
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final days in billLeadDayChoices)
-                    ChoiceChip(
-                      label: Text(_leadLabel(days)),
-                      selected: settings.billLeadDays == days,
-                      showCheckmark: false,
-                      selectedColor: appPrimaryBlue,
-                      labelStyle: TextStyle(
-                        color: settings.billLeadDays == days
-                            ? Colors.white
-                            : colors.textBody,
-                      ),
-                      onSelected: enabled
-                          ? (_) => onLeadDays(
-                              days == settings.suggestedBillLeadDays
-                                  ? null
-                                  : days,
-                            )
-                          : null,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Suggested: ${_leadLabel(settings.suggestedBillLeadDays).toLowerCase()}'
-                '${settings.suggestedBillLeadDays == 3 ? ', since paying bills on time is your top priority' : ''}.',
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 12),
+              child: Text(
+                _why,
                 style: TextStyle(fontSize: 12, color: colors.textBody),
               ),
-              // Room at the bottom of the card when nothing follows.
-              if (!byHand) const SizedBox(height: 14),
-            ],
-            // An active bill reminder already explains itself in its timing
-            // line, so the reason isn't repeated under it.
-            if (kind != ReminderKind.bills || !isOn || byHand)
-              Padding(
-                padding: const EdgeInsets.only(top: 6, bottom: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        byHand
-                            ? 'You chose this. It no longer follows your '
-                                  'priorities.'
-                            : _why,
-                        style: TextStyle(fontSize: 12, color: colors.textBody),
-                      ),
-                    ),
-                    if (byHand)
-                      TextButton(
-                        onPressed: enabled ? onFollowPriorities : null,
-                        style: TextButton.styleFrom(
-                          foregroundColor: colors.primaryText,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        child: const Text('Follow priorities'),
-                      ),
-                  ],
-                ),
-              ),
+            ),
           ],
         ),
       ),

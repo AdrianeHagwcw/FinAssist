@@ -13,6 +13,7 @@ import 'report.dart';
 import 'safe_to_spend.dart';
 import 'savings_suggestion.dart';
 import 'transaction_filter.dart';
+import 'wallet.dart';
 import 'chat_language.dart';
 import '../utils/categories.dart';
 
@@ -1544,17 +1545,26 @@ ChatReply _bills(String text, FinanceSnapshot records) {
 
 ChatReply _balance(FinanceSnapshot records) {
   if (records.wallets.isEmpty) return _noWallets;
-  final wallets = [...records.wallets]
-    ..sort((a, b) => b.balance.compareTo(a.balance));
+  // What can be spent, as on Home: the spending wallets, each less what
+  // goals hold in it. The goal money is named, so nothing seems lost.
+  double free(Wallet wallet) => freeInWallet(wallet, records.goals);
+  final wallets =
+      records.wallets
+          .where((wallet) => !wallet.archived && !wallet.isSetAside)
+          .toList()
+        ..sort((a, b) => free(b).compareTo(free(a)));
+  final available = wallets.fold<double>(0, (sum, w) => sum + free(w));
+  final forGoals = records.walletBalance - available;
   final s = records.safeToSpend;
-  final free = _down(s.spendableThisPeriod - s.spentToday);
+  final spendable = _down(s.spendableThisPeriod - s.spentToday);
 
   return ChatReply(
-    'You have ${formatPeso(records.walletBalance)} across '
+    'You have ${formatPeso(available)} available across '
     '${wallets.length} ${wallets.length == 1 ? 'wallet' : 'wallets'}: '
-    '${wallets.take(5).map((w) => '${w.name} ${formatPeso(w.balance)}').join(', ')}.'
+    '${wallets.take(5).map((w) => '${w.name} ${formatPeso(free(w))}').join(', ')}.'
+    '${forGoals > 0.005 ? ' Another ${formatPeso(forGoals)} is set aside for your goals.' : ''}'
     '\n\nAfter bills due before payday and money set aside, '
-    '${formatPeso(free < 0 ? 0 : free)} is free to spend until '
+    '${formatPeso(spendable < 0 ? 0 : spendable)} is free to spend until '
     '${formatMonthDay(records.period.end)}.',
   );
 }

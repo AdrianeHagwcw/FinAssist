@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/goal.dart';
 import 'firestore_write.dart';
 
-/// Reads and writes savings goals and the money set aside for them.
+/// Reads and writes goals and the money set aside for them.
 class GoalService {
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
 
@@ -102,9 +102,10 @@ class GoalService {
 
   /// Adds a goal at the end of the priority order.
   ///
-  /// [alreadySaved] is money the user had put aside before using the app. It
-  /// is recorded as a first contribution kept in [walletId], in the same
-  /// batch as the goal, so Safe to Spend sets it aside straight away.
+  /// [alreadySavedByWallet] is money the user had set aside before using the
+  /// app, by the wallet it is in: cash and a bank account together give two
+  /// entries. Each is recorded as a first contribution in the same batch as
+  /// the goal, so Safe to Spend leaves it alone straight away.
   static void addGoal({
     required String name,
     required double targetAmount,
@@ -112,52 +113,41 @@ class GoalService {
     required int priority,
     GoalKind kind = GoalKind.regular,
     ContributionFrequency frequency = ContributionFrequency.monthly,
+    SavingInterval? customInterval,
     double? planAmount,
     String? walletId,
+    GoalFundingSource? fundingSource,
     String? note,
-    double alreadySaved = 0,
+    Map<String, double> alreadySavedByWallet = const {},
   }) {
+    final savedByWallet = {
+      for (final entry in alreadySavedByWallet.entries)
+        if (entry.value > 0) entry.key: entry.value,
+    };
+    final alreadySaved = savedByWallet.values.fold<double>(
+      0,
+      (total, amount) => total + amount,
+    );
     final batch = _firestore.batch();
-    final reference = _goals.doc();
-    final now = DateTime.now();
 
-    batch.set(reference, {
-      'name': name.trim(),
-      'targetAmount': targetAmount,
-      'savedAmount': 0,
-      'targetDate': targetDate == null ? null : Timestamp.fromDate(targetDate),
-      'priority': priority,
-      'status': GoalStatus.active.name,
-      ..._planFields(
-        kind: kind,
-        frequency: frequency,
-        planAmount: planAmount,
-        walletId: walletId,
-        note: note,
-      ),
-      'startingSaved': alreadySaved > 0 ? alreadySaved : 0,
-      // Kept on the device's clock: a server timestamp is empty until it
-      // syncs, and the plan needs a start date straight away.
-      'planStartedAt': Timestamp.fromDate(now),
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    if (alreadySaved > 0 && walletId != null) {
-      addContributionToBatch(
-        batch,
-        goal: Goal(
-          id: reference.id,
-          name: name,
-          targetAmount: targetAmount,
-          savedAmount: 0,
-          priority: priority,
-          status: GoalStatus.active,
-        ),
-        amount: alreadySaved,
-        walletId: walletId,
-        date: now,
-      );
-    }
+    addGoalToBatch(
+      batch,
+      reference: _goals.doc(),
+      name: name,
+      targetAmount: targetAmount,
+      targetDate: targetDate,
+      priority: priority,
+      kind: kind,
+      frequency: frequency,
+      customInterval: customInterval,
+      planAmount: planAmount,
+      walletId: walletId,
+      fundingSource: fundingSource,
+      note: note,
+      savedAmount: alreadySaved,
+      savedByWallet: savedByWallet,
+      startingSaved: alreadySaved,
+    );
 
     commitFirestoreWrite(batch.commit(), 'add goal');
   }
@@ -173,47 +163,76 @@ class GoalService {
     required int priority,
     GoalKind kind = GoalKind.regular,
     ContributionFrequency frequency = ContributionFrequency.monthly,
+    SavingInterval? customInterval,
     double? planAmount,
     String? walletId,
+    GoalFundingSource? fundingSource,
     String? note,
     double savedAmount = 0,
     Map<String, double> savedByWallet = const {},
+    double startingSaved = 0,
   }) {
+    final now = DateTime.now();
+    final status = targetAmount > 0 && savedAmount + 0.005 >= targetAmount
+        ? GoalStatus.completed
+        : GoalStatus.active;
     batch.set(reference, {
       'name': name.trim(),
       'targetAmount': targetAmount,
       // Money already set aside for this goal when it was created. It is a
-      // claim on a savings wallet, not a transfer, so no balance moves.
+      // claim on the wallet balance, not a transfer, so no balance moves.
       'savedAmount': savedAmount,
       if (savedByWallet.isNotEmpty) 'savedByWallet': savedByWallet,
       'targetDate': targetDate == null ? null : Timestamp.fromDate(targetDate),
       'priority': priority,
-      'status': GoalStatus.active.name,
+      'status': status.name,
+      if (status == GoalStatus.completed)
+        'completedAt': FieldValue.serverTimestamp(),
       ..._planFields(
         kind: kind,
         frequency: frequency,
+        customInterval: customInterval,
         planAmount: planAmount,
         walletId: walletId,
         note: note,
       ),
-      'startingSaved': 0,
-      'planStartedAt': Timestamp.fromDate(DateTime.now()),
+      if (fundingSource != null) 'fundingSource': fundingSource.name,
+      'startingSaved': startingSaved,
+      // Kept on the device's clock: a server timestamp is empty until it
+      // syncs, and the plan needs a start date straight away.
+      'planStartedAt': Timestamp.fromDate(now),
       'createdAt': FieldValue.serverTimestamp(),
     });
+    for (final entry in savedByWallet.entries) {
+      if (entry.value <= 0) continue;
+      batch.set(reference.collection('contributions').doc(), {
+        'amount': entry.value,
+        'walletId': entry.key,
+        'date': Timestamp.fromDate(now),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
   }
 
   static Map<String, dynamic> _planFields({
     required GoalKind kind,
     required ContributionFrequency frequency,
+    required SavingInterval? customInterval,
     required double? planAmount,
     required String? walletId,
     required String? note,
   }) {
     final trimmed = note?.trim();
+    // Kept only with Custom, so a preset never carries an old custom rhythm.
+    final custom = frequency == ContributionFrequency.custom
+        ? customInterval
+        : null;
 
     return {
       'kind': kind.name,
       'frequency': frequency.name,
+      'frequencyEvery': custom?.count,
+      'frequencyUnit': custom?.unit.name,
       'planAmount': planAmount != null && planAmount > 0 ? planAmount : null,
       'walletId': walletId,
       'note': trimmed == null || trimmed.isEmpty ? null : trimmed,
@@ -229,10 +248,15 @@ class GoalService {
     DateTime? targetDate,
     GoalKind? kind,
     ContributionFrequency? frequency,
+    SavingInterval? customInterval,
     double? planAmount,
     String? walletId,
     String? note,
   }) {
+    final newFrequency = frequency ?? goal.frequency;
+    final newInterval = newFrequency == ContributionFrequency.custom
+        ? customInterval ?? goal.customInterval
+        : null;
     final reached = targetAmount > 0 && goal.shownSaved + 0.005 >= targetAmount;
     final status = goal.status == GoalStatus.used
         ? GoalStatus.used
@@ -244,7 +268,9 @@ class GoalService {
     // for months that were under the old plan.
     final planChanged =
         planAmount != goal.planAmount ||
-        (frequency != null && frequency != goal.frequency);
+        newFrequency != goal.frequency ||
+        (newFrequency == ContributionFrequency.custom &&
+            newInterval != goal.customInterval);
 
     commitFirestoreWrite(
       _goals.doc(goal.id).set({
@@ -256,7 +282,8 @@ class GoalService {
         'status': status.name,
         ..._planFields(
           kind: kind ?? goal.kind,
-          frequency: frequency ?? goal.frequency,
+          frequency: newFrequency,
+          customInterval: newInterval,
           planAmount: planAmount,
           walletId: walletId ?? goal.walletId,
           note: note,
@@ -327,6 +354,31 @@ class GoalService {
     commitFirestoreWrite(batch.commit(), 'contribute to goal');
   }
 
+  /// Sets money aside for a goal from several wallets at once, one
+  /// contribution each, in one write. Each is worked out from the goal as the
+  /// one before left it, so their per-wallet amounts never overwrite each
+  /// other.
+  static void contributeFromWallets(
+    Goal goal,
+    Map<String, double> amounts, {
+    DateTime? date,
+  }) {
+    final batch = _firestore.batch();
+    var running = goal;
+    for (final entry in amounts.entries) {
+      if (entry.value <= 0) continue;
+      addContributionToBatch(
+        batch,
+        goal: running,
+        amount: entry.value,
+        walletId: entry.key,
+        date: date,
+      );
+      running = running.withContribution(entry.key, entry.value);
+    }
+    commitFirestoreWrite(batch.commit(), 'contribute to goal');
+  }
+
   /// The batch counterpart of [contribute], for the income waterfall.
   ///
   /// The goal's status follows its new total: reaching the target completes
@@ -384,6 +436,35 @@ class GoalService {
 
   /// Marks a reached goal's money as spent on what it was for. It stops being
   /// set aside, and the goal stays as a record.
+  /// Moves [amount] of [goal]'s money from wallet [from] to [to] in
+  /// [batch], as when a time deposit matures and is taken out: the goal
+  /// keeps its money, now in the wallet it really went to, so it stays set
+  /// aside there rather than being counted as free to spend.
+  static void moveMoneyInBatch(
+    WriteBatch batch,
+    Goal goal, {
+    required String from,
+    required String to,
+    required double amount,
+  }) {
+    if (amount <= 0 || from == to) return;
+    final Map<String, Object> moved;
+    if (goal.savedByWallet.isNotEmpty) {
+      moved = {
+        from: FieldValue.increment(-amount),
+        to: FieldValue.increment(amount),
+      };
+    } else {
+      // Saved before the per-wallet amounts: all of it was in [from].
+      final left = ((goal.shownSaved - amount) * 100).round() / 100;
+      moved = {if (left > 0.005) from: left, to: amount};
+    }
+    batch.set(_goals.doc(goal.id), {
+      'savedByWallet': moved,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   static void markUsed(Goal goal) {
     commitFirestoreWrite(
       _goals.doc(goal.id).set({

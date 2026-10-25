@@ -14,6 +14,7 @@ import 'package:testapp/models/allocation.dart';
 import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/cycle_history.dart';
 import 'package:testapp/models/financial_preferences.dart';
+import 'package:testapp/models/goal.dart';
 import 'package:testapp/models/wallet.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
 import 'package:testapp/screens/add_expense_screen.dart';
@@ -560,6 +561,71 @@ void main() {
     expect(find.text("More than what's in Cash"), findsNothing);
     expect(find.byType(AddExpenseScreen), findsOneWidget);
     expect(find.text('7,000'), findsOneWidget, reason: 'grouped as typed');
+  });
+
+  testWidgets('spending goal money is asked about, and amounts are free', (
+    tester,
+  ) async {
+    const cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 10000,
+      startingBalance: 10000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    await pumpScreen(
+      tester,
+      AddExpenseScreen(
+        wallets: Stream.value([cash]),
+        // ₱2,000 of the cash is set aside for a goal.
+        goals: Stream.value(const [
+          Goal(
+            id: 'grad',
+            name: 'Graduation',
+            targetAmount: 10000,
+            savedAmount: 2000,
+            priority: 0,
+            status: GoalStatus.active,
+            savedByWallet: {'cash': 2000},
+          ),
+        ]),
+      ),
+    );
+    await tester.pump();
+
+    // The picker shows what can be spent, and says why it is less.
+    expect(find.text('₱8,000'), findsOneWidget);
+    expect(
+      find.text(
+        'Amounts are what is free to spend, after money set aside for goals.',
+      ),
+      findsOneWidget,
+    );
+
+    Finder field(String hint) =>
+        find.ancestor(of: find.text(hint), matching: find.byType(TextField));
+    await tester.enterText(field('0.00'), '9000');
+    await tester.enterText(field('What did you spend money on?'), 'Groceries');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Save Expense'));
+    await tester.tap(find.text('Save Expense'));
+    await tester.pumpAndSettle();
+
+    // Less than Cash holds, but more than it has free.
+    expect(find.text('This uses money set aside for goals'), findsOneWidget);
+    expect(
+      find.text(
+        'Only ₱8,000 in Cash is free to spend. The other ₱2,000 is set '
+        'aside for your goals, so ₱1,000 of this would come out of it.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Fix Amount'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AddExpenseScreen), findsOneWidget);
   });
 
   testWidgets('Add Income starts with the usual source, never the amount', (

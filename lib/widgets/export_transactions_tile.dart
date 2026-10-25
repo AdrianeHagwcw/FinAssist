@@ -85,7 +85,7 @@ class _ExportTransactionsTileState extends State<ExportTransactionsTile> {
               height: 18,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.chevron_right, color: Colors.grey),
+          : Icon(Icons.chevron_right, color: context.appColors.textMuted),
       onTap: _exporting ? null : _export,
     );
   }

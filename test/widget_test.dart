@@ -53,6 +53,7 @@ import 'package:testapp/widgets/app_logo.dart';
 import 'package:testapp/widgets/back_to_home.dart';
 import 'package:testapp/widgets/bill_payment_sheet.dart';
 import 'package:testapp/widgets/export_transactions_tile.dart';
+import 'package:testapp/widgets/goal_funding_picker.dart';
 import 'package:testapp/widgets/goal_sheets.dart';
 import 'package:testapp/widgets/matured_savings_notice.dart';
 import 'package:testapp/widgets/matured_savings_sheet.dart';
@@ -62,10 +63,14 @@ import 'package:testapp/widgets/light_dark_toggle.dart';
 import 'package:testapp/utils/date_format.dart';
 import 'package:testapp/utils/categories.dart';
 import 'package:testapp/utils/money_format.dart';
+import 'package:testapp/utils/unique_name.dart';
+import 'package:testapp/widgets/goal_progress.dart';
+import 'package:testapp/widgets/interest_sheet.dart';
+import 'package:testapp/widgets/savings_form_parts.dart';
+import 'package:testapp/utils/income_sources.dart';
 import 'package:testapp/widgets/money_text.dart';
 import 'package:testapp/widgets/debt_form_sheet.dart';
 import 'package:testapp/widgets/due_soon_notice.dart';
-import 'package:testapp/widgets/savings_guide.dart';
 import 'package:testapp/widgets/safe_to_spend_card.dart';
 import 'package:testapp/widgets/spending_chart.dart';
 import 'package:testapp/widgets/transaction_row.dart';
@@ -74,6 +79,39 @@ import 'package:testapp/widgets/wallet_picker.dart';
 import 'package:testapp/widgets/wallet_form_sheet.dart';
 
 void main() {
+  test('secondary text is readable on every background, in both modes', () {
+    double contrast(Color a, Color b) {
+      final la = a.computeLuminance();
+      final lb = b.computeLuminance();
+      final hi = la > lb ? la : lb;
+      final lo = la > lb ? lb : la;
+      return (hi + 0.05) / (lo + 0.05);
+    }
+
+    for (final (mode, colors) in [
+      ('light', AppColors.light),
+      ('dark', AppColors.dark),
+    ]) {
+      for (final (name, background) in [
+        ('card', colors.card),
+        ('page', colors.pageBackground),
+        ('tint', colors.primaryTint),
+      ]) {
+        // 4.5 : 1 is what people need to read ordinary text.
+        expect(
+          contrast(colors.textMuted, background),
+          greaterThanOrEqualTo(4.5),
+          reason: '$mode secondary text on $name',
+        );
+        expect(
+          contrast(colors.textBody, background),
+          greaterThanOrEqualTo(4.5),
+          reason: '$mode body text on $name',
+        );
+      }
+    }
+  });
+
   testWidgets('login screen can prefill email from verification recovery', (
     WidgetTester tester,
   ) async {
@@ -132,6 +170,27 @@ void main() {
     expect(find.text('Enter a valid email address.'), findsOneWidget);
     final emailField = tester.widget<TextField>(fields.first);
     expect(emailField.decoration?.errorText, 'Enter a valid email address.');
+
+    // Still wrong while it is being fixed, and gone once it is right,
+    // without tapping Log In again.
+    await tester.enterText(fields.first, 'ada@example');
+    await tester.pump();
+    expect(find.text('Enter a valid email address.'), findsOneWidget);
+    await tester.enterText(fields.first, 'ada@example.com');
+    await tester.pumpAndSettle();
+    expect(find.text('Enter a valid email address.'), findsNothing);
+  });
+
+  testWidgets('login shows nothing red before Log In is tapped', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const LoginScreen()),
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'ada@');
+    await tester.pump();
+    expect(find.text('Enter a valid email address.'), findsNothing);
   });
 
   testWidgets('login limits fields and hides counters until the limit', (
@@ -143,16 +202,26 @@ void main() {
 
     final fields = find.byType(TextField);
     expect(fields, findsNWidgets(2));
-    for (final field in tester.widgetList<TextField>(fields)) {
-      expect(field.maxLength, 50);
-    }
-    expect(find.text('0/50'), findsNothing);
+    // Room for any real email, and for a password manager's password.
+    expect(
+      tester.widgetList<TextField>(fields).map((field) => field.maxLength),
+      [100, 128],
+    );
+    expect(find.text('0/100'), findsNothing);
 
-    await tester.enterText(fields.first, 'a' * 50);
+    await tester.enterText(fields.first, 'a' * 120);
     await tester.pump();
 
-    expect(find.text('50/50'), findsOneWidget);
-    expect(tester.widget<TextField>(fields.first).controller?.text.length, 50);
+    expect(find.text('100/100'), findsOneWidget);
+    expect(tester.widget<TextField>(fields.first).controller?.text.length, 100);
+
+    // An email has no spaces, so none go in.
+    await tester.enterText(fields.first, 'ada @mail.com');
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(fields.first).controller?.text,
+      'ada@mail.com',
+    );
   });
 
   testWidgets('create account shows inline required field errors', (
@@ -192,17 +261,28 @@ void main() {
 
     final fields = find.byType(TextField);
     expect(fields, findsNWidgets(4));
-    for (final field in tester.widgetList<TextField>(fields)) {
-      expect(field.maxLength, 50);
-    }
-    expect(find.text('0/50'), findsNothing);
+    // The same name limit as setup and Profile.
+    expect(
+      tester.widgetList<TextField>(fields).map((field) => field.maxLength),
+      [40, 100, 128, 128],
+    );
+    expect(find.text('0/40'), findsNothing);
 
+    // A hyphen belongs in a name; "!" does not.
     await tester.enterText(fields.first, 'Ada-Lovelace!${'a' * 60}');
     await tester.pump();
 
     final nameField = tester.widget<TextField>(fields.first);
-    expect(nameField.controller?.text, 'AdaLovelace${'a' * 39}');
-    expect(find.text('50/50'), findsOneWidget);
+    expect(nameField.controller?.text, 'Ada-Lovelace${'a' * 28}');
+    expect(find.text('40/40'), findsOneWidget);
+
+    // Filipino names fit as they are spelled.
+    await tester.enterText(fields.first, "Ma. Niño O'Neil-Peña");
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(fields.first).controller?.text,
+      "Ma. Niño O'Neil-Peña",
+    );
   });
 
   testWidgets('password policy errors appear beneath the password field', (
@@ -581,6 +661,7 @@ void main() {
       'Home has the Quick Add actions without duplicating shortcuts',
       (tester) async {
         var opened = 0;
+        var goalsOpened = 0;
         tester.view.physicalSize = const Size(800, 3200);
         tester.view.devicePixelRatio = 1.0;
         addTearDown(tester.view.resetPhysicalSize);
@@ -599,6 +680,7 @@ void main() {
                 safeToSpend: const SizedBox(height: 40),
                 today: DateTime(2026, 9, 28),
                 onOpenBills: () => opened++,
+                onOpenGoals: () => goalsOpened++,
               ),
             ),
           ),
@@ -610,11 +692,11 @@ void main() {
           expect(find.text(label), findsOneWidget);
         }
         for (final label in [
-          'Save to Goal',
           'Scan Receipt',
           'Voice Entry',
           'Bill Planner',
           'Savings',
+          'Goals',
           'Installments',
           'Reports',
         ]) {
@@ -627,17 +709,26 @@ void main() {
         await tester.pump();
 
         for (final label in [
-          'Save to Goal',
           'Scan Receipt',
           'Voice Entry',
           'Bill Planner',
           'Savings',
+          'Goals',
           'Installments',
           'Reports',
         ]) {
           expect(find.text(label), findsOneWidget);
         }
         expect(find.text('Show less'), findsOneWidget);
+
+        // Goals has its own shortcut, where goals are added.
+        final goalsTile = find
+            .ancestor(of: find.text('Goals'), matching: find.byType(InkWell))
+            .first;
+        await tester.ensureVisible(goalsTile);
+        await tester.tap(goalsTile);
+        await tester.pump();
+        expect(goalsOpened, 1);
 
         final tile = find
             .ancestor(
@@ -653,7 +744,7 @@ void main() {
       },
     );
 
-    testWidgets('the + sheet holds the six ways of recording money', (
+    testWidgets('the + sheet holds six actions, Goals among them', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(800, 1600);
@@ -683,12 +774,14 @@ void main() {
         'Expense',
         'Income',
         'Transfer',
-        'Save to Goal',
         'Scan Receipt',
         'Voice Entry',
+        'Goals',
       ]) {
         expect(find.text(label), findsOneWidget);
       }
+      // Saving toward a goal is done from the goal itself, in Goals.
+      expect(find.text('Save to Goal'), findsNothing);
       // Setting up an installment happens once and belongs with the debts.
       expect(find.text('Installment'), findsNothing);
     });
@@ -798,6 +891,55 @@ void main() {
       expect(sss.isLockedSavings, isTrue);
     });
 
+    test('a time deposit can fund a goal, ready on its end date', () {
+      final td = Wallet(
+        id: 'td',
+        name: 'Time Deposit',
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+        maturityDate: DateTime(2027, 4, 25),
+      );
+      expect(goalFundingWallets([td]), [td]);
+      expect(td.readyOn(DateTime(2026, 10, 25)), DateTime(2027, 4, 25));
+      // From its end date on, there is nothing left to wait for.
+      expect(td.readyOn(DateTime(2027, 4, 25)), isNull);
+
+      // When it is taken out, the goals' money goes with it, the top goal
+      // first.
+      const tuition = Goal(
+        id: 't',
+        name: 'Tuition',
+        targetAmount: 8000,
+        savedAmount: 6000,
+        priority: 0,
+        status: GoalStatus.active,
+        savedByWallet: {'td': 6000},
+      );
+      const trip = Goal(
+        id: 'r',
+        name: 'Trip',
+        targetAmount: 9000,
+        savedAmount: 3500,
+        priority: 1,
+        status: GoalStatus.active,
+        savedByWallet: {'td': 3000, 'cash': 500},
+      );
+      expect(goalMoneyMoving([trip, tuition], from: 'td', moved: 10000), {
+        tuition: 6000,
+        trip: 3000,
+      });
+      expect(goalMoneyMoving([trip, tuition], from: 'td', moved: 7000), {
+        tuition: 6000,
+        trip: 1000,
+      });
+    });
+
     test('savings saved before these kinds existed stay reachable', () {
       final old = Wallet(
         id: 'old',
@@ -813,6 +955,120 @@ void main() {
 
       expect(old.isLockedSavings, isFalse);
       expect(reachableSavingsBalance([old]), 1200);
+    });
+
+    test(
+      'time-deposit estimate uses the original term and does not alter balance',
+      () {
+        final timeDeposit = Wallet(
+          id: 'td',
+          name: 'Time Deposit',
+          type: WalletType.other,
+          balance: 10000,
+          startingBalance: 10000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 0,
+          purpose: WalletPurpose.savings,
+          savingsKind: SavingsKind.timeDeposit.name,
+          annualInterestRatePercent: 5,
+          depositStartDate: DateTime(2023, 1, 1),
+          maturityDate: DateTime(2024, 1, 1),
+        );
+
+        expect(timeDeposit.estimatedTimeDepositInterest(), 500);
+        expect(timeDeposit.estimatedMaturityValue(), 10500);
+        expect(timeDeposit.balance, 10000);
+      },
+    );
+
+    test('savings-deposit estimate weights recorded transaction history', () {
+      final savingsDeposit = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 10500,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+        annualInterestRatePercent: 5,
+        depositStartDate: DateTime(2024, 1, 1),
+        createdAt: DateTime(2024, 1, 1),
+      );
+      final transactions = [
+        AppTransaction(
+          id: 'add',
+          type: TransactionType.income,
+          amount: 1000,
+          label: 'Deposit',
+          date: DateTime(2024, 1, 11),
+          walletId: 'savings',
+        ),
+        AppTransaction(
+          id: 'take',
+          type: TransactionType.expense,
+          amount: 500,
+          label: 'Withdrawal',
+          date: DateTime(2024, 1, 21),
+          walletId: 'savings',
+        ),
+      ];
+
+      expect(
+        savingsDeposit.estimatedSavingsDepositInterest(
+          transactions: transactions,
+          asOf: DateTime(2024, 2, 1),
+        ),
+        closeTo(325500 * 0.05 / 365, 0.000001),
+      );
+    });
+
+    test('missing and future savings-deposit dates are safe', () {
+      final future = Wallet(
+        id: 'future',
+        name: 'Future deposit',
+        type: WalletType.other,
+        balance: 1000,
+        startingBalance: 1000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+        annualInterestRatePercent: 5,
+        depositStartDate: DateTime(2025, 1, 1),
+      );
+      final missing = Wallet(
+        id: 'missing',
+        name: 'Missing date',
+        type: WalletType.other,
+        balance: 1000,
+        startingBalance: 1000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+        annualInterestRatePercent: 5,
+      );
+
+      expect(
+        future.estimatedSavingsDepositInterest(
+          transactions: const [],
+          asOf: DateTime(2024, 1, 1),
+        ),
+        0,
+      );
+      expect(
+        missing.estimatedSavingsDepositInterest(
+          transactions: const [],
+          asOf: DateTime(2024, 1, 1),
+        ),
+        isNull,
+      );
     });
 
     testWidgets('a record set up at sign up can still be fixed', (
@@ -854,6 +1110,43 @@ void main() {
 
       expect(name, 'MP2 savings');
       expect(recorded, 5000, reason: 'a typo at sign up can be corrected');
+    });
+
+    testWidgets('older time deposits remain editable without new metadata', (
+      tester,
+    ) async {
+      var saves = 0;
+      final oldDeposit = Wallet(
+        id: 'old-time',
+        name: 'Old time deposit',
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+        maturityDate: DateTime(2027, 1, 1),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: SetAsideRecordSheet(
+              wallet: oldDeposit,
+              onSave: (_, _) => saves++,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('new-savings-timeDeposit')), findsNothing);
+      expect(find.byKey(const Key('set-aside-interest-rate')), findsNothing);
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+      expect(saves, 1);
     });
 
     testWidgets('cannot correct savings below the amount assigned to goals', (
@@ -923,20 +1216,53 @@ void main() {
 
       // Nothing to fix here, so it reads as adding rather than editing, and
       // it opens empty.
-      expect(find.text('Add savings'), findsWidgets);
-      expect(find.byKey(const Key('new-savings-general')), findsOneWidget);
-      expect(find.byKey(const Key('new-savings-government')), findsOneWidget);
-
-      // A date is only asked for once the money is locked away.
+      expect(find.text('Add Savings'), findsWidgets);
+      // The same look as setup's: tiles, then two facts about the chosen
+      // kind.
+      expect(find.text('What kind of savings?'), findsOneWidget);
+      expect(find.text('Earns interest'), findsOneWidget);
+      expect(find.text("Follows your bank's rules"), findsOneWidget);
+      expect(
+        find.byKey(const Key('new-savings-savingsDeposit')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('new-savings-demandDeposit')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('set-aside-name')), findsNothing);
+      expect(find.byKey(const Key('set-aside-interest-rate')), findsOneWidget);
+      expect(find.byKey(const Key('set-aside-deposit-start')), findsOneWidget);
       expect(find.byKey(const Key('new-savings-maturity')), findsNothing);
       await tester.tap(find.byKey(const Key('new-savings-timeDeposit')));
       await tester.pump();
       expect(find.byKey(const Key('new-savings-maturity')), findsOneWidget);
+      expect(find.byKey(const Key('set-aside-interest-rate')), findsOneWidget);
 
-      await tester.enterText(
-        find.byKey(const Key('set-aside-name')),
-        'BPI time deposit',
+      // A time deposit is opened with its money in it: it can't start at
+      // ₱0 and be filled later.
+      await tester.enterText(find.byKey(const Key('set-aside-balance')), '0');
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pump();
+      expect(
+        find.text(
+          'A time deposit is opened with its money in it. Enter the amount '
+          'you placed.',
+        ),
+        findsOneWidget,
       );
+      expect(recorded, isNull);
+      await tester.enterText(find.byKey(const Key('set-aside-balance')), '');
+      await tester.ensureVisible(
+        find.byKey(const Key('new-savings-demandDeposit')),
+      );
+
+      await tester.tap(find.byKey(const Key('new-savings-demandDeposit')));
+      await tester.pump();
+      expect(find.byKey(const Key('set-aside-interest-rate')), findsNothing);
+      expect(find.byKey(const Key('set-aside-deposit-start')), findsNothing);
+      expect(find.byKey(const Key('new-savings-maturity')), findsNothing);
       await tester.enterText(
         find.byKey(const Key('set-aside-balance')),
         '20000',
@@ -946,8 +1272,107 @@ void main() {
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
 
-      expect(name, 'BPI time deposit');
+      expect(name, 'Demand Deposit');
       expect(recorded, 20000);
+    });
+
+    testWidgets('new savings can be moved in from the wallets', (tester) async {
+      tester.view.physicalSize = const Size(700, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final cash = Wallet(
+        id: 'cash',
+        name: 'Cash',
+        type: WalletType.cash,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 0,
+      );
+      String? name;
+      Map<String, double>? from;
+      double? recorded;
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SetAsideRecordSheet(
+                wallets: [cash],
+                // ₱1,000 of the cash is a goal's.
+                goals: Stream.value(const [
+                  Goal(
+                    id: 'g',
+                    name: 'Trip',
+                    targetAmount: 5000,
+                    savedAmount: 1000,
+                    priority: 0,
+                    status: GoalStatus.active,
+                    savedByWallet: {'cash': 1000},
+                  ),
+                ]),
+                onSave: (n, amount) => recorded = amount,
+                onMoveIn: (n, amounts) {
+                  name = n;
+                  from = amounts;
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // It starts as before: the money is already in the account.
+      expect(find.text('Where is this money?'), findsOneWidget);
+      expect(find.byKey(const Key('set-aside-balance')), findsOneWidget);
+      expect(
+        find.text('Recorded as it is. Nothing leaves your wallets.'),
+        findsOneWidget,
+      );
+
+      // A demand deposit asks no rate, so only the money is left to say.
+      await tester.tap(find.byKey(const Key('new-savings-demandDeposit')));
+      await tester.pump();
+
+      // Moving it in now: the same picker as goals, no balance to type.
+      await tester.ensureVisible(
+        find.byKey(const Key('savings-source-wallets')),
+      );
+      await tester.tap(find.byKey(const Key('savings-source-wallets')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('set-aside-balance')), findsNothing);
+      expect(find.text('Which wallets is it coming from?'), findsOneWidget);
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+
+      // Only what is free can move: ₱4,000, not the goal's ₱1,000.
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-cash')),
+        '4500',
+      );
+      await tester.pump();
+      expect(
+        find.textContaining('Only ₱4,000 in Cash is free'),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-cash')),
+        '3000',
+      );
+      await tester.pump();
+      expect(find.text('Moving into this savings'), findsOneWidget);
+
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pumpAndSettle();
+      expect(name, 'Demand Deposit');
+      expect(from, {'cash': 3000});
+      expect(recorded, isNull, reason: 'moved in, not typed in');
     });
 
     testWidgets('a new record left unnamed is called after its type', (
@@ -960,7 +1385,7 @@ void main() {
           theme: AppTheme.light,
           home: Scaffold(
             body: SetAsideRecordSheet(
-              wallets: [deposit(name: 'General savings', balance: 500)],
+              wallets: [deposit(name: 'Demand Deposit', balance: 500)],
               onSave: (newName, _) => name = newName,
             ),
           ),
@@ -968,15 +1393,63 @@ void main() {
       );
       await tester.pump();
 
-      // Nothing typed, nothing chosen: it takes the first type's name. One
-      // of those already exists, so this one is told apart by a number.
+      await tester.tap(find.byKey(const Key('new-savings-demandDeposit')));
+      await tester.pump();
+      // An empty record is entered as 0.
+      await tester.enterText(find.byKey(const Key('set-aside-balance')), '0');
+      // A type name already exists, so the new record gets a unique suffix.
       await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
       await tester.pump();
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
 
-      expect(name, 'General savings 2');
+      expect(name, 'Demand Deposit 2');
     });
+
+    testWidgets(
+      'interest-bearing savings require a valid rate and start date',
+      (tester) async {
+        // Tall enough for the whole form, rate choices included.
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        var saves = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SetAsideRecordSheet(onSave: (_, _) => saves++),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.byKey(const Key('set-aside-balance')),
+          '100',
+        );
+        await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
+        await tester.tap(find.byKey(const Key('set-aside-save')));
+        await tester.pump();
+
+        // Both problems at once, each under its own field.
+        expect(find.text('Enter a rate from 0% to 100%.'), findsOneWidget);
+        expect(find.text('Choose the start date.'), findsOneWidget);
+        expect(saves, 0);
+
+        await tester.enterText(
+          find.byKey(const Key('set-aside-interest-rate')),
+          '5',
+        );
+        await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
+        await tester.tap(find.byKey(const Key('set-aside-save')));
+        // The old message fades out before it is gone.
+        await tester.pumpAndSettle();
+        expect(find.text('Enter a rate from 0% to 100%.'), findsNothing);
+        expect(find.text('Choose the start date.'), findsOneWidget);
+        expect(saves, 0);
+      },
+    );
 
     testWidgets('each kind can be read about where it is chosen', (
       tester,
@@ -989,20 +1462,52 @@ void main() {
       );
       await tester.pump();
 
-      // Every choice carries its own explainer, cash included, so no kind
-      // is left unexplained.
-      for (final kind in SavingsKind.values) {
+      // The chosen kind always has its own "Read about" link, so no kind is
+      // left unexplained.
+      for (final kind in const [
+        SavingsKind.timeDeposit,
+        SavingsKind.demandDeposit,
+        SavingsKind.savingsDeposit,
+      ]) {
+        await tester.tap(find.byKey(Key('new-savings-${kind.name}')));
+        await tester.pump();
         expect(find.byKey(Key('explain-savings-${kind.name}')), findsOneWidget);
       }
 
-      await tester.tap(find.byKey(const Key('explain-savings-government')));
+      await tester.tap(find.byKey(const Key('new-savings-timeDeposit')));
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const Key('explain-savings-timeDeposit')),
+      );
+      await tester.tap(find.byKey(const Key('explain-savings-timeDeposit')));
       await tester.pumpAndSettle();
 
       expect(find.text('Watch out for'), findsOneWidget);
+      expect(find.textContaining('leave in a bank'), findsOneWidget);
+      // Its two facts are labeled cards, and it shows the same lock as its
+      // tile in the form.
+      expect(find.text('Risk'), findsOneWidget);
+      // The same label as under the choice in the form behind it.
+      expect(find.text('Taking money out'), findsNWidgets(2));
+      expect(find.text('Locked until the agreed date'), findsOneWidget);
       expect(
-        find.textContaining('Pag-IBIG MP2 runs for five years'),
-        findsOneWidget,
+        find.image(const AssetImage('assets/icons/icons8-lock-96.png')),
+        findsWidgets,
       );
+      // Going ahead is green; closing is red.
+      ButtonStyle? styleOf(String text) => tester
+          .widget<ElevatedButton>(
+            find.ancestor(
+              of: find.text(text),
+              matching: find.byType(ElevatedButton),
+            ),
+          )
+          .style;
+      expect(
+        styleOf('Use this')?.backgroundColor?.resolve({}),
+        appConfirmGreen,
+      );
+      expect(styleOf('Close')?.backgroundColor?.resolve({}), appDangerRed);
 
       // Reading about it is also how it gets picked.
       await tester.ensureVisible(find.text('Use this'));
@@ -1013,7 +1518,7 @@ void main() {
       expect(
         find.byKey(const Key('new-savings-maturity')),
         findsOneWidget,
-        reason: 'government savings is locked away, so it asks for a date',
+        reason: 'time deposits require a maturity date',
       );
     });
 
@@ -1091,6 +1596,99 @@ void main() {
       expect(maturedSavings([spending, deposit(matures: today)], today), [
         isA<Wallet>().having((w) => w.id, 'id', 'mp2'),
       ]);
+    });
+
+    testWidgets('a time deposit starts on its balance plus the interest', (
+      tester,
+    ) async {
+      DateTime? renewedTo;
+      double? interest;
+      final timeDeposit = Wallet(
+        id: 'td',
+        name: 'Time Deposit',
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+        annualInterestRatePercent: 3,
+        depositStartDate: DateTime(2026, 1, 1),
+        maturityDate: DateTime(2027, 1, 1),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: MaturedSavingsSheet(
+              wallet: timeDeposit,
+              wallets: [timeDeposit],
+              onRollOver: (next, earned) {
+                renewedTo = next;
+                interest = earned;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // ₱10,000 × 3% for 365 days = ₱300, less the 20% tax banks keep.
+      expect(find.text('10240'), findsOneWidget);
+      expect(
+        find.text(
+          'Starts on ₱10,000 plus about ₱240 interest after tax. Change it '
+          'to what your bank paid.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('₱240 above the recorded balance'),
+        findsOneWidget,
+      );
+
+      // Renewed with the interest: it is kept as income in the deposit.
+      await tester.tap(find.byKey(const Key('matured-rollover')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(renewedTo, isNotNull);
+      expect(interest, 240);
+    });
+
+    test('the end-date reminder says what interest to look for', () {
+      final timeDeposit = Wallet(
+        id: 'td',
+        name: 'Time Deposit',
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+        annualInterestRatePercent: 3,
+        depositStartDate: DateTime(2026, 1, 1),
+        maturityDate: DateTime(2027, 1, 1),
+      );
+      final planned = planReminders(
+        settings: const ReminderSettings(enabled: true, priorities: []),
+        bills: const [],
+        goals: const [],
+        cycles: const [],
+        wallets: [timeDeposit],
+        incomeFrequency: 'Monthly',
+        transactions: const [],
+        now: DateTime(2026, 12, 30),
+      ).where((r) => r.key == 'savings:td:matured');
+      expect(
+        planned.single.body,
+        '₱10,000 is recorded, plus about ₱240 interest after tax. Open '
+        'FinAssist to say what you got back.',
+      );
     });
 
     testWidgets('the sheet says what a part withdrawal leaves behind', (
@@ -1272,10 +1870,118 @@ void main() {
       expect(unallocatedSavings(shrunk, [heavy]), 0);
     });
 
+    test('goal funding uses identified accounts without moving balances', () {
+      Wallet wallet(
+        String id,
+        WalletType type,
+        double balance, {
+        bool archived = false,
+        WalletPurpose purpose = WalletPurpose.spending,
+        String? savingsKind,
+      }) => Wallet(
+        id: id,
+        name: id,
+        type: type,
+        balance: balance,
+        startingBalance: balance,
+        receivesIncome: false,
+        archived: archived,
+        sortOrder: 0,
+        purpose: purpose,
+        savingsKind: savingsKind,
+      );
+
+      final cash = wallet('cash', WalletType.cash, 1000);
+      final bank = wallet('bank', WalletType.bank, 5000);
+      final ewallet = wallet('ewallet', WalletType.gcash, 2500);
+      final unsupported = wallet('other', WalletType.other, 2000);
+      final archived = wallet('archived', WalletType.cash, 900, archived: true);
+      // A time deposit can fund a goal too: it counts now, ready on its end
+      // date.
+      final timeDeposit = wallet(
+        'deposit',
+        WalletType.other,
+        8000,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+      );
+      final eligible = goalFundingWallets([
+        cash,
+        bank,
+        ewallet,
+        unsupported,
+        archived,
+        timeDeposit,
+      ]);
+
+      expect(eligible.map((item) => item.id), [
+        'cash',
+        'bank',
+        'ewallet',
+        'deposit',
+      ]);
+
+      final goal = Goal(
+        id: 'goal',
+        name: 'Laptop',
+        targetAmount: 2000,
+        savedAmount: 600,
+        priority: 0,
+        status: GoalStatus.active,
+        walletId: cash.id,
+        fundingSource: GoalFundingSource.cash,
+        savedByWallet: {'cash': 350, 'bank': 250},
+      );
+      expect(freeInWallet(cash, [goal]), 650);
+      expect(freeInWallet(bank, [goal]), 4750);
+      expect(totalSetAsideInSpendingWallets([goal], [cash, bank]), 600);
+      expect(cash.balance, 1000);
+      expect(bank.balance, 5000);
+    });
+
+    test('goal funding source parses from saved goal data', () {
+      expect(
+        Goal.fromMap('cash-goal', {'fundingSource': 'cash'}).fundingSource,
+        GoalFundingSource.cash,
+      );
+      expect(
+        Goal.fromMap('bank-goal', {'fundingSource': 'bank'}).fundingSource,
+        GoalFundingSource.bank,
+      );
+      expect(
+        Goal.fromMap('wallet-goal', {'fundingSource': 'ewallet'}).fundingSource,
+        GoalFundingSource.ewallet,
+      );
+      expect(Goal.fromMap('legacy-goal', {}).fundingSource, isNull);
+    });
+
+    test('onboarding does not invent savings-deposit history before setup', () {
+      final savings = OnboardingSavingsAccount(
+        name: 'Savings Deposit',
+        kind: SavingsKind.savingsDeposit,
+        balance: 10000,
+        annualInterestRatePercent: 5,
+        depositStartDate: DateTime(2020, 1, 1),
+      );
+      final demand = OnboardingSavingsAccount(
+        name: 'Demand Deposit',
+        kind: SavingsKind.demandDeposit,
+        balance: 10000,
+      );
+
+      expect(savings.estimatedSimpleInterest, 0);
+      expect(demand.estimatedSimpleInterest, 0);
+    });
+
     test('the kinds used before map onto the three that are offered', () {
       expect(SavingsKind.fromName('savingsAccount'), SavingsKind.account);
       expect(SavingsKind.fromName('account'), SavingsKind.account);
       expect(SavingsKind.fromName('timeDeposit'), SavingsKind.timeDeposit);
+      expect(
+        SavingsKind.fromName('savingsDeposit'),
+        SavingsKind.savingsDeposit,
+      );
+      expect(SavingsKind.fromName('demandDeposit'), SavingsKind.demandDeposit);
       expect(SavingsKind.fromName('emergencyFund'), SavingsKind.general);
       expect(SavingsKind.fromName('government'), SavingsKind.government);
       expect(SavingsKind.fromName(null), SavingsKind.general);
@@ -1347,36 +2053,59 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    Future<void> chooseDropdown(
-      WidgetTester tester,
-      String hint,
-      String option,
-    ) async {
-      final dropdownKey = hint == 'Select your income source'
-          ? const Key('income-source-dropdown')
-          : const Key('income-frequency-dropdown');
-      final dropdown = find.byKey(dropdownKey);
-      await tester.ensureVisible(dropdown);
-      await tester.tap(dropdown);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(option).last);
-      await tester.pumpAndSettle();
+    // Cash Summary, then Savings and Bills, then Goals.
+    Future<void> cashSummaryToGoals(WidgetTester tester) async {
+      await tapText(tester, 'Next');
+      expect(find.text('Build your savings'), findsOneWidget);
+      await tapText(tester, 'Next');
+      expect(find.text('Add bill reminders'), findsOneWidget);
+      await tapText(tester, 'Next');
+      expect(find.text('Set up your goals'), findsOneWidget);
     }
 
-    testWidgets('setup name accepts only letters, numbers, and spaces', (
+    // Setup wallet ids are generated, so the amount boxes are found in the
+    // order they show: cash first, then each added account.
+    Finder fundingField(int index) => find
+        .byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.key is ValueKey<String> &&
+              (widget.key! as ValueKey<String>).value.startsWith(
+                'goal-funding-',
+              ),
+        )
+        .at(index);
+
+    testWidgets('setup name takes any language, and nothing hidden', (
       tester,
     ) async {
       await pumpOnboarding(tester, save: (_) async {});
 
       await tapText(tester, 'Get Started');
       final nameField = find.byType(TextFormField).first;
+      String typed() =>
+          tester.widget<TextFormField>(nameField).controller!.text;
+
       await tester.enterText(nameField, 'Ada-Lovelace!123');
       await tester.pump();
+      expect(typed(), 'Ada-Lovelace123');
 
-      expect(
-        tester.widget<TextFormField>(nameField).controller?.text,
-        'AdaLovelace123',
-      );
+      // Ñ, accents, "Ma." and an apostrophe all stay.
+      await tester.enterText(nameField, "Ma. Niño O'Neil-Peña");
+      await tester.pump();
+      expect(typed(), "Ma. Niño O'Neil-Peña");
+
+      // Emoji, symbols and a pasted page do not get in.
+      await tester.enterText(nameField, 'Dave 😀<script>${'x' * 80}');
+      await tester.pump();
+      expect(typed().length, 40);
+      expect(typed(), startsWith('Dave script'));
+
+      // Dots alone are not a name.
+      await tester.enterText(nameField, '...');
+      await tapText(tester, 'Next');
+      expect(find.text('Your name needs at least one letter.'), findsOneWidget);
+      expect(find.text('What should we call you?'), findsOneWidget);
     });
 
     testWidgets('a blocked notification prompt still moves on', (tester) async {
@@ -1390,21 +2119,33 @@ void main() {
       await tapText(tester, 'Get Started');
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
-      await chooseDropdown(tester, 'Select your income source', 'Salary');
-      await chooseDropdown(
-        tester,
-        'Select how often',
-        'Irregular (no fixed payday)',
-      );
-      await tapText(tester, 'Next');
-      await tapText(tester, 'Next');
-      await tapText(tester, 'Next');
-      await tapText(tester, 'Next');
       await tapText(tester, 'Add a Wallet');
       expect(find.text('Current balance'), findsOneWidget);
+      // An empty wallet is entered as 0; a blank is not accepted.
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '0',
+      );
       await tapText(tester, 'Add Wallet');
       expect(find.text('Cash'), findsNWidgets(2));
       await tapText(tester, 'Next');
+      expect(find.text('Cash Summary'), findsOneWidget);
+      expect(find.text('Cash on Hand'), findsOneWidget);
+      expect(find.text('₱0'), findsNWidgets(4));
+      await cashSummaryToGoals(tester);
+      expect(find.text('Step 7 of 10'), findsOneWidget);
+      expect(find.text('Set up your goals'), findsOneWidget);
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Allow Reminders');
+      // Reminders stayed off, so the ranking is never asked.
+      expect(find.text('What should we remind you about most?'), findsNothing);
+      expect(find.text('Check your answers'), findsOneWidget);
+      expect(find.text('Step 9 of 9'), findsOneWidget);
+      expect(find.text('Remind me most about'), findsNothing);
+      // Back skips the ranking too.
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Allow Reminders'), findsOneWidget);
       await tapText(tester, 'Allow Reminders');
       expect(find.text('Check your answers'), findsOneWidget);
       await tapText(tester, 'Continue');
@@ -1425,102 +2166,170 @@ void main() {
       await tapText(tester, 'Get Started');
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
-      await chooseDropdown(tester, 'Select your income source', 'Salary');
-      await chooseDropdown(
-        tester,
-        'Select how often',
-        'Irregular (no fixed payday)',
-      );
-      await tapText(tester, 'Next');
-      await tapText(tester, 'Next');
-      await tapText(tester, 'Next');
-      await tapText(tester, 'Next');
 
-      // Two wallets of the same type would otherwise both read "Cash".
-      await tapText(tester, 'Add a Wallet');
-      await tapText(tester, 'Add Wallet');
-      await tapText(tester, 'Add Another');
-      await tapText(tester, 'Add Wallet');
+      // Every setup wallet needs a balance, even when it is 0.
+      Future<void> addEmptyCash(String button, {String? name}) async {
+        await tapText(tester, button);
+        // Naming cash is optional, with an example to follow.
+        expect(find.text('Name (optional)'), findsOneWidget);
+        expect(find.text('e.g. Petty Cash'), findsOneWidget);
+        if (name != null) {
+          await tester.enterText(
+            find.byKey(const Key('wallet-cash-name')),
+            name,
+          );
+        }
+        await tester.enterText(
+          find.byKey(const Key('wallet-current-balance')),
+          '0',
+        );
+        await tapText(tester, 'Add Wallet');
+      }
 
-      expect(find.text('Cash 1'), findsOneWidget);
+      // The first keeps its name; a repeat gets the next number.
+      await addEmptyCash('Add a Wallet');
+      await addEmptyCash('Add Another');
+
+      expect(find.text('Cash 1'), findsNothing);
       expect(find.text('Cash 2'), findsOneWidget);
 
       // A third of the same name keeps counting.
-      await tapText(tester, 'Add Another');
-      await tapText(tester, 'Add Wallet');
+      await addEmptyCash('Add Another');
       expect(find.text('Cash 3'), findsOneWidget);
-      await tester.tap(find.byTooltip('Remove Cash 3'));
-      await tester.pumpAndSettle();
 
-      // Removing one puts the other back to its plain name.
-      await tester.tap(find.byTooltip('Remove Cash 2'));
+      // Deleting asks first, and Cancel keeps the wallet.
+      await tester.tap(find.byTooltip('Delete Cash 3'));
       await tester.pumpAndSettle();
-      expect(find.text('Cash'), findsWidgets);
-      expect(find.text('Cash 1'), findsNothing);
+      expect(find.text('Delete Cash 3?'), findsOneWidget);
+      expect(
+        find.text('This wallet will be removed. You can add it again later.'),
+        findsOneWidget,
+      );
+      await tapText(tester, 'Cancel');
+      expect(find.text('Cash 3'), findsOneWidget);
+      await tester.tap(find.byTooltip('Delete Cash 3'));
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Delete');
+      expect(find.text('Cash 3'), findsNothing);
+
+      // Numbers only go up from the highest one left.
+      await addEmptyCash('Add Another');
+      expect(find.text('Cash 3'), findsOneWidget);
+      await tester.tap(find.byTooltip('Delete Cash 3'));
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Delete');
+
+      await tester.tap(find.byTooltip('Delete Cash 2'));
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Delete');
+      expect(find.text('Cash 2'), findsNothing);
+      expect(find.byTooltip('Delete Cash'), findsOneWidget);
+
+      // Any name works the same way, whatever its case.
+      await addEmptyCash('Add Another', name: 'Petty Cash');
+      await addEmptyCash('Add Another', name: 'petty cash');
+      expect(find.text('Petty Cash'), findsOneWidget);
+      expect(find.text('Petty Cash 2'), findsOneWidget);
 
       await tapText(tester, 'Next');
+      expect(find.text('Cash Summary'), findsOneWidget);
+      await cashSummaryToGoals(tester);
+      await tapText(tester, 'Next');
       await tapText(tester, 'Allow Reminders');
+      await tapText(tester, 'Next');
       await tapText(tester, 'Continue');
       await tester.ensureVisible(find.text('Go to Dashboard'));
       await tester.tap(find.text('Go to Dashboard'));
       await tester.pump();
       await tester.pump();
-      expect(saved!.wallets.single.name, 'Cash');
+      expect(saved!.wallets.map((w) => w.name), [
+        'Cash',
+        'Petty Cash',
+        'Petty Cash 2',
+      ]);
     });
 
     testWidgets(
-      'starting wallets can be edited without changing income selection',
+      'starting wallets can be edited without changing income routing',
       (tester) async {
         OnboardingData? saved;
         await pumpOnboarding(tester, save: (data) async => saved = data);
         await tapText(tester, 'Get Started');
         await tester.enterText(find.byType(TextFormField), 'Dave');
         await tapText(tester, 'Next');
-        await chooseDropdown(tester, 'Select your income source', 'Salary');
-        await chooseDropdown(
-          tester,
-          'Select how often',
-          'Irregular (no fixed payday)',
-        );
-        for (var i = 0; i < 4; i++) {
-          await tapText(tester, 'Next');
-        }
         await tapText(tester, 'Add a Wallet');
-        await tester.enterText(find.byType(TextFormField).last, '100');
+        await tester.enterText(
+          find.byKey(const Key('wallet-current-balance')),
+          '100',
+        );
         await tapText(tester, 'Add Wallet');
         await tapText(tester, 'Add Another');
+        await tester.enterText(
+          find.byKey(const Key('wallet-current-balance')),
+          '0',
+        );
         await tapText(tester, 'Add Wallet');
 
-        await tapText(tester, 'Cash 1');
+        Future<void> editCash() async {
+          await tester.ensureVisible(find.byTooltip('Edit Cash'));
+          await tester.tap(find.byTooltip('Edit Cash'));
+          await tester.pumpAndSettle();
+        }
+
+        await editCash();
         expect(find.text('Edit Wallet'), findsOneWidget);
         expect(find.text('100'), findsOneWidget);
-        await tester.enterText(find.byType(TextFormField).first, 'Pocket');
-        await tester.enterText(find.byType(TextFormField).last, '250.50');
+        // The cash name field shows the name it has.
+        expect(find.text('Name (optional)'), findsOneWidget);
+        await tester.enterText(
+          find.byKey(const Key('wallet-current-balance')),
+          '250.50',
+        );
         await tapText(tester, 'Save Changes');
-        expect(find.text('Pocket'), findsOneWidget);
-        expect(find.text('Cash 2'), findsNothing);
+        // Saving without a new name keeps both names as they were.
+        expect(find.byTooltip('Edit Cash'), findsOneWidget);
+        expect(find.text('Cash 2'), findsOneWidget);
 
         // Dismissing an edit must not change the saved draft.
-        await tapText(tester, 'Pocket');
-        await tester.enterText(find.byType(TextFormField).last, '999');
+        await editCash();
+        await tester.enterText(
+          find.byKey(const Key('wallet-current-balance')),
+          '999',
+        );
         Navigator.of(tester.element(find.byType(WalletFormSheet))).pop();
         await tester.pumpAndSettle();
-        await tapText(tester, 'Pocket');
+        await editCash();
         expect(find.text('250.50'), findsOneWidget);
-        await tapText(tester, 'GCash');
+        await tapText(tester, 'E-Wallets');
+        final ewalletDropdown = find.byKey(
+          const Key('wallet-ewallet-dropdown'),
+        );
+        final ewalletField = tester.widget<DropdownButton<String>>(
+          find.descendant(
+            of: ewalletDropdown,
+            matching: find.byType(DropdownButton<String>),
+          ),
+        );
+        ewalletField.onChanged!('GCash');
+        await tester.pump();
         await tapText(tester, 'Save Changes');
 
         await tapText(tester, 'Next');
+        expect(find.text('Cash Summary'), findsOneWidget);
+        await cashSummaryToGoals(tester);
+        await tapText(tester, 'Next');
         await tapText(tester, 'Allow Reminders');
+        await tapText(tester, 'Next');
         await tapText(tester, 'Continue');
         await tester.ensureVisible(find.text('Go to Dashboard'));
         await tester.tap(find.text('Go to Dashboard'));
         await tester.pump();
         await tester.pump();
-        expect(saved!.wallets.map((w) => w.name), ['Pocket', 'Cash']);
+        // The other keeps its number: names never change by themselves.
+        expect(saved!.wallets.map((w) => w.name), ['GCash', 'Cash 2']);
         expect(saved!.wallets.map((w) => w.startingBalance), [250.5, 0]);
         expect(saved!.wallets.map((w) => w.type), [
-          WalletType.gcash,
+          WalletType.ewallet,
           WalletType.cash,
         ]);
         expect(saved!.wallets.map((w) => w.receivesIncome), [true, false]);
@@ -1551,7 +2360,997 @@ void main() {
       );
       expect(find.text('Edit Wallet'), findsOneWidget);
       expect(find.text('Current balance'), findsNothing);
+      // Only the optional name can be typed, and it shows the name it has.
       expect(find.byType(TextFormField), findsOneWidget);
+      expect(find.text('Name (optional)'), findsOneWidget);
+      expect(find.text('Pocket'), findsOneWidget);
+      expect(
+        find.byKey(const Key('wallet-annual-interest-rate')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('every wallet needs a balance in setup, and 0 is accepted', (
+      tester,
+    ) async {
+      WalletDraft? result;
+      Future<void> open({WalletDraft? draft}) async {
+        result = null;
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () async => result = await showWalletFormSheet(
+                    context,
+                    initialDraft: draft,
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> pickBank() async {
+        await tester.tap(find.byKey(const Key('wallet-type-bank')));
+        await tester.pumpAndSettle();
+        tester
+            .widget<DropdownButton<String>>(
+              find.descendant(
+                of: find.byKey(const Key('wallet-bank-dropdown')),
+                matching: find.byType(DropdownButton<String>),
+              ),
+            )
+            .onChanged!('BDO Unibank');
+        await tester.pump();
+      }
+
+      // Blank is refused for a bank: it would drop out of every total.
+      await open();
+      await pickBank();
+      expect(
+        find.text("Check your bank app or passbook. Enter 0 if it's empty."),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Add Wallet'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter the balance, or 0 if empty.'), findsOneWidget);
+      expect(result, isNull);
+
+      // ₱0 is a real balance, so it is saved as one.
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '0',
+      );
+      await tester.tap(find.text('Add Wallet'));
+      await tester.pumpAndSettle();
+      expect(result?.type, WalletType.bank);
+      expect(result?.startingBalance, 0);
+      expect(result?.balanceRecorded, isTrue);
+
+      // Cash and e-wallets need one too, each told where to look.
+      await open();
+      expect(
+        find.text('Count what you have on hand. Enter 0 if none.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Add Wallet'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter the balance, or 0 if empty.'), findsOneWidget);
+      expect(result, isNull);
+      await open();
+      await tester.tap(find.byKey(const Key('wallet-type-ewallet')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text("Check your e-wallet app. Enter 0 if it's empty."),
+        findsOneWidget,
+      );
+      // The balance is no longer optional; the interest rate still is.
+      expect(
+        find.textContaining('Leave blank if you do not know'),
+        findsNothing,
+      );
+
+      // A wallet saved without a balance counts one once it is typed in.
+      await open(
+        draft: const WalletDraft(
+          type: WalletType.cash,
+          name: 'Cash',
+          startingBalance: 0,
+          balanceRecorded: false,
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '1500',
+      );
+      await tester.tap(find.text('Save Changes'));
+      await tester.pumpAndSettle();
+      expect(result?.startingBalance, 1500);
+      expect(result?.balanceRecorded, isTrue);
+
+      // An older bank wallet saved without one needs it when edited.
+      await open(
+        draft: const WalletDraft(
+          type: WalletType.bank,
+          name: 'BDO Unibank',
+          startingBalance: 0,
+          balanceRecorded: false,
+        ),
+      );
+      await tester.tap(find.text('Save Changes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter the balance, or 0 if empty.'), findsOneWidget);
+      expect(result, isNull);
+    });
+
+    testWidgets('naming cash is optional, and it keeps the name it has', (
+      tester,
+    ) async {
+      WalletDraft? result;
+      Future<void> edit(
+        WalletDraft draft, {
+        WalletType? switchTo,
+        String? rename,
+      }) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () async => result = await showWalletFormSheet(
+                    context,
+                    initialDraft: draft,
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        if (switchTo != null) {
+          await tester.tap(find.byKey(Key('wallet-type-${switchTo.name}')));
+          await tester.pumpAndSettle();
+        }
+        if (draft.type == WalletType.cash || switchTo == WalletType.cash) {
+          expect(find.text('Name (optional)'), findsOneWidget);
+        }
+        if (rename != null) {
+          await tester.enterText(
+            find.byKey(const Key('wallet-cash-name')),
+            rename,
+          );
+        }
+        await tester.tap(find.text('Save Changes'));
+        await tester.pumpAndSettle();
+      }
+
+      // A cash wallet named before keeps that name.
+      await edit(
+        const WalletDraft(
+          type: WalletType.cash,
+          name: 'Cash 2',
+          startingBalance: 500,
+        ),
+      );
+      expect(result?.name, 'Cash 2');
+
+      // A bank switched to cash does not carry the bank's name over.
+      await edit(
+        const WalletDraft(
+          type: WalletType.bank,
+          name: 'My Rural Bank',
+          startingBalance: 500,
+        ),
+        switchTo: WalletType.cash,
+      );
+      expect(result?.type, WalletType.cash);
+      expect(result?.name, 'Cash');
+
+      // A name can be given, and a cleared one is just "Cash".
+      const pocket = WalletDraft(
+        type: WalletType.cash,
+        name: 'Cash',
+        startingBalance: 500,
+      );
+      await edit(pocket, rename: 'Petty Cash');
+      expect(result?.name, 'Petty Cash');
+      await edit(pocket, rename: '  ');
+      expect(result?.name, 'Cash');
+
+      // Only numbers would read as an amount beside the balance: refused,
+      // and the sheet stays open to fix it.
+      result = null;
+      await edit(pocket, rename: '545636456456464');
+      expect(result, isNull);
+      expect(
+        find.text(
+          "Add a word, not just numbers, so it isn't read as an amount.",
+        ),
+        findsOneWidget,
+      );
+
+      // A whole card or account number never goes into a name.
+      await tester.enterText(
+        find.byKey(const Key('wallet-cash-name')),
+        'Cash 4111111111111111',
+      );
+      await tester.tap(find.text('Save Changes'));
+      await tester.pumpAndSettle();
+      expect(result, isNull);
+      expect(
+        find.text(
+          'Use a nickname, not an account or card number. The last 4 digits '
+          'are enough.',
+        ),
+        findsOneWidget,
+      );
+
+      // The message follows what is typed: it goes the moment the name is
+      // right, without tapping Save again, and comes back if it turns wrong.
+      await tester.enterText(
+        find.byKey(const Key('wallet-cash-name')),
+        'Petty Cash',
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Use a nickname'), findsNothing);
+      expect(find.textContaining('Add a word'), findsNothing);
+      expect(result, isNull);
+      await tester.enterText(find.byKey(const Key('wallet-cash-name')), '2026');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Add a word'), findsOneWidget);
+    });
+
+    testWidgets('nothing is red until Save is tapped', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showWalletFormSheet(context),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Still being typed: no message yet.
+      await tester.enterText(find.byKey(const Key('wallet-cash-name')), '123');
+      await tester.pump();
+      expect(find.textContaining('Add a word'), findsNothing);
+      expect(find.text('Enter the balance, or 0 if empty.'), findsNothing);
+
+      // Save shows every problem at once.
+      await tester.tap(find.text('Add Wallet'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Add a word'), findsOneWidget);
+      expect(find.text('Enter the balance, or 0 if empty.'), findsOneWidget);
+
+      // Each goes as soon as its own field is right.
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '5000',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Enter the balance, or 0 if empty.'), findsNothing);
+      expect(find.textContaining('Add a word'), findsOneWidget);
+    });
+
+    test('a repeated name gets the next number, and numbers only go up', () {
+      expect(uniqueName('Petty Cash', const []), 'Petty Cash');
+      expect(uniqueName('Petty Cash', const ['Petty Cash']), 'Petty Cash 2');
+      expect(
+        uniqueName('petty cash', const ['Petty Cash', 'Petty Cash 2']),
+        'Petty Cash 3',
+      );
+      // A gap is not filled, and a lone numbered one still counts.
+      expect(uniqueName('Cash', const ['Cash', 'Cash 3']), 'Cash 4');
+      expect(uniqueName('Cash', const ['Cash 2']), 'Cash 3');
+      // A taken "Cash 2" typed again counts on from "Cash".
+      expect(uniqueName('Cash 2', const ['Cash', 'Cash 2']), 'Cash 3');
+      // A free numbered name, or a different name, stays as typed.
+      expect(uniqueName('Cash 5', const ['Cash', 'Cash 2']), 'Cash 5');
+      expect(uniqueName('Cashier', const ['Cash']), 'Cashier');
+      expect(uniqueName('BDO Unibank', const ['BPI']), 'BDO Unibank');
+    });
+
+    testWidgets('bank interest rate is optional, retained, and range-checked', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: WalletFormSheet(
+              existing: Wallet(
+                id: 'bank',
+                name: 'Bank of the Philippine Islands (BPI)',
+                type: WalletType.bank,
+                balance: 50000,
+                startingBalance: 50000,
+                receivesIncome: false,
+                archived: false,
+                sortOrder: 0,
+                annualInterestRatePercent: 1.25,
+              ),
+            ),
+          ),
+        ),
+      );
+      final rateField = find.byKey(const Key('wallet-annual-interest-rate'));
+      expect(rateField, findsOneWidget);
+      expect(tester.widget<TextFormField>(rateField).controller!.text, '1.25');
+
+      await tester.enterText(rateField, '101');
+      await tester.tap(find.text('Save Changes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a rate from 0 to 100%.'), findsOneWidget);
+
+      await tester.enterText(rateField, '0');
+      await tester.tap(find.text('Save Changes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a rate from 0 to 100%.'), findsNothing);
+    });
+
+    testWidgets('new wallet form only offers supported wallet types', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(body: WalletFormSheet()),
+        ),
+      );
+
+      expect(find.byKey(const Key('wallet-type-cash')), findsOneWidget);
+      expect(find.byKey(const Key('wallet-type-ewallet')), findsOneWidget);
+      expect(find.byKey(const Key('wallet-type-bank')), findsOneWidget);
+      expect(find.text('GCash'), findsNothing);
+      expect(find.text('Maya'), findsNothing);
+      expect(find.text('Other E-Wallet'), findsNothing);
+      expect(find.text('Other'), findsNothing);
+      // Cash starts selected, with its optional name.
+      expect(find.byKey(const Key('wallet-cash-name')), findsOneWidget);
+      expect(find.byKey(const Key('wallet-current-balance')), findsOneWidget);
+      final typeChipRects = ['Cash', 'E-Wallets', 'Banks'].map((type) {
+        final typeKey = switch (type) {
+          'E-Wallets' => 'ewallet',
+          'Banks' => 'bank',
+          _ => 'cash',
+        };
+        return tester.getRect(find.byKey(Key('wallet-type-$typeKey')));
+      }).toList();
+      expect(
+        typeChipRects.map((rect) => rect.top).toSet(),
+        hasLength(1),
+        reason: 'All type options should fit on one row at mobile width.',
+      );
+      for (var index = 1; index < typeChipRects.length; index++) {
+        final gap = typeChipRects[index].left - typeChipRects[index - 1].right;
+        expect(gap, closeTo(8, 0.1));
+      }
+      for (final type in ['Cash', 'E-Wallets', 'Banks']) {
+        final typeKey = switch (type) {
+          'E-Wallets' => 'ewallet',
+          'Banks' => 'bank',
+          _ => 'cash',
+        };
+        final chip = find.byKey(Key('wallet-type-$typeKey'));
+        expect(tester.getSize(chip).height, greaterThanOrEqualTo(48));
+      }
+
+      await tester.tap(find.byKey(const Key('wallet-type-ewallet')));
+      await tester.pumpAndSettle();
+      final dropdown = find.byKey(const Key('wallet-ewallet-dropdown'));
+      final field = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: dropdown,
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      expect(field.items!.map((item) => item.value), [
+        'GCash',
+        'Maya',
+        'GrabPay',
+        'ShopeePay',
+        'Coins.ph',
+        'PalawanPay',
+        'DiskarTech',
+        'Other E-Wallet',
+      ]);
+      field.onChanged!('Other E-Wallet');
+      await tester.pump();
+      expect(
+        find.byKey(const Key('wallet-other-ewallet-name')),
+        findsOneWidget,
+      );
+
+      // A typed name has to be a name: numbers alone would read as an
+      // amount, and a whole account or phone number must not be kept.
+      const noWord =
+          "Add a word, not just numbers, so it isn't read as an amount.";
+      const accountNumber =
+          'Use a nickname, not an account or card number. The last 4 digits '
+          'are enough.';
+      Future<void> tryName(String key, String name) async {
+        await tester.enterText(find.byKey(Key(key)), name);
+        await tester.enterText(
+          find.byKey(const Key('wallet-current-balance')),
+          '0',
+        );
+        await tester.ensureVisible(find.text('Add Wallet'));
+        await tester.tap(find.text('Add Wallet'));
+        await tester.pumpAndSettle();
+      }
+
+      await tryName('wallet-other-ewallet-name', '1231233132-0131313123213');
+      expect(find.text(noWord), findsOneWidget);
+      await tryName('wallet-other-ewallet-name', 'Wallet 0917-123-4567');
+      expect(find.text(accountNumber), findsOneWidget);
+      expect(find.text('New Wallet'), findsOneWidget, reason: 'still open');
+      expect(
+        tester.getTopLeft(find.text('Current balance')).dy,
+        lessThan(tester.getTopLeft(find.text('Annual Interest Rate (%)')).dy),
+      );
+
+      await tester.tap(find.byKey(const Key('wallet-type-bank')));
+      await tester.pumpAndSettle();
+      final bankDropdown = find.byKey(const Key('wallet-bank-dropdown'));
+      final bankField = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: bankDropdown,
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      expect(find.text('Select a bank'), findsOneWidget);
+      expect(
+        bankField.items!.map((item) => item.value),
+        containsAll(['BDO Unibank', 'Bank of the Philippine Islands (BPI)']),
+      );
+      expect(
+        bankField.items!.map((item) => item.value),
+        contains('Other bank'),
+      );
+
+      bankField.onChanged!('Other bank');
+      await tester.pump();
+      expect(find.byKey(const Key('wallet-other-bank-name')), findsOneWidget);
+
+      // The same for a bank typed by hand.
+      await tryName('wallet-other-bank-name', '1231233132-0131313123213');
+      expect(find.text(noWord), findsOneWidget);
+      await tryName('wallet-other-bank-name', 'BDO 1234 5678 9012');
+      expect(find.text(accountNumber), findsOneWidget);
+      expect(find.text('New Wallet'), findsOneWidget, reason: 'still open');
+    });
+
+    testWidgets('cash summary totals cash, banks, and e-wallets once', (
+      tester,
+    ) async {
+      await pumpOnboarding(tester, save: (_) async {});
+
+      await tapText(tester, 'Get Started');
+      await tester.enterText(find.byType(TextFormField), 'Dave');
+      await tapText(tester, 'Next');
+
+      var walletAdded = false;
+      Future<void> addWallet({
+        required String type,
+        required String balance,
+        String? bankName,
+        String? ewalletProvider,
+        String? customProvider,
+        String? interestRate,
+      }) async {
+        await tapText(tester, walletAdded ? 'Add Another' : 'Add a Wallet');
+        if (type != 'Cash') {
+          final typeKey = switch (type) {
+            'E-Wallets' => 'ewallet',
+            'Banks' => 'bank',
+            _ => 'cash',
+          };
+          await tester.tap(find.byKey(Key('wallet-type-$typeKey')));
+          await tester.pumpAndSettle();
+        }
+        if (bankName != null) {
+          final bankDropdown = find.byKey(const Key('wallet-bank-dropdown'));
+          final bankField = tester.widget<DropdownButton<String>>(
+            find.descendant(
+              of: bankDropdown,
+              matching: find.byType(DropdownButton<String>),
+            ),
+          );
+          bankField.onChanged!(bankName);
+          await tester.pump();
+        }
+        if (ewalletProvider != null) {
+          final ewalletDropdown = find.byKey(
+            const Key('wallet-ewallet-dropdown'),
+          );
+          final ewalletField = tester.widget<DropdownButton<String>>(
+            find.descendant(
+              of: ewalletDropdown,
+              matching: find.byType(DropdownButton<String>),
+            ),
+          );
+          ewalletField.onChanged!(ewalletProvider);
+          await tester.pump();
+        }
+        if (customProvider != null) {
+          await tester.enterText(
+            find.byKey(const Key('wallet-other-ewallet-name')),
+            customProvider,
+          );
+        }
+        if (interestRate != null) {
+          await tester.enterText(
+            find.byKey(const Key('wallet-annual-interest-rate')),
+            interestRate,
+          );
+        }
+        await tester.enterText(
+          find.byKey(const Key('wallet-current-balance')),
+          balance,
+        );
+        await tapText(tester, 'Add Wallet');
+        walletAdded = true;
+      }
+
+      await addWallet(type: 'Cash', balance: '100');
+      await addWallet(type: 'Cash', balance: '50');
+      await addWallet(
+        type: 'Banks',
+        balance: '200',
+        bankName: 'Bank of the Philippine Islands (BPI)',
+        interestRate: '2.5',
+      );
+      await addWallet(
+        type: 'Banks',
+        balance: '300',
+        bankName: 'BDO Unibank',
+        interestRate: '1.25',
+      );
+      await addWallet(
+        type: 'E-Wallets',
+        balance: '999',
+        ewalletProvider: 'GCash',
+        interestRate: '0.5',
+      );
+      await tapText(tester, 'Next');
+      expect(find.text('Step 4 of 10'), findsOneWidget);
+      expect(find.text('₱150'), findsOneWidget);
+      expect(find.text('₱1,499'), findsOneWidget);
+      expect(find.text('₱1,649'), findsOneWidget);
+      // ₱13.75 a year less the 20% tax banks keep.
+      expect(find.text('₱11'), findsOneWidget);
+      expect(find.text('Interest in a Year (after tax)'), findsOneWidget);
+      // The same colored icons the wallets and goals use. The total is
+      // cash plus bank, so it shows both of theirs.
+      expect(
+        find.image(AssetImage(WalletType.cash.iconAsset)),
+        findsNWidgets(2),
+      );
+      // The notes below use the same icons: a bank for the accounts and the
+      // chart for interest.
+      expect(
+        find.image(AssetImage(WalletType.bank.iconAsset)),
+        findsNWidgets(3),
+      );
+      expect(
+        find.image(const AssetImage('assets/icons/icons8-combo-chart-100.png')),
+        findsNWidgets(2),
+      );
+      expect(
+        find.image(const AssetImage('assets/icons/icons8-coin-96.png')),
+        findsNothing,
+      );
+
+      // Every account here has a rate, so all of them are counted.
+      expect(
+        find.text('Interest counts all 3 of your accounts.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Cash in Bank').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Bank of the Philippine Islands (BPI)'), findsOneWidget);
+      expect(find.text('BDO Unibank'), findsOneWidget);
+      expect(find.text('GCash'), findsOneWidget);
+      expect(find.text('Bank Account'), findsNWidgets(2));
+      expect(find.text('E-Wallet'), findsOneWidget);
+      // Worded as on every other card, with no stray ".0".
+      expect(find.text('Interest: 2.5% a year'), findsOneWidget);
+      expect(find.text('Interest: 1.25% a year'), findsOneWidget);
+      expect(find.text('Interest in a year, after tax: ₱4'), findsNWidgets(2));
+      expect(find.text('Interest in a year, after tax: ₱3'), findsOneWidget);
+      expect(find.text('Total · ₱1,499'), findsOneWidget);
+      expect(find.text('₱200'), findsOneWidget);
+      expect(find.text('₱300'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close bank account details'));
+      await tester.pumpAndSettle();
+
+      // Cash on Hand opens every cash wallet in it.
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      expect(find.text('Total · ₱150'), findsOneWidget);
+      expect(find.text('Cash 2'), findsOneWidget);
+      expect(find.text('₱100'), findsOneWidget);
+      expect(find.text('₱50'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close cash details'));
+      await tester.pumpAndSettle();
+
+      // The total splits back into the cash and the accounts it adds up.
+      await tester.tap(find.text('Total Available Money'));
+      await tester.pumpAndSettle();
+      expect(find.text('Total · ₱1,649'), findsOneWidget);
+      expect(
+        find.text('Cash on Hand plus Cash in Bank and E-Wallets.'),
+        findsOneWidget,
+      );
+      expect(find.text('Cash in Bank and E-Wallets'), findsOneWidget);
+      expect(find.text('Cash 2'), findsOneWidget);
+      expect(find.text('BDO Unibank'), findsOneWidget);
+      expect(find.text('₱999'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close total details'));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a setup goal can be funded from cash and a bank together', (
+      tester,
+    ) async {
+      OnboardingData? saved;
+      await pumpOnboarding(tester, save: (data) async => saved = data);
+
+      await tapText(tester, 'Get Started');
+      await tester.enterText(find.byType(TextFormField), 'Dave');
+      await tapText(tester, 'Next');
+
+      await tapText(tester, 'Add a Wallet');
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '2000',
+      );
+      await tapText(tester, 'Add Wallet');
+      await tapText(tester, 'Add Another');
+      await tester.tap(find.byKey(const Key('wallet-type-bank')));
+      await tester.pumpAndSettle();
+      final bankField = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: find.byKey(const Key('wallet-bank-dropdown')),
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      bankField.onChanged!('BDO Unibank');
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('wallet-annual-interest-rate')),
+        '3',
+      );
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '8000',
+      );
+      await tapText(tester, 'Add Wallet');
+
+      // Every Add on these steps is the same solid green as Save.
+      Color? addColor(String label) => tester
+          .widget<ElevatedButton>(
+            find.ancestor(
+              of: find.text(label),
+              matching: find.byType(ElevatedButton),
+            ),
+          )
+          .style
+          ?.backgroundColor
+          ?.resolve({});
+      const green = appConfirmGreen;
+      expect(addColor('Add Another'), green);
+
+      await tapText(tester, 'Next');
+      expect(find.text('Cash Summary'), findsOneWidget);
+      await cashSummaryToGoals(tester);
+      expect(addColor('Add Goal'), green);
+      await tester.tap(find.byKey(const Key('add-onboarding-goal')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Laptop');
+      await tester.enterText(find.byType(TextField).at(1), '10000');
+      await tapText(tester, 'Save Goal');
+      // Nothing set aside yet, and the card says where to add it.
+      expect(find.textContaining('Nothing set aside yet'), findsOneWidget);
+      expect(find.text('Change what is set aside'), findsNothing);
+
+      // One Edit covers the goal and the money set aside for it.
+      Future<void> openEdit() async {
+        await tester.tap(find.byTooltip('Edit Laptop'));
+        await tester.pumpAndSettle();
+        expect(find.text('Edit Goal'), findsOneWidget);
+      }
+
+      await openEdit();
+      await tapText(tester, 'Both');
+      await tester.enterText(fundingField(0), '2000');
+      await tester.enterText(fundingField(1), '5000');
+      await tester.pump();
+      expect(find.text('about ₱120'), findsOneWidget);
+      await tapText(tester, 'Save Changes');
+
+      expect(find.text('₱7,000 of ₱10,000 saved'), findsOneWidget);
+      expect(find.text('70%'), findsOneWidget);
+      // One row per account, then one line for the interest.
+      expect(find.text('Set aside from'), findsOneWidget);
+      expect(find.text('Cash'), findsOneWidget);
+      expect(find.text('₱2,000'), findsOneWidget);
+      expect(find.text('BDO Unibank'), findsOneWidget);
+      expect(find.text('₱5,000'), findsOneWidget);
+      expect(
+        find.text(
+          'May earn about ₱120 a year after tax from BDO Unibank. Add it as '
+          'income when it is paid.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Nothing set aside yet'), findsNothing);
+
+      // Editing again opens with the amounts already chosen and replaces
+      // them, so the same money is never counted twice.
+      await openEdit();
+      expect(
+        tester.widget<TextField>(fundingField(0)).controller?.text,
+        '2000',
+      );
+      await tester.enterText(fundingField(1), '6000');
+      await tapText(tester, 'Save Changes');
+      expect(find.text('₱8,000 of ₱10,000 saved'), findsOneWidget);
+
+      // The Cash Summary shows what is left to spend: the ₱8,000 for the
+      // goal is set aside, though nothing moved, and it says so.
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Cash Summary'), findsOneWidget);
+      expect(find.textContaining('less the ₱8,000 set aside'), findsOneWidget);
+      // Cash ₱2,000 all for the goal; BDO ₱8,000 less ₱6,000; ₱2,000 in all.
+      expect(find.text('₱0'), findsWidgets);
+      expect(find.text('₱2,000'), findsNWidgets(2));
+      expect(find.text('₱10,000'), findsNothing);
+      await cashSummaryToGoals(tester);
+      expect(find.text('₱8,000 of ₱10,000 saved'), findsOneWidget);
+
+      // Closing the sheet changes nothing.
+      await openEdit();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('₱8,000 of ₱10,000 saved'), findsOneWidget);
+
+      // The red button in Edit releases it, with a few seconds to undo.
+      // The notice stays a while, so it is not waited out here.
+      await openEdit();
+      final release = find.text('Release what is set aside');
+      await tester.ensureVisible(release);
+      await tester.tap(release);
+      // The sheet closes, the notice slides in, then it takes taps.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('₱0 of ₱10,000 saved'), findsOneWidget);
+      expect(find.text('Released from Laptop'), findsOneWidget);
+      expect(
+        find.text('₱8,000 is no longer set aside for it.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+      expect(find.text('₱8,000 of ₱10,000 saved'), findsOneWidget);
+      expect(find.text('Released from Laptop'), findsNothing);
+
+      // Deleting warns first, and Cancel keeps the goal.
+      await tester.tap(find.byTooltip('Delete Laptop'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete Laptop?'), findsOneWidget);
+      expect(
+        find.textContaining('₱8,000 set aside for it will be free again'),
+        findsOneWidget,
+      );
+      await tapText(tester, 'Cancel');
+      expect(find.text('Delete Laptop?'), findsNothing);
+      expect(find.text('₱8,000 of ₱10,000 saved'), findsOneWidget);
+
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Allow Reminders');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Continue');
+      await tester.ensureVisible(find.text('Go to Dashboard'));
+      await tester.tap(find.text('Go to Dashboard'));
+      await tester.pump();
+      await tester.pump();
+
+      final goal = saved!.goals.single;
+      final cashId = saved!.wallets.first.id;
+      final bankId = saved!.wallets.last.id;
+      expect(goal.fundingByWalletDraftId, {cashId: 2000, bankId: 6000});
+      expect(goal.allocated, 8000);
+      expect(goal.fundingSource, GoalFundingSource.both);
+      expect(goal.fundingWalletDraftId, bankId);
+      expect(saved!.wallets.map((wallet) => wallet.startingBalance), [
+        2000,
+        8000,
+      ]);
+    });
+
+    testWidgets('removing a setup wallet keeps the goal\'s other amounts', (
+      tester,
+    ) async {
+      await pumpOnboarding(tester, save: (_) async {});
+
+      await tapText(tester, 'Get Started');
+      await tester.enterText(find.byType(TextFormField), 'Dave');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Add a Wallet');
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '2000',
+      );
+      await tapText(tester, 'Add Wallet');
+      await tapText(tester, 'Add Another');
+      await tester.tap(find.byKey(const Key('wallet-type-bank')));
+      await tester.pumpAndSettle();
+      final bankField = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: find.byKey(const Key('wallet-bank-dropdown')),
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      bankField.onChanged!('BDO Unibank');
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '8000',
+      );
+      await tapText(tester, 'Add Wallet');
+      await tapText(tester, 'Next');
+      await cashSummaryToGoals(tester);
+
+      await tester.tap(find.byKey(const Key('add-onboarding-goal')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Laptop');
+      await tester.enterText(find.byType(TextField).at(1), '10000');
+      await tapText(tester, 'Both');
+      await tester.enterText(fundingField(0), '2000');
+      await tester.enterText(fundingField(1), '5000');
+      await tapText(tester, 'Save Goal');
+      expect(find.text('₱7,000 of ₱10,000 saved'), findsOneWidget);
+
+      // Back through Bills, Savings and the summary to the wallets.
+      for (var i = 0; i < 4; i++) {
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Your starting wallets'), findsOneWidget);
+      // The warning says what goes with it.
+      await tester.tap(find.byTooltip('Delete Cash'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'This wallet will be removed, and the ₱2,000 your goals set aside '
+          'from it will be free again.',
+        ),
+        findsOneWidget,
+      );
+      await tapText(tester, 'Delete');
+      await tapText(tester, 'Next');
+      await cashSummaryToGoals(tester);
+
+      expect(find.text('₱5,000 of ₱10,000 saved'), findsOneWidget);
+      expect(find.text('BDO Unibank'), findsOneWidget);
+      expect(find.text('Cash'), findsNothing);
+
+      // Continuing past the warning deletes the goal.
+      await tester.tap(find.byTooltip('Delete Laptop'));
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Delete');
+      expect(find.text('Laptop'), findsNothing);
+      expect(find.text('No goals added yet'), findsOneWidget);
+    });
+
+    testWidgets('cash summary includes e-wallets when physical cash is empty', (
+      tester,
+    ) async {
+      await pumpOnboarding(tester, save: (_) async {});
+
+      await tapText(tester, 'Get Started');
+      await tester.enterText(find.byType(TextFormField), 'Dave');
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Add a Wallet');
+      await tester.tap(find.byKey(const Key('wallet-type-ewallet')));
+      await tester.pumpAndSettle();
+      final ewalletDropdown = find.byKey(const Key('wallet-ewallet-dropdown'));
+      final ewalletField = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: ewalletDropdown,
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      ewalletField.onChanged!('GCash');
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '1000',
+      );
+      await tapText(tester, 'Add Wallet');
+
+      await tapText(tester, 'Next');
+      expect(find.text('Cash Summary'), findsOneWidget);
+      expect(find.text('Cash on Hand'), findsOneWidget);
+      expect(find.text('₱0'), findsOneWidget);
+      expect(find.text('₱1,000'), findsNWidgets(2));
+
+      // GCash has no rate, so no interest is counted, and the list says so.
+      expect(
+        find.text(
+          'None of your accounts has a rate yet, so no interest is counted.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Cash in Bank').first);
+      await tester.pumpAndSettle();
+      expect(find.text('GCash'), findsOneWidget);
+      expect(find.text('Total · ₱1,000'), findsOneWidget);
+      expect(find.text('Interest: no rate entered'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close bank account details'));
+      await tester.pumpAndSettle();
+
+      // With a bank that has a rate, the account left out is named.
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Add Another');
+      await tester.tap(find.byKey(const Key('wallet-type-bank')));
+      await tester.pumpAndSettle();
+      final bankField = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: find.byKey(const Key('wallet-bank-dropdown')),
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      bankField.onChanged!('BDO Unibank');
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '2000',
+      );
+      await tester.enterText(
+        find.byKey(const Key('wallet-annual-interest-rate')),
+        '3',
+      );
+      await tapText(tester, 'Add Wallet');
+      await tapText(tester, 'Next');
+      expect(
+        find.text(
+          "Interest counts 1 of your 2 accounts. GCash has no rate, so it's "
+          'left out.',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('walks through every step and saves the answers', (
@@ -1566,7 +3365,7 @@ void main() {
       );
 
       // Step 1: Welcome
-      expect(find.text('Step 1 of 9'), findsOneWidget);
+      expect(find.text('Step 1 of 10'), findsOneWidget);
       await tapText(tester, 'Get Started');
 
       // Step 2: Name is required
@@ -1576,26 +3375,261 @@ void main() {
       await tester.enterText(find.byType(TextFormField), 'Dave');
       await tapText(tester, 'Next');
 
-      // Step 3: Income
-      expect(find.text('Monthly income'), findsOneWidget);
-      expect(find.text('Daily spending limit (optional)'), findsNothing);
-      await chooseDropdown(tester, 'Select your income source', 'Allowance');
-      await chooseDropdown(
-        tester,
-        'Select how often',
-        'Twice a month (15th & 30th)',
-      );
-      await tester.enterText(find.byType(TextFormField).at(0), '5,000');
+      // Name goes straight to wallets; no ranking before it.
+      expect(find.text('What should we remind you about most?'), findsNothing);
+      expect(find.text('Your income'), findsNothing);
+      expect(find.text('Monthly income'), findsNothing);
 
-      // The pay period is counted from the day the user last got paid, so
-      // setup asks for it with a calendar.
-      await tester.ensureVisible(find.byKey(const Key('last-payday')));
-      await tester.tap(find.byKey(const Key('last-payday')));
-      await tester.pumpAndSettle();
-      expect(find.text('When did you last get paid?'), findsOneWidget);
-      await tester.tap(find.text('OK'));
-      await tester.pumpAndSettle();
+      // Step 3: Wallets are required, and come first
+      expect(find.text('Your starting wallets'), findsOneWidget);
       await tapText(tester, 'Next');
+      expect(find.text('Please add at least one wallet.'), findsOneWidget);
+
+      await tapText(tester, 'Add a Wallet');
+      await tester.tap(find.byKey(const Key('wallet-type-ewallet')));
+      await tester.pumpAndSettle();
+      final onboardingEwalletDropdown = find.byKey(
+        const Key('wallet-ewallet-dropdown'),
+      );
+      final onboardingEwalletField = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: onboardingEwalletDropdown,
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      expect(
+        onboardingEwalletField.items!.map((item) => item.value),
+        containsAll(['GCash', 'Maya', 'GrabPay', 'ShopeePay', 'Coins.ph']),
+      );
+      onboardingEwalletField.onChanged!('GCash');
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '1250.50',
+      );
+      await tapText(tester, 'Add Wallet');
+
+      expect(find.text('Receives my income'), findsNothing);
+
+      await tapText(tester, 'Add Another');
+      await tester.tap(find.byKey(const Key('wallet-type-bank')));
+      await tester.pumpAndSettle();
+      final bankDropdown = find.byKey(const Key('wallet-bank-dropdown'));
+      expect(bankDropdown, findsOneWidget);
+      final bankField = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: bankDropdown,
+          matching: find.byType(DropdownButton<String>),
+        ),
+      );
+      expect(
+        bankField.items!.map((item) => item.value),
+        contains('Asia United Bank (AUB)'),
+      );
+      bankField.onChanged!('Asia United Bank (AUB)');
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '300',
+      );
+      await tapText(tester, 'Add Wallet');
+
+      expect(find.text('₱1,250.50'), findsOneWidget);
+      expect(find.text('₱300'), findsOneWidget);
+      expect(find.text('Receives my income'), findsNothing);
+      await tapText(tester, 'Next');
+      // Step 4: the cash summary adds up the wallets just entered
+      expect(find.text('Step 4 of 10'), findsOneWidget);
+      expect(find.text('Cash Summary'), findsOneWidget);
+      expect(find.text('Cash on Hand'), findsOneWidget);
+      expect(find.text('₱0'), findsOneWidget);
+      expect(find.text('Cash in Bank'), findsOneWidget);
+      expect(find.text('₱1,550.50'), findsNWidgets(2));
+      expect(find.text('Total Available Money'), findsOneWidget);
+
+      await tester.tap(find.text('Cash in Bank').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Asia United Bank (AUB)'), findsOneWidget);
+      expect(find.text('GCash'), findsOneWidget);
+      expect(find.text('Total · ₱1,550.50'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close bank account details'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Your starting wallets'), findsOneWidget);
+      await tapText(tester, 'Next');
+      expect(find.text('Cash Summary'), findsOneWidget);
+
+      // Step 5: savings
+      await tapText(tester, 'Next');
+      expect(find.text('Step 5 of 10'), findsOneWidget);
+      expect(find.text('Build your savings'), findsOneWidget);
+      expect(find.text('Savings amount'), findsNothing);
+      await tester.tap(find.byKey(const Key('add-onboarding-savings-account')));
+      await tester.pumpAndSettle();
+
+      // Three picture tiles, and only the chosen kind is explained: what it
+      // pays, and how the money comes out.
+      expect(find.text('What kind of savings?'), findsOneWidget);
+      expect(find.text('Interest'), findsOneWidget);
+      expect(find.text('Taking money out'), findsOneWidget);
+      expect(find.text('Earns interest'), findsOneWidget);
+      expect(find.text("Follows your bank's rules"), findsOneWidget);
+      expect(find.textContaining('Locked until the end date'), findsNothing);
+      // A savings deposit asks for its rate and start date, not an end, and
+      // how often it pays, for its reminders.
+      expect(find.text('Interest rate per year'), findsOneWidget);
+      expect(find.text('Start date'), findsOneWidget);
+      expect(find.text('End date'), findsNothing);
+      expect(find.text('How often does it pay interest?'), findsOneWidget);
+      // Every month starts chosen: the one with the check.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('interest-payout-monthly')),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsOneWidget,
+      );
+
+      // A time deposit adds the end date. Missing dates are all shown at
+      // once, under the field each one belongs to.
+      await tester.tap(find.byKey(const Key('savings-kind-timeDeposit')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Locked until the end date'), findsOneWidget);
+      expect(find.text('End date'), findsOneWidget);
+      // A time deposit pays at its end date instead.
+      expect(find.text('How often does it pay interest?'), findsNothing);
+      await tester.enterText(
+        find.byKey(const Key('onboarding-savings-balance')),
+        '5000',
+      );
+      await tester.enterText(
+        find.byKey(const Key('onboarding-savings-rate')),
+        '4',
+      );
+      final saveSavings = find.byKey(const Key('save-onboarding-savings'));
+      await tester.ensureVisible(saveSavings);
+      await tester.tap(saveSavings);
+      await tester.pumpAndSettle();
+      expect(find.text('Choose the start date.'), findsOneWidget);
+      expect(
+        find.text('Choose an end date after the start date.'),
+        findsOneWidget,
+      );
+
+      // A demand deposit earns nothing, so only the balance is asked.
+      await tester.ensureVisible(
+        find.byKey(const Key('savings-kind-demandDeposit')),
+      );
+      await tester.tap(find.byKey(const Key('savings-kind-demandDeposit')));
+      await tester.pumpAndSettle();
+      expect(find.text('None'), findsOneWidget);
+      expect(find.text('Anytime'), findsOneWidget);
+      expect(find.text('Interest rate per year'), findsNothing);
+      expect(find.text('Start date'), findsNothing);
+      expect(find.byKey(const Key('onboarding-savings-name')), findsNothing);
+      await tester.enterText(
+        find.byKey(const Key('onboarding-savings-balance')),
+        '500',
+      );
+      await tester.tap(find.byKey(const Key('save-onboarding-savings')));
+      await tester.pumpAndSettle();
+      expect(find.text('Demand Deposit'), findsOneWidget);
+      // Deleting a savings record warns first; Cancel keeps it.
+      await tester.tap(find.byTooltip('Delete Demand Deposit'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete Demand Deposit?'), findsOneWidget);
+      await tapText(tester, 'Cancel');
+      expect(find.text('Demand Deposit'), findsOneWidget);
+      // Its card says plainly what this kind of savings does.
+      expect(find.text('Take money out'), findsOneWidget);
+      expect(find.text('Anytime'), findsOneWidget);
+
+      expect(find.byKey(const Key('add-onboarding-goal')), findsNothing);
+      expect(find.text('Emergency buffer'), findsNothing);
+
+      // Step 6: bills
+      await tapText(tester, 'Next');
+      expect(find.text('Step 6 of 10'), findsOneWidget);
+      expect(find.text('Add bill reminders'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('add-onboarding-bill')));
+      await tester.pumpAndSettle();
+      final billFields = find.byType(TextFormField);
+      await tester.enterText(billFields.at(0), 'Internet');
+      await tester.enterText(billFields.at(1), '1200');
+      await tapText(tester, 'Add Bill');
+      expect(find.text('Internet'), findsOneWidget);
+      // Laid out like a goal card: the amount and how often, then the date.
+      expect(find.text('₱1,200 every month'), findsOneWidget);
+      expect(find.text('First due date'), findsOneWidget);
+
+      // A bill can be edited with the same sheet, and stays in its place.
+      await tester.tap(find.byTooltip('Edit Internet'));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit Bill'), findsOneWidget);
+      await tester.enterText(find.byType(TextFormField).at(1), '1500');
+      await tapText(tester, 'Save Changes');
+      expect(find.text('₱1,500 every month'), findsOneWidget);
+      expect(find.text('₱1,200 every month'), findsNothing);
+      // So does deleting a bill.
+      await tester.tap(find.byTooltip('Delete Internet'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete Internet?'), findsOneWidget);
+      expect(
+        find.text(
+          'This bill and its reminders will be removed. You can add it again '
+          'later.',
+        ),
+        findsOneWidget,
+      );
+      await tapText(tester, 'Cancel');
+      expect(find.text('Internet'), findsOneWidget);
+
+      // Step 7: goals, and Back returns to bills.
+      await tapText(tester, 'Next');
+      expect(find.text('Set up your goals'), findsOneWidget);
+      expect(find.text('Step 7 of 10'), findsOneWidget);
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add bill reminders'), findsOneWidget);
+      await tapText(tester, 'Next');
+      expect(find.text('Set up your goals'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('add-onboarding-goal')));
+      await tester.pumpAndSettle();
+      expect(find.text('New Savings Goal'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, 'Emergency buffer');
+      await tester.enterText(find.byType(TextField).at(1), '10000');
+      expect(find.text('Where is this money now?'), findsOneWidget);
+      // No cash wallet was added, so only Cash in Bank can be chosen.
+      await tapText(tester, 'Cash in Bank');
+      expect(find.textContaining('E-Wallet · '), findsOneWidget);
+      await tester.enterText(fundingField(0), '300');
+      // "Emergency" in the name makes it an emergency fund; nothing to pick.
+      await tapText(tester, 'Save Goal');
+      expect(find.text('Emergency buffer'), findsOneWidget);
+      expect(find.text('GCash'), findsOneWidget);
+      expect(find.text('₱300 of ₱10,000 saved'), findsOneWidget);
+      // Step 8: reminders
+      await tapText(tester, 'Next');
+      expect(find.text('Step 8 of 10'), findsOneWidget);
+      await tapText(tester, 'Allow Reminders');
+
+      // Step 9: the ranking, only because reminders were allowed. Each
+      // place shows how many reminders it gives.
+      expect(find.text('Step 9 of 10'), findsOneWidget);
+      expect(
+        find.text('What should we remind you about most?'),
+        findsOneWidget,
+      );
+      for (final count in [
+        '4 reminders',
+        '3 reminders',
+        '2 reminders',
+        '1 reminder',
+      ]) {
+        expect(find.text(count), findsOneWidget, reason: count);
+      }
 
       // The first priority can't move up; moving it down swaps it.
       final moveUp = find.byTooltip('Move "Pay bills on time" up');
@@ -1614,124 +3648,27 @@ void main() {
       await tester.tap(moveDownButton);
       await tester.pump();
 
-      expect(
-        find.text('How would you like to split each payment?'),
-        findsNothing,
-      );
-      await tapText(tester, 'Next');
-      expect(find.text('Add bill reminders'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('add-onboarding-bill')));
-      await tester.pumpAndSettle();
-      final billFields = find.byType(TextFormField);
-      await tester.enterText(billFields.at(0), 'Internet');
-      await tester.enterText(billFields.at(1), '1200');
-      await tapText(tester, 'Add Bill');
-      expect(find.text('Internet'), findsOneWidget);
-      expect(find.textContaining('₱1,200'), findsOneWidget);
-      expect(find.textContaining('Due '), findsOneWidget);
-      await tapText(tester, 'Next');
-      expect(find.text('Build your savings'), findsOneWidget);
-      expect(find.text('Savings amount'), findsNothing);
-      await tester.tap(find.byKey(const Key('add-onboarding-savings-account')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('savings-kind-account')));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const Key('onboarding-savings-name')),
-        'Travel Savings',
-      );
-      await tester.enterText(
-        find.byKey(const Key('onboarding-savings-balance')),
-        '500',
-      );
-      await tester.tap(find.byKey(const Key('save-onboarding-savings')));
-      await tester.pumpAndSettle();
-      expect(find.text('Travel Savings'), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('add-onboarding-goal')));
-      await tester.pumpAndSettle();
-      expect(find.text('New Savings Goal'), findsOneWidget);
-      await tester.enterText(find.byType(TextField).first, 'Emergency buffer');
-      await tester.enterText(find.byType(TextField).at(1), '10000');
-      await tester.tap(find.text('More options (optional)'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Emergency fund').last);
-      await tester.pumpAndSettle();
-      await tapText(tester, 'Save Goal');
-      expect(find.text('Emergency buffer'), findsOneWidget);
-
       await tapText(tester, 'Next');
 
-      // Step 7: Wallets are required
-      expect(find.text('Your starting wallets'), findsOneWidget);
-      await tapText(tester, 'Next');
-      expect(find.text('Please add at least one wallet.'), findsOneWidget);
-
-      await tapText(tester, 'Add a Wallet');
-      await tester.tap(find.text('GCash'));
-      await tester.pump();
-      await tester.enterText(find.byType(TextFormField).last, '1250.50');
-      await tapText(tester, 'Add Wallet');
-
-      // The note explains the default destination without claiming that
-      // this wallet controls the income schedule.
-      expect(find.textContaining('Where does your'), findsOneWidget);
-      expect(
-        find.textContaining('selects that wallet when you record income'),
-        findsOneWidget,
-      );
-
-      await tapText(tester, 'Add Another');
-      await tester.tap(find.text('Bank'));
-      await tester.pumpAndSettle();
-      final bankDropdown = find.byKey(const Key('wallet-bank-dropdown'));
-      expect(bankDropdown, findsOneWidget);
-      final bankField = tester.widget<DropdownButton<String>>(
-        find.descendant(
-          of: bankDropdown,
-          matching: find.byType(DropdownButton<String>),
-        ),
-      );
-      expect(
-        bankField.items!.map((item) => item.value),
-        contains('Asia United Bank (AUB)'),
-      );
-      bankField.onChanged!('Asia United Bank (AUB)');
-      await tester.pump();
-      await tester.enterText(find.byType(TextFormField).last, '300');
-      await tapText(tester, 'Add Wallet');
-
-      expect(find.text('₱1,250.50'), findsOneWidget);
-      expect(find.text('₱300'), findsOneWidget);
-      expect(find.text('Receives my Allowance'), findsNWidgets(2));
-
-      // Move the income to the second (bank) wallet.
-      await tester.tap(find.text('Receives my Allowance').last);
-      await tester.pump();
-      await tapText(tester, 'Next');
-      await tapText(tester, 'Allow Reminders');
+      // Step 10: Review shows the ranking, as reminders are on.
+      expect(find.text('Step 10 of 10'), findsOneWidget);
       expect(find.text('Check your answers'), findsOneWidget);
+      expect(find.text('Remind me most about'), findsOneWidget);
+      expect(find.text('Save toward a goal'), findsOneWidget);
       await tapText(tester, 'Continue');
+      expect(find.text('On · Save toward a goal first'), findsOneWidget);
 
       // Recap
       expect(find.text("You're ready, Dave!"), findsOneWidget);
-      expect(
-        find.text(
-          'After you tap Go to Dashboard, these shortcuts will be available there:',
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('Next, on your dashboard'), findsOneWidget);
       expect(
         find.text('Tap + anytime to add an expense or income'),
         findsOneWidget,
       );
       expect(find.text('See where your money goes in Reports'), findsOneWidget);
-      expect(find.text('2 wallets · ₱1,550.50 total'), findsOneWidget);
+      // ₱1,550.50 listed, less the ₱300 set aside for the goal.
+      expect(find.text('2 wallets · ₱1,250.50 available'), findsOneWidget);
       expect(find.text('Daily spending limit'), findsNothing);
-      expect(
-        find.textContaining('₱5,000 a month · Twice a month (15th & 30th)'),
-        findsOneWidget,
-      );
       // The button shows a spinner while saving, and this test's onFinished
       // doesn't navigate away, so pump a few frames instead of settling.
       await tester.ensureVisible(find.text('Go to Dashboard'));
@@ -1743,150 +3680,179 @@ void main() {
       expect(saved, isNotNull);
       expect(saved!.name, 'Dave');
       expect(saved!.notificationsEnabled, isTrue);
-      expect(saved!.incomeSource, 'Allowance');
-      expect(saved!.incomeFrequency, 'Semi-monthly');
-      expect(saved!.lastPaydayAt, isNotNull);
-      expect(saved!.monthlyIncome, 5000);
+      expect(saved!.incomeSource, isNull);
+      expect(saved!.incomeFrequency, isNull);
+      expect(saved!.lastPaydayAt, isNull);
+      expect(saved!.monthlyIncome, isNull);
       expect(saved!.bills, hasLength(1));
       expect(saved!.bills.single.name, 'Internet');
-      expect(saved!.bills.single.amount, 1200);
+      expect(saved!.bills.single.amount, 1500);
       expect(saved!.bills.single.category, 'Bills');
       expect(saved!.bills.single.recurrence, BillRecurrence.monthly);
       expect(saved!.bills.single.firstDueDate, isA<DateTime>());
       expect(saved!.savingsAccounts, hasLength(1));
-      expect(saved!.savingsAccounts.single.name, 'Travel Savings');
-      expect(saved!.savingsAccounts.single.kind, SavingsKind.account);
+      expect(saved!.savingsAccounts.single.name, 'Demand Deposit');
+      expect(saved!.savingsAccounts.single.kind, SavingsKind.demandDeposit);
       expect(saved!.savingsAccounts.single.balance, 500);
       expect(saved!.goals, hasLength(1));
       expect(saved!.goals.single.name, 'Emergency buffer');
       expect(saved!.goals.single.kind, GoalKind.emergencyFund);
       expect(saved!.goals.single.targetAmount, 10000);
+      expect(saved!.goals.single.allocated, 300);
+      expect(saved!.goals.single.fundingWalletDraftId, saved!.wallets.first.id);
+      expect(saved!.goals.single.fundingSource, GoalFundingSource.ewallet);
       expect(saved!.priorities.take(2), [
         FinancialPriority.saveForGoal,
         FinancialPriority.payBills,
       ]);
       expect(saved!.wallets.map((w) => w.type), [
-        WalletType.gcash,
+        WalletType.ewallet,
         WalletType.bank,
       ]);
-      expect(saved!.wallets.map((w) => w.receivesIncome), [false, true]);
+      expect(saved!.wallets.map((w) => w.receivesIncome), [true, false]);
       expect(saved!.wallets.first.name, 'GCash');
       expect(saved!.wallets.last.name, 'Asia United Bank (AUB)');
+    });
+
+    testWidgets('Edit on Review fixes one answer and comes right back', (
+      tester,
+    ) async {
+      OnboardingData? saved;
+      await pumpOnboarding(tester, save: (data) async => saved = data);
+      await tapText(tester, 'Get Started');
+      await tester.enterText(find.byType(TextFormField), 'Dave');
+      await tapText(tester, 'Next');
+
+      // The first time through, every step says Next.
+      await tapText(tester, 'Add a Wallet');
+      await tester.enterText(
+        find.byKey(const Key('wallet-current-balance')),
+        '100',
+      );
+      await tapText(tester, 'Add Wallet');
+      expect(find.text('Back to Review'), findsNothing);
+      await tapText(tester, 'Next');
+      await cashSummaryToGoals(tester);
+      expect(find.text('Back to Review'), findsNothing);
+      await tapText(tester, 'Next');
+      await tapText(tester, 'Skip for now');
+      expect(find.text('Check your answers'), findsOneWidget);
+      expect(
+        find.textContaining("You'll come right back here."),
+        findsOneWidget,
+      );
+      expect(find.text('1 wallet · ₱100 available'), findsOneWidget);
+      expect(find.text('Updated'), findsNothing);
+      // Edit is a pencil now, not a word.
+      expect(find.text('Edit'), findsNothing);
+
+      Future<void> edit(String label) async {
+        // Each answer has a pencil named for it.
+        final button = find.byTooltip('Edit $label');
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> cancel() async {
+        await tester.tap(find.byTooltip('Cancel'));
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> addEmptyishWallet(String balance) async {
+        await tapText(tester, 'Add Another');
+        await tester.enterText(
+          find.byKey(const Key('wallet-current-balance')),
+          balance,
+        );
+        await tapText(tester, 'Add Wallet');
+      }
+
+      // Edit wallets: Save Changes keeps it and comes straight back.
+      await edit('Wallets');
+      expect(find.text('Your starting wallets'), findsOneWidget);
+      // The header says what is happening, not a step number.
+      expect(find.text('Editing'), findsOneWidget);
+      expect(find.textContaining('of 9'), findsNothing);
+      expect(find.text('Next'), findsNothing);
+      expect(find.text('Your other answers stay as they are.'), findsNothing);
+      final save = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Save Changes'),
+      );
+      expect(save.style?.backgroundColor?.resolve({}), appConfirmGreen);
+      await addEmptyishWallet('50');
+      await tapText(tester, 'Save Changes');
+      expect(find.text('Check your answers'), findsOneWidget);
+      expect(find.text('2 wallets · ₱150 available'), findsOneWidget);
+      expect(find.text('Updated'), findsOneWidget);
+
+      // The back arrow cancels. With nothing changed it just goes back.
+      await edit('Your name');
+      await cancel();
+      expect(find.text('Discard your changes?'), findsNothing);
+      expect(find.text('Check your answers'), findsOneWidget);
+      expect(find.text('Updated'), findsNothing);
+
+      // With a change, it asks first; Keep Editing stays put.
+      await edit('Wallets');
+      await addEmptyishWallet('25');
+      await cancel();
+      expect(find.text('Discard your changes?'), findsOneWidget);
+      await tapText(tester, 'Keep Editing');
+      expect(find.text('Your starting wallets'), findsOneWidget);
+      // Discard puts everything back the way it was.
+      await cancel();
+      await tapText(tester, 'Discard');
+      expect(find.text('Check your answers'), findsOneWidget);
+      expect(find.text('2 wallets · ₱150 available'), findsOneWidget);
+
+      // A step's own checks still apply before saving.
+      await edit('Your name');
+      await tester.enterText(find.byType(TextFormField), '');
+      await tapText(tester, 'Save Changes');
+      expect(find.text('Please enter your name.'), findsOneWidget);
+      await tester.enterText(find.byType(TextFormField), 'Dee');
+      await tapText(tester, 'Save Changes');
+      expect(find.text('Dee'), findsOneWidget);
+      expect(find.text('Updated'), findsOneWidget);
+
+      // A cancelled name change is put back too.
+      await edit('Your name');
+      await tester.enterText(find.byType(TextFormField), 'Typo');
+      await cancel();
+      await tapText(tester, 'Discard');
+      expect(find.text('Dee'), findsOneWidget);
+      expect(find.text('Typo'), findsNothing);
+
+      // Reminders: skipping returns at once, with no ranking asked.
+      await edit('Reminders');
+      await tapText(tester, 'Skip for now');
+      expect(find.text('Check your answers'), findsOneWidget);
+      expect(find.text('Remind me most about'), findsNothing);
+
+      // Back on Review, the ordinary back arrow still walks back with Next.
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Allow Reminders'), findsOneWidget);
+      await tapText(tester, 'Skip for now');
+      await tapText(tester, 'Continue');
+      await tester.ensureVisible(find.text('Go to Dashboard'));
+      await tester.tap(find.text('Go to Dashboard'));
+      await tester.pump();
+      await tester.pump();
+      expect(saved!.name, 'Dee');
+      expect(saved!.wallets, hasLength(2));
     });
 
     testWidgets('Back returns to the previous step', (tester) async {
       await pumpOnboarding(tester, save: (_) async {});
 
       await tapText(tester, 'Get Started');
-      expect(find.text('Step 2 of 9'), findsOneWidget);
+      expect(find.text('Step 2 of 10'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Back'));
       await tester.pumpAndSettle();
-      expect(find.text('Step 1 of 9'), findsOneWidget);
-    });
-
-    testWidgets('irregular income makes the amount an optional estimate', (
-      tester,
-    ) async {
-      OnboardingData? saved;
-      await pumpOnboarding(tester, save: (data) async => saved = data);
-
-      await tapText(tester, 'Get Started');
-      await tester.enterText(find.byType(TextFormField), 'Dave');
-      await tapText(tester, 'Next');
-      await chooseDropdown(
-        tester,
-        'Select how often',
-        'Irregular (no fixed payday)',
-      );
-
-      expect(
-        find.textContaining('FinAssist plans to the end of the month'),
-        findsOneWidget,
-      );
-      expect(find.text('Estimated monthly income (optional)'), findsOneWidget);
-      expect(find.text('Daily spending limit (optional)'), findsNothing);
-      expect(
-        find.textContaining('A rough monthly estimate is fine.'),
-        findsOneWidget,
-      );
-
-      // The amount can stay blank for irregular income.
-      await chooseDropdown(tester, 'Select your income source', 'Freelance');
-      await tapText(tester, 'Next');
-      expect(find.text('What matters most to you?'), findsOneWidget);
-      await tapText(tester, 'Next');
-      expect(find.text('Add bill reminders'), findsOneWidget);
-      await tapText(tester, 'Next');
-      expect(find.text('Build your savings'), findsOneWidget);
-      expect(find.text('Savings amount'), findsNothing);
-      await tapText(tester, 'Next');
-      expect(find.text('Your starting wallets'), findsOneWidget);
-
-      await tapText(tester, 'Add a Wallet');
-      await tester.enterText(find.byType(TextFormField).last, '500');
-      await tapText(tester, 'Add Wallet');
-      await tapText(tester, 'Next');
-      await tapText(tester, 'Skip for now');
-      await tapText(tester, 'Continue');
-
-      expect(
-        find.textContaining('Varies · Irregular (no fixed payday)'),
-        findsOneWidget,
-      );
-
-      await tester.ensureVisible(find.text('Go to Dashboard'));
-      await tester.tap(find.text('Go to Dashboard'));
-      await tester.pump();
-      await tester.pump();
-
-      expect(saved, isNotNull);
-      expect(saved!.incomeFrequency, 'Irregular');
-      expect(saved!.monthlyIncome, isNull);
-    });
-
-    testWidgets('regular income still requires an amount', (tester) async {
-      await pumpOnboarding(tester, save: (_) async {});
-
-      await tapText(tester, 'Get Started');
-      await tester.enterText(find.byType(TextFormField), 'Dave');
-      await tapText(tester, 'Next');
-      await chooseDropdown(tester, 'Select your income source', 'Salary');
-      await chooseDropdown(tester, 'Select how often', 'Monthly');
-      await tapText(tester, 'Next');
-
-      expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
-      expect(find.text('Your income'), findsOneWidget);
-      expect(find.text('Monthly income'), findsOneWidget);
-      expect(find.text('Daily spending limit (optional)'), findsNothing);
-    });
-
-    testWidgets('Other income requires a specification', (tester) async {
-      await pumpOnboarding(tester, save: (_) async {});
-
-      await tapText(tester, 'Get Started');
-      await tester.enterText(find.byType(TextFormField), 'Dave');
-      await tapText(tester, 'Next');
-      await chooseDropdown(tester, 'Select your income source', 'Other');
-      await chooseDropdown(
-        tester,
-        'Select how often',
-        'Irregular (no fixed payday)',
-      );
-
-      expect(
-        find.byKey(const Key('other-income-source-specification')),
-        findsOneWidget,
-      );
-      await tapText(tester, 'Next');
-      expect(find.text('Enter where your income comes from.'), findsOneWidget);
-      expect(find.text('Your income'), findsOneWidget);
-      await tester.enterText(
-        find.byKey(const Key('other-income-source-specification')),
-        'Rental income',
-      );
-      await tapText(tester, 'Next');
-      expect(find.text('What matters most to you?'), findsOneWidget);
+      expect(find.text('Step 1 of 10'), findsOneWidget);
     });
   });
 
@@ -1938,6 +3904,22 @@ void main() {
 
       expect(find.text('Online'), findsOneWidget);
       expect(find.textContaining('Finance questions only'), findsOneWidget);
+
+      // Each suggestion carries the app's own icon for what it asks about.
+      expect(find.text('Try asking'), findsOneWidget);
+      for (final asset in [
+        'icons8-banknotes-96.png',
+        'icons8-pie-chart-96.png',
+        'icons8-receipt-96.png',
+        'icons8-cat-shopping-96.png',
+        'icons8-idea-96.png',
+      ]) {
+        expect(
+          find.image(AssetImage('assets/icons/$asset')),
+          findsOneWidget,
+          reason: asset,
+        );
+      }
     });
 
     testWidgets('offline, it still answers from the records on the phone', (
@@ -1958,7 +3940,10 @@ void main() {
       );
 
       await ask(tester, 'How much money do I have?');
-      expect(find.textContaining('₱3,000 across 1 wallet'), findsOneWidget);
+      expect(
+        find.textContaining('₱3,000 available across 1 wallet'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('politely redirects questions that are not about money', (
@@ -2143,6 +4128,8 @@ void main() {
         'name': 'BPI Savings',
         'type': 'bank',
         'balance': 1250,
+        'balanceRecorded': true,
+        'annualInterestRatePercent': 2.5,
         'startingBalance': 1000,
         'receivesIncome': true,
         'archived': false,
@@ -2152,6 +4139,9 @@ void main() {
       expect(saved.name, 'BPI Savings');
       expect(saved.type, WalletType.bank);
       expect(saved.balance, 1250.0);
+      expect(saved.hasRecordedBalance, isTrue);
+      expect(saved.annualInterestRatePercent, 2.5);
+      expect(saved.estimatedAnnualInterestIncome, 31.25);
       expect(saved.receivesIncome, isTrue);
       expect(saved.sortOrder, 2);
       expect(saved.iconAsset, WalletType.bank.iconAsset);
@@ -2169,6 +4159,62 @@ void main() {
       expect(broken.balance, 0);
       expect(broken.archived, isFalse);
       expect(Wallet.fromMap('w3', null).name, WalletType.other.label);
+      expect(broken.hasRecordedBalance, isFalse);
+      expect(broken.annualInterestRatePercent, isNull);
+    });
+
+    test('annual interest estimates validate rates and eligible balances', () {
+      expect(
+        calculateAnnualInterestEstimate(
+          balance: 50000,
+          annualInterestRatePercent: 2.5,
+        ),
+        1250,
+      );
+      expect(
+        calculateAnnualInterestEstimate(
+          balance: 50000,
+          annualInterestRatePercent: 0,
+        ),
+        0,
+      );
+      expect(
+        calculateAnnualInterestEstimate(
+          balance: null,
+          annualInterestRatePercent: 2.5,
+        ),
+        isNull,
+      );
+      expect(
+        calculateAnnualInterestEstimate(
+          balance: 100,
+          annualInterestRatePercent: -1,
+        ),
+        isNull,
+      );
+      expect(
+        calculateAnnualInterestEstimate(
+          balance: 100,
+          annualInterestRatePercent: 100.01,
+        ),
+        isNull,
+      );
+
+      final oldWallet = Wallet.fromMap('old', {
+        'name': 'Old Maya',
+        'type': 'maya',
+        'balance': 1000,
+      });
+      expect(oldWallet.isEWallet, isTrue);
+      expect(oldWallet.estimatedAnnualInterestIncome, isNull);
+
+      final unknownBalance = Wallet.fromMap('missing', {
+        'name': 'Bank',
+        'type': 'bank',
+        'annualInterestRatePercent': 2,
+      });
+      expect(unknownBalance.hasRecordedBalance, isFalse);
+      expect(unknownBalance.estimatedAnnualInterestIncome, isNull);
     });
 
     test('wallets are ordered by position, then by name', () {
@@ -2379,6 +4425,7 @@ void main() {
       WidgetTester tester, {
       required List<Wallet> wallets,
       String? incomeSource,
+      List<Goal> goals = const [],
     }) async {
       await tester.pumpWidget(
         ChangeNotifierProvider(
@@ -2388,6 +4435,7 @@ void main() {
             home: WalletsScreen(
               wallets: Stream.value(wallets),
               incomeSource: Stream.value(incomeSource),
+              goals: Stream.value(goals),
             ),
           ),
         ),
@@ -2429,6 +4477,61 @@ void main() {
       expect(find.text('₱300.50'), findsOneWidget);
       expect(find.text('₱1,500.50'), findsOneWidget, reason: 'the total');
       expect(find.text('Across 2 wallets'), findsOneWidget);
+    });
+
+    testWidgets('the total reads like a sum that adds up', (tester) async {
+      tester.view.physicalSize = const Size(700, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpWallets(
+        tester,
+        wallets: [
+          wallet(id: 'cash', name: 'Cash', balance: 15000),
+          wallet(
+            id: 'bank',
+            name: 'BDO',
+            type: WalletType.bank,
+            balance: 4000,
+            sortOrder: 1,
+          ),
+          Wallet(
+            id: 'td',
+            name: 'Time Deposit',
+            type: WalletType.other,
+            balance: 10000,
+            startingBalance: 10000,
+            receivesIncome: false,
+            archived: false,
+            sortOrder: 2,
+            purpose: WalletPurpose.savings,
+          ),
+        ],
+        goals: const [
+          Goal(
+            id: 'g',
+            name: 'Graduation',
+            targetAmount: 20000,
+            savedAmount: 12000,
+            priority: 0,
+            status: GoalStatus.active,
+            savedByWallet: {'cash': 12000},
+          ),
+        ],
+      );
+
+      // ₱19,000 in cash and bank, less ₱12,000 for the goal: ₱7,000, the
+      // figure at the top and the end of the sum.
+      expect(find.text('In these wallets'), findsOneWidget);
+      expect(find.text('₱19,000'), findsOneWidget);
+      expect(find.text('-₱12,000'), findsOneWidget);
+      expect(find.text('Available balance'), findsOneWidget);
+      expect(find.text('₱7,000'), findsNWidgets(2));
+      // Nothing outside the sum sits on the card, so it always adds up.
+      expect(find.text('Kept apart, not counted above'), findsNothing);
+      expect(find.text('Savings wallet'), findsNothing);
+      expect(find.textContaining('bills and savings'), findsNothing);
     });
 
     testWidgets('marks the income wallet using the saved income source', (
@@ -3256,6 +5359,54 @@ void main() {
       expect(find.text('Next month'), findsNothing);
     });
 
+    testWidgets('putting aside for bills shows what is left, as it is typed', (
+      tester,
+    ) async {
+      await pumpWaterfall(
+        tester,
+        bills: [bill('Internet', 8000, dueDate: DateTime(2026, 3, 20))],
+      );
+      await tester.enterText(find.byType(TextField).first, '10000');
+      await pickSource(tester, 'Salary');
+      await next(tester);
+
+      final box = find.byKey(const Key('bills-set-aside'));
+      // An empty box is nothing put aside: ₱8,000 of bills need ₱8,000,
+      // never ₱8,001.
+      await tester.enterText(box, '');
+      await tester.pump();
+      expect(find.text('Still needed: ₱8,000'), findsOneWidget);
+
+      // What is typed shows in the summary, with what is still to pay.
+      await tester.enterText(box, '3000');
+      await tester.pump();
+      expect(find.text('Putting aside now'), findsOneWidget);
+      expect(find.text('₱3,000'), findsWidgets);
+      expect(find.text('Still needed: ₱5,000'), findsOneWidget);
+
+      await tester.enterText(box, '9000');
+      await tester.pump();
+      expect(
+        find.textContaining('covered, with ₱1,000 left for later bills'),
+        findsOneWidget,
+      );
+
+      // More than came in is refused, said under the box once Next is
+      // tapped, and gone as soon as it is fixed.
+      await tester.enterText(box, '12000');
+      await tester.pump();
+      const tooMuch = 'Only ₱10,000 came in to Cash. Put aside up to ₱10,000.';
+      expect(find.text(tooMuch), findsNothing);
+      await next(tester);
+      expect(find.text(tooMuch), findsOneWidget);
+      expect(box, findsOneWidget, reason: 'still on the bills step');
+
+      await tester.enterText(box, '8000');
+      await tester.pumpAndSettle();
+      expect(find.text(tooMuch), findsNothing);
+      expect(find.text('This month’s bills are covered.'), findsOneWidget);
+    });
+
     testWidgets('defaults income to the first spending wallet', (tester) async {
       final first = Wallet(
         id: 'first',
@@ -3291,6 +5442,74 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(savedWallet, 'first');
+    });
+
+    testWidgets('paying bills here can carry a service charge too', (
+      tester,
+    ) async {
+      AllocationPlan? confirmed;
+      await pumpWaterfall(
+        tester,
+        bills: [bill('Rent', 1500), bill('Load', 300)],
+        onConfirm: (plan, walletId, source) => confirmed = plan,
+      );
+
+      await fillIncome(tester, '5000');
+      await next(tester);
+      // No fee to ask about until a bill is being paid.
+      expect(find.text('Add a service charge'), findsNothing);
+      await tester.tap(find.text('Check all'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add a service charge'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('service-charge-switch')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('service-charge-amount')),
+        '15',
+      );
+      await tester.pump();
+      // ₱5,000 less ₱1,800 of bills and the ₱15 charge.
+      expect(find.text('₱3,185'), findsOneWidget);
+
+      await next(tester);
+      expect(find.text('Service charge'), findsOneWidget);
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(confirmed?.billsServiceCharge, 15);
+      expect(confirmed?.remaining, 3185);
+    });
+
+    test('a charge only counts while bills are paid here', () {
+      final rent = BillAllocation(
+        instance: BillInstance(
+          id: 'r',
+          billId: 'b',
+          name: 'Rent',
+          amount: 1500,
+          category: 'Bills',
+          dueDate: DateTime(2026, 3, 15),
+          status: BillStatus.unpaid,
+        ),
+        amount: 1500,
+      );
+      expect(
+        AllocationPlan(
+          income: 5000,
+          bills: [rent],
+          serviceCharge: 15,
+        ).remaining,
+        3485,
+      );
+      // Only set aside, nothing is paid, so there is nothing to charge for.
+      expect(
+        const AllocationPlan(
+          income: 5000,
+          billsSetAside: 1500,
+          serviceCharge: 15,
+        ).billsServiceCharge,
+        0,
+      );
     });
 
     testWidgets('each bill starts on its full amount, with a running total', (
@@ -4280,6 +6499,100 @@ void main() {
     });
   });
 
+  group('Transfer service charge', () {
+    testWidgets('the charge comes out of the same wallet as the transfer', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final gcash = Wallet(
+        id: 'gcash',
+        name: 'GCash',
+        type: WalletType.gcash,
+        balance: 1000,
+        startingBalance: 1000,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 0,
+        serviceCharge: 15,
+      );
+      final bpi = Wallet(
+        id: 'bpi',
+        name: 'BPI',
+        type: WalletType.bank,
+        balance: 0,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+      );
+      double? moved;
+      double? fee;
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: TransferSheet(
+                wallets: Stream.value([gcash, bpi]),
+                initialFromWalletId: 'gcash',
+                initialToWalletId: 'bpi',
+                onSave:
+                    ({
+                      required String fromWalletId,
+                      required String toWalletId,
+                      required double amount,
+                      required double serviceCharge,
+                    }) {
+                      moved = amount;
+                      fee = serviceCharge;
+                    },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Amount'),
+        '1000',
+      );
+      await tester.tap(find.byKey(const Key('service-charge-switch')));
+      await tester.pumpAndSettle();
+      expect(find.text('15'), findsOneWidget, reason: "GCash's usual fee");
+
+      // ₱1,000 plus the ₱15 fee is more than GCash holds.
+      await tester.tap(find.text('Transfer').last);
+      await tester.pump();
+      expect(
+        find.textContaining('With the ₱15 service charge, that is ₱1,015.'),
+        findsOneWidget,
+      );
+      expect(moved, isNull);
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Amount'),
+        '985',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Transfer').last);
+      await tester.pumpAndSettle();
+      expect(moved, 985);
+      expect(fee, 15);
+    });
+
+    test('the charge is an expense under Service Charge', () {
+      expect(expenseCategories, contains(serviceChargeCategory));
+      expect(expenseCategories, contains('Supplies'));
+      expect(expenseCategories.last, 'Others');
+    });
+  });
+
   group('Bill payment', () {
     final wallet = Wallet(
       id: 'w1',
@@ -4331,9 +6644,14 @@ void main() {
                 instance: instance,
                 payInFull: payInFull,
                 wallets: Stream.value(wallets ?? [wallet, billsWallet]),
-                onPay: ({required String walletId, required double amount}) {
-                  paid = amount;
-                },
+                onPay:
+                    ({
+                      required String walletId,
+                      required double amount,
+                      required double serviceCharge,
+                    }) {
+                      paid = amount;
+                    },
               ),
             ),
           ),
@@ -4377,6 +6695,83 @@ void main() {
       // No wallet to choose: bills money is the only source.
       expect(find.text('Paid from'), findsNothing);
       expect(find.text('Cash'), findsNothing);
+    });
+
+    testWidgets('a service charge is optional, remembered, and counted', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // The Bills wallet was charged ₱15 last time.
+      final charged = Wallet(
+        id: 'bills',
+        name: 'Bills',
+        type: WalletType.other,
+        balance: 3010,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+        purpose: WalletPurpose.bills,
+        serviceCharge: 15,
+      );
+      double? paid;
+      double? fee;
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: BillPaymentSheet(
+                instance: instance,
+                wallets: Stream.value([wallet, charged]),
+                onPay:
+                    ({
+                      required String walletId,
+                      required double amount,
+                      required double serviceCharge,
+                    }) {
+                      paid = amount;
+                      fee = serviceCharge;
+                    },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Off unless the user says there was one.
+      expect(find.text('Add a service charge'), findsOneWidget);
+      expect(find.byKey(const Key('service-charge-amount')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('service-charge-switch')));
+      await tester.pumpAndSettle();
+      // Filled in with what this wallet was charged before.
+      expect(find.text('15'), findsOneWidget);
+
+      // ₱3,000 + ₱15 is more than the ₱3,010 set aside.
+      await tester.tap(find.text('Record Payment'));
+      await tester.pump();
+      expect(
+        find.textContaining('₱5 short with the service charge'),
+        findsOneWidget,
+      );
+      expect(paid, isNull);
+
+      await tester.enterText(
+        find.byKey(const Key('service-charge-amount')),
+        '10',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Record Payment'));
+      await tester.pumpAndSettle();
+      expect(paid, 3000);
+      expect(fee, 10);
     });
 
     testWidgets('with nothing set aside it offers to move money first', (
@@ -4899,11 +7294,10 @@ void main() {
         ),
       ]);
 
-      expect(
-        result.map((e) => '${e.key}=${e.value}'),
-        ['Bills=900.0', 'Food=250.0'],
-        reason: 'money lent out is not spending',
-      );
+      expect(result.map((e) => '${e.key}=${e.value}'), [
+        'Bills=900.0',
+        'Food=250.0',
+      ], reason: 'money lent out is not spending');
     });
   });
 
@@ -5254,16 +7648,20 @@ void main() {
 
       expect(find.text('Savings wallet'), findsWidgets);
       expect(find.text('Total balance'), findsOneWidget);
-      expect(find.text('Emergency fund'), findsOneWidget);
+      // The goal itself is in Goals, not listed again here.
+      expect(find.text('Emergency fund'), findsNothing);
+      expect(find.text('What it is for'), findsNothing);
       expect(find.text('Transfer money'), findsOneWidget);
 
       // The headline total is what remains available after ₱1,500 is
       // contributed to the goal. The record below still shows the wallet's
       // real ₱2,000 balance.
-      expect(find.text('₱500'), findsOneWidget);
+      // The record's card says the same: ₱1,500 for goals, ₱500 free.
+      expect(find.text('₱500'), findsNWidgets(2));
       expect(find.text('Towards your goals'), findsOneWidget);
+      expect(find.text('Set aside for goals'), findsOneWidget);
       expect(find.text('₱1,500'), findsNWidgets(2));
-      expect(find.text('₱2,000'), findsOneWidget);
+      expect(find.textContaining('₱2,000 saved'), findsOneWidget);
     });
 
     testWidgets('savings reads zero when the goals hold it all', (
@@ -5285,10 +7683,11 @@ void main() {
         ],
       );
 
-      // The available total is zero when the goal claim exceeds the wallet.
-      expect(find.text('₱0'), findsOneWidget);
+      // The available total is zero when the goal claim exceeds the wallet,
+      // and the record's card says nothing of it is free.
+      expect(find.text('₱0'), findsNWidgets(2));
       // The record still reads the wallet's real ₱1,000 balance.
-      expect(find.text('₱1,000'), findsOneWidget);
+      expect(find.textContaining('₱1,000 saved'), findsOneWidget);
     });
 
     testWidgets('editing savings keeps goal-assigned money backed', (
@@ -5310,7 +7709,13 @@ void main() {
         ],
       );
 
-      await tester.tap(find.byKey(const Key('set-aside-record-s')));
+      // The blue pencil on the record's card opens it.
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('set-aside-record-s')),
+          matching: find.byIcon(Icons.edit_outlined),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const Key('set-aside-balance')), '0');
       await tester.tap(find.byKey(const Key('set-aside-save')));
@@ -5339,7 +7744,8 @@ void main() {
       expect(find.text('Total balance'), findsOneWidget);
       expect(find.text('Transfer money'), findsOneWidget);
       // Once in the total, once in the record it can be edited from.
-      expect(find.text('₱1,200'), findsNWidgets(2));
+      expect(find.text('₱1,200'), findsOneWidget);
+      expect(find.text('₱1,200 for bills'), findsOneWidget);
       expect(find.text('Where it is kept'), findsOneWidget);
       expect(find.text('Rent'), findsOneWidget);
       expect(find.textContaining('Overdue'), findsOneWidget);
@@ -5362,7 +7768,7 @@ void main() {
       // offers to switch to savings, and no savings money is on the screen.
       expect(find.byType(SegmentedButton<SetAsidePart>), findsNothing);
       expect(find.text('Savings wallet'), findsNothing);
-      expect(find.text('Add bills money'), findsOneWidget);
+      expect(find.text('Add Bills Money'), findsOneWidget);
 
       await pumpSetAside(
         tester,
@@ -5370,17 +7776,20 @@ void main() {
       );
 
       expect(find.text('Bills wallet'), findsNothing);
-      expect(find.text('Add savings'), findsOneWidget);
-      // The wallet and what it is going towards sit together.
+      expect(find.text('Add Savings'), findsOneWidget);
+      // The wallet and what it is going towards sit together. Goals are
+      // added from Goals on Home, so nothing here opens them.
       expect(find.text('Savings wallet'), findsWidgets);
-      expect(find.text('Manage goals'), findsOneWidget);
+      expect(find.text('Manage goals'), findsNothing);
     });
 
     testWidgets('an account with nothing set aside says so', (tester) async {
       await pumpSetAside(tester);
 
       expect(find.text('₱0'), findsOneWidget);
-      expect(find.text('No savings goal yet'), findsOneWidget);
+      // Goals are made in Goals, so the Savings wallet doesn't ask for one.
+      expect(find.text('No savings goal yet'), findsNothing);
+      expect(find.text('Add Savings'), findsOneWidget);
     });
   });
 
@@ -5879,6 +8288,12 @@ void main() {
 
       expect(find.text('Choose what to do with it first.'), findsOneWidget);
       expect(decided, isNull);
+
+      // Choosing is the fix, so the message goes with it.
+      await tester.tap(find.text('Save it'));
+      await tester.pump();
+      expect(find.text('Choose what to do with it first.'), findsNothing);
+      expect(decided, isNull);
     });
 
     testWidgets('saving records the whole amount as saved', (tester) async {
@@ -5914,11 +8329,30 @@ void main() {
       expect(find.textContaining('must add up to ₱1,000'), findsOneWidget);
       expect(decided, isNull);
 
+      // Gone as soon as they add up, before Confirm is tapped again.
       await tester.enterText(find.byType(TextField).last, '200');
+      await tester.pump();
+      expect(find.textContaining('must add up to'), findsNothing);
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
 
       expect(decided, LeftoverDecision.split);
+    });
+
+    testWidgets('a split typed with commas is read', (tester) async {
+      double? saved;
+      await pumpReview(tester, onResolve: (_, s, _) => saved = s);
+
+      await tester.tap(find.text('Split it'));
+      await tester.pump();
+      // Typed as 1000, shown as 1,000.
+      await tester.enterText(find.byType(TextField).first, '1000');
+      await tester.enterText(find.byType(TextField).last, '0');
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter both amounts.'), findsNothing);
+      expect(saved, 1000);
     });
 
     testWidgets('deciding later leaves it pending', (tester) async {
@@ -6341,7 +8775,6 @@ void main() {
             theme: AppTheme.light,
             home: GoalsScreen(
               goals: Stream.value(goals),
-              profile: Stream.value(null),
               onReorder: onReorder,
               onOpen: (_) {},
             ),
@@ -6350,6 +8783,32 @@ void main() {
       );
       await tester.pump();
     }
+
+    testWidgets('each goal card shows its plan once it is set up', (
+      tester,
+    ) async {
+      final now = DateTime.now();
+      await pumpGoals(tester, [
+        Goal(
+          id: 'trip',
+          name: 'Trip',
+          targetAmount: 5000,
+          savedAmount: 1000,
+          priority: 0,
+          status: GoalStatus.active,
+          targetDate: DateTime(now.year + 1, now.month, now.day),
+        ),
+        goal('someday', 1),
+      ]);
+
+      // With a date: how much a month, from what is still to save.
+      expect(find.textContaining('a month to reach it by'), findsOneWidget);
+      // Without one: asked for, never guessed.
+      expect(
+        find.text('Add a finish date to see how much to save each month.'),
+        findsOneWidget,
+      );
+    });
 
     test('the tab controller opens savings or a debts list', () {
       final controller = GoalsTabController();
@@ -6372,55 +8831,11 @@ void main() {
       expect(tabChanges, 3);
     });
 
-    testWidgets('Save to Goal picks a goal or offers a new one', (
-      tester,
-    ) async {
-      Object? picked;
-
-      await tester.pumpWidget(
-        ChangeNotifierProvider(
-          create: (_) => AppSettingsProvider(),
-          child: MaterialApp(
-            theme: AppTheme.light,
-            home: Builder(
-              builder: (context) => TextButton(
-                onPressed: () async {
-                  picked = await showModalBottomSheet<Object>(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) => GoalPickerSheet(
-                      goals: [goal('Laptop', 0), goal('Phone', 1)],
-                    ),
-                  );
-                },
-                child: const Text('open'),
-              ),
-            ),
-          ),
-        ),
-      );
-
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-      expect(find.text('Save to which goal?'), findsOneWidget);
-      expect(find.text('₱1,000 of ₱5,000'), findsNWidgets(2));
-
-      await tester.tap(find.text('Phone'));
-      await tester.pumpAndSettle();
-      expect((picked as Goal?)?.id, 'Phone');
-
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('New Goal'));
-      await tester.pumpAndSettle();
-      expect(picked, GoalPickerSheet.newGoal);
-    });
-
     testWidgets('invites a first goal', (tester) async {
       await pumpGoals(tester, const []);
 
       expect(find.text('No goals yet'), findsOneWidget);
-      expect(find.text('Add New Goal'), findsOneWidget);
+      expect(find.text('Add Goal'), findsOneWidget);
     });
 
     testWidgets('ranks active goals and shows their progress', (tester) async {
@@ -6428,7 +8843,7 @@ void main() {
 
       expect(find.text('#1'), findsOneWidget);
       expect(find.text('#2'), findsOneWidget);
-      expect(find.text(' of ₱5,000'), findsNWidgets(2));
+      expect(find.text(' of ₱5,000 saved'), findsNWidgets(2));
     });
 
     testWidgets('moving a goal down saves the new order', (tester) async {
@@ -6451,12 +8866,62 @@ void main() {
       ]);
 
       expect(find.text('Trip'), findsNothing);
+      // Each list shows how many it holds, in a badge of its own.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('goals-filter-completed')),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
 
-      await tester.tap(find.text('Completed (1)'));
+      await tester.tap(find.byKey(const Key('goals-filter-completed')));
       await tester.pumpAndSettle();
+      expect(
+        tester.getSemantics(find.byKey(const Key('goals-filter-completed'))),
+        isSemantics(isButton: true, isSelected: true),
+      );
 
       expect(find.text('Trip'), findsOneWidget);
-      expect(find.text('Reached'), findsOneWidget);
+      // Green and full, with a check in place of the target.
+      expect(find.text('Goal reached'), findsOneWidget);
+      expect(find.text('100%'), findsOneWidget);
+      expect(find.text('₱5,000 saved — completed!'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Image &&
+              widget.image is AssetImage &&
+              (widget.image as AssetImage).assetName == goalReachedIcon,
+        ),
+        // On the goal's card, and on the Completed tile.
+        findsNWidgets(2),
+      );
+    });
+
+    test('the bar color and words follow how far along a goal is', () {
+      expect(goalPercent(0.249, reached: false), 24);
+      expect(goalPercent(0.999, reached: false), 99);
+      // Past the target still reads 100.
+      expect(goalPercent(1.0, reached: true), 100);
+      expect(getProgressLabel(0), 'Getting started');
+      expect(getProgressLabel(24), 'Getting started');
+      expect(getProgressLabel(25), 'On the way');
+      expect(getProgressLabel(74), 'On the way');
+      expect(getProgressLabel(75), 'Almost there!');
+      expect(getProgressLabel(99), 'Almost there!');
+      expect(getProgressLabel(100), 'Goal reached');
+      expect(getProgressColor(10, dark: true), const Color(0xFFF59E0B));
+      expect(getProgressColor(50, dark: true), const Color(0xFF3B82F6));
+      expect(getProgressColor(80, dark: true), const Color(0xFF2DD4BF));
+      expect(getProgressColor(100, dark: true), const Color(0xFF22C55E));
+      // Never red, in either mode.
+      for (final percent in [0, 10, 24]) {
+        for (final dark in [true, false]) {
+          final color = getProgressColor(percent, dark: dark);
+          expect(color.r > color.g && color.g < 0.2, isFalse);
+        }
+      }
     });
   });
 
@@ -6520,17 +8985,85 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('contributing starts on what the goal still needs', (
+    testWidgets('saving shows what the goal still needs, like setup', (
       tester,
     ) async {
       double? saved;
-      await pumpSheet(tester, takeOut: false, onSave: (a, _) => saved = a);
+      String? into;
+      await pumpSheet(
+        tester,
+        takeOut: false,
+        onSave: (a, w) {
+          saved = a;
+          into = w;
+        },
+      );
 
-      expect(find.text('3800'), findsOneWidget);
+      expect(
+        find.text('₱1,200 of ₱5,000 saved · ₱3,800 to go'),
+        findsOneWidget,
+      );
+      // The same choice as when a goal is made.
+      expect(find.text('Where is this money now?'), findsOneWidget);
+      await tester.tap(find.text('Set Aside'));
+      await tester.pump();
+      expect(
+        find.text('Choose where the money is and enter an amount.'),
+        findsOneWidget,
+      );
+      expect(saved, isNull);
+
+      await tester.tap(find.text('Cash in Bank'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-savings')),
+        '3800',
+      );
+      await tester.pump();
+      expect(find.text('Still to save'), findsOneWidget);
       await tester.tap(find.text('Set Aside'));
       await tester.pumpAndSettle();
 
       expect(saved, 3800);
+      expect(into, 'savings');
+    });
+
+    testWidgets('contributions do not promise more than the goal needs', (
+      tester,
+    ) async {
+      final saved = <String, double>{};
+      await pumpSheet(tester, takeOut: false, onSave: (a, w) => saved[w] = a);
+
+      // Cash and a bank together, more than the goal needs.
+      await tester.tap(find.text('Both'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-cash')),
+        '2000',
+      );
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-savings')),
+        '2000',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Set Aside'));
+      await tester.pumpAndSettle();
+
+      expect(saved, isEmpty);
+      expect(
+        find.text('Together that is more than the goal needs (₱3,800).'),
+        findsOneWidget,
+      );
+
+      // Within what it needs, it is saved from both, one each.
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-savings')),
+        '1800',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Set Aside'));
+      await tester.pumpAndSettle();
+      expect(saved, {'cash': 2000, 'savings': 1800});
     });
 
     testWidgets('money goes into the savings record the user picks', (
@@ -6569,12 +9102,18 @@ void main() {
       await tester.pump();
 
       // Both records are offered, not just the first one.
-      await tester.tap(find.text('Savings').last);
+      await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Cash at home').last);
+      await tester.ensureVisible(find.text('Add account'));
+      await tester.tap(find.text('Add account'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).first, '500');
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-cash-savings')),
+        '500',
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.text('Set Aside'));
       await tester.tap(find.text('Set Aside'));
       await tester.pumpAndSettle();
 
@@ -6677,6 +9216,160 @@ void main() {
       billId: 'b',
       status: DebtStatus.active,
     );
+
+    Debt loan({
+      double principal = 5600,
+      double perPayment = 560,
+      int count = 12,
+      int paidBefore = 0,
+      double? quotedRate,
+      RatePeriod per = RatePeriod.month,
+      DebtCategory category = DebtCategory.personalLoan,
+    }) => Debt(
+      id: 'l',
+      direction: DebtDirection.iOwe,
+      name: 'Loan',
+      category: category,
+      principal: principal,
+      perPayment: perPayment,
+      paymentCount: count,
+      firstDueDate: DateTime(2026, 1, 5),
+      billId: 'b',
+      status: DebtStatus.active,
+      paidBefore: paidBefore,
+      quotedRate: quotedRate,
+      quotedRatePer: per,
+    );
+
+    test('the cost is shown as a share and as a true yearly rate', () {
+      // The CPA's check: ₱5,600 x 20% is ₱1,120 on top.
+      final debt = loan();
+      expect(debt.extraCost, closeTo(1120, 0.01));
+      expect(debt.extraCostPercent, closeTo(20, 0.01));
+      // Paid down monthly, 20% over a year really costs about 35% a year.
+      expect(debt.yearlyCostPercent, closeTo(35.1, 0.2));
+      expect(debt.monthlyCostPercent, closeTo(2.92, 0.02));
+      expect(
+        costRateText(debt),
+        'That works out to about 2.9% a month, or 35% a year.',
+      );
+      // A 1% a month add-on, as card cash loans quote, is about 21% a year.
+      expect(
+        loan(principal: 12000, perPayment: 1120).yearlyCostPercent,
+        closeTo(21.5, 0.2),
+      );
+      // Nothing on top, no rate to show.
+      expect(loan(perPayment: 5600 / 12).yearlyCostPercent, isNull);
+      expect(roundedPercent(20), '20%');
+      expect(roundedPercent(2.92), '2.9%');
+    });
+
+    test('payments costing more than the rate quoted are caught', () {
+      // 20% over 12 months is 1.67% a month as an add-on rate.
+      expect(loan(quotedRate: 2).costsMoreThanQuoted, isFalse);
+      expect(
+        loan(quotedRate: 20, per: RatePeriod.year).costsMoreThanQuoted,
+        isFalse,
+      );
+      // Told 1% a month: only ₱672 would be added, not ₱1,120.
+      expect(loan(quotedRate: 1).costsMoreThanQuoted, isTrue);
+      // A "0% installment" with ₱1,120 on top has fees somewhere.
+      expect(loan(quotedRate: 0).costsMoreThanQuoted, isTrue);
+      expect(loan().costsMoreThanQuoted, isFalse, reason: 'nothing quoted');
+    });
+
+    test('payments made before tracking count as paid', () {
+      final debt = loan(perPayment: 2000, principal: 20000, paidBefore: 3);
+      final progress = DebtProgress.of(debt, const []);
+      expect(progress.paid, 6000);
+      expect(progress.paymentsMade, 3);
+      expect(progress.paymentsLeft, 9);
+      expect(debt.dueDateOf(4), DateTime(2026, 4, 5));
+
+      // Its bill starts at the fourth payment, on the same dates as before.
+      final bill = Bill(
+        id: 'b',
+        name: 'Loan',
+        amount: 2000,
+        category: 'Bills',
+        firstDueDate: DateTime(2026, 1, 31),
+        recurrence: BillRecurrence.monthly,
+        endDate: DateTime(2026, 12, 31),
+        startDate: DateTime(2026, 4, 30),
+      );
+      expect(bill.occurrencesIn(2026, 3), isEmpty);
+      expect(bill.occurrencesIn(2026, 4), [DateTime(2026, 4, 30)]);
+      expect(bill.occurrencesIn(2026, 5), [DateTime(2026, 5, 31)]);
+    });
+
+    testWidgets('the details disclose the cost and compare it with savings', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(900, 4000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      Future<void> open(Debt debt) async {
+        await tester.pumpWidget(
+          ChangeNotifierProvider(
+            create: (_) => AppSettingsProvider(),
+            child: MaterialApp(
+              key: UniqueKey(),
+              theme: AppTheme.light,
+              home: DebtDetailScreen(
+                debt: debt,
+                liveDebt: Stream.value(debt),
+                payments: Stream.value(const []),
+                transactions: Stream.value(const []),
+                wallets: Stream.value([
+                  Wallet(
+                    id: 'bank',
+                    name: 'GoTyme Bank',
+                    type: WalletType.bank,
+                    balance: 5000,
+                    startingBalance: 5000,
+                    receivesIncome: false,
+                    archived: false,
+                    annualInterestRatePercent: 4,
+                    sortOrder: 0,
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+      }
+
+      await open(loan(quotedRate: 1, paidBefore: 2));
+      expect(find.text('What borrowing costs'), findsOneWidget);
+      expect(
+        find.text('₱1,120 more than you borrowed, 20% of ₱5,600.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('or 35% a year'), findsOneWidget);
+      expect(find.text('Interest they told you: 1% a month.'), findsOneWidget);
+      expect(find.textContaining('cost more than 1% a month'), findsOneWidget);
+      // 4% a year, less the 20% tax banks keep.
+      expect(
+        find.textContaining('Your savings earn up to 3.2% a year after tax.'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('must tell you the full cost'),
+        findsOneWidget,
+      );
+      // Two paid before tracking: counted, and marked on the statement.
+      expect(find.text('2 payments'), findsOneWidget);
+      expect(find.text('Paid before FinAssist'), findsNWidgets(3));
+
+      // Between family and friends, the note is about agreeing in writing.
+      await open(loan(category: DebtCategory.familyFriend));
+      expect(find.textContaining('agreed to it in writing'), findsOneWidget);
+      expect(find.textContaining('must tell you the full cost'), findsNothing);
+    });
 
     testWidgets('the statement counts down what is left after each payment', (
       tester,
@@ -6917,19 +9610,6 @@ void main() {
         200,
       );
     });
-
-    test('income is turned into a monthly figure for the suggestion', () {
-      expect(
-        monthlyIncomeFrom({'income': 1200, 'incomeFrequency': 'Weekly'}),
-        closeTo(5200, 0.01),
-      );
-      expect(
-        monthlyIncomeFrom({'income': 5000, 'incomeFrequency': 'Semi-monthly'}),
-        10000,
-      );
-      expect(monthlyIncomeFrom({'incomeFrequency': 'Monthly'}), isNull);
-      expect(monthlyIncomeFrom(null), isNull);
-    });
   });
 
   group('Debts', () {
@@ -6979,16 +9659,16 @@ void main() {
       // wallet, and the form says so.
       expect(find.text('I received this money in a wallet'), findsNothing);
       expect(find.text('Received into'), findsNothing);
-      expect(
-        find.textContaining('Your money does not move until you pay'),
-        findsOneWidget,
-      );
 
       final fields = find.byType(TextField);
       await tester.enterText(fields.at(0), 'Phone');
       await tester.enterText(fields.at(1), '24000');
       await tester.enterText(fields.at(2), '2400');
       await tester.pump();
+      expect(
+        find.textContaining('Your money does not move until you pay'),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('Save Installment'));
       await tester.pumpAndSettle();
@@ -7026,15 +9706,29 @@ void main() {
       await tester.enterText(fields.at(2), '2400');
       await tester.pump();
 
-      expect(find.text('10'), findsOneWidget, reason: 'payments, worked out');
+      expect(
+        find.text('10 payments of ₱2,400, every month'),
+        findsOneWidget,
+        reason: 'payments, worked out',
+      );
       expect(find.textContaining('You will pay ₱24,000'), findsOne);
 
       await tester.enterText(fields.at(3), '12');
       await tester.pump();
       expect(
-        find.textContaining('₱4,800 more than you borrowed'),
+        find.textContaining('₱4,800 more than you borrowed (20%)'),
         findsOneWidget,
       );
+      // And what that really costs as a rate, as lenders must disclose.
+      expect(find.textContaining('a month, or 35% a year'), findsOneWidget);
+
+      // Only whole payments: no point, no sign, no fourth digit.
+      await tester.enterText(fields.at(3), '-1.2');
+      expect(tester.widget<TextField>(fields.at(3)).controller?.text, '12');
+      await tester.enterText(fields.at(3), '1200');
+      expect(tester.widget<TextField>(fields.at(3)).controller?.text, '120');
+      await tester.enterText(fields.at(3), '12');
+      await tester.pump();
 
       await tester.tap(find.text('Save Installment'));
       await tester.pumpAndSettle();
@@ -7061,7 +9755,8 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.textContaining('from your receipt or contract'), findsOne);
+        // Only what every plan has: the rest waits under More options.
+        expect(find.text('Interest (optional)'), findsNothing);
         // The rare and the optional start folded away, so the first look at
         // the form is the plan itself and nothing else.
         expect(find.text('Last payment (optional)'), findsNothing);
@@ -7072,8 +9767,10 @@ void main() {
         expect(find.text('e.g. 12,000'), findsOneWidget);
         expect(find.text('e.g. 1,500'), findsOneWidget);
         expect(find.text('e.g. 12'), findsOneWidget);
-        expect(find.text('One payment, not the total'), findsOneWidget);
-        expect(find.text('Leave blank'), findsOneWidget);
+        expect(
+          find.text('Optional. Shows how much interest you pay.'),
+          findsOneWidget,
+        );
         // No peso sign until an amount is typed, so no example looks filled in.
         final fields = tester
             .widgetList<TextField>(find.byType(TextField))
@@ -7121,7 +9818,11 @@ void main() {
       await tester.pump();
 
       // No count given: pay exactly what was borrowed, the last one smaller.
-      expect(find.text('4'), findsOneWidget, reason: 'payments, worked out');
+      expect(
+        find.text('4 payments of ₱3,000, every month'),
+        findsOneWidget,
+        reason: 'payments, worked out',
+      );
       expect(find.textContaining('You will pay ₱10,000'), findsOne);
       expect(find.textContaining('more than you borrowed'), findsNothing);
       expect(find.textContaining('Last payment ₱1,000 on'), findsOneWidget);
@@ -7136,7 +9837,10 @@ void main() {
       // enough to live under More options.
       await tester.tap(find.text('More options (optional)'));
       await tester.pumpAndSettle();
-      await tester.enterText(fields.at(4), '1000');
+      await tester.enterText(
+        find.byKey(const Key('installment-last-payment')),
+        '1000',
+      );
       await tester.pump();
       expect(find.textContaining('You will pay ₱10,000'), findsOne);
 
@@ -7208,7 +9912,7 @@ void main() {
       expect(find.text('Ana'), findsNothing);
       expect(find.text('Owed to me'), findsNothing);
       expect(find.text('No installments yet'), findsOneWidget);
-      expect(find.text('Add installment'), findsOneWidget);
+      expect(find.text('Add Installment'), findsOneWidget);
     });
 
     testWidgets('lists installments with their progress', (tester) async {
@@ -7292,77 +9996,6 @@ void main() {
     });
   });
 
-  group('Grow Your Money', () {
-    testWidgets('suggests saving 20% of monthly income', (tester) async {
-      tester.view.physicalSize = const Size(700, 2200);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      String? goalName;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: SavingsGuide(
-                monthlyIncome: 10000,
-                onCreateGoal: (name, _) => goalName = name,
-              ),
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('About ₱2,000'), findsOneWidget);
-      expect(find.textContaining('not financial advice'), findsOneWidget);
-
-      // An information icon says this section explains rather than tells
-      // the reader what to do.
-      await tester.tap(find.byKey(const Key('guide-info')));
-      await tester.pumpAndSettle();
-      expect(find.text('About this guide'), findsOneWidget);
-      expect(
-        find.textContaining('names no banks and no rates'),
-        findsOneWidget,
-      );
-      await tester.tap(find.text('Got it'));
-      await tester.pumpAndSettle();
-
-      // Only what the saving is for belongs here. Where to keep it is
-      // explained inside Add savings, beside the choice itself, so the two
-      // are never mistaken for one list.
-      expect(find.text('What you can save for'), findsOneWidget);
-      expect(find.text('Savings account'), findsNothing);
-      expect(find.text('Government savings'), findsNothing);
-
-      await tester.tap(find.text('Emergency Fund'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Watch out for'), findsOneWidget);
-      await tester.tap(find.text('Create Savings Goal'));
-      await tester.pumpAndSettle();
-
-      expect(goalName, 'Emergency Fund');
-    });
-
-    testWidgets('asks for income when there is none', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: SavingsGuide(monthlyIncome: null, onCreateGoal: (_, _) {}),
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Add your usual income to see this'), findsOneWidget);
-    });
-  });
-
   group('goal plans', () {
     final now = DateTime(2026, 3, 10);
 
@@ -7375,6 +10008,120 @@ void main() {
           now: now,
         ),
         2500,
+      );
+    });
+
+    test('a custom rhythm counts its own saving days', () {
+      const everyTenDays = SavingInterval(10, SavingUnit.days);
+      // Every 10 days from Mar 10: Mar 20 to May 29, eight before Jun 2.
+      expect(
+        savingDaysLeft(
+          targetDate: DateTime(2026, 6, 2),
+          frequency: ContributionFrequency.custom,
+          now: now,
+          custom: everyTenDays,
+        ),
+        8,
+      );
+      expect(
+        neededPerContribution(
+          remaining: 12000,
+          targetDate: DateTime(2026, 6, 2),
+          frequency: ContributionFrequency.custom,
+          now: now,
+          custom: everyTenDays,
+        ),
+        1500,
+      );
+      // Months keep the day of the month, weeks keep the weekday.
+      expect(
+        planDates(
+          now,
+          ContributionFrequency.custom,
+          from: now,
+          until: DateTime(2026, 9, 30),
+          custom: const SavingInterval(2, SavingUnit.months),
+        ),
+        [DateTime(2026, 5, 10), DateTime(2026, 7, 10), DateTime(2026, 9, 10)],
+      );
+      expect(
+        planDates(
+          now,
+          ContributionFrequency.custom,
+          from: now,
+          until: DateTime(2026, 4, 7),
+          custom: const SavingInterval(2, SavingUnit.weeks),
+        ),
+        [DateTime(2026, 3, 24), DateTime(2026, 4, 7)],
+      );
+      // Custom with no rhythm saved falls back to monthly.
+      expect(
+        planDates(
+          now,
+          ContributionFrequency.custom,
+          from: now,
+          until: DateTime(2026, 6, 30),
+        ),
+        planDates(
+          now,
+          ContributionFrequency.monthly,
+          from: now,
+          until: DateTime(2026, 6, 30),
+        ),
+      );
+    });
+
+    test('a custom rhythm reads plainly and is saved with the goal', () {
+      expect(const SavingInterval(1, SavingUnit.weeks).per, 'a week');
+      expect(const SavingInterval(10, SavingUnit.days).per, 'every 10 days');
+      expect(
+        const SavingInterval(2, SavingUnit.months).label,
+        'Every 2 months',
+      );
+      expect(const SavingInterval(0, SavingUnit.days).isValid, isFalse);
+      expect(const SavingInterval(13, SavingUnit.months).isValid, isFalse);
+      expect(const SavingInterval(365, SavingUnit.days).isValid, isTrue);
+
+      final goal = Goal.fromMap('trip', {
+        'name': 'Trip',
+        'targetAmount': 12000,
+        'frequency': 'custom',
+        'frequencyEvery': 2,
+        'frequencyUnit': 'weeks',
+      });
+      expect(goal.frequency, ContributionFrequency.custom);
+      expect(goal.customInterval, const SavingInterval(2, SavingUnit.weeks));
+      expect(goal.savingPer, 'every 2 weeks');
+      // A broken rhythm is dropped rather than trusted.
+      expect(SavingInterval.fromFields(0, 'weeks'), isNull);
+      expect(SavingInterval.fromFields(null, 'weeks'), isNull);
+    });
+
+    test('with one saving day left it asks for it all by the date', () {
+      // Six days away on a monthly plan: no saving day fits before then.
+      final days = savingDaysLeft(
+        targetDate: DateTime(2026, 3, 16),
+        frequency: ContributionFrequency.monthly,
+        now: now,
+      );
+      expect(days, 0);
+      expect(
+        neededText(
+          needed: 6500,
+          targetDate: DateTime(2026, 3, 16),
+          savingDays: days,
+          per: 'a month',
+        ),
+        'Save ₱6,500 by Mar 16, 2026 to reach it.',
+      );
+      expect(
+        neededText(
+          needed: 2500,
+          targetDate: DateTime(2027, 3, 10),
+          savingDays: 12,
+          per: 'a month',
+        ),
+        'Save ₱2,500 a month to reach it by Mar 10, 2027.',
       );
     });
 
@@ -7573,10 +10320,13 @@ void main() {
 
       await tester.enterText(find.byType(TextField).first, 'New phone');
       await tester.enterText(find.byType(TextField).at(1), '10000');
-      await tester.tap(find.text('More options (optional)'));
+      await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).at(2), '2500');
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-savings')),
+        '2500',
+      );
       await tester.tap(find.text('Save Goal'));
       await tester.pump();
 
@@ -7585,12 +10335,167 @@ void main() {
       expect(saved, isNull);
       expect(find.textContaining('₱1,000 left to promise'), findsOneWidget);
 
-      await tester.enterText(find.byType(TextField).at(2), '1000');
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-savings')),
+        '1000',
+      );
       await tester.tap(find.text('Save Goal'));
       await tester.pump();
 
       expect(saved?.alreadySaved, 1000);
       expect(saved?.walletId, 'savings');
+    });
+
+    testWidgets('a goal is planned by its date, never asked how often', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      GoalDraft? saved;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFormSheet(
+              today: DateTime(2026, 3, 10),
+              initialDate: DateTime(2026, 6, 2),
+              wallets: Stream.value(const []),
+              goals: Stream.value(const []),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).first, 'Trip');
+      await tester.enterText(find.byType(TextField).at(1), '12000');
+      await tester.pump();
+
+      // Only the name, the amount and the date: no rhythm and no amount each
+      // time to fill in, and the plan waits for the goal's card.
+      expect(find.byType(TextField), findsNWidgets(2));
+      expect(find.text('How often will you save?'), findsNothing);
+      expect(find.byKey(const Key('goal-frequency-custom')), findsNothing);
+      expect(find.text('How much each time? (optional)'), findsNothing);
+      expect(find.textContaining('to reach it by'), findsNothing);
+
+      await tester.ensureVisible(find.text('Save Goal'));
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+      expect(saved?.targetDate, DateTime(2026, 6, 2));
+      expect(saved?.frequency, ContributionFrequency.monthly);
+      expect(saved?.customInterval, isNull);
+      expect(saved?.planAmount, isNull);
+    });
+
+    test('the card plans by the calendar, from what is left to save', () {
+      final now = DateTime(2026, 10, 25);
+      // ₱10,000 with ₱3,500 set aside: ₱6,500 over the seven monthly saving
+      // days to May 31, 2027.
+      final line = goalPlanLine(
+        remaining: 6500,
+        targetDate: DateTime(2027, 5, 31),
+        now: now,
+      );
+      expect(line?.text, 'Save ₱928.57 a month to reach it by May 31, 2027.');
+      expect(line?.tone, GoalPlanTone.plan);
+
+      // Less than a month away: all of it by the date.
+      expect(
+        goalPlanLine(
+          remaining: 6500,
+          targetDate: DateTime(2026, 11, 10),
+          now: now,
+        )?.text,
+        'Save ₱6,500 by Nov 10, 2026 to reach it.',
+      );
+      // No date: asked for, not guessed.
+      expect(
+        goalPlanLine(remaining: 6500, targetDate: null, now: now)?.text,
+        'Add a finish date to see how much to save each month.',
+      );
+      // A date gone by: a new one is needed, never a sum for the past.
+      final passed = goalPlanLine(
+        remaining: 6500,
+        targetDate: DateTime(2026, 10, 1),
+        now: now,
+      );
+      expect(passed?.text, 'The finish date has passed. Pick a new one.');
+      expect(passed?.tone, GoalPlanTone.datePassed);
+      // Reached: the progress bar says so, and nothing more is asked.
+      expect(
+        goalPlanLine(remaining: 0, targetDate: DateTime(2027, 5, 31), now: now),
+        isNull,
+      );
+      // A goal saved with its own amount each time keeps it.
+      expect(
+        goalPlanLine(
+          remaining: 6500,
+          targetDate: null,
+          now: now,
+          planAmount: 1000,
+          behind: 500,
+        )?.text,
+        'Plan: ₱1,000 a month · behind by ₱500',
+      );
+    });
+
+    testWidgets('a bank account can fund a goal without a balance transfer', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final bank = Wallet(
+        id: 'bpi',
+        name: 'BPI',
+        type: WalletType.bank,
+        balance: 2500,
+        startingBalance: 2500,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+        annualInterestRatePercent: 0,
+      );
+      GoalDraft? saved;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFormSheet(
+              wallets: Stream.value([cash, bank]),
+              goals: Stream.value(const []),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Cash in Bank'));
+      await tester.pumpAndSettle();
+      expect(find.text('Bank · ₱2,500 available'), findsOneWidget);
+      expect(find.text('0% interest a year'), findsOneWidget);
+
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'School supplies');
+      await tester.enterText(fields.at(1), '5000');
+      await tester.enterText(find.byKey(const Key('goal-funding-bpi')), '400');
+      await tester.ensureVisible(find.text('Save Goal'));
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.walletId, 'bpi');
+      expect(saved?.fundingSource, GoalFundingSource.bank);
+      expect(saved?.alreadySaved, 400);
+      expect(saved?.savedByWallet, {'bpi': 400});
+      expect(bank.balance, 2500);
     });
 
     testWidgets('shows what to save and records money already saved', (
@@ -7622,40 +10527,702 @@ void main() {
 
       expect(find.text('Emergency Fund'), findsWidgets);
 
-      // Only the essentials show at first.
+      // Name and amount needed; an amount box for money already saved shows
+      // once a place is picked.
       expect(find.byType(TextField), findsNWidgets(2));
-      expect(find.text('Already saved'), findsNothing);
+      expect(find.text('Where is this money now?'), findsOneWidget);
+      await tester.tap(find.text('Cash in Bank'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('goal-funding-savings')), findsOneWidget);
 
       await tester.enterText(find.byType(TextField).at(1), '12000');
-      await tester.tap(find.text('More options (optional)'));
-      await tester.pumpAndSettle();
-
-      final fields = find.byType(TextField);
-      // Name, target, already saved, amount each time, notes.
-      await tester.enterText(fields.at(2), '2000');
+      await tester.enterText(
+        find.byKey(const Key('goal-funding-savings')),
+        '2000',
+      );
       await tester.pump();
 
-      // No date yet and no plan amount.
-      expect(
-        find.text('Add a target date or an amount to see how long it takes.'),
-        findsOneWidget,
-      );
-
-      await tester.enterText(fields.at(3), '2500');
-      await tester.pump();
-      expect(
-        find.textContaining('At ₱2,500 a month you reach it around'),
-        findsOneWidget,
-      );
+      // The plan is shown on the goal's card once it is set up, not here.
+      expect(find.textContaining('a month'), findsNothing);
 
       await tester.tap(find.text('Save Goal'));
       await tester.pumpAndSettle();
 
       expect(saved?.targetAmount, 12000);
       expect(saved?.alreadySaved, 2000);
-      expect(saved?.planAmount, 2500);
+      expect(saved?.planAmount, isNull);
       expect(saved?.kind, GoalKind.emergencyFund);
       expect(saved?.walletId, 'savings');
+      expect(saved?.fundingSource, GoalFundingSource.savings);
+    });
+
+    testWidgets('the form asks only what the plan needs, in plain words', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      GoalDraft? saved;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFormSheet(
+              today: DateTime(2026, 3, 10),
+              initialDate: DateTime(2026, 9, 10),
+              wallets: Stream.value([cash]),
+              goals: Stream.value(const []),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Goal name'), findsOneWidget);
+      expect(find.text('Amount needed'), findsOneWidget);
+      expect(find.text('Finish by (optional)'), findsOneWidget);
+      expect(find.text('How often will you save?'), findsNothing);
+      expect(find.text('Already saved some? (optional)'), findsOneWidget);
+      // Gone: the preview card, the fold, the goal type and notes.
+      expect(find.text('Need a month'), findsNothing);
+      expect(find.text('More options (optional)'), findsNothing);
+      expect(find.text('Goal type'), findsNothing);
+      expect(find.text('Notes'), findsNothing);
+      // No counter until the name nears its limit.
+      expect(find.text('0/40'), findsNothing);
+      // The amount is typed in the same size as every other field.
+      expect(
+        tester.widget<TextField>(find.byType(TextField).at(1)).style,
+        isNull,
+      );
+
+      // Neither with a finish date nor without is an amount each time asked:
+      // the date plans it, on the goal's card.
+      expect(find.byKey(const Key('goal-plan-amount')), findsNothing);
+      await tester.enterText(find.byType(TextField).first, 'Emergency fund');
+      await tester.enterText(find.byType(TextField).at(1), '6000');
+      await tester.pump();
+      expect(find.textContaining('a month to reach it by'), findsNothing);
+
+      await tester.tap(find.byTooltip('Remove date'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('goal-plan-amount')), findsNothing);
+      expect(find.text('How much each time? (optional)'), findsNothing);
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        'Emergency fund for the family',
+      );
+      await tester.pump();
+      expect(find.text('29/40'), findsNothing);
+      await tester.enterText(
+        find.byType(TextField).first,
+        'Emergency fund for the whole family',
+      );
+      await tester.pump();
+      expect(find.text('35/40'), findsOneWidget);
+
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+      expect(saved?.kind, GoalKind.emergencyFund);
+      expect(saved?.note, isNull);
+    });
+
+    testWidgets('a new goal is planned month by month', (tester) async {
+      tester.view.physicalSize = const Size(700, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      GoalDraft? saved;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFormSheet(
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value([cash]),
+              goals: Stream.value(const []),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Pick when you usually get money.'), findsNothing);
+      await tester.enterText(find.byType(TextField).first, 'Phone');
+      await tester.enterText(find.byType(TextField).at(1), '9000');
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+      expect(saved?.frequency, ContributionFrequency.monthly);
+    });
+
+    testWidgets('editing keeps a saved note and a saved plan amount', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      GoalDraft? saved;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFormSheet(
+              existing: Goal(
+                id: 'laptop',
+                name: 'Laptop',
+                targetAmount: 30000,
+                savedAmount: 0,
+                priority: 0,
+                status: GoalStatus.active,
+                targetDate: DateTime(2026, 12, 1),
+                planAmount: 2000,
+                note: 'for school',
+              ),
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value([cash]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Saved with both a date and an amount before: the amount is kept,
+      // though no longer asked.
+      expect(find.byKey(const Key('goal-plan-amount')), findsNothing);
+      await tester.tap(find.text('Save Changes'));
+      await tester.pumpAndSettle();
+      expect(saved?.planAmount, 2000);
+      expect(saved?.frequency, ContributionFrequency.monthly);
+      expect(saved?.note, 'for school');
+      expect(saved?.kind, GoalKind.regular);
+    });
+
+    final bpi = Wallet(
+      id: 'bpi',
+      name: 'BPI',
+      type: WalletType.bank,
+      balance: 8000,
+      startingBalance: 8000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+      annualInterestRatePercent: 3,
+    );
+    final gcash = Wallet(
+      id: 'gcash',
+      name: 'GCash',
+      type: WalletType.gcash,
+      balance: 3000,
+      startingBalance: 3000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 2,
+    );
+
+    Future<void> pumpFundingForm(
+      WidgetTester tester, {
+      required void Function(GoalDraft draft) onSave,
+      List<Wallet>? wallets,
+      List<Goal> goals = const [],
+    }) async {
+      tester.view.physicalSize = const Size(700, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFormSheet(
+              today: DateTime(2026, 3, 10),
+              wallets: Stream.value(wallets ?? [cash, bpi, gcash]),
+              goals: Stream.value(goals),
+              onSave: onSave,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).first, 'Laptop');
+      await tester.enterText(find.byType(TextField).at(1), '10000');
+    }
+
+    Future<void> choose(WidgetTester tester, String option) async {
+      await tester.tap(find.text(option).first);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> enterFunding(
+      WidgetTester tester,
+      String walletId,
+      String amount,
+    ) async {
+      await tester.enterText(find.byKey(Key('goal-funding-$walletId')), amount);
+      await tester.pump();
+    }
+
+    testWidgets('Cash on Hand shows cash; Cash in Bank adds accounts', (
+      tester,
+    ) async {
+      await pumpFundingForm(tester, onSave: (_) {});
+
+      Finder tileImages(String label) => find.descendant(
+        of: find.ancestor(of: find.text(label), matching: find.byType(InkWell)),
+        matching: find.byType(Image),
+      );
+      expect(tileImages('Cash on Hand'), findsOneWidget);
+      expect(tileImages('Cash in Bank'), findsOneWidget);
+      expect(tileImages('Both'), findsNWidgets(2));
+
+      expect(find.byKey(const Key('goal-funding-cash')), findsNothing);
+      await choose(tester, 'Cash on Hand');
+      expect(find.byKey(const Key('goal-funding-cash')), findsOneWidget);
+      expect(find.byKey(const Key('goal-funding-bpi')), findsNothing);
+      expect(find.text('Cash earns no interest.'), findsOneWidget);
+
+      // The first account is ready to fill in; the rest are added.
+      await choose(tester, 'Cash in Bank');
+      expect(find.byKey(const Key('goal-funding-cash')), findsNothing);
+      expect(find.byKey(const Key('goal-funding-bpi')), findsOneWidget);
+      expect(find.byKey(const Key('goal-funding-gcash')), findsNothing);
+      expect(find.text('Bank · ₱8,000 available'), findsOneWidget);
+      expect(find.text('3% interest a year'), findsOneWidget);
+
+      await choose(tester, 'Add account');
+      expect(find.byKey(const Key('goal-funding-gcash')), findsOneWidget);
+      expect(find.text('GCash · ₱3,000 available'), findsOneWidget);
+      expect(find.text('No yearly interest rate recorded.'), findsOneWidget);
+      // Every account is in, so there is nothing left to add.
+      expect(find.text('Add account'), findsNothing);
+    });
+
+    testWidgets('Both splits one goal across cash and several accounts', (
+      tester,
+    ) async {
+      GoalDraft? saved;
+      await pumpFundingForm(tester, onSave: (draft) => saved = draft);
+
+      await choose(tester, 'Both');
+      // Each section is named under the choice, so both read at a glance.
+      expect(find.text('Cash on Hand'), findsNWidgets(2));
+      expect(find.text('Cash in Bank'), findsNWidgets(2));
+
+      await enterFunding(tester, 'cash', '2000');
+      await enterFunding(tester, 'bpi', '5000');
+      await choose(tester, 'Add account');
+      await enterFunding(tester, 'gcash', '3000');
+
+      expect(find.text('Total set aside'), findsOneWidget);
+      expect(find.text('₱10,000'), findsWidgets);
+      expect(find.text('Still to save'), findsOneWidget);
+      expect(find.text('₱0'), findsOneWidget);
+      // Only BPI has a rate: ₱5,000 × 3% = ₱150. Cash earns nothing and
+      // GCash has no rate, so neither adds to the guess.
+      // ₱5,000 × 3% = ₱150, less the 20% tax banks keep.
+      expect(find.text('about ₱120'), findsOneWidget);
+      expect(find.textContaining('No rate recorded for GCash'), findsOneWidget);
+      expect(
+        find.text(
+          '3% interest a year · ₱5,000 may earn about ₱120 a year after tax',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.savedByWallet, {'cash': 2000, 'bpi': 5000, 'gcash': 3000});
+      // The interest is never counted as money saved.
+      expect(saved?.alreadySaved, 10000);
+      expect(saved?.fundingSource, GoalFundingSource.both);
+      // Later contributions start on the account holding the most.
+      expect(saved?.walletId, 'bpi');
+      expect(cash.balance, 5000);
+      expect(bpi.balance, 8000);
+    });
+
+    testWidgets('switching choices keeps typed amounts but saves what shows', (
+      tester,
+    ) async {
+      GoalDraft? saved;
+      await pumpFundingForm(tester, onSave: (draft) => saved = draft);
+
+      await choose(tester, 'Cash on Hand');
+      await enterFunding(tester, 'cash', '1000');
+      await choose(tester, 'Cash in Bank');
+      await enterFunding(tester, 'bpi', '500');
+
+      // The cash amount is hidden, not lost.
+      await choose(tester, 'Both');
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('goal-funding-cash')))
+            .controller
+            ?.text,
+        '1,000',
+      );
+
+      await choose(tester, 'Cash in Bank');
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.savedByWallet, {'bpi': 500});
+      expect(saved?.alreadySaved, 500);
+      expect(saved?.fundingSource, GoalFundingSource.bank);
+    });
+
+    testWidgets('each account is checked against its own free money', (
+      tester,
+    ) async {
+      GoalDraft? saved;
+      // Another goal already holds ₱6,000 of BPI's ₱8,000.
+      await pumpFundingForm(
+        tester,
+        onSave: (draft) => saved = draft,
+        goals: const [
+          Goal(
+            id: 'tuition',
+            name: 'Tuition',
+            targetAmount: 20000,
+            savedAmount: 6000,
+            priority: 0,
+            status: GoalStatus.active,
+            savedByWallet: {'bpi': 6000},
+          ),
+        ],
+      );
+
+      await choose(tester, 'Both');
+      expect(
+        find.text('Bank · ₱8,000 balance · ₱2,000 available'),
+        findsOneWidget,
+      );
+      await enterFunding(tester, 'cash', '1000');
+      await enterFunding(tester, 'bpi', '2500');
+      await tester.tap(find.text('Save Goal'));
+      await tester.pump();
+
+      expect(saved, isNull);
+      expect(find.text('BPI has ₱2,000 left to promise.'), findsOneWidget);
+
+      // Within each account, but more than the goal needs together.
+      await tester.enterText(find.byType(TextField).at(1), '9000');
+      await enterFunding(tester, 'cash', '5000');
+      await enterFunding(tester, 'bpi', '2000');
+      await choose(tester, 'Add account');
+      await enterFunding(tester, 'gcash', '3000');
+      await tester.tap(find.text('Save Goal'));
+      await tester.pump();
+
+      expect(saved, isNull);
+      expect(
+        find.text('Together that is more than the goal needs (₱9,000).'),
+        findsOneWidget,
+      );
+
+      await enterFunding(tester, 'gcash', '');
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.savedByWallet, {'cash': 5000, 'bpi': 2000});
+    });
+
+    testWidgets('a goal can draw on several banks and e-wallets', (
+      tester,
+    ) async {
+      final maya = Wallet(
+        id: 'maya',
+        name: 'Maya',
+        type: WalletType.maya,
+        balance: 20000,
+        startingBalance: 20000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 3,
+        annualInterestRatePercent: 3.5,
+      );
+      GoalDraft? saved;
+      await pumpFundingForm(
+        tester,
+        onSave: (draft) => saved = draft,
+        wallets: [cash, bpi, maya, gcash],
+      );
+      await tester.enterText(find.byType(TextField).at(1), '50000');
+
+      await choose(tester, 'Cash in Bank');
+      await choose(tester, 'Add account');
+      await choose(tester, 'Add account');
+      expect(find.text('Add account'), findsNothing);
+      await enterFunding(tester, 'bpi', '8000');
+      await enterFunding(tester, 'maya', '15000');
+      await enterFunding(tester, 'gcash', '2000');
+
+      expect(find.text('₱25,000'), findsNWidgets(2));
+      // Each rate counts only for its own account: ₱8,000 × 3% = ₱240 and
+      // ₱15,000 × 3.5% = ₱525, ₱765 less 20% tax. GCash has no rate.
+      expect(find.text('about ₱612'), findsOneWidget);
+      expect(
+        find.text(
+          '3.5% interest a year · ₱15,000 may earn about ₱420 a year after '
+          'tax',
+        ),
+        findsOneWidget,
+      );
+
+      // An account already in another row cannot be picked again.
+      final firstRow = find.byType(DropdownButtonFormField<String>).first;
+      final mayaItems = tester
+          .widget<DropdownButton<String>>(
+            find.descendant(
+              of: firstRow,
+              matching: find.byType(DropdownButton<String>),
+            ),
+          )
+          .items!
+          .where((item) => item.value == 'maya');
+      expect(mayaItems, isNotEmpty);
+      expect(mayaItems.every((item) => !item.enabled), isTrue);
+      await tester.tap(firstRow);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Maya').last, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('BPI').last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('goal-funding-bpi')), findsOneWidget);
+      expect(find.byKey(const Key('goal-funding-maya')), findsOneWidget);
+
+      // Taking one off updates the totals and frees it to add again.
+      await tester.tap(find.byTooltip('Remove Maya'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('goal-funding-maya')), findsNothing);
+      expect(find.text('₱10,000'), findsOneWidget);
+      expect(find.text('₱40,000'), findsOneWidget);
+      expect(find.text('Add account'), findsOneWidget);
+
+      // Switching a row to another account keeps its amount.
+      await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Maya').last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('goal-funding-gcash')), findsNothing);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('goal-funding-maya')))
+            .controller
+            ?.text,
+        '2,000',
+      );
+
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.savedByWallet, {'bpi': 8000, 'maya': 2000});
+      expect(saved?.alreadySaved, 10000);
+      expect(saved?.fundingSource, GoalFundingSource.bank);
+      expect(maya.balance, 20000);
+    });
+
+    testWidgets('more than an account has free is flagged while typing', (
+      tester,
+    ) async {
+      // Another goal already holds ₱6,000 of BPI's ₱8,000.
+      await pumpFundingForm(
+        tester,
+        onSave: (_) {},
+        goals: const [
+          Goal(
+            id: 'tuition',
+            name: 'Tuition',
+            targetAmount: 20000,
+            savedAmount: 6000,
+            priority: 0,
+            status: GoalStatus.active,
+            savedByWallet: {'bpi': 6000},
+          ),
+        ],
+      );
+
+      await choose(tester, 'Cash in Bank');
+      await tester.enterText(find.byType(TextField).at(1), '2500');
+      await enterFunding(tester, 'bpi', '2500');
+      // No Save tap needed: the box itself says what is wrong.
+      expect(
+        find.text(
+          'Only ₱2,000 in BPI is free to set aside; other goals hold the rest.',
+        ),
+        findsOneWidget,
+      );
+      // Nothing is totalled from an amount that is not there: the total
+      // waits, and the plan does not call the goal reached.
+      expect(find.text('Total set aside'), findsNothing);
+      expect(find.textContaining('Fix the amount in red'), findsOneWidget);
+      expect(
+        find.text('Already reached with what you have saved.'),
+        findsNothing,
+      );
+
+      await enterFunding(tester, 'bpi', '2000');
+      expect(find.textContaining('free to set aside'), findsNothing);
+      expect(find.textContaining('Fix the amount in red'), findsNothing);
+      expect(find.text('Total set aside'), findsOneWidget);
+
+      await choose(tester, 'Add account');
+      await enterFunding(tester, 'gcash', '5000');
+      expect(
+        find.text('Only ₱3,000 in GCash is free to set aside.'),
+        findsOneWidget,
+      );
+
+      // Together more than the goal needs, said in the total as well.
+      await tester.enterText(find.byType(TextField).at(1), '4000');
+      await enterFunding(tester, 'gcash', '3000');
+      expect(
+        find.text('That is ₱1,000 more than the goal needs.'),
+        findsOneWidget,
+      );
+
+      // BPI is already in a row, so GCash's list shows it as added.
+      await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+      await tester.pumpAndSettle();
+      expect(find.text('Added'), findsWidgets);
+      await tester.tap(find.text('GCash').last);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('Both is off until there is cash and an account', (
+      tester,
+    ) async {
+      GoalDraft? saved;
+      await pumpFundingForm(
+        tester,
+        onSave: (draft) => saved = draft,
+        wallets: [bpi],
+      );
+
+      await choose(tester, 'Both');
+      expect(find.byKey(const Key('goal-funding-bpi')), findsNothing);
+      await choose(tester, 'Cash on Hand');
+      expect(find.byKey(const Key('goal-funding-bpi')), findsNothing);
+
+      // Setting money aside stays optional.
+      await tester.tap(find.text('Save Goal'));
+      await tester.pumpAndSettle();
+      expect(saved?.savedByWallet, isEmpty);
+      expect(saved?.alreadySaved, 0);
+      expect(saved?.fundingSource, isNull);
+    });
+
+    testWidgets('a goal lists each account once, then its interest', (
+      tester,
+    ) async {
+      final archived = Wallet(
+        id: 'old',
+        name: 'Old BDO',
+        type: WalletType.bank,
+        balance: 1000,
+        startingBalance: 1000,
+        receivesIncome: false,
+        archived: true,
+        sortOrder: 4,
+        annualInterestRatePercent: 6,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: GoalFundingList(
+              sources: [
+                (cash, 2000),
+                (bpi, 5000),
+                (gcash, 3000),
+                (archived, 1000),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(Image), findsNWidgets(4));
+      expect(find.text('BPI'), findsOneWidget);
+      expect(find.text('₱5,000'), findsOneWidget);
+      expect(find.text('Old BDO (archived)'), findsOneWidget);
+      // ₱5,000 × 3% + ₱1,000 × 6%. Cash earns nothing and GCash has no
+      // rate, so neither is named.
+      expect(
+        find.text(
+          'May earn about ₱168 a year after tax from BPI and Old BDO. Add it '
+          'as income when it is paid.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    test('interest follows each account and never counts as saved', () {
+      Wallet savingsRecord(SavingsKind kind, double? rate) => Wallet(
+        id: kind.name,
+        name: kind.label,
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: kind.name,
+        annualInterestRatePercent: rate,
+      );
+
+      // After the 20% tax banks keep: ₱150 becomes ₱120.
+      expect(yearlyInterestOnGoalMoney(bpi, 5000), closeTo(120, 0.001));
+      expect(yearlyInterestOnGoalMoney(cash, 5000), 0);
+      // A rate typed on a demand deposit still earns nothing.
+      expect(
+        yearlyInterestOnGoalMoney(
+          savingsRecord(SavingsKind.demandDeposit, 2),
+          5000,
+        ),
+        0,
+      );
+      expect(
+        yearlyInterestOnGoalMoney(
+          savingsRecord(SavingsKind.savingsDeposit, 2.5),
+          4000,
+        ),
+        closeTo(80, 0.001),
+      );
+      // No rate, no made-up figure.
+      expect(yearlyInterestOnGoalMoney(gcash, 5000), isNull);
+    });
+
+    test('the funding source follows the wallets used', () {
+      expect(
+        GoalFundingSource.fromTypes([WalletType.cash, WalletType.bank]),
+        GoalFundingSource.both,
+      );
+      expect(
+        GoalFundingSource.fromTypes([WalletType.bank, WalletType.gcash]),
+        GoalFundingSource.bank,
+      );
+      expect(
+        GoalFundingSource.fromTypes([WalletType.cash]),
+        GoalFundingSource.cash,
+      );
+      expect(GoalFundingSource.fromTypes(const []), isNull);
+      expect(
+        Goal.fromMap('mixed', {'fundingSource': 'both'}).fundingSource,
+        GoalFundingSource.both,
+      );
+      expect(mainFundingWallet({'cash': 2000, 'bpi': 5000}), 'bpi');
+      expect(mainFundingWallet(const {}), isNull);
     });
   });
 
@@ -8015,6 +11582,19 @@ void main() {
           walletId: 'cash',
         ),
     ];
+
+    testWidgets('trend chart uses inflow and outflow terminology', (
+      tester,
+    ) async {
+      await pumpReports(tester);
+      final trendTitle = find.text('Inflow vs. outflow');
+      await tester.ensureVisible(trendTitle);
+      expect(trendTitle, findsOneWidget);
+      expect(find.text('Inflow'), findsOneWidget);
+      expect(find.text('Outflow'), findsOneWidget);
+      expect(find.text('Inward'), findsNothing);
+      expect(find.text('Outward'), findsNothing);
+    });
 
     /// The tappable row for a category, found inside the legend so a mention
     /// of the same word elsewhere on the screen cannot be hit by mistake.
@@ -8384,9 +11964,11 @@ void main() {
               wallets: Stream.value(wallets ?? [cash, gcash]),
               transactions: Stream.value(transactions),
               goals: Stream.value(goals),
+              // Stands in for the notices under the total balance, which
+              // load live data.
               safeToSpend: const SizedBox(
                 height: 80,
-                child: Text('Safe to Spend placeholder'),
+                child: Text('Notices placeholder'),
               ),
               today: DateTime(2026, 9, 17),
               onOpenTransactions: () {},
@@ -8408,7 +11990,7 @@ void main() {
       expect(find.byTooltip('Settings'), findsOneWidget);
     });
 
-    testWidgets('shows a balance for spending, bills and savings', (
+    testWidgets('the top card is the total, split into cash and bank', (
       tester,
     ) async {
       await pumpHome(
@@ -8422,53 +12004,193 @@ void main() {
         ],
       );
 
-      expect(find.text('Wallet Total Balance'), findsOneWidget);
-      expect(find.text('Bills Total Balance'), findsOneWidget);
-      expect(find.text('Savings Total Balance'), findsOneWidget);
-
-      // ₱15,000 to spend; the ₱5,000 for bills and ₱8,000 saved are named
-      // on their own and never counted into it.
+      expect(find.text('Available Balance'), findsOneWidget);
+      // ₱5,000 cash and ₱10,000 in GCash. The ₱5,000 for bills and the
+      // ₱8,000 saved are set aside, so not in it.
       expect(find.text('₱15,000'), findsOneWidget);
+      expect(find.text('Cash on Hand'), findsOneWidget);
       expect(find.text('₱5,000'), findsOneWidget);
-      expect(find.text('₱8,000'), findsOneWidget);
+      expect(find.text('Cash in Bank'), findsOneWidget);
+      expect(find.text('₱10,000'), findsOneWidget);
+      expect(find.text('₱8,000'), findsNothing);
+
+      // Gone from Home: Safe to Spend's daily figures and the Bills and
+      // Savings cards.
+      expect(find.text('Safe to Spend Today'), findsNothing);
+      expect(find.textContaining('daily limit'), findsNothing);
+      expect(find.textContaining('left this period'), findsNothing);
+      expect(find.textContaining('View your bills'), findsNothing);
+      expect(find.textContaining('View your savings'), findsNothing);
+      expect(find.text('Wallet Total Balance'), findsNothing);
+
+      // No separate Wallets card: the two boxes open the wallets instead.
+      expect(find.text('2 wallets'), findsNothing);
     });
 
-    testWidgets('home savings balance excludes money contributed to goals', (
-      tester,
-    ) async {
+    testWidgets('each box opens the wallets it adds up', (tester) async {
+      final bpi = Wallet(
+        id: 'bpi',
+        name: 'BPI',
+        type: WalletType.bank,
+        balance: 3000,
+        startingBalance: 3000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 3,
+      );
       await pumpHome(
         tester,
         const [],
-        wallets: [cash, holding('s', 1000, WalletPurpose.savings)],
-        goals: const [
-          Goal(
-            id: 'goal',
-            name: 'Emergency fund',
-            targetAmount: 2000,
-            savedAmount: 500,
-            priority: 0,
-            status: GoalStatus.active,
-            savedByWallet: {'s': 500},
-          ),
-        ],
+        wallets: [cash, gcash, bpi, holding('s', 8000, WalletPurpose.savings)],
       );
 
-      expect(find.text('Savings Total Balance'), findsOneWidget);
-      expect(find.text('₱500'), findsOneWidget);
-      expect(find.textContaining('₱500 set aside'), findsOneWidget);
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('across 1 wallet'), findsOneWidget);
+      // The wallet's name and its kind both read "Cash".
+      expect(find.text('Cash'), findsWidgets);
+      expect(find.text('GCash'), findsNothing);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+
+      // Banks and e-wallets together; set-aside savings stay out.
+      await tester.tap(find.text('Cash in Bank'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('across 2 wallets'), findsOneWidget);
+      expect(find.text('GCash'), findsWidgets);
+      expect(find.text('BPI'), findsOneWidget);
+      expect(find.text('₱8,000'), findsNothing);
+      // ₱10,000 + ₱3,000, on the box and at the top of its list.
+      expect(find.text('₱13,000'), findsNWidgets(2));
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+
+      // The total opens all of them, each group with what it adds up to.
+      await tester.tap(find.byKey(const Key('total-balance-open')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('across 3 wallets'), findsOneWidget);
+      // ₱5,000 cash and ₱13,000 in the bank: on the card, and as the two
+      // groups in the list.
+      expect(find.text('₱5,000'), findsNWidgets(3));
+      expect(find.text('₱13,000'), findsNWidgets(2));
+      expect(find.text('BPI'), findsOneWidget);
+      expect(find.text('₱8,000'), findsNothing);
     });
 
-    testWidgets('the bills and savings balances read zero when empty', (
+    testWidgets('the eye hides every amount; the info says what is in it', (
       tester,
     ) async {
       await pumpHome(tester, const []);
 
-      expect(find.text('Bills Total Balance'), findsOneWidget);
-      expect(find.text('Savings Total Balance'), findsOneWidget);
-      expect(find.text('₱0'), findsNWidgets(2));
+      expect(find.text('₱15,000'), findsOneWidget);
+      await tester.tap(find.byTooltip('Hide amounts'));
+      await tester.pumpAndSettle();
+      expect(find.text('₱15,000'), findsNothing);
+      expect(find.byTooltip('Show amounts'), findsOneWidget);
+      await tester.tap(find.byTooltip('Show amounts'));
+      await tester.pumpAndSettle();
+      expect(find.text('₱15,000'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('total-balance-info')));
+      await tester.pumpAndSettle();
+      // The sum with the user's own figures, not paragraphs: ₱15,000 in
+      // cash and GCash, nothing for goals, so ₱15,000 to spend.
+      final explained = find.byKey(const Key('available-balance-explained'));
+      expect(
+        find.descendant(
+          of: explained,
+          matching: find.text('The money you can spend right now.'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: explained,
+          matching: find.text('Cash, bank and e-wallets'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: explained, matching: find.text('₱15,000')),
+        findsNWidgets(2),
+      );
+      expect(
+        find.descendant(
+          of: explained,
+          matching: find.text('Set aside for goals'),
+        ),
+        findsNothing,
+        reason: 'no goal money to take off',
+      );
+      expect(
+        find.textContaining('Not counted: your Bills and Savings wallets'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Got it'));
+      await tester.pumpAndSettle();
     });
 
-    testWidgets('reads the wallet ledger, with Safe to Spend first', (
+    testWidgets('the balance is what can be spent, after goal money', (
+      tester,
+    ) async {
+      // ₱2,000 of the cash and ₱1,500 of GCash are set aside for a goal.
+      await pumpHome(
+        tester,
+        const [],
+        goals: const [
+          Goal(
+            id: 'grad',
+            name: 'Graduation',
+            targetAmount: 10000,
+            savedAmount: 3500,
+            priority: 0,
+            status: GoalStatus.active,
+            savedByWallet: {'cash': 2000, 'gcash': 1500},
+          ),
+        ],
+      );
+
+      // ₱15,000 in the accounts, ₱11,500 of it free to spend.
+      expect(find.text('₱11,500'), findsOneWidget);
+      expect(find.text('₱3,000'), findsOneWidget, reason: 'cash on hand');
+      expect(find.text('₱8,500'), findsOneWidget, reason: 'cash in bank');
+      // One figure to read on the card; goal money is in Goals and Wallets.
+      expect(find.text('₱3,500 set aside for goals'), findsNothing);
+      expect(find.textContaining('in your accounts'), findsNothing);
+
+      // The figure opens the sum, for whoever wants to check it.
+      await tester.tap(find.byKey(const Key('total-balance-open')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('available-balance-math')), findsOneWidget);
+      expect(find.text('In your accounts'), findsOneWidget);
+      expect(find.text('₱15,000'), findsOneWidget);
+      expect(find.text('Available to spend'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+
+      // Each wallet says what it has free, and what its goals hold.
+      await tester.tap(find.byKey(const Key('total-balance-open')));
+      await tester.pumpAndSettle();
+      expect(find.text('₱2,000 set aside for goals'), findsOneWidget);
+      expect(find.text('₱1,500 set aside for goals'), findsOneWidget);
+      expect(find.textContaining('across 2 wallets'), findsOneWidget);
+    });
+
+    testWidgets('a new account sees ₱0 and a prompt to add a wallet', (
+      tester,
+    ) async {
+      await pumpHome(tester, const [], wallets: const []);
+
+      expect(find.text('₱0'), findsNWidgets(3));
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('No cash wallets yet. Add one in Wallets.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('reads the wallet ledger, with the total balance first', (
       tester,
     ) async {
       await pumpHome(tester, [
@@ -8494,7 +12216,6 @@ void main() {
 
       expect(find.text('Hello, Hayato!'), findsOneWidget);
       expect(find.text('₱15,000'), findsOneWidget);
-      expect(find.text('Across 2 wallets'), findsOneWidget);
       expect(find.textContaining('transactions recorded'), findsNothing);
       expect(find.text('Manage Category Budgets'), findsNothing);
       for (final shortcut in ['Expense', 'Income', 'Transfer']) {
@@ -8514,9 +12235,10 @@ void main() {
         expect(find.text(shortcut), findsOneWidget);
       }
 
-      final safeTop = tester.getTopLeft(find.text('Safe to Spend placeholder'));
-      final balanceTop = tester.getTopLeft(find.text('Wallet Total Balance'));
-      expect(safeTop.dy, lessThan(balanceTop.dy));
+      // The total first, then the notices under it.
+      final totalTop = tester.getTopLeft(find.text('Available Balance'));
+      final noticesTop = tester.getTopLeft(find.text('Notices placeholder'));
+      expect(totalTop.dy, lessThan(noticesTop.dy));
 
       // The bill payment is spending; the loan to Ana isn't.
       expect(find.text('spent so far this month'), findsOneWidget);
@@ -9029,6 +12751,7 @@ void main() {
       List<AppTransaction> transactions = const [],
       List<Wallet> wallets = const [],
       required DateTime now,
+      ReminderKind? only,
     }) => planReminders(
       settings: settings,
       bills: bills,
@@ -9038,24 +12761,10 @@ void main() {
       incomeFrequency: 'Monthly',
       transactions: transactions,
       now: now,
-    );
+    ).where((r) => only == null || r.kind == only).toList();
 
-    test('priorities decide which reminders start on', () {
-      final billsFirst = ReminderSettings.fromProfile(
-        profile([
-          FinancialPriority.payBills,
-          FinancialPriority.saveForGoal,
-          FinancialPriority.generalSavings,
-          FinancialPriority.trackSpending,
-        ]),
-      );
-      expect(billsFirst.isOn(ReminderKind.bills), isTrue);
-      expect(billsFirst.isOn(ReminderKind.goals), isTrue);
-      expect(billsFirst.isOn(ReminderKind.leftover), isFalse);
-      expect(billsFirst.isOn(ReminderKind.dailyLog), isFalse);
-      expect(billsFirst.billLeadDays, 3);
-
-      final trackerFirst = ReminderSettings.fromProfile(
+    test('the ranking decides how many reminders each gets', () {
+      final settings = ReminderSettings.fromProfile(
         profile([
           FinancialPriority.trackSpending,
           FinancialPriority.generalSavings,
@@ -9063,49 +12772,37 @@ void main() {
           FinancialPriority.saveForGoal,
         ]),
       );
-      expect(
-        trackerFirst.isOn(ReminderKind.bills),
-        isTrue,
-        reason: 'bills are always on',
-      );
-      expect(
-        trackerFirst.isOn(ReminderKind.payday),
-        isTrue,
-        reason: 'so is payday',
-      );
-      expect(trackerFirst.isOn(ReminderKind.dailyLog), isTrue);
-      expect(trackerFirst.isOn(ReminderKind.leftover), isTrue);
-      expect(trackerFirst.isOn(ReminderKind.goals), isFalse);
-      expect(trackerFirst.billLeadDays, 1);
+      // #1 gets 4, #2 gets 3, #3 gets 2, #4 gets 1.
+      expect(settings.timesFor(ReminderKind.dailyLog), 4);
+      expect(settings.timesFor(ReminderKind.leftover), 3);
+      expect(settings.timesFor(ReminderKind.bills), 2);
+      expect(settings.timesFor(ReminderKind.goals), 1);
+      // Even #4 gets one, so every reminder starts on.
+      for (final kind in ReminderKind.values) {
+        expect(settings.isOn(kind), isTrue, reason: kind.name);
+      }
+      expect(reminderCountText(1), '4 reminders');
+      expect(reminderCountText(4), '1 reminder');
     });
 
-    test('re-ranking moves only the reminders not set by hand', () {
-      const order = [
-        FinancialPriority.trackSpending,
-        FinancialPriority.saveForGoal,
-        FinancialPriority.payBills,
-        FinancialPriority.generalSavings,
-      ];
+    test('re-ranking changes the counts, not what was switched off', () {
       final before = ReminderSettings.fromProfile(
-        profile(order, reminders: {'goals': false}),
+        profile(
+          const [FinancialPriority.saveForGoal, FinancialPriority.payBills],
+          reminders: {'goals': false},
+        ),
       );
       expect(before.isOn(ReminderKind.goals), isFalse, reason: 'by hand');
-      expect(before.isOn(ReminderKind.dailyLog), isTrue);
+      expect(before.timesFor(ReminderKind.bills), 3);
 
       final reranked = ReminderSettings.fromProfile(
         profile(
-          const [
-            FinancialPriority.saveForGoal,
-            FinancialPriority.generalSavings,
-            FinancialPriority.payBills,
-            FinancialPriority.trackSpending,
-          ],
+          const [FinancialPriority.payBills, FinancialPriority.saveForGoal],
           reminders: {'goals': false},
         ),
       );
       expect(reranked.isOn(ReminderKind.goals), isFalse);
-      expect(reranked.isOn(ReminderKind.dailyLog), isFalse);
-      expect(reranked.isOn(ReminderKind.leftover), isTrue);
+      expect(reranked.timesFor(ReminderKind.bills), 4);
     });
 
     test('onboarding\'s answer turns reminders on or off', () {
@@ -9133,33 +12830,122 @@ void main() {
       );
     });
 
-    test('bills are reminded early and on the day, at 9 AM', () {
+    test('bills get 4, 3, 2 or 1 reminders by rank, at 9 AM', () {
+      ReminderSettings billsAt(int place) {
+        final order = [
+          FinancialPriority.saveForGoal,
+          FinancialPriority.generalSavings,
+          FinancialPriority.trackSpending,
+        ]..insert(place - 1, FinancialPriority.payBills);
+        return ReminderSettings.fromProfile(profile(order));
+      }
+
+      final now = DateTime(2026, 9, 10, 10);
+      final internet = [bill('Internet', DateTime(2026, 9, 25))];
+      List<String> times(int place) => [
+        for (final r in plan(
+          billsAt(place),
+          now: now,
+          bills: internet,
+          only: ReminderKind.bills,
+        ))
+          '${r.title} @ ${r.at.month}/${r.at.day} ${r.at.hour}h',
+      ];
+
+      expect(times(1), [
+        'Internet is due in 7 days @ 9/18 9h',
+        'Internet is due in 3 days @ 9/22 9h',
+        'Internet is due tomorrow @ 9/24 9h',
+        'Internet is due today @ 9/25 9h',
+      ]);
+      expect(times(2), [
+        'Internet is due in 3 days @ 9/22 9h',
+        'Internet is due tomorrow @ 9/24 9h',
+        'Internet is due today @ 9/25 9h',
+      ]);
+      expect(times(3), [
+        'Internet is due tomorrow @ 9/24 9h',
+        'Internet is due today @ 9/25 9h',
+      ]);
+      expect(times(4), ['Internet is due today @ 9/25 9h']);
+
+      final single = plan(
+        billsAt(4),
+        now: now,
+        bills: internet,
+        only: ReminderKind.bills,
+      ).single;
+      expect(single.body, '₱1,000 to pay. Tap to pay it now.');
+      expect(single.payload, 'bill:Internet');
+    });
+
+    test('paid bills and past times are not reminded', () {
       final settings = ReminderSettings.fromProfile(
         profile(const [FinancialPriority.payBills]),
       );
-      final now = DateTime(2026, 9, 18, 10);
-
       final planned = plan(
         settings,
-        now: now,
+        now: DateTime(2026, 9, 18, 10),
+        only: ReminderKind.bills,
         bills: [
-          bill('Internet', DateTime(2026, 9, 25)),
           bill('Water', DateTime(2026, 9, 19)),
           bill('Paid', DateTime(2026, 9, 26), status: BillStatus.paid),
         ],
       );
+      // Water's 7, 3 and 1 day reminders have already passed.
+      expect(planned.map((r) => r.title), ['Water is due today']);
+    });
 
-      expect(
-        planned.map((r) => '${r.title} @ ${r.at}'),
-        [
-          'Water is due today @ 2026-09-19 09:00:00.000',
-          'Internet is due in 3 days @ 2026-09-22 09:00:00.000',
-          'Internet is due today @ 2026-09-25 09:00:00.000',
+    test('bills reminded on the same day share one notification', () {
+      for (final first in [
+        FinancialPriority.payBills,
+        FinancialPriority.trackSpending,
+      ]) {
+        final settings = ReminderSettings.fromProfile(profile([first]));
+        final planned = plan(
+          settings,
+          now: DateTime(2026, 9, 20, 10),
+          only: ReminderKind.bills,
+          bills: [
+            bill('Rent', DateTime(2026, 9, 30), amount: 5000),
+            bill('Internet', DateTime(2026, 9, 30), amount: 1200),
+            bill('Water', DateTime(2026, 9, 30), amount: 400),
+            bill('Phone', DateTime(2026, 9, 30), amount: 999),
+            bill('Netflix', DateTime(2026, 9, 30), amount: 549),
+          ],
+        );
+        final dueDay = planned.where((r) => r.at.day == 30).toList();
+        // Whatever the rank, five bills due together are one reminder.
+        expect(dueDay, hasLength(1), reason: first.name);
+        expect(dueDay.single.title, '5 bills due today');
+        expect(
+          dueDay.single.body,
+          'Internet ₱1,200, Netflix ₱549, Phone ₱999 and 2 more. Tap to '
+          'see them.',
+        );
+        expect(dueDay.single.payload, 'bills');
+        expect(planned.map((r) => r.at).toSet(), hasLength(planned.length));
+      }
+
+      // Different due dates landing on one morning are shared too, each
+      // with its own day.
+      final mixed = plan(
+        ReminderSettings.fromProfile(
+          profile(const [FinancialPriority.payBills]),
+        ),
+        now: DateTime(2026, 9, 20, 10),
+        only: ReminderKind.bills,
+        bills: [
+          bill('Rent', DateTime(2026, 9, 25), amount: 5000),
+          bill('Internet', DateTime(2026, 9, 28), amount: 1200),
         ],
-        reason: "Water's early reminder was this morning, already past",
+      ).where((r) => r.at.day == 25).single;
+      expect(mixed.title, '2 bills to pay soon');
+      expect(
+        mixed.body,
+        'Rent ₱5,000 (today) and Internet ₱1,200 (in 3 days). Tap to see '
+        'them.',
       );
-      expect(planned.first.body, '₱1,000 to pay. Tap to pay it now.');
-      expect(planned.first.payload, 'bill:Water');
     });
 
     test('nothing is planned while reminders are off', () {
@@ -9202,6 +12988,7 @@ void main() {
       final planned = plan(
         settings,
         now: DateTime(2026, 9, 18, 12),
+        only: ReminderKind.goals,
         goals: [
           Goal(
             id: 'g',
@@ -9229,23 +13016,37 @@ void main() {
       expect(
         planned.map((r) => r.at),
         [
+          DateTime(2026, 10, 16, 9),
           DateTime(2026, 10, 17, 9),
           DateTime(2026, 10, 18, 9),
           DateTime(2026, 10, 20, 9),
         ],
         reason:
-            'monthly from Sep 17, then a warning and a last call; '
-            'a reached goal waits',
+            'goals are #1, so 4: the day before, the saving day, a warning '
+            'and a last call; a reached goal waits',
       );
-      expect(planned.first.title, 'Time to save for Laptop');
-      expect(planned.first.body, '₱1,500 a month. ₱18,500 to go.');
-      expect(planned[1].title, 'Missed: Laptop');
+      expect(planned.first.title, 'Saving day tomorrow: Laptop');
+      expect(planned.first.body, 'Get ₱1,500 ready to set aside.');
+      expect(planned[1].title, 'Time to save for Laptop');
+      expect(planned[1].body, '₱1,500 a month. ₱18,500 to go.');
+      expect(planned[2].title, 'Missed: Laptop');
       expect(planned.last.title, 'Last reminder for Laptop');
       expect(planned.last.body, startsWith('Still ₱1,500 short.'));
 
+      final byDateGoal = Goal(
+        id: 'd',
+        name: 'Laptop',
+        targetAmount: 20000,
+        savedAmount: 1000,
+        priority: 0,
+        status: GoalStatus.active,
+        targetDate: DateTime(2027, 9, 17),
+        planStartedAt: DateTime(2026, 9, 17),
+      );
       final byDate = plan(
         settings,
         now: DateTime(2026, 9, 18, 12),
+        only: ReminderKind.goals,
         goals: [
           Goal(
             id: 'd',
@@ -9269,11 +13070,71 @@ void main() {
         ],
       );
       expect(
-        byDate.first.body,
+        byDate[1].body,
         'Save ₱1,583.33 a month to reach it by Sep 17, 2027.',
         reason: 'a goal with neither an amount nor a date gets no reminder',
       );
-      expect(byDate.length, 3, reason: 'the nudge, the warning, the last call');
+      expect(byDate.length, 4, reason: 'four reminders, as goals are #1');
+
+      // Lower ranks drop the extras in turn.
+      int goalTimes(List<FinancialPriority> order) => plan(
+        ReminderSettings.fromProfile(profile(order)),
+        now: DateTime(2026, 9, 18, 12),
+        only: ReminderKind.goals,
+        goals: [byDateGoal],
+      ).length;
+      expect(goalTimes(const [FinancialPriority.payBills]), 3);
+      expect(
+        goalTimes(const [
+          FinancialPriority.payBills,
+          FinancialPriority.generalSavings,
+        ]),
+        2,
+      );
+      expect(
+        goalTimes(const [
+          FinancialPriority.payBills,
+          FinancialPriority.generalSavings,
+          FinancialPriority.trackSpending,
+        ]),
+        1,
+      );
+    });
+
+    test('a goal planned by its date is not reminded past that date', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+      Goal trip(DateTime finish) => Goal(
+        id: 't',
+        name: 'Trip',
+        targetAmount: 6000,
+        savedAmount: 0,
+        priority: 0,
+        status: GoalStatus.active,
+        targetDate: finish,
+        planStartedAt: DateTime(2026, 9, 17),
+      );
+      List<PlannedReminder> remind(Goal goal) => plan(
+        settings,
+        now: DateTime(2026, 9, 18, 12),
+        only: ReminderKind.goals,
+        goals: [goal],
+      );
+
+      // The date has gone by: a new one is needed, not a sum for the past.
+      expect(remind(trip(DateTime(2026, 9, 1))), isEmpty);
+
+      // Due Oct 10, before the Oct 17 saving day: all of it by the date, so
+      // the date itself is the saving day reminded of, never Oct 17.
+      final early = remind(trip(DateTime(2026, 10, 10)));
+      expect(early, isNotEmpty);
+      expect(early[1].at, DateTime(2026, 10, 10, 9));
+      expect(early[1].body, 'Save ₱6,000 by Oct 10, 2026 to reach it.');
+      expect(
+        early.every((reminder) => reminder.at.isBefore(DateTime(2026, 10, 17))),
+        isTrue,
+      );
     });
 
     test('saving for the cycle silences the goal reminders', () {
@@ -9297,6 +13158,7 @@ void main() {
         settings,
         now: DateTime(2026, 10, 18, 7),
         goals: [laptop(0)],
+        only: ReminderKind.goals,
       );
       expect(missed.where((r) => r.at.month == 10).map((r) => r.title), [
         'Missed: Laptop',
@@ -9308,6 +13170,7 @@ void main() {
         settings,
         now: DateTime(2026, 10, 18, 7),
         goals: [laptop(1500)],
+        only: ReminderKind.goals,
       );
       expect(
         onTrack.where((r) => r.at.month == 10),
@@ -9319,6 +13182,376 @@ void main() {
         isNotEmpty,
         reason: 'next month is still planned',
       );
+    });
+
+    Wallet interestAccount({
+      InterestPayout payout = InterestPayout.monthly,
+      double balance = 100000,
+      double? rate = 3,
+      WalletType type = WalletType.bank,
+    }) => Wallet(
+      id: 'bpi',
+      name: 'BPI',
+      type: type,
+      balance: balance,
+      startingBalance: balance,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 0,
+      annualInterestRatePercent: rate,
+      interestPayout: payout,
+    );
+
+    test('interest is asked about on the 1st after each payment', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+      final planned = plan(
+        settings,
+        now: DateTime(2027, 3, 10, 7),
+        wallets: [interestAccount()],
+        only: ReminderKind.interest,
+      );
+
+      expect(planned.map((r) => r.at), [
+        DateTime(2027, 4, 1, 9),
+        DateTime(2027, 5, 1, 9),
+      ]);
+      expect(planned.first.title, 'Interest from BPI may be in');
+      // ₱100,000 × 3% ÷ 12 = ₱250, less the 20% tax banks keep.
+      expect(
+        planned.first.body,
+        'About ₱200 after tax. Check your app and add what it paid.',
+      );
+      expect(planned.first.payload, 'interest:bpi');
+      expect(planned.first.key, 'interest:bpi:2027-4');
+    });
+
+    test('interest reminders follow how often the account pays', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+      List<DateTime> days(Wallet wallet, {DateTime? now}) => plan(
+        settings,
+        now: now ?? DateTime(2027, 3, 10, 7),
+        wallets: [wallet],
+        only: ReminderKind.interest,
+      ).map((r) => r.at).toList();
+
+      // Every 3 months: January, April, July and October.
+      expect(days(interestAccount(payout: InterestPayout.quarterly)), [
+        DateTime(2027, 4, 1, 9),
+      ]);
+      // Every year: January, planned even when it is months away.
+      expect(days(interestAccount(payout: InterestPayout.yearly)), [
+        DateTime(2028, 1, 1, 9),
+      ]);
+      // Every 6 months: January and July.
+      expect(days(interestAccount(payout: InterestPayout.semiAnnual)), [
+        DateTime(2027, 7, 1, 9),
+      ]);
+      // Paid daily, it is added once a month, as the month's total.
+      final daily = plan(
+        settings,
+        now: DateTime(2027, 3, 10, 7),
+        wallets: [interestAccount(payout: InterestPayout.daily)],
+        only: ReminderKind.interest,
+      );
+      expect(daily.map((r) => r.at), [
+        DateTime(2027, 4, 1, 9),
+        DateTime(2027, 5, 1, 9),
+      ]);
+      expect(
+        daily.first.body,
+        "About ₱200 this month after tax. Check your app and add the month's "
+        'total.',
+      );
+      expect(
+        days(
+          interestAccount(payout: InterestPayout.yearly),
+          now: DateTime(2027, 12, 10),
+        ),
+        [DateTime(2028, 1, 1, 9)],
+      );
+      // No rate, a tiny balance, or cash: nothing honest to ask about.
+      expect(days(interestAccount(rate: null)), isEmpty);
+      expect(days(interestAccount(balance: 1, rate: 0.1)), isEmpty);
+      expect(days(interestAccount(type: WalletType.cash)), isEmpty);
+    });
+
+    test('interest already added, or reminders turned off, asks nothing', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+      final added = AppTransaction(
+        id: 't',
+        type: TransactionType.income,
+        amount: 198.5,
+        label: interestIncomeLabel,
+        date: DateTime(2027, 3, 28),
+        walletId: 'bpi',
+      );
+      expect(
+        plan(
+          settings,
+          now: DateTime(2027, 3, 29, 7),
+          wallets: [interestAccount()],
+          transactions: [added],
+          only: ReminderKind.interest,
+        ).map((r) => r.at),
+        [DateTime(2027, 5, 1, 9)],
+        reason: 'April was added early; May is still asked',
+      );
+
+      final off = ReminderSettings(
+        enabled: true,
+        priorities: settings.priorities,
+        overrides: const {ReminderKind.interest: false},
+      );
+      expect(
+        plan(
+          off,
+          now: DateTime(2027, 3, 10, 7),
+          wallets: [interestAccount()],
+          only: ReminderKind.interest,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('which accounts pay interest, and what each payment brings', () {
+      expect(afterTax(100), 80);
+      expect(InterestPayout.quarterly.remindsOn(DateTime(2027)), isTrue);
+      expect(InterestPayout.quarterly.remindsOn(DateTime(2027, 4)), isTrue);
+      expect(InterestPayout.quarterly.remindsOn(DateTime(2027, 2)), isFalse);
+      expect(InterestPayout.yearly.remindsOn(DateTime(2027, 7)), isFalse);
+      // Any other bank's schedule, evenly spaced across years: every 5
+      // months from January 2027 is June, November, then April 2028.
+      const everyFive = InterestPayout.everyMonths(5);
+      expect(
+        [
+          for (var month = 1; month <= 16; month++)
+            if (everyFive.remindsOn(DateTime(2027, month))) month,
+        ],
+        // DateTime(2027, 16) is April 2028.
+        [
+          for (var month = 1; month <= 16; month++)
+            if ((2027 * 12 + month - 1) % 5 == 0) month,
+        ],
+      );
+      expect(everyFive.label, 'Every 5 months');
+      expect(everyFive.isPreset, isFalse);
+      expect(InterestPayout.daily.label, 'Every day');
+      // Saved as a number; an older named one still reads.
+      expect(
+        InterestPayout.fromStored(months: 5),
+        const InterestPayout.everyMonths(5),
+      );
+      expect(
+        InterestPayout.fromStored(name: 'quarterly'),
+        InterestPayout.quarterly,
+      );
+      expect(InterestPayout.fromStored(months: 40), InterestPayout.monthly);
+      expect(interestAccount().interestPerPayoutAfterTax, closeTo(200, 1e-9));
+      expect(
+        interestAccount(
+          payout: InterestPayout.quarterly,
+        ).interestPerPayoutAfterTax,
+        closeTo(600, 1e-9),
+      );
+      expect(interestAccount(rate: 0).paysRegularInterest, isFalse);
+      expect(
+        interestAccount(type: WalletType.ewallet).paysRegularInterest,
+        isTrue,
+      );
+
+      Wallet savings(SavingsKind kind) => Wallet(
+        id: kind.name,
+        name: kind.label,
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: kind.name,
+        annualInterestRatePercent: 3,
+      );
+      // A savings deposit pays now and then; a time deposit pays at its end
+      // and a demand deposit pays nothing.
+      expect(savings(SavingsKind.savingsDeposit).paysRegularInterest, isTrue);
+      expect(savings(SavingsKind.timeDeposit).paysRegularInterest, isFalse);
+      expect(savings(SavingsKind.demandDeposit).paysRegularInterest, isFalse);
+
+      // Saved accounts start on monthly, and keep what they are set to.
+      expect(
+        Wallet.fromMap('x', {'type': 'bank'}).interestPayout,
+        InterestPayout.monthly,
+      );
+      expect(
+        Wallet.fromMap('x', {
+          'type': 'bank',
+          'interestPayout': 'quarterly',
+        }).interestPayout,
+        InterestPayout.quarterly,
+      );
+      expect(incomeSources, contains('Interest'));
+    });
+
+    testWidgets('interest is added as what the app shows, not the estimate', (
+      tester,
+    ) async {
+      double? amount;
+      DateTime? date;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: AddInterestSheet(
+              wallet: interestAccount(),
+              today: DateTime(2027, 4, 1),
+              onSave: (a, d) {
+                amount = a;
+                date = d;
+              },
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Interest from BPI'), findsOneWidget);
+      // It starts on the estimate after tax, to be changed to the real one.
+      expect(find.text('200'), findsOneWidget);
+      expect(
+        find.text(
+          'We expected about ₱200 after tax. Change it to what your app '
+          'shows.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.enterText(find.byType(TextField).first, '0');
+      await tester.tap(find.byKey(const Key('add-interest-save')));
+      await tester.pump();
+      expect(find.text(minimumAmountError), findsWidgets);
+      expect(amount, isNull);
+
+      await tester.enterText(find.byType(TextField).first, '198.50');
+      await tester.tap(find.byKey(const Key('add-interest-save')));
+      await tester.pump();
+      expect(amount, 198.5);
+      expect(date, DateTime(2027, 4, 1));
+    });
+
+    testWidgets('Custom sets any bank schedule, in months', (tester) async {
+      var payout = InterestPayout.monthly;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => InterestPayoutPicker(
+                payout: payout,
+                onChanged: (next) => setState(() => payout = next),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // The usual answers are one tap, and every day is one of them.
+      for (final id in [
+        'daily',
+        'monthly',
+        'quarterly',
+        'semiAnnual',
+        'yearly',
+        'custom',
+      ]) {
+        expect(find.byKey(Key('interest-payout-$id')), findsOneWidget);
+      }
+      expect(find.text('Pays every'), findsNothing);
+
+      // Three to a row, in the same places whichever is picked.
+      Offset where(String id) =>
+          tester.getTopLeft(find.byKey(Key('interest-payout-$id')));
+      final before = {
+        for (final id in ['daily', 'quarterly', 'semiAnnual', 'custom'])
+          id: where(id),
+      };
+      expect(before['daily']!.dy, before['quarterly']!.dy);
+      expect(before['semiAnnual']!.dy, before['custom']!.dy);
+      expect(before['semiAnnual']!.dy, greaterThan(before['daily']!.dy));
+      await tester.tap(find.byKey(const Key('interest-payout-semiAnnual')));
+      await tester.pump();
+      for (final id in before.keys) {
+        expect(where(id), before[id], reason: '$id stays where it was');
+      }
+
+      // Custom starts on every 2 months, the first not offered above.
+      await tester.tap(find.byKey(const Key('interest-payout-custom')));
+      await tester.pump();
+      expect(find.text('Pays every'), findsOneWidget);
+      expect(payout, const InterestPayout.everyMonths(2));
+
+      // Stepping to a number that is also a choice above keeps Custom open.
+      await tester.tap(find.byTooltip('One month more'));
+      await tester.pump();
+      expect(payout, InterestPayout.quarterly);
+      expect(find.text('Pays every'), findsOneWidget);
+      await tester.tap(find.byTooltip('One month more'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('One month more'));
+      await tester.pump();
+      expect(payout, const InterestPayout.everyMonths(5));
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('interest-payout-months')))
+            .data,
+        '5',
+      );
+
+      // Every day is added once a month, and the picker says so.
+      await tester.tap(find.byKey(const Key('interest-payout-daily')));
+      await tester.pump();
+      expect(payout, InterestPayout.daily);
+      expect(find.text('Pays every'), findsNothing);
+      expect(
+        find.textContaining("add the month's total as income"),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the account card shows its interest and how often it pays', (
+      tester,
+    ) async {
+      InterestPayout? changed;
+      var opened = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: InterestCard(
+              wallet: interestAccount(),
+              onPayoutChanged: (payout) => changed = payout,
+              onAdd: () => opened = true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('3% a year · paid every month'), findsOneWidget);
+      expect(find.text('about ₱200'), findsOneWidget);
+      expect(find.text('about ₱2,400'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('interest-payout-quarterly')));
+      await tester.pump();
+      expect(changed, InterestPayout.quarterly);
+
+      await tester.tap(find.byKey(const Key('add-interest')));
+      await tester.pump();
+      expect(opened, isTrue);
     });
 
     Wallet maturedDeposit({double balance = 25000, DateTime? matures}) =>
@@ -9343,6 +13576,7 @@ void main() {
         settings,
         now: DateTime(2027, 3, 1, 7),
         wallets: [maturedDeposit(matures: DateTime(2027, 3, 5))],
+        only: ReminderKind.goals,
       );
 
       expect(planned.map((r) => r.at), [
@@ -9365,6 +13599,7 @@ void main() {
           settings,
           now: DateTime(2027, 3, 1, 7),
           wallets: [maturedDeposit()],
+          only: ReminderKind.goals,
         ),
         isEmpty,
         reason: 'clearing the date ends the reminders',
@@ -9374,36 +13609,51 @@ void main() {
           settings,
           now: DateTime(2027, 3, 1, 7),
           wallets: [maturedDeposit(matures: DateTime(2027, 3, 5), balance: 0)],
+          only: ReminderKind.goals,
         ),
         isEmpty,
         reason: 'an emptied record has nothing to come due',
       );
     });
-    test('the logging nudge skips a day that already has a record', () {
-      final settings = ReminderSettings.fromProfile(
-        profile(const [FinancialPriority.trackSpending]),
-      );
+    test('logging comes 4, 3, 2 or 1 times a week by rank', () {
+      // Friday, Sep 18, 2026.
       final now = DateTime(2026, 9, 18, 13);
+      List<int> days(List<FinancialPriority> order, {bool logged = false}) => [
+        for (final r in plan(
+          ReminderSettings.fromProfile(profile(order)),
+          now: now,
+          only: ReminderKind.dailyLog,
+          transactions: [
+            if (logged)
+              AppTransaction(
+                id: 't',
+                type: TransactionType.expense,
+                amount: 50,
+                label: 'Food',
+                date: DateTime(2026, 9, 18, 8),
+              ),
+          ],
+        ))
+          r.at.day,
+      ];
 
-      final nothingYet = plan(settings, now: now);
-      expect(nothingYet.first.at, DateTime(2026, 9, 18, 20));
-      expect(nothingYet.length, 7);
-
-      final logged = plan(
-        settings,
+      // #1: Mon, Wed, Fri and Sun.
+      expect(days(const [FinancialPriority.trackSpending]), [18, 20, 21, 23]);
+      // Logged today, so tonight is skipped.
+      expect(days(const [FinancialPriority.trackSpending], logged: true), [
+        20,
+        21,
+        23,
+      ]);
+      // #4: Sundays only.
+      expect(days(const []), [20]);
+      final one = plan(
+        ReminderSettings.fromProfile(profile(const [])),
         now: now,
-        transactions: [
-          AppTransaction(
-            id: 't',
-            type: TransactionType.expense,
-            amount: 50,
-            label: 'Food',
-            date: DateTime(2026, 9, 18, 8),
-          ),
-        ],
-      );
-      expect(logged.first.at, DateTime(2026, 9, 19, 20));
-      expect(logged.length, 6);
+        only: ReminderKind.dailyLog,
+      ).single;
+      expect(one.at, DateTime(2026, 9, 20, 20));
+      expect(one.title, 'Time to log your spending');
     });
 
     test('the leftover question comes as the pay period ends', () {
@@ -9421,21 +13671,46 @@ void main() {
         source: 'Allowance',
       );
 
+      // Leftover money is #1, so 4: 3 days before the next pay, the night
+      // before, payday morning, and 2 days after.
       final ending = plan(
         settings,
         now: DateTime(2026, 9, 18),
         cycles: [cycle],
+        only: ReminderKind.leftover,
       );
-      expect(ending.single.at, DateTime(2026, 9, 30, 19));
-      expect(ending.single.payload, 'leftover');
+      expect(ending.map((r) => r.at), [
+        DateTime(2026, 9, 28, 19),
+        DateTime(2026, 9, 30, 19),
+        DateTime(2026, 10, 1, 9),
+        DateTime(2026, 10, 3, 9),
+      ]);
+      expect(ending[1].title, 'Your next pay is tomorrow');
+      expect(ending.every((r) => r.payload == 'leftover'), isTrue);
 
       final stillWaiting = plan(
         settings,
-        now: DateTime(2026, 10, 3, 12),
+        now: DateTime(2026, 10, 2, 12),
         cycles: [cycle],
+        only: ReminderKind.leftover,
       );
-      expect(stillWaiting.single.at, DateTime(2026, 10, 4, 9));
-      expect(stillWaiting.single.title, 'Your leftover is still waiting');
+      expect(stillWaiting.single.at, DateTime(2026, 10, 3, 9));
+      expect(stillWaiting.single.title, 'Last reminder: your leftover');
+
+      // At #4, only the night before.
+      final last = plan(
+        ReminderSettings.fromProfile(
+          profile(const [
+            FinancialPriority.payBills,
+            FinancialPriority.saveForGoal,
+            FinancialPriority.trackSpending,
+          ]),
+        ),
+        now: DateTime(2026, 9, 18),
+        cycles: [cycle],
+        only: ReminderKind.leftover,
+      );
+      expect(last.single.at, DateTime(2026, 9, 30, 19));
     });
 
     test('only the usual pay starts a new pay period', () {
@@ -9539,20 +13814,16 @@ void main() {
           now: DateTime(2026, 9, 1, 10),
         );
 
-        expect(
-          planned.map((r) => r.at),
-          [
-            DateTime(2026, 9, 7, 12),
-            DateTime(2026, 9, 8, 12),
-            DateTime(2026, 9, 9, 12),
-            DateTime(2026, 9, 10, 12),
-            DateTime(2026, 10, 7, 12),
-            DateTime(2026, 10, 8, 12),
-            DateTime(2026, 10, 9, 12),
-            DateTime(2026, 10, 10, 12),
-          ],
-          reason: 'a month after the last allowance, within six weeks',
-        );
+        expect(planned.map((r) => r.at), [
+          DateTime(2026, 9, 7, 12),
+          DateTime(2026, 9, 8, 12),
+          DateTime(2026, 9, 9, 12),
+          DateTime(2026, 9, 10, 12),
+          DateTime(2026, 10, 7, 12),
+          DateTime(2026, 10, 8, 12),
+          DateTime(2026, 10, 9, 12),
+          DateTime(2026, 10, 10, 12),
+        ], reason: 'a month after the last allowance, within six weeks');
         expect(planned.first.title, 'Payday today?');
         expect(
           planned.first.body,
@@ -9569,16 +13840,12 @@ void main() {
         final august = pay(DateTime(2026, 8, 30));
 
         final waiting = paydays('Semi-monthly', cycles: [august], now: now);
-        expect(
-          waiting.map((r) => '${r.title} @ ${r.at}').take(4),
-          [
-            'Has your salary come in? @ 2026-09-16 12:00:00.000',
-            'Has your salary come in? @ 2026-09-17 12:00:00.000',
-            'Has your salary come in? @ 2026-09-18 12:00:00.000',
-            'Payday today? @ 2026-09-30 12:00:00.000',
-          ],
-          reason: "the 15th's own reminder has passed",
-        );
+        expect(waiting.map((r) => '${r.title} @ ${r.at}').take(4), [
+          'Has your salary come in? @ 2026-09-16 12:00:00.000',
+          'Has your salary come in? @ 2026-09-17 12:00:00.000',
+          'Has your salary come in? @ 2026-09-18 12:00:00.000',
+          'Payday today? @ 2026-09-30 12:00:00.000',
+        ], reason: "the 15th's own reminder has passed");
 
         // A gift isn't the salary.
         final gift = pay(DateTime(2026, 9, 16, 9), source: 'Gift');
@@ -9615,6 +13882,7 @@ void main() {
         final off = ReminderSettings.fromProfile(
           profile(const [], reminders: {'payday': false}),
         );
+        // Switched off, payday sends nothing; the other reminders still come.
         expect(
           planReminders(
             settings: off,
@@ -9624,7 +13892,7 @@ void main() {
             incomeFrequency: 'Monthly',
             transactions: const [],
             now: now,
-          ),
+          ).where((r) => r.kind == ReminderKind.payday),
           isEmpty,
         );
       });
@@ -9773,7 +14041,6 @@ void main() {
               sendTest: () async => true,
               onSetEnabled: onEnabled ?? (_) {},
               onSetKind: onKind ?? (_, _) {},
-              onSetBillLeadDays: (_) {},
               onSetPriorities: onPriorities ?? (_) {},
             ),
           ),
@@ -9794,14 +14061,25 @@ void main() {
         await pumpScreen(tester, data: profile(order));
 
         expect(
-          find.text('Suggested: "Save toward a goal" is #2 for you.'),
+          find.text('"Save toward a goal" is #2 for you: 3 reminders.'),
           findsOneWidget,
         );
         expect(
-          find.text('Off by default: "Just track my spending" is #4 for you.'),
+          find.text('"Just track my spending" is #4 for you: 1 reminder.'),
           findsOneWidget,
         );
-        expect(find.text('3 days before'), findsOneWidget);
+        // Each card says when, for the count it gets.
+        expect(
+          find.text(
+            '7 days, 3 days and 1 day before, and on the due day, at 9 AM.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Sundays at 8 PM.'), findsOneWidget);
+        // Each rank shows what it is worth; no separate days-before choice.
+        expect(find.text('4 reminders'), findsOneWidget);
+        expect(find.text('1 reminder'), findsOneWidget);
+        expect(find.text('3 days before'), findsNothing);
       });
 
       testWidgets('moving a priority up saves the new order', (tester) async {
@@ -9821,17 +14099,17 @@ void main() {
         ]);
       });
 
-      testWidgets('a switch set back to the suggestion follows priorities', (
+      testWidgets('a reminder turned back on follows the ranking again', (
         tester,
       ) async {
         final calls = <String>[];
         await pumpScreen(
           tester,
-          data: profile(order, reminders: {'dailyLog': true}),
+          data: profile(order, reminders: {'dailyLog': false}),
           onKind: (kind, on) => calls.add('${kind.name}=$on'),
         );
 
-        expect(find.text('Follow priorities'), findsOneWidget);
+        expect(find.text("Turned off. You won't get these."), findsOneWidget);
 
         final switches = find.byType(Switch);
         // Master, bills, payday, goals, leftover, logging.
@@ -9840,9 +14118,7 @@ void main() {
         expect(calls, ['goals=false', 'dailyLog=null']);
       });
 
-      testWidgets('payday is always suggested and can be turned off', (
-        tester,
-      ) async {
+      testWidgets('payday is not ranked and can be turned off', (tester) async {
         final calls = <String>[];
         await pumpScreen(
           tester,
@@ -9858,7 +14134,7 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.text('Always suggested: logged pay keeps Safe to Spend right.'),
+          find.text('Not ranked: logged pay keeps Safe to Spend right.'),
           findsOneWidget,
         );
 

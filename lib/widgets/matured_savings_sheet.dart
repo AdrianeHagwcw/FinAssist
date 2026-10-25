@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../utils/amount_input_formatter.dart';
+import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import 'check_after_save.dart';
 import 'dialog_kit.dart';
 import 'wallet_picker.dart';
 
@@ -20,7 +22,7 @@ Future<bool?> showMaturedSavingsSheet(
   required Wallet wallet,
   required List<Wallet> wallets,
   void Function(double received, String toWalletId)? onSettle,
-  void Function(DateTime nextDate)? onRollOver,
+  void Function(DateTime nextDate, double interest)? onRollOver,
 }) {
   return showModalBottomSheet<bool>(
     context: context,
@@ -55,32 +57,50 @@ class MaturedSavingsSheet extends StatefulWidget {
 
   /// Replaces the write. Used by tests.
   final void Function(double received, String toWalletId)? onSettle;
-  final void Function(DateTime nextDate)? onRollOver;
+
+  /// Replaces the write. Gets the interest above the balance, if any.
+  final void Function(DateTime nextDate, double interest)? onRollOver;
 
   @override
   State<MaturedSavingsSheet> createState() => _MaturedSavingsSheetState();
 }
 
-class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
+class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
+    with CheckAfterSave, WatchesGoals {
+  /// The interest the deposit should have paid, after tax, when its rate and
+  /// dates are recorded. The amount starts on the balance plus this, so the
+  /// user only changes it if the bank paid something else.
+  late final double? _expectedInterest = (() {
+    final gross = widget.wallet.estimatedTimeDepositInterest();
+    return gross == null || gross <= 0 ? null : afterTax(gross);
+  })();
+
   late final _amountController = TextEditingController(
-    text: formatAmountInput(widget.wallet.balance),
+    text: formatAmountInput(widget.wallet.balance + (_expectedInterest ?? 0)),
   );
   late String? _toWalletId = _destinations.isEmpty
       ? null
       : _destinations.first.id;
-  String? _error;
 
   /// Anywhere the money can land, including the bills and savings wallets.
   /// Only the record that matured is left out.
   List<Wallet> get _destinations => [
     for (final wallet in widget.wallets)
-      if (!wallet.archived && wallet.id != widget.wallet.id) wallet,
+      // Never into another time deposit: one can't be added to.
+      if (!wallet.archived &&
+          wallet.id != widget.wallet.id &&
+          !wallet.isLockedSavings)
+        wallet,
   ];
 
   @override
   void initState() {
     super.initState();
     _amountController.addListener(() => setState(() {}));
+    // Tests answer through the callbacks and have no goals behind them.
+    watchGoals(
+      walletsGiven: widget.onSettle != null || widget.onRollOver != null,
+    );
   }
 
   @override
@@ -124,25 +144,37 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
     );
     if (picked == null || !mounted) return;
 
+    // Renewed with its interest: what is above the balance is income, kept
+    // in the same deposit for the new term.
+    final amount = _typed;
+    final balance = (widget.wallet.balance * 100).round() / 100;
+    final interest = amount == null || amount <= balance
+        ? 0.0
+        : ((amount - balance) * 100).round() / 100;
+
     if (widget.onRollOver != null) {
-      widget.onRollOver!(picked);
+      widget.onRollOver!(picked, interest);
     } else {
-      WalletService.rollOverMaturity(widget.wallet, picked);
+      WalletService.rollOverMaturity(widget.wallet, picked, interest: interest);
     }
     if (mounted) Navigator.pop(context, true);
   }
 
-  void _settle() {
+  /// What stops the money being moved out as it stands, or null.
+  String? get _problem {
     final amount = _typed;
     if (amount == null || !isRecordableAmount(amount)) {
-      setState(() => _error = minimumAmountError);
-      return;
+      return minimumAmountError;
     }
-    final toWalletId = _toWalletId;
-    if (toWalletId == null) {
-      setState(() => _error = 'Add another wallet to move it into.');
-      return;
-    }
+    if (_toWalletId == null) return 'Add another wallet to move it into.';
+    return null;
+  }
+
+  void _settle() {
+    markTriedToSave();
+    if (_problem != null) return;
+    final amount = _typed!;
+    final toWalletId = _toWalletId!;
 
     if (widget.onSettle != null) {
       widget.onSettle!(amount, toWalletId);
@@ -151,6 +183,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
         wallet: widget.wallet,
         received: amount,
         toWalletId: toWalletId,
+        goals: heldGoals,
       );
     }
     Navigator.pop(context, true);
@@ -160,6 +193,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final due = widget.wallet.maturityDate;
+    final error = triedToSave ? _problem : null;
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -205,10 +239,17 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
                   decimal: true,
                 ),
                 inputFormatters: const [ThousandsSeparatorFormatter()],
-                decoration: dialogFieldDecoration(
-                  context,
-                  'Amount you received',
-                ).copyWith(prefixText: '₱ '),
+                decoration: dialogFieldDecoration(context, 'Amount it came to')
+                    .copyWith(
+                      prefixText: '₱ ',
+                      helperText: _expectedInterest == null
+                          ? 'With any interest your bank paid.'
+                          : 'Starts on ${formatPeso(widget.wallet.balance)} '
+                                'plus about ${formatPeso(_expectedInterest)} '
+                                'interest after tax. Change it to what your '
+                                'bank paid.',
+                      helperMaxLines: 3,
+                    ),
               ),
               const SizedBox(height: 6),
               Text(
@@ -227,18 +268,30 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet> {
                     WalletPurpose.bills,
                     WalletPurpose.savings,
                   },
+                  goals: heldGoals,
                   onChanged: (value) => setState(() => _toWalletId = value),
                 ),
               const SizedBox(height: 6),
+              // Money saved here for a goal goes with it, still set aside.
+              if (goalMoneyInWallet(heldGoals, widget.wallet.id) > 0.005) ...[
+                Text(
+                  '${formatPeso(goalMoneyInWallet(heldGoals, widget.wallet.id))} '
+                  'of it is for your goals. It stays set aside for them in '
+                  'the wallet you choose.',
+                  key: const Key('matured-goal-money'),
+                  style: TextStyle(fontSize: 12, color: colors.textBody),
+                ),
+                const SizedBox(height: 6),
+              ],
               Text(
                 'Put it in Bills or Savings and it stays out of your daily '
                 'spending money.',
                 style: TextStyle(fontSize: 12, color: colors.textBody),
               ),
-              if (_error != null) ...[
+              if (error != null) ...[
                 const SizedBox(height: 10),
                 Text(
-                  _error!,
+                  error,
                   style: TextStyle(fontSize: 12, color: dangerColorOn(context)),
                 ),
               ],

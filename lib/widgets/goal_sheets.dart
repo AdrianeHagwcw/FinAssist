@@ -2,18 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../utils/amount_input_formatter.dart';
 import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../utils/text_limits.dart';
+import 'check_after_save.dart';
 import 'dialog_kit.dart';
-import 'transfer_sheet.dart';
+import 'goal_funding_picker.dart';
 import 'wallet_picker.dart';
 
 Future<T?> _showSheet<T>(BuildContext context, Widget child) {
@@ -66,159 +66,6 @@ Future<bool> showContributionSheet(
     ContributionSheet(goal: goal, takeOut: takeOut),
   );
   return saved ?? false;
-}
-
-/// The + button's "Save to Goal": picks a goal, then sets money aside for it.
-/// With one goal it goes straight to that goal; with none it offers to make
-/// one. Returns true when something was saved.
-Future<bool> showSaveToGoal(BuildContext context) async {
-  final List<Goal> goals;
-  try {
-    goals = (await GoalService.watchGoals().first)
-        .where((goal) => goal.status == GoalStatus.active && !goal.isReached)
-        .toList();
-  } catch (_) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Your goals could not be loaded.')),
-      );
-    }
-    return false;
-  }
-  if (!context.mounted) return false;
-
-  final picked = goals.length == 1
-      ? goals.first
-      : await _showSheet<Object>(context, GoalPickerSheet(goals: goals));
-  if (!context.mounted || picked == null) return false;
-
-  if (picked == GoalPickerSheet.newGoal) {
-    return showGoalFormSheet(context, nextPriority: goals.length);
-  }
-
-  final goal = picked as Goal;
-  final saved = await showContributionSheet(context, goal);
-  if (saved && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Saved toward ${goal.name}.'),
-        backgroundColor: appConfirmGreen,
-      ),
-    );
-  }
-  return saved;
-}
-
-/// Lists the goals still being saved toward, to choose one to add to.
-class GoalPickerSheet extends StatelessWidget {
-  const GoalPickerSheet({required this.goals, super.key});
-
-  final List<Goal> goals;
-
-  /// Popped instead of a goal when the user wants to make a new one.
-  static const Object newGoal = 'new goal';
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.8,
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SheetHeader('Save to which goal?'),
-              if (goals.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Text(
-                    'You have no goals to save toward yet. Make one, and '
-                    'you can start setting money aside for it.',
-                    style: TextStyle(color: colors.textBody, height: 1.4),
-                  ),
-                ),
-              for (final goal in goals) ...[
-                Material(
-                  color: colors.card,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
-                    onTap: () => Navigator.pop(context, goal),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: colors.border),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(goal.kind.icon, color: appPrimaryBlue),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  goal.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: colors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(3),
-                                  child: LinearProgressIndicator(
-                                    value: goal.progress,
-                                    minHeight: 5,
-                                    backgroundColor: colors.track,
-                                    color: appPrimaryBlue,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${formatPeso(goal.shownSaved)} of '
-                                  '${formatPeso(goal.targetAmount)}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: colors.textBody,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(Icons.chevron_right, color: colors.textBody),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-              const SizedBox(height: 6),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(context, newGoal),
-                  style: openOutlineStyle(context),
-                  icon: const Icon(Icons.add),
-                  label: const Text('New Goal'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// The pull handle and title every goal sheet starts with.
@@ -283,18 +130,30 @@ class GoalDraft {
     required this.frequency,
     required this.planAmount,
     required this.walletId,
+    required this.fundingSource,
     required this.note,
+    this.customInterval,
+    this.savedByWallet = const {},
   });
 
   final String name;
   final GoalKind kind;
   final double targetAmount;
+
+  /// Everything in [savedByWallet] together.
   final double alreadySaved;
   final DateTime? targetDate;
   final ContributionFrequency frequency;
+
+  /// The rhythm typed under Custom; null for the presets.
+  final SavingInterval? customInterval;
   final double? planAmount;
   final String? walletId;
+  final GoalFundingSource? fundingSource;
   final String? note;
+
+  /// Money already saved, by the wallet it is in.
+  final Map<String, double> savedByWallet;
 }
 
 class GoalFormSheet extends StatefulWidget {
@@ -309,6 +168,9 @@ class GoalFormSheet extends StatefulWidget {
     this.goals,
     this.today,
     this.allowAlreadySaved = true,
+    this.editsFunding = false,
+    this.initialFunding = const {},
+    this.onRelease,
     this.onSave,
     super.key,
   });
@@ -334,6 +196,18 @@ class GoalFormSheet extends StatefulWidget {
   final DateTime? today;
   final bool allowAlreadySaved;
 
+  /// Whether editing changes the money set aside too. Only setup does: one
+  /// Edit there covers the goal and its money. After setup, money moves in
+  /// and out of a goal through contributions, so its history stays right.
+  final bool editsFunding;
+
+  /// What is set aside already, by wallet id, when [editsFunding].
+  final Map<String, double> initialFunding;
+
+  /// Takes everything set aside back out. Shown as a red button under Save
+  /// when there is something to release; the sheet closes first.
+  final VoidCallback? onRelease;
+
   /// Replaces saving. Used by tests.
   final void Function(GoalDraft draft)? onSave;
 
@@ -341,7 +215,7 @@ class GoalFormSheet extends StatefulWidget {
   State<GoalFormSheet> createState() => _GoalFormSheetState();
 }
 
-class _GoalFormSheetState extends State<GoalFormSheet> {
+class _GoalFormSheetState extends State<GoalFormSheet> with CheckAfterSave {
   late final Goal? _existing = widget.existing;
   late final DateTime _today = widget.today ?? DateTime.now();
 
@@ -351,13 +225,17 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
   StreamSubscription<List<Goal>>? _goalsSub;
   List<Goal> _goals = const [];
 
+  /// Whether this sheet sets the money already saved: a new goal, or one
+  /// being edited in setup.
+  bool get _editsFunding =>
+      widget.allowAlreadySaved && (!_isEditing || widget.editsFunding);
+
   /// Only an amount already saved has to be checked against the goals, so
   /// nothing else pays the cost of reading them.
-  bool get _needsGoals => widget.allowAlreadySaved && !_isEditing;
+  bool get _needsGoals => _editsFunding;
 
-  /// The savings record the money already saved came out of. Null until the
-  /// user picks one, and then the first record is used.
-  String? _savedWalletId;
+  /// Money already saved, by the wallet it is in: cash, accounts, or both.
+  late Map<String, double> _funding = widget.initialFunding;
 
   late final _nameController = TextEditingController(
     text: _existing?.name ?? widget.initialName ?? '',
@@ -369,42 +247,34 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
         ? ''
         : formatAmountInput(widget.initialTarget!),
   );
-  final _savedController = TextEditingController();
-  late final _planController = TextEditingController(
-    text: _existing?.planAmount == null
-        ? ''
-        : formatAmountInput(_existing!.planAmount!),
-  );
-  late final _noteController = TextEditingController(
-    text: _existing?.note ?? '',
-  );
-
-  late GoalKind _kind = _existing?.kind ?? widget.initialKind;
-  late ContributionFrequency _frequency =
+  // A goal is planned by the calendar: the finish date decides how much a
+  // month, shown on its card once it is set up. Goals saved with a rhythm or
+  // an amount each time before keep them.
+  late final ContributionFrequency _frequency =
       _existing?.frequency ?? ContributionFrequency.monthly;
+  late final SavingInterval? _custom = _existing?.customInterval;
+  late final double? _planAmount = _existing?.planAmount;
   late DateTime? _date = _existing?.targetDate ?? widget.initialDate;
-  String? _error;
-
-  /// Optional fields start folded away; an edited goal that already uses
-  /// them opens with them showing.
-  late bool _showMore =
-      _existing != null &&
-      (_existing.planAmount != null ||
-          (_existing.note ?? '').isNotEmpty ||
-          _existing.kind != GoalKind.regular);
 
   bool get _isEditing => _existing != null;
+
+  /// What the goal is for, read from its name instead of asked: it only
+  /// changes the icon and the money tips, so a name that mentions an
+  /// emergency makes an emergency fund. A kind given by the savings guide,
+  /// or saved on the goal before, is kept.
+  GoalKind get _kind {
+    final given = _existing?.kind ?? widget.initialKind;
+    if (given != GoalKind.regular) return given;
+    return _nameController.text.toLowerCase().contains('emergency')
+        ? GoalKind.emergencyFund
+        : GoalKind.regular;
+  }
 
   @override
   void initState() {
     super.initState();
     // The preview and suggestion follow every keystroke.
-    for (final controller in [
-      _nameController,
-      _targetController,
-      _savedController,
-      _planController,
-    ]) {
+    for (final controller in [_nameController, _targetController]) {
       controller.addListener(_refresh);
     }
     if (_needsGoals) {
@@ -417,27 +287,10 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
 
   void _refresh() => setState(() {});
 
-  /// The savings record the money already saved is taken from: the one
-  /// chosen, or the first when nothing is chosen yet.
-  Wallet? _recordFor(List<Wallet> wallets) {
-    final records = promisableSavingsRecords(wallets);
-    if (records.isEmpty) return null;
-    return records.firstWhere(
-      (wallet) => wallet.id == _savedWalletId,
-      orElse: () => records.first,
-    );
-  }
-
   @override
   void dispose() {
     _goalsSub?.cancel();
-    for (final controller in [
-      _nameController,
-      _targetController,
-      _savedController,
-      _planController,
-      _noteController,
-    ]) {
+    for (final controller in [_nameController, _targetController]) {
       controller
         ..removeListener(_refresh)
         ..dispose();
@@ -447,59 +300,6 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
 
   double _number(TextEditingController controller) =>
       double.tryParse(controller.text.trim().replaceAll(',', '')) ?? 0;
-
-  /// Still to save, counting what is already saved.
-  double get _remaining {
-    final saved = _isEditing
-        ? _existing!.shownSaved
-        : _number(_savedController);
-    final left = _number(_targetController) - saved;
-    return left > 0 ? left : 0;
-  }
-
-  double? get _needed => neededPerContribution(
-    remaining: _remaining,
-    targetDate: _date,
-    frequency: _frequency,
-    now: _today,
-    planStartedAt: _existing?.planStartedAt,
-  );
-
-  double? get _planAmount {
-    final amount = _number(_planController);
-    return amount > 0 ? amount : null;
-  }
-
-  /// The one line that tells the user what their numbers mean.
-  String? get _hint {
-    if (_number(_targetController) <= 0) return null;
-    if (_remaining <= 0) return 'Already reached with what you have saved.';
-
-    final needed = _needed;
-    if (needed != null) {
-      final plan = _planAmount;
-      final base =
-          'Save ${formatPeso(needed)} ${_frequency.per} to reach it by '
-          '${formatShortDate(_date!)}.';
-      if (plan == null || plan + 0.005 >= needed) return base;
-      return '$base Your planned ${formatPeso(plan)} is not enough to make '
-          'that date.';
-    }
-
-    final reached = reachedByPlan(
-      remaining: _remaining,
-      amount: _planAmount,
-      frequency: _frequency,
-      now: _today,
-      planStartedAt: _existing?.planStartedAt,
-    );
-    if (reached != null) {
-      return 'At ${formatPeso(_planAmount!)} ${_frequency.per} you reach it '
-          'around ${formatShortDate(reached)}.';
-    }
-
-    return 'Add a target date or an amount to see how long it takes.';
-  }
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -511,35 +311,36 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
     if (picked != null) setState(() => _date = picked);
   }
 
-  void _save(List<Wallet> wallets) {
-    final name = _nameController.text.trim();
+  /// What stops the goal being saved as it stands, or null. Shown once Save
+  /// has been tapped, and gone as soon as it is fixed.
+  String? _problem(List<Wallet> wallets) {
     final target = _number(_targetController);
-    final saved = _isEditing || !widget.allowAlreadySaved
-        ? 0.0
-        : _number(_savedController);
-    final record = _recordFor(wallets);
-    final walletId = record?.id;
-    final free = record == null ? 0.0 : freeInWallet(record, _goals);
+    return itemNameProblem(
+          cleanText(_nameController.text),
+          maxLength: maxItemNameLength,
+          empty: 'Give the goal a name.',
+        ) ??
+        (!isRecordableAmount(target)
+            ? minimumAmountError
+            : goalFundingProblem(
+                amounts: _editsFunding ? _funding : const <String, double>{},
+                wallets: wallets,
+                otherGoals: _goals,
+                target: target,
+              ));
+  }
 
-    final String? problem;
-    if (name.isEmpty) {
-      problem = 'Give the goal a name.';
-    } else if (!isRecordableAmount(target)) {
-      problem = minimumAmountError;
-    } else if (saved > 0 && record == null) {
-      problem = 'Add a Savings wallet before recording money already saved.';
-    } else if (saved > free + 0.005) {
-      problem = free <= 0
-          ? '${record!.name} has nothing left to promise.'
-          : '${record!.name} has ${formatPeso(free)} left to promise.';
-    } else {
-      problem = null;
-    }
+  void _save(List<Wallet> wallets) {
+    markTriedToSave();
+    if (_problem(wallets) != null) return;
 
-    if (problem != null) {
-      setState(() => _error = problem);
-      return;
-    }
+    final name = cleanText(_nameController.text);
+    final target = _number(_targetController);
+    final funding = _editsFunding ? _funding : const <String, double>{};
+    final saved = funding.values.fold<double>(
+      0,
+      (total, amount) => total + amount,
+    );
 
     final draft = GoalDraft(
       name: name,
@@ -548,9 +349,20 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
       alreadySaved: saved,
       targetDate: _date,
       frequency: _frequency,
+      customInterval: _custom,
       planAmount: _planAmount,
-      walletId: walletId,
-      note: _noteController.text,
+      walletId: _isEditing && !_editsFunding
+          ? _existing!.walletId
+          : mainFundingWallet(funding),
+      fundingSource: _isEditing && !_editsFunding
+          ? _existing!.fundingSource
+          : GoalFundingSource.fromTypes([
+              for (final wallet in wallets)
+                if (funding.containsKey(wallet.id)) wallet.type,
+            ]),
+      // Notes are no longer asked here; one saved before is kept.
+      note: _existing?.note,
+      savedByWallet: funding,
     );
 
     if (widget.onSave != null) {
@@ -563,6 +375,7 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
         targetDate: draft.targetDate,
         kind: draft.kind,
         frequency: draft.frequency,
+        customInterval: draft.customInterval,
         planAmount: draft.planAmount,
         walletId: draft.walletId,
         note: draft.note,
@@ -575,10 +388,12 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
         priority: widget.nextPriority,
         kind: draft.kind,
         frequency: draft.frequency,
+        customInterval: draft.customInterval,
         planAmount: draft.planAmount,
         walletId: draft.walletId,
+        fundingSource: draft.fundingSource,
         note: draft.note,
-        alreadySaved: draft.alreadySaved,
+        alreadySavedByWallet: draft.savedByWallet,
       );
     }
 
@@ -588,7 +403,6 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final hint = _hint;
 
     Widget sectionTitle(String text) => Padding(
       padding: const EdgeInsets.only(top: 20, bottom: 10),
@@ -611,48 +425,41 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
             stream: _wallets,
             builder: (context, snapshot) {
               final wallets = snapshot.data ?? const <Wallet>[];
-              final savingsRecords = wallets
-                  .where(
-                    (wallet) =>
-                        !wallet.archived &&
-                        wallet.purpose == WalletPurpose.savings,
-                  )
-                  .toList(growable: false);
-              final availableSavingsRecords = promisableSavingsRecords(
-                savingsRecords,
-              );
-              final savingsWallet = availableSavingsRecords.isNotEmpty
-                  ? availableSavingsRecords.first
-                  : savingsRecords.firstOrNull;
+              final error = triedToSave ? _problem(wallets) : null;
 
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _SheetHeader(_isEditing ? 'Edit Goal' : 'New Savings Goal'),
-                  _GoalPreview(
-                    name: _nameController.text.trim(),
-                    kind: _kind,
-                    target: _number(_targetController),
-                    needed: _needed,
-                    frequency: _frequency,
-                  ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: _nameController,
                     textCapitalization: TextCapitalization.sentences,
-                    maxLength: 40,
+                    maxLength: maxItemNameLength,
+                    inputFormatters: const [SafeTextFormatter()],
+                    // The count only matters near the limit.
+                    buildCounter:
+                        (
+                          context, {
+                          required currentLength,
+                          required isFocused,
+                          maxLength,
+                        }) =>
+                            maxLength != null && maxLength - currentLength <= 10
+                            ? Text('$currentLength/$maxLength')
+                            : null,
                     decoration: dialogFieldDecoration(
                       context,
-                      'What are you saving for?',
+                      'Goal name',
                       hint: 'e.g. New laptop',
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
                   AmountField(
                     controller: _targetController,
-                    label: 'How much do you need?',
-                    hint: 'e.g. 20000',
+                    label: 'Amount needed',
+                    hint: 'e.g. 20,000',
                     autofocus: false,
                   ),
                   const SizedBox(height: 16),
@@ -662,23 +469,20 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                     child: InputDecorator(
                       decoration: dialogFieldDecoration(
                         context,
-                        'By when? (optional)',
-                        helper:
-                            'Pick a date and FinAssist works out what to '
-                            'save each time.',
+                        'Finish by (optional)',
                       ),
                       child: Row(
                         children: [
                           Expanded(
                             child: Text(
                               _date == null
-                                  ? 'No deadline'
+                                  ? 'No date'
                                   : formatShortDate(_date!),
                             ),
                           ),
                           if (_date != null)
                             IconButton(
-                              tooltip: 'Remove deadline',
+                              tooltip: 'Remove date',
                               visualDensity: VisualDensity.compact,
                               icon: const Icon(Icons.close, size: 18),
                               onPressed: () => setState(() => _date = null),
@@ -693,165 +497,32 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                       ),
                     ),
                   ),
-                  if (hint != null) ...[
-                    const SizedBox(height: 14),
-                    DialogNote(text: hint),
-                  ],
-                  // Everything below is optional, so it stays out of the way
-                  // until the user asks for it.
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () => setState(() => _showMore = !_showMore),
-                      style: TextButton.styleFrom(
-                        foregroundColor: colors.primaryText,
-                        padding: EdgeInsets.zero,
-                      ),
-                      icon: Icon(
-                        _showMore ? Icons.expand_less : Icons.expand_more,
-                      ),
-                      label: Text(
-                        _showMore ? 'Fewer options' : 'More options (optional)',
-                      ),
+                  if (_editsFunding) ...[
+                    sectionTitle('Already saved some? (optional)'),
+                    GoalFundingPicker(
+                      // Keyed, so a line appearing above never resets the choice.
+                      key: const ValueKey('goal-funding-picker'),
+                      wallets: wallets,
+                      otherGoals: _goals,
+                      target: _number(_targetController),
+                      initialAmounts: widget.initialFunding,
+                      onChanged: (amounts) =>
+                          setState(() => _funding = amounts),
                     ),
-                  ),
-                  if (_showMore) ...[
-                    sectionTitle('Goal type'),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        // A goal saved under an older kind keeps its chip,
-                        // so editing it does not silently change the type.
-                        for (final kind in {...GoalKind.choosable, _kind})
-                          ChoiceChip(
-                            avatar: Icon(kind.icon, size: 18),
-                            label: Text(kind.label),
-                            selected: _kind == kind,
-                            onSelected: (_) => setState(() => _kind = kind),
-                          ),
-                      ],
-                    ),
-                    if (!_isEditing && widget.allowAlreadySaved) ...[
-                      const SizedBox(height: 16),
-                      if (savingsRecords.length > 1) ...[
-                        WalletPicker(
-                          wallets: savingsRecords,
-                          selectedId: _recordFor(wallets)?.id,
-                          label: 'Where it is saved',
-                          allowed: const {WalletPurpose.savings},
-                          disabledWalletIds: {
-                            for (final wallet in wallets)
-                              if (wallet.isLockedSavings) wallet.id,
-                          },
-                          displayBalances: {
-                            for (final wallet in savingsRecords)
-                              wallet.id: freeInWallet(wallet, _goals),
-                          },
-                          onChanged: (id) =>
-                              setState(() => _savedWalletId = id),
-                        ),
-                        const SizedBox(height: 6),
-                        const DialogNote(
-                          text:
-                              'Choose the savings wallet holding money you '
-                              'already saved. Locked time deposits and '
-                              'government savings are shown but cannot be '
-                              'used for a goal because they are not available '
-                              'to spend or move yet.',
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      TextField(
-                        controller: _savedController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: const [ThousandsSeparatorFormatter()],
-                        decoration: dialogFieldDecoration(
-                          context,
-                          'Already saved',
-                          helper:
-                              'What you have put aside so far, so you '
-                              'start above zero.',
-                        ).copyWith(prefixText: '₱ ', hintText: 'e.g. 1000'),
+                    if (wallets.any((wallet) => wallet.isLockedSavings)) ...[
+                      const SizedBox(height: 8),
+                      const DialogNote(
+                        text:
+                            'A time deposit can be set aside for a goal. It '
+                            'counts now and is ready on its end date.',
                       ),
                     ],
-                    sectionTitle('Saving plan'),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final frequency in ContributionFrequency.values)
-                          ChoiceChip(
-                            label: Text(frequency.label),
-                            selected: _frequency == frequency,
-                            onSelected: (_) =>
-                                setState(() => _frequency = frequency),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _planController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: const [ThousandsSeparatorFormatter()],
-                      decoration: dialogFieldDecoration(
-                        context,
-                        'Amount each time',
-                        helper: 'Leave blank to follow the target date.',
-                      ).copyWith(prefixText: '₱ ', hintText: 'e.g. 1500'),
-                    ),
-                    // Only when the money has no say in where it sits:
-                    // picking the record is done beside Already saved, and
-                    // showing it twice would let the two disagree.
-                    if (savingsWallet != null && savingsRecords.length < 2) ...[
-                      sectionTitle('Wallet'),
-                      WalletPicker(
-                        wallets: [savingsWallet],
-                        selectedId: savingsWallet.isLockedSavings
-                            ? null
-                            : savingsWallet.id,
-                        label: 'Savings wallet',
-                        allowed: const {WalletPurpose.savings},
-                        disabledWalletIds: {
-                          if (savingsWallet.isLockedSavings) savingsWallet.id,
-                        },
-                        displayBalances: {
-                          savingsWallet.id: freeInWallet(savingsWallet, _goals),
-                        },
-                        onChanged: (_) {},
-                      ),
-                      const SizedBox(height: 6),
-                      DialogNote(
-                        text: savingsWallet.isLockedSavings
-                            ? 'This wallet is locked because it is a '
-                                  'time deposit or government savings. Choose '
-                                  'an available savings wallet to link money '
-                                  'already saved to this goal.'
-                            : 'A savings wallet shows where money already '
-                                  'saved for this goal is held. It keeps that '
-                                  'amount separate from money available to spend.',
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _noteController,
-                      maxLength: 80,
-                      decoration: dialogFieldDecoration(
-                        context,
-                        'Notes',
-                        hint: 'e.g. for school work',
-                      ),
-                    ),
                   ],
+                  const SizedBox(height: 16),
                   const SizedBox(height: 4),
-                  if (_error != null) ...[
+                  if (error != null) ...[
                     Text(
-                      _error!,
+                      error,
                       style: TextStyle(
                         color: dangerColorOn(context),
                         fontWeight: FontWeight.w600,
@@ -874,102 +545,35 @@ class _GoalFormSheetState extends State<GoalFormSheet> {
                       ),
                     ),
                   ),
+                  // Red and below Save: it takes the money back out, so it
+                  // must never be the button the eye lands on first.
+                  if (_isEditing &&
+                      widget.onRelease != null &&
+                      widget.initialFunding.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context, false);
+                          widget.onRelease!();
+                        },
+                        style: dangerButtonStyle(),
+                        child: const Text(
+                          'Release what is set aside',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               );
             },
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// A live preview of the goal: its name, target, and what to save each time.
-class _GoalPreview extends StatelessWidget {
-  const _GoalPreview({
-    required this.name,
-    required this.kind,
-    required this.target,
-    required this.needed,
-    required this.frequency,
-  });
-
-  final String name;
-  final GoalKind kind;
-  final double target;
-  final double? needed;
-  final ContributionFrequency frequency;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget chip(String value, String label) => Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: appPrimaryBlue,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(kind.icon, color: Colors.white),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  name.isEmpty ? 'New goal' : name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              chip(target > 0 ? formatPeso(target) : '—', 'Target'),
-              const SizedBox(width: 8),
-              chip(
-                needed == null ? '—' : formatPeso(needed!),
-                'Need ${frequency.per}',
-              ),
-            ],
-          ),
-        ],
       ),
     );
   }
@@ -1003,7 +607,8 @@ class ContributionSheet extends StatefulWidget {
   State<ContributionSheet> createState() => _ContributionSheetState();
 }
 
-class _ContributionSheetState extends State<ContributionSheet> {
+class _ContributionSheetState extends State<ContributionSheet>
+    with CheckAfterSave {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
   late final Stream<List<Goal>> _goals =
@@ -1016,19 +621,41 @@ class _ContributionSheetState extends State<ContributionSheet> {
         : formatAmountInput(widget.goal.remaining),
   );
 
-  /// Which savings record the money is taken from or put back into. Null
-  /// until the user picks one, and then the first record is used.
+  /// Which account the money is taken from or put back into.
   String? _recordId;
-  String? _error;
 
-  /// The record being saved into, or null when there is none to save into.
+  /// Saving: how much comes from each account, by wallet id. Several
+  /// accounts can share one contribution, as when a goal is made.
+  Map<String, double> _funding = const {};
+
+  /// The account being saved into, or null when there is none to save into.
   Wallet? _recordFor(List<Wallet> wallets) {
-    final records = promisableSavingsRecords(wallets);
+    var records = goalFundingWallets(wallets);
+    if (widget.takeOut) {
+      records = records
+          .where((wallet) => goalMoneyInWallet([widget.goal], wallet.id) > 0)
+          .toList(growable: false);
+    }
     if (records.isEmpty) return null;
-    return records.firstWhere(
-      (wallet) => wallet.id == _recordId,
-      orElse: () => records.first,
-    );
+    for (final wallet in records) {
+      if (wallet.id == _recordId) return wallet;
+    }
+    for (final wallet in records) {
+      if (wallet.id == widget.goal.walletId) return wallet;
+    }
+    for (final wallet in records) {
+      if ((widget.goal.savedByWallet[wallet.id] ?? 0) > 0) return wallet;
+    }
+    for (final wallet in records) {
+      if (wallet.purpose == WalletPurpose.savings) return wallet;
+    }
+    return records.first;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    recheckWhenChanged(_amountController);
   }
 
   @override
@@ -1037,41 +664,138 @@ class _ContributionSheetState extends State<ContributionSheet> {
     super.dispose();
   }
 
-  void _save(List<Wallet> wallets, List<Goal> goals) {
-    final amount = double.tryParse(
-      _amountController.text.trim().replaceAll(',', ''),
+  /// Saving toward the goal, laid out like the goal sheet: where the money
+  /// is now (cash on hand, cash in bank or both), an amount for each
+  /// account, and the total with what is still to save.
+  Widget _saveLayout(List<Wallet> wallets, List<Goal> goals) {
+    final goal = widget.goal;
+    final colors = context.appColors;
+    final error = triedToSave ? _fundingProblem(wallets, goals) : null;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SheetHeader('Save toward ${goal.name}'),
+        Text(
+          '${formatPeso(goal.shownSaved)} of ${formatPeso(goal.targetAmount)} '
+          'saved · ${formatPeso(goal.remaining)} to go',
+          style: TextStyle(fontSize: 14, color: colors.textMuted),
+        ),
+        const SizedBox(height: 10),
+        const DialogNote(
+          text:
+              'The money stays in its account and is marked for this goal. '
+              'Nothing moves.',
+        ),
+        const SizedBox(height: 16),
+        GoalFundingPicker(
+          // Keyed, so a line appearing above never resets the choice.
+          key: const ValueKey('contribution-funding'),
+          wallets: wallets,
+          otherGoals: goals,
+          target: goal.remaining,
+          onChanged: (amounts) => setState(() => _funding = amounts),
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            error,
+            style: TextStyle(
+              color: dangerColorOn(context),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton(
+            onPressed: () => _saveFromAccounts(wallets, goals),
+            style: confirmButtonStyle(),
+            child: const Text(
+              'Set Aside',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ],
     );
+  }
+
+  /// What stops the amounts chosen being saved, each checked against what
+  /// its account has free, or null.
+  String? _fundingProblem(List<Wallet> wallets, List<Goal> goals) =>
+      _funding.isEmpty
+      ? 'Choose where the money is and enter an amount.'
+      : goalFundingProblem(
+          amounts: _funding,
+          wallets: wallets,
+          // Every goal's claim counts, this one's too: the money being
+          // added must still be free.
+          otherGoals: goals,
+          target: widget.goal.remaining,
+        );
+
+  /// Saving from the accounts chosen.
+  void _saveFromAccounts(List<Wallet> wallets, List<Goal> goals) {
+    final goal = widget.goal;
+    markTriedToSave();
+    if (_fundingProblem(wallets, goals) != null) return;
+
+    if (widget.onSave != null) {
+      for (final entry in _funding.entries) {
+        widget.onSave!(entry.value, entry.key);
+      }
+    } else {
+      GoalService.contributeFromWallets(goal, _funding);
+    }
+    Navigator.pop(context, true);
+  }
+
+  double? get _amount =>
+      double.tryParse(_amountController.text.trim().replaceAll(',', ''));
+
+  /// What stops the amount being taken out or set aside, or null.
+  String? _problem(List<Wallet> wallets, List<Goal> goals) {
+    final amount = _amount;
     final goal = widget.goal;
     // Per record, not across all of them: money is promised out of one
     // place, and the user said which.
     final record = _recordFor(wallets);
-    final walletId = record?.id;
     final heldHere = record == null
         ? 0.0
         : goalMoneyInWallet([goal], record.id);
     final available = record == null ? 0.0 : freeInWallet(record, goals);
+    final availableForGoal = available + heldHere;
 
-    final problem = amount == null || !isRecordableAmount(amount)
+    return amount == null || !isRecordableAmount(amount)
         ? minimumAmountError
         : record == null
-        ? 'Add a Savings wallet and move money into it first.'
+        ? 'Add a cash, bank, or e-wallet account first.'
         : widget.takeOut && amount > heldHere + 0.005
         ? 'Only ${formatPeso(heldHere)} of this goal is in ${record.name}.'
-        : !widget.takeOut && amount > available + 0.005
-        ? '${record.name} has ${formatPeso(available)} left to promise.'
+        : !widget.takeOut && amount > goal.remaining + 0.005
+        ? 'This goal needs only ${formatPeso(goal.remaining)} more.'
+        : !widget.takeOut && amount > availableForGoal + 0.005
+        ? '${record.name} has ${formatPeso(availableForGoal)} left to promise.'
         : null;
+  }
 
-    if (problem != null) {
-      setState(() => _error = problem);
-      return;
-    }
+  void _save(List<Wallet> wallets, List<Goal> goals) {
+    markTriedToSave();
+    if (_problem(wallets, goals) != null) return;
 
-    final signed = widget.takeOut ? -amount! : amount!;
+    final goal = widget.goal;
+    final amount = _amount!;
+    final walletId = _recordFor(wallets)!.id;
+    final signed = widget.takeOut ? -amount : amount;
 
     if (widget.onSave != null) {
-      widget.onSave!(signed, walletId!);
+      widget.onSave!(signed, walletId);
     } else {
-      GoalService.contribute(goal, amount: signed, walletId: walletId!);
+      GoalService.contribute(goal, amount: signed, walletId: walletId);
     }
 
     Navigator.pop(context, true);
@@ -1094,8 +818,19 @@ class _ContributionSheetState extends State<ContributionSheet> {
                 stream: _goals,
                 builder: (context, goalsSnapshot) {
                   final goals = goalsSnapshot.data ?? [widget.goal];
-                  final records = promisableSavingsRecords(wallets);
+                  final records = goalFundingWallets(wallets)
+                      .where(
+                        (wallet) =>
+                            !widget.takeOut ||
+                            goalMoneyInWallet([goal], wallet.id) > 0,
+                      )
+                      .toList(growable: false);
                   final record = _recordFor(wallets);
+
+                  if (!widget.takeOut) {
+                    return _saveLayout(wallets, goals);
+                  }
+                  final error = triedToSave ? _problem(wallets, goals) : null;
 
                   return Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1109,8 +844,8 @@ class _ContributionSheetState extends State<ContributionSheet> {
                       DialogNote(
                         text: widget.takeOut
                             ? 'It is no longer reserved for this goal. The money '
-                                  'stays in your Savings wallet.'
-                            : 'The money stays in your Savings wallet and is '
+                                  'stays in its current account.'
+                            : 'The money stays in its current account and is '
                                   'marked for this goal.',
                       ),
                       const SizedBox(height: 16),
@@ -1126,44 +861,53 @@ class _ContributionSheetState extends State<ContributionSheet> {
                         WalletPicker(
                           wallets: records,
                           selectedId: record.id,
-                          allowed: const {WalletPurpose.savings},
+                          allowed: const {
+                            WalletPurpose.spending,
+                            WalletPurpose.savings,
+                          },
                           displayBalances: {
                             for (final wallet in records)
-                              wallet.id: freeInWallet(wallet, goals),
+                              wallet.id: widget.takeOut
+                                  ? goalMoneyInWallet([goal], wallet.id)
+                                  : freeInWallet(wallet, goals) +
+                                        goalMoneyInWallet([goal], wallet.id),
                           },
                           label: widget.takeOut
                               ? 'Take it out of'
                               : 'Save it in',
                           onChanged: (id) => setState(() => _recordId = id),
                         ),
+                      if (record != null) ...[
+                        const SizedBox(height: 6),
+                        // What the account has free, and what this goal
+                        // holds in it, never only what it holds in all.
+                        Text(
+                          '${formatPeso(freeInWallet(record, goals))} free in '
+                          '${record.name}, '
+                          '${formatPeso(goalMoneyInWallet([goal], record.id))} '
+                          'for this goal.'
+                          '${record.type == WalletType.cash
+                              ? ''
+                              : record.annualInterestRatePercent == null
+                              ? ' Interest rate not recorded.'
+                              : ' Earns ${record.annualInterestRatePercent}% a year on the whole account, not just this goal.'}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: context.appColors.textBody,
+                          ),
+                        ),
+                      ],
                       if (record == null) ...[
                         const SizedBox(height: 8),
                         const Text(
-                          'Add a Savings wallet and move money into it before '
-                          'contributing to a goal.',
-                        ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: () => showTransferSheet(
-                            context,
-                            toWalletId: TransferSheet.newSavingsWalletId,
-                          ),
-                          icon: const Icon(Icons.swap_horiz),
-                          label: const Text('Move money to Savings'),
-                        ),
-                      ] else ...[
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: () =>
-                              showTransferSheet(context, toWalletId: record.id),
-                          icon: const Icon(Icons.swap_horiz),
-                          label: const Text('Move money to Savings'),
+                          'Add a cash, bank, or e-wallet account before '
+                          'contributing to this goal.',
                         ),
                       ],
-                      if (_error != null) ...[
+                      if (error != null) ...[
                         const SizedBox(height: 10),
                         Text(
-                          _error!,
+                          error,
                           style: TextStyle(
                             color: dangerColorOn(context),
                             fontWeight: FontWeight.w600,

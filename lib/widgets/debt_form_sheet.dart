@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../utils/amount_input_formatter.dart';
 import '../models/debt.dart';
@@ -7,10 +8,12 @@ import '../services/debt_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../utils/text_limits.dart';
+import 'check_after_save.dart';
 import 'dialog_kit.dart';
+import 'item_card.dart';
 import 'wallet_picker.dart';
 
 /// Adds an installment the user pays, or money someone owes the user.
@@ -58,10 +61,13 @@ class DebtDraft {
     required this.paymentCount,
     required this.frequency,
     required this.firstDueDate,
-    required this.payFromWalletId,
     this.lastPayment = 0,
     required this.movedWalletId,
     required this.note,
+    this.paidBefore = 0,
+    this.quotedRate,
+    this.quotedRatePer = RatePeriod.year,
+    this.otherKind,
   });
 
   final DebtDirection direction;
@@ -77,11 +83,20 @@ class DebtDraft {
 
   /// First payment for an installment; the promised date for money owed.
   final DateTime? firstDueDate;
-  final String? payFromWalletId;
 
   /// Where borrowed money arrived, or where lent money came from.
   final String? movedWalletId;
   final String? note;
+
+  /// Payments made before it was tracked here.
+  final int paidBefore;
+
+  /// The rate the lender said they charge, if the user was told.
+  final double? quotedRate;
+  final RatePeriod quotedRatePer;
+
+  /// The user's own kind, when they chose Other.
+  final String? otherKind;
 }
 
 class DebtFormSheet extends StatefulWidget {
@@ -106,14 +121,22 @@ class DebtFormSheet extends StatefulWidget {
   State<DebtFormSheet> createState() => _DebtFormSheetState();
 }
 
-class _DebtFormSheetState extends State<DebtFormSheet> {
+class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
 
   // Only what the user owes is recorded now; money they lend out was taken
   // out of the app.
   final DebtDirection _direction = DebtDirection.iOwe;
-  DebtCategory _category = DebtCategory.gadget;
+
+  /// Chosen by hand under More options; until then the name decides it.
+  DebtCategory? _pickedCategory;
+  DebtCategory get _category =>
+      _pickedCategory ??
+      guessDebtCategory(_nameController.text) ??
+      (_nameController.text.trim().isEmpty
+          ? DebtCategory.gadget
+          : DebtCategory.other);
   PaymentFrequency _frequency = PaymentFrequency.monthly;
   late final DateTime _today = widget.today ?? DateTime.now();
   late DateTime? _date = DateTime(_today.year, _today.month + 1, _today.day);
@@ -124,8 +147,13 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   final _countController = TextEditingController();
   final _lastController = TextEditingController();
   final _noteController = TextEditingController();
+  final _paidBeforeController = TextEditingController();
+  final _rateController = TextEditingController();
+  final _otherKindController = TextEditingController();
 
-  String? _payFromWalletId;
+  /// A year by default: rates are usually told as so much a year.
+  RatePeriod _ratePer = RatePeriod.year;
+
   // Lent money almost always leaves a wallet, so that starts on. An
   // installment is often a gadget bought on credit, where no cash arrives.
   bool _movedMoney = false;
@@ -134,22 +162,25 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   /// form was a wall of fields and explanations before anything was typed.
   bool _showMore = false;
   String? _movedWalletId;
-  String? _error;
 
   bool get _iOwe => _direction == DebtDirection.iOwe;
 
   @override
   void initState() {
     super.initState();
-    // The summary card follows every keystroke.
+    // The summary card follows every keystroke, and the name picks the kind.
     for (final controller in [
+      _nameController,
       _principalController,
       _perPaymentController,
       _countController,
       _lastController,
+      _paidBeforeController,
+      _rateController,
     ]) {
       controller.addListener(_refresh);
     }
+    recheckWhenChanged(_nameController);
   }
 
   void _refresh() => setState(() {});
@@ -163,6 +194,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       _countController,
       _lastController,
       _noteController,
+      _paidBeforeController,
+      _rateController,
+      _otherKindController,
     ]) {
       controller
         ..removeListener(_refresh)
@@ -188,6 +222,16 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     );
   }
 
+  /// The price or amount borrowed. Optional: left blank, it is taken as
+  /// everything paid, so no interest is assumed.
+  double get _principal {
+    final typed = _number(_principalController);
+    if (typed > 0 || _paymentCount < 1) return typed;
+    final each = _number(_perPaymentController);
+    final last = _number(_lastController);
+    return each * (_paymentCount - 1) + (last > 0 ? last : each);
+  }
+
   /// The contract's last payment when it differs: as typed, or, with the
   /// number of payments left blank, what is left of the amount borrowed
   /// after the others. Typed terms are the contract, so they are kept as
@@ -203,18 +247,39 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     );
   }
 
+  /// Whether the first payment is already behind, so some may be paid.
+  bool get _startedBefore {
+    final date = _date;
+    if (date == null) return false;
+    return DateTime(
+      date.year,
+      date.month,
+      date.day,
+    ).isBefore(DateTime(_today.year, _today.month, _today.day));
+  }
+
+  /// Payments made before it was tracked here; only asked for, and only
+  /// counted, when the first one is already behind.
+  int get _paidBefore =>
+      _startedBefore ? int.tryParse(_paidBeforeController.text.trim()) ?? 0 : 0;
+
+  double? get _quotedRate => double.tryParse(_rateController.text.trim());
+
   Debt get _preview => Debt(
     id: '',
     direction: _direction,
     name: _nameController.text,
     category: _category,
-    principal: _number(_principalController),
+    principal: _principal,
     perPayment: _number(_perPaymentController),
     paymentCount: _paymentCount,
     lastPayment: _lastPayment,
     frequency: _frequency,
     firstDueDate: _date,
     status: DebtStatus.active,
+    paidBefore: _paidBefore,
+    quotedRate: _quotedRate,
+    quotedRatePer: _ratePer,
   );
 
   Future<void> _pickDate() async {
@@ -241,45 +306,66 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     return 'That wallet';
   }
 
-  void _save(List<Wallet> wallets) {
-    final name = _nameController.text.trim();
-    final principal = _number(_principalController);
-    final perPayment = _number(_perPaymentController);
-    final movedWallet = _movedMoney && !_iOwe
-        ? (_movedWalletId ?? defaultWalletId(wallets))
-        : null;
+  String? _movedWallet(List<Wallet> wallets) => _movedMoney && !_iOwe
+      ? (_movedWalletId ?? defaultWalletId(wallets))
+      : null;
 
-    final String? problem;
-    if (name.isEmpty) {
-      problem = _iOwe ? 'Give it a name.' : 'Who owes you?';
-    } else if (!isRecordableAmount(principal)) {
-      problem = minimumAmountError;
+  /// What stops the plan being saved as it stands, or null. Shown once Save
+  /// has been tapped, and gone as soon as it is fixed.
+  String? _problem(List<Wallet> wallets) {
+    final principal = _principal;
+    final perPayment = _number(_perPaymentController);
+    final movedWallet = _movedWallet(wallets);
+    final nameProblem = itemNameProblem(
+      _nameController.text,
+      maxLength: maxItemNameLength,
+      empty: _iOwe ? 'Give it a name.' : 'Who owes you?',
+    );
+    final rate = _quotedRate;
+
+    if (nameProblem != null) {
+      return nameProblem;
+    } else if (!_iOwe && !isRecordableAmount(principal)) {
+      return minimumAmountError;
     } else if (_iOwe && !isRecordableAmount(perPayment)) {
-      problem = minimumAmountError;
+      return minimumAmountError;
     } else if (_iOwe && _paymentCount < 1) {
-      problem = 'Enter how many payments.';
+      return 'Enter how many payments.';
+    } else if (_iOwe && _paymentCount > _mostPayments) {
+      return 'Up to $_mostPayments payments. Check the number on your '
+          'contract.';
+    } else if (_iOwe && _paidBefore >= _paymentCount) {
+      return 'That is every payment, so nothing is left to pay.';
+    } else if (_iOwe && rate != null && rate > 100) {
+      return 'Enter a rate up to 100%.';
     } else if (_iOwe && _date == null) {
-      problem = 'Choose when the first payment is due.';
+      return 'Choose when the first payment is due.';
     } else if (_iOwe && _preview.totalPayable + 0.005 < principal) {
-      problem =
-          'Those payments add up to ${formatPeso(_preview.totalPayable)}, '
+      return 'Those payments add up to ${formatPeso(_preview.totalPayable)}, '
           'less than the ${formatPeso(principal)} borrowed.';
     } else if (_movedMoney && movedWallet == null) {
-      problem = 'Add a wallet first.';
+      return 'Add a wallet first.';
     } else if (!_iOwe &&
         _movedMoney &&
         _balanceOf(wallets, movedWallet) + 0.005 < principal) {
-      problem =
-          '${_nameOf(wallets, movedWallet)} only holds '
+      return '${_nameOf(wallets, movedWallet)} only holds '
           '${formatPeso(_balanceOf(wallets, movedWallet))}.';
-    } else {
-      problem = null;
     }
+    return null;
+  }
 
-    if (problem != null) {
-      setState(() => _error = problem);
-      return;
-    }
+  /// Thirty years of monthly payments, more than any personal loan, so a
+  /// slip such as 1200 for 12 is caught.
+  static const _mostPayments = 360;
+
+  void _save(List<Wallet> wallets) {
+    markTriedToSave();
+    if (_problem(wallets) != null) return;
+
+    final name = cleanText(_nameController.text);
+    final principal = _principal;
+    final perPayment = _number(_perPaymentController);
+    final movedWallet = _movedWallet(wallets);
 
     final draft = DebtDraft(
       direction: _direction,
@@ -291,9 +377,14 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       lastPayment: _preview.hasDifferentLastPayment ? _preview.finalPayment : 0,
       frequency: _frequency,
       firstDueDate: _date,
-      payFromWalletId: _payFromWalletId ?? defaultWalletId(wallets),
       movedWalletId: movedWallet,
       note: _noteController.text,
+      paidBefore: _paidBefore,
+      quotedRate: _quotedRate,
+      quotedRatePer: _ratePer,
+      otherKind: _category == DebtCategory.other
+          ? cleanText(_otherKindController.text)
+          : null,
     );
 
     if (widget.onSave != null) {
@@ -308,8 +399,11 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         lastPayment: draft.lastPayment,
         frequency: draft.frequency,
         firstDueDate: draft.firstDueDate!,
-        payFromWalletId: draft.payFromWalletId,
         note: draft.note,
+        paidBefore: draft.paidBefore,
+        quotedRate: draft.quotedRate,
+        quotedRatePer: draft.quotedRatePer,
+        otherKind: draft.otherKind,
       );
     } else {
       DebtService.addLent(
@@ -322,6 +416,39 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     }
 
     Navigator.pop(context, draft.direction);
+  }
+
+  Widget _datePicker() {
+    return InkWell(
+      onTap: _pickDate,
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: dialogFieldDecoration(
+          context,
+          _iOwe ? 'First payment' : 'When they will pay back (optional)',
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(_date == null ? 'No date' : formatShortDate(_date!)),
+            ),
+            if (!_iOwe && _date != null)
+              IconButton(
+                tooltip: 'Remove date',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => setState(() => _date = null),
+              )
+            else
+              Image.asset(
+                'assets/icons/icons8-calendar-96.png',
+                width: 22,
+                height: 22,
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -337,6 +464,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
             stream: _wallets,
             builder: (context, snapshot) {
               final wallets = snapshot.data ?? const <Wallet>[];
+              final error = triedToSave ? _problem(wallets) : null;
 
               return Column(
                 mainAxisSize: MainAxisSize.min,
@@ -364,23 +492,19 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Add installment',
+                    'Add Installment',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: colors.textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 14),
                   const SizedBox(height: 16),
-                  if (_iOwe) ...[
-                    _SummaryCard(debt: _preview),
-                    const SizedBox(height: 16),
-                  ],
                   TextField(
                     controller: _nameController,
                     textCapitalization: TextCapitalization.sentences,
-                    maxLength: 40,
+                    maxLength: maxItemNameLength,
+                    inputFormatters: const [SafeTextFormatter()],
                     decoration:
                         dialogFieldDecoration(
                           context,
@@ -393,19 +517,16 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                   const SizedBox(height: 16),
                   AmountField(
                     controller: _principalController,
-                    label: _iOwe ? 'Amount borrowed' : 'Amount',
+                    label: _iOwe ? 'Price or amount borrowed' : 'Amount',
                     hint: _iOwe ? 'e.g. 12,000' : 'e.g. 500',
                     helper: _iOwe
-                        ? 'The price, or what you borrowed. Not counting '
-                              'what the store or lender adds on top.'
+                        ? 'Optional. Shows how much interest you pay.'
                         : null,
                     alwaysShowHint: true,
                     autofocus: false,
                   ),
                   if (_iOwe) ...[
-                    const SizedBox(height: 14),
-                    const _ContractGuide(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -422,8 +543,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             decoration:
                                 dialogFieldDecoration(
                                   context,
-                                  'How much each time',
-                                  helper: 'One payment, not the total',
+                                  'Each payment',
                                 ).copyWith(
                                   // The peso sign waits for the first digit,
                                   // so the example isn't taken for an amount.
@@ -442,12 +562,17 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                           child: TextField(
                             controller: _countController,
                             keyboardType: TextInputType.number,
+                            // Whole payments only, never a sign, a point or
+                            // a pasted paragraph.
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(3),
+                            ],
                             decoration:
                                 dialogFieldDecoration(
                                   context,
-                                  'How many times',
+                                  'How many',
                                   hint: 'e.g. 12',
-                                  helper: 'Leave blank',
                                 ).copyWith(
                                   floatingLabelBehavior:
                                       FloatingLabelBehavior.always,
@@ -456,66 +581,65 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<PaymentFrequency>(
-                      initialValue: _frequency,
-                      isExpanded: true,
-                      decoration: dialogFieldDecoration(context, 'How often'),
-                      items: [
-                        for (final frequency in PaymentFrequency.values)
-                          DropdownMenuItem(
-                            value: frequency,
-                            child: Text(frequency.label),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _frequency = value ?? _frequency),
-                    ),
                   ],
                   const SizedBox(height: 16),
-                  InkWell(
-                    onTap: _pickDate,
-                    borderRadius: BorderRadius.circular(12),
-                    child: InputDecorator(
-                      decoration: dialogFieldDecoration(
-                        context,
-                        _iOwe
-                            ? 'When is the first payment'
-                            : 'When they will pay back (optional)',
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              _date == null
-                                  ? 'No date'
-                                  : formatShortDate(_date!),
+                  Row(
+                    children: [
+                      if (_iOwe) ...[
+                        Expanded(
+                          child: DropdownButtonFormField<PaymentFrequency>(
+                            initialValue: _frequency,
+                            isExpanded: true,
+                            decoration: dialogFieldDecoration(
+                              context,
+                              'How often',
+                            ),
+                            items: [
+                              for (final frequency in PaymentFrequency.values)
+                                DropdownMenuItem(
+                                  value: frequency,
+                                  child: Text(frequency.label),
+                                ),
+                            ],
+                            onChanged: (value) => setState(
+                              () => _frequency = value ?? _frequency,
                             ),
                           ),
-                          if (!_iOwe && _date != null)
-                            IconButton(
-                              tooltip: 'Remove date',
-                              visualDensity: VisualDensity.compact,
-                              icon: const Icon(Icons.close, size: 18),
-                              onPressed: () => setState(() => _date = null),
-                            )
-                          else
-                            Image.asset(
-                              'assets/icons/icons8-calendar-96.png',
-                              width: 22,
-                              height: 22,
-                            ),
-                        ],
-                      ),
-                    ),
+                        ),
+                        const SizedBox(width: 12),
+                      ],
+                      Expanded(child: _datePicker()),
+                    ],
                   ),
-                  if (_iOwe) ...[
-                    const SizedBox(height: 14),
-                    const DialogNote(
-                      text:
-                          'This only writes down the plan. Your money does '
-                          'not move until you pay.',
+                  // Already paying it: what is behind counts as paid, so the
+                  // app never asks for those payments again.
+                  if (_iOwe && _startedBefore) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      key: const Key('installment-paid-before'),
+                      controller: _paidBeforeController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(3),
+                      ],
+                      decoration:
+                          dialogFieldDecoration(
+                            context,
+                            'How many have you paid already?',
+                            hint: 'e.g. 3',
+                            helper:
+                                'The first payment is past. These count as '
+                                'paid, and no wallet changes.',
+                          ).copyWith(
+                            helperMaxLines: 3,
+                            floatingLabelBehavior: FloatingLabelBehavior.always,
+                          ),
                     ),
+                  ],
+                  if (_iOwe) ...[
+                    const SizedBox(height: 16),
+                    _SummaryCard(debt: _preview),
                   ],
                   const SizedBox(height: 6),
                   Align(
@@ -537,17 +661,30 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                   if (_showMore) ...[
                     if (_iOwe) ...[
                       const SizedBox(height: 8),
+                      _QuotedRateRow(
+                        controller: _rateController,
+                        period: _ratePer,
+                        fromFamily: _category == DebtCategory.familyFriend,
+                        onPeriodChanged: (period) =>
+                            setState(() => _ratePer = period),
+                      ),
+                      if (_preview.costsMoreThanQuoted) ...[
+                        const SizedBox(height: 10),
+                        DialogNote(
+                          text:
+                              'These payments cost more than '
+                              '${percentText(_quotedRate!)} ${_ratePer.label}. '
+                              'Ask the store or lender what else is added, '
+                              'such as fees.',
+                        ),
+                      ],
+                      const SizedBox(height: 16),
                       DropdownButtonFormField<DebtCategory>(
+                        // Rebuilt as the name changes the guess.
+                        key: ValueKey(_category),
                         initialValue: _category,
                         isExpanded: true,
-                        decoration: dialogFieldDecoration(
-                          context,
-                          'Kind',
-                          helper: _category == DebtCategory.other
-                              ? 'Choose Other if none fits. In Name, describe '
-                                    'what you are paying off, such as dental treatment.'
-                              : null,
-                        ).copyWith(helperMaxLines: 3),
+                        decoration: dialogFieldDecoration(context, 'Kind'),
                         items: [
                           for (final category in DebtCategory.values)
                             DropdownMenuItem(
@@ -556,10 +693,26 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             ),
                         ],
                         onChanged: (value) =>
-                            setState(() => _category = value ?? _category),
+                            setState(() => _pickedCategory = value),
                       ),
                       const SizedBox(height: 16),
+                      if (_category == DebtCategory.other) ...[
+                        TextField(
+                          key: const Key('installment-other-kind'),
+                          controller: _otherKindController,
+                          textCapitalization: TextCapitalization.sentences,
+                          maxLength: 30,
+                          inputFormatters: const [SafeTextFormatter()],
+                          decoration: dialogFieldDecoration(
+                            context,
+                            'What kind is it?',
+                            hint: 'e.g. Dental treatment',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       TextField(
+                        key: const Key('installment-last-payment'),
                         controller: _lastController,
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
@@ -580,18 +733,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             ),
                       ),
                     ],
+                    // Payments always come out of the Bills wallet, so there
+                    // is no wallet to choose for an installment.
                     if (wallets.isNotEmpty) ...[
-                      if (_iOwe) ...[
-                        const SizedBox(height: 16),
-                        WalletPicker(
-                          wallets: wallets,
-                          selectedId:
-                              _payFromWalletId ?? defaultWalletId(wallets),
-                          label: 'Usually paid from',
-                          onChanged: (value) =>
-                              setState(() => _payFromWalletId = value),
-                        ),
-                      ],
                       const SizedBox(height: 8),
                       if (!_iOwe) ...[
                         SwitchListTile(
@@ -618,19 +762,10 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                           ),
                       ],
                     ],
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _noteController,
-                      maxLength: 80,
-                      decoration: dialogFieldDecoration(
-                        context,
-                        'Notes (optional)',
-                      ),
-                    ),
                   ],
-                  if (_error != null) ...[
+                  if (error != null) ...[
                     Text(
-                      _error!,
+                      error,
                       style: TextStyle(
                         color: dangerColorOn(context),
                         fontWeight: FontWeight.w600,
@@ -663,36 +798,96 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   }
 }
 
-/// Where the numbers come from, with an example, for anyone unsure what
-/// "each payment" and "payments" mean.
-class _ContractGuide extends StatelessWidget {
-  const _ContractGuide();
+/// What the plan comes to, once the amounts are in: how many payments, the
+/// total, what it costs on top and how much of each payment is interest. It
+/// sits under the fields it adds up, and before anything is typed shows
+/// only that saving the plan moves no money.
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({required this.debt});
+
+  final Debt debt;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final last = debt.lastDueDate;
+    final ready =
+        debt.principal > 0 && debt.perPayment > 0 && debt.paymentCount > 0;
+    final body = TextStyle(fontSize: 13, height: 1.4, color: colors.textBody);
+    if (!ready) return const SizedBox.shrink();
+    final next = debt.paidBefore > 0
+        ? debt.dueDateOf(debt.paidBefore + 1)
+        : null;
 
     return Container(
+      key: const Key('installment-summary'),
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: colors.primaryTint,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Image.asset('assets/icons/icons8-idea-96.png', width: 20, height: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Copy these from your receipt or contract. "₱1,500 a month '
-              'for 12 months" is 1,500 and 12 times.',
+          if (ready) ...[
+            Text(
+              '${debt.paymentCount} '
+              '${debt.paymentCount == 1 ? 'payment' : 'payments'} of '
+              '${formatPeso(debt.perPayment)}, '
+              '${debt.frequency.label.toLowerCase()}',
               style: TextStyle(
-                fontSize: 12.5,
-                height: 1.35,
-                color: colors.textBody,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: colors.textPrimary,
               ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'You will pay ${formatPeso(debt.totalPayable)} in total'
+              '${debt.extraCost > 0 ? ', which is ${formatPeso(debt.extraCost)} more than you borrowed (${roundedPercent(debt.extraCostPercent)})' : ''}.',
+              style: body,
+            ),
+            if (debt.yearlyCostPercent != null) ...[
+              const SizedBox(height: 4),
+              Text(costRateText(debt), style: body),
+            ],
+            // How it will show in Transactions and Reports.
+            if (debt.extraCost > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                '${formatPeso(debt.interestOf(1))} of each payment is '
+                'interest.',
+                style: body,
+              ),
+            ],
+            if (next != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                '${debt.paidBefore} already paid · next one '
+                '${formatShortDate(next)}',
+                style: body,
+              ),
+            ],
+            if (last != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                debt.hasDifferentLastPayment
+                    ? 'Last payment ${formatPeso(debt.finalPayment)} on '
+                          '${formatShortDate(last)}'
+                    : 'Last payment ${formatShortDate(last)}',
+                style: body,
+              ),
+            ],
+            Divider(height: 20, color: colors.border),
+          ],
+          Text(
+            'This only writes down the plan. Your money does not move until '
+            'you pay.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: colors.textMuted,
             ),
           ),
         ],
@@ -701,88 +896,69 @@ class _ContractGuide extends StatelessWidget {
   }
 }
 
-/// Updates as the form is filled in: what is borrowed, each payment, how long
-/// it runs, and what it costs on top.
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.debt});
+/// The interest the lender or store quoted, and what it is counted per.
+/// Optional: the amounts already show what it costs. Lenders must tell it
+/// before a loan is signed; between family and friends there is only
+/// interest if both agreed to it in writing.
+class _QuotedRateRow extends StatelessWidget {
+  const _QuotedRateRow({
+    required this.controller,
+    required this.period,
+    required this.fromFamily,
+    required this.onPeriodChanged,
+  });
 
-  final Debt debt;
+  final TextEditingController controller;
+  final RatePeriod period;
+  final bool fromFamily;
+  final ValueChanged<RatePeriod> onPeriodChanged;
 
   @override
   Widget build(BuildContext context) {
-    final last = debt.lastDueDate;
-    final ready = debt.principal > 0 && debt.perPayment > 0;
-
-    Widget figure(String label, String value) {
-      return Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: appPrimaryBlue,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              figure('Borrowed', ready ? formatPeso(debt.principal) : '—'),
-              figure(
-                debt.frequency == PaymentFrequency.weekly
-                    ? 'Each week'
-                    : 'Each month',
-                ready ? formatPeso(debt.perPayment) : '—',
-              ),
-              figure(
-                'Times',
-                debt.paymentCount > 0 ? '${debt.paymentCount}' : '—',
-              ),
-            ],
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 3,
+          child: TextField(
+            key: const Key('installment-quoted-rate'),
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: const [RateInputFormatter()],
+            decoration:
+                dialogFieldDecoration(
+                  context,
+                  'Interest (optional)',
+                  hint: period == RatePeriod.year ? 'e.g. 36' : 'e.g. 3',
+                  helper: fromFamily
+                      ? 'Only if you both agreed to one in writing.'
+                      : 'Lenders and stores must tell you this before you '
+                            'sign.',
+                ).copyWith(
+                  suffixText: '%',
+                  helperMaxLines: 3,
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                ),
           ),
-          if (ready && debt.paymentCount > 0) ...[
-            const SizedBox(height: 12),
-            Text(
-              'You will pay ${formatPeso(debt.totalPayable)} in total'
-              '${debt.extraCost > 0 ? ', which is ${formatPeso(debt.extraCost)} more than you borrowed' : ''}',
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-            ),
-            if (last != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                debt.hasDifferentLastPayment
-                    ? 'Last payment ${formatPeso(debt.finalPayment)} on '
-                          '${formatShortDate(last)}'
-                    : 'Last payment ${formatShortDate(last)}',
-                style: const TextStyle(color: Colors.white70, fontSize: 12),
-              ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          flex: 2,
+          child: DropdownButtonFormField<RatePeriod>(
+            key: const Key('installment-quoted-rate-per'),
+            initialValue: period,
+            isExpanded: true,
+            decoration: dialogFieldDecoration(context, 'Per'),
+            items: [
+              for (final option in RatePeriod.values)
+                DropdownMenuItem(value: option, child: Text(option.label)),
             ],
-          ],
-        ],
-      ),
+            onChanged: (value) {
+              if (value != null) onPeriodChanged(value);
+            },
+          ),
+        ),
+      ],
     );
   }
 }

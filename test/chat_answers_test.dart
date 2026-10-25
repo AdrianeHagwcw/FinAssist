@@ -246,7 +246,7 @@ void main() {
 
     test('balance, and what of it is free', () {
       final reply = ask('How much money do I have?');
-      expect(reply.text, contains('₱20,000 across 2 wallets'));
+      expect(reply.text, contains('₱20,000 available across 2 wallets'));
       expect(reply.text, contains('GCash ₱15,000'));
       // ₱20,000 − ₱2,100 bills − ₱6,000 for goals.
       expect(reply.text, contains('₱11,900 is free to spend until Oct 1'));

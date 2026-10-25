@@ -9,8 +9,10 @@ import '../services/wallet_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
 import '../utils/money_format.dart';
+import 'check_after_save.dart';
 import 'dialog_kit.dart';
 import 'money_text.dart';
+import 'service_charge_field.dart';
 
 /// Records a payment against a bill. Returns true when one was made.
 ///
@@ -57,7 +59,11 @@ class BillPaymentSheet extends StatefulWidget {
   final Stream<List<Wallet>>? wallets;
 
   /// Records the payment. Tests pass a fake instead of Firestore.
-  final void Function({required String walletId, required double amount})?
+  final void Function({
+    required String walletId,
+    required double amount,
+    required double serviceCharge,
+  })?
   onPay;
 
   @override
@@ -76,7 +82,10 @@ class _NothingSetAside extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(message, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+        Text(
+          message,
+          style: TextStyle(fontSize: 14, color: context.appColors.textMuted),
+        ),
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
@@ -137,7 +146,8 @@ class _HeldForBills extends StatelessWidget {
   }
 }
 
-class _BillPaymentSheetState extends State<BillPaymentSheet> {
+class _BillPaymentSheetState extends State<BillPaymentSheet>
+    with CheckAfterSave {
   final _formKey = GlobalKey<FormState>();
 
   late final _amountController = TextEditingController(
@@ -147,13 +157,17 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
 
-  /// How much more than the bills wallet holds the user just tried to pay.
-  /// Shown under the amount until they lower it or move money across.
-  double? _shortfall;
+  /// Whether the bank, e-wallet or biller charged for paying, and how much.
+  bool _charged = false;
+  final _chargeController = TextEditingController();
+
+  double get _charge =>
+      ServiceChargeField.amountOf(on: _charged, controller: _chargeController);
 
   @override
   void dispose() {
     _amountController.dispose();
+    _chargeController.dispose();
     super.dispose();
   }
 
@@ -164,33 +178,42 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
     await showTransferSheet(context, toWalletId: bills?.id);
   }
 
-  void _pay(String? walletId, double held) {
-    if (walletId == null || !_formKey.currentState!.validate()) return;
+  void _pay(Wallet? billsWallet) {
+    final walletId = billsWallet?.id;
+    if (walletId == null || !checkForm(_formKey)) return;
 
     final amount = double.parse(
       _amountController.text.trim().replaceAll(',', ''),
     );
-
-    if (amount > held + 0.005) {
-      setState(() => _shortfall = amount - held);
-      _formKey.currentState!.validate();
-      return;
-    }
+    final charge = _charge;
 
     final pay =
         widget.onPay ??
-        ({required String walletId, required double amount}) =>
-            BillService.payInstance(
-              instance: widget.instance,
-              walletId: walletId,
-              amount: amount,
-            );
+        ({
+          required String walletId,
+          required double amount,
+          required double serviceCharge,
+        }) => BillService.payInstance(
+          instance: widget.instance,
+          walletId: walletId,
+          amount: amount,
+          serviceCharge: serviceCharge,
+        );
 
-    pay(walletId: walletId, amount: amount);
+    pay(walletId: walletId, amount: amount, serviceCharge: charge);
+
+    // The same charge is filled in next time.
+    if (widget.onPay == null &&
+        charge > 0 &&
+        billsWallet!.serviceCharge != charge) {
+      WalletService.rememberServiceCharge(walletId, charge);
+    }
     Navigator.pop(context, true);
   }
 
-  String? _validateAmount(String? value) {
+  /// [held] is what the bills wallet has now, so the message goes as soon
+  /// as the amount is lowered or money is moved across.
+  String? _validateAmount(String? value, {required double held}) {
     final amount = double.tryParse((value ?? '').trim().replaceAll(',', ''));
 
     if (amount == null || !isRecordableAmount(amount)) {
@@ -202,9 +225,11 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
           '${formatPeso(widget.instance.remaining)}.';
     }
 
-    final short = _shortfall;
-    if (short != null && short > 0) {
-      return 'Your Bills wallet is ${formatPeso(short)} short. Move money '
+    // The service charge comes out of the Bills wallet too.
+    final total = amount + _charge;
+    if (total > held + 0.005) {
+      return 'Your Bills wallet is ${formatPeso(total - held)} short'
+          '${_charge > 0 ? ' with the service charge' : ''}. Move money '
           'across, or pay part of it.';
     }
 
@@ -241,11 +266,11 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                 wallets,
                 WalletPurpose.bills,
               );
-              final walletId = billsWallet?.id;
               final held = billsWallet?.balance ?? 0;
 
               return Form(
                 key: _formKey,
+                autovalidateMode: checkMode,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -272,7 +297,10 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                     const SizedBox(height: 4),
                     Text(
                       '${formatPeso(instance.remaining)} still owing',
-                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: context.appColors.textMuted,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     if (billsWallet == null)
@@ -293,30 +321,36 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                           decimal: true,
                         ),
                         inputFormatters: const [ThousandsSeparatorFormatter()],
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
                         decoration: dialogFieldDecoration(
                           context,
                           'Paying now',
                           helper:
                               'Pay less than this to record a part payment.',
                         ).copyWith(prefixText: '₱ ', hintText: '0.00'),
-                        validator: _validateAmount,
-                        onChanged: (_) {
-                          if (_shortfall != null) {
-                            setState(() => _shortfall = null);
-                          }
-                        },
+                        validator: (value) =>
+                            _validateAmount(value, held: held),
                       ),
-                      const SizedBox(height: 16),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
+                      ServiceChargeField(
+                        on: _charged,
+                        controller: _chargeController,
+                        onChanged: (on) => setState(() {
+                          _charged = on;
+                          // What the Bills wallet was charged last time.
+                          final last = billsWallet.serviceCharge;
+                          if (on &&
+                              last != null &&
+                              _chargeController.text.trim().isEmpty) {
+                            _chargeController.text = formatAmountInput(last);
+                          }
+                        }),
+                      ),
+                      const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         height: 52,
                         child: ElevatedButton(
-                          onPressed: () => _pay(walletId, held),
+                          onPressed: () => _pay(billsWallet),
                           style: confirmButtonStyle(),
                           child: const Text(
                             'Record Payment',
@@ -328,10 +362,13 @@ class _BillPaymentSheetState extends State<BillPaymentSheet> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      const Text(
+                      Text(
                         'This records the payment and takes the money out of '
                         'your Bills wallet. It does not pay anyone for real.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.appColors.textMuted,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Center(

@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 /// FinAssist's own surface and text colors for light and dark mode.
 ///
-/// The light values are the exact colors the screens used before dark mode
-/// existed, so light mode looks unchanged. Read them with `context.appColors`.
+/// Every text color passes the 4.5 : 1 contrast readers need on the
+/// backgrounds it is used on, in both modes. Read them with
+/// `context.appColors`.
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
@@ -11,6 +12,7 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.card,
     required this.textPrimary,
     required this.textBody,
+    required this.textMuted,
     required this.primaryText,
     required this.border,
     required this.inputBorder,
@@ -32,6 +34,11 @@ class AppColors extends ThemeExtension<AppColors> {
 
   /// Regular body text.
   final Color textBody;
+
+  /// Secondary text: subtitles, hints, captions, step counters and quiet
+  /// icons. Lighter than body text so headings stand out, but still easy to
+  /// read: 5.3 : 1 or more in light mode, 7 : 1 in dark.
+  final Color textMuted;
 
   /// Brand blue used for text and links on cards/page backgrounds.
   final Color primaryText;
@@ -59,8 +66,10 @@ class AppColors extends ThemeExtension<AppColors> {
     card: Colors.white,
     textPrimary: Color(0xFF151515),
     textBody: Colors.black87,
+    textMuted: Color(0xFF5B6573),
     primaryText: Color(0xFF1976D2),
-    border: Color(0xFFE2E8F0),
+    // Strong enough that a white card still shows its edge on white.
+    border: Color(0xFFCBD5E1),
     inputBorder: Color(0xFFDADADA),
     primaryTint: Color(0xFFEAF3FB),
     track: Color(0xFFE4EAF3),
@@ -74,6 +83,7 @@ class AppColors extends ThemeExtension<AppColors> {
     card: Color(0xFF1B222B),
     textPrimary: Color(0xFFE6E9ED),
     textBody: Color(0xDEFFFFFF),
+    textMuted: Color(0xFFA3ACB8),
     primaryText: Color(0xFF64B5F6),
     border: Color(0xFF2C3540),
     inputBorder: Color(0xFF3A4450),
@@ -90,6 +100,7 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? card,
     Color? textPrimary,
     Color? textBody,
+    Color? textMuted,
     Color? primaryText,
     Color? border,
     Color? inputBorder,
@@ -104,6 +115,7 @@ class AppColors extends ThemeExtension<AppColors> {
       card: card ?? this.card,
       textPrimary: textPrimary ?? this.textPrimary,
       textBody: textBody ?? this.textBody,
+      textMuted: textMuted ?? this.textMuted,
       primaryText: primaryText ?? this.primaryText,
       border: border ?? this.border,
       inputBorder: inputBorder ?? this.inputBorder,
@@ -124,6 +136,7 @@ class AppColors extends ThemeExtension<AppColors> {
       card: Color.lerp(card, other.card, t)!,
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
       textBody: Color.lerp(textBody, other.textBody, t)!,
+      textMuted: Color.lerp(textMuted, other.textMuted, t)!,
       primaryText: Color.lerp(primaryText, other.primaryText, t)!,
       border: Color.lerp(border, other.border, t)!,
       inputBorder: Color.lerp(inputBorder, other.inputBorder, t)!,

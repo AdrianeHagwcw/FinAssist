@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 /// Expense categories offered when recording an expense.
+///
+/// New ones reach every account at once: a user's list is these plus their
+/// own, so nothing has to be added to anyone's records.
 const List<String> expenseCategories = [
   'Food',
   'Transportation',
@@ -9,9 +12,20 @@ const List<String> expenseCategories = [
   'Entertainment',
   'Healthcare',
   'Education',
+  'Supplies',
   'Pets',
+  serviceChargeCategory,
+  interestCategory,
   'Others',
 ];
+
+/// What a bank or e-wallet charges to send money or pay a bill. An expense
+/// like any other, so it shows in Reports with the rest of the spending.
+const String serviceChargeCategory = 'Service Charge';
+
+/// What borrowing costs: the part of an installment payment that is more
+/// than was borrowed. An expense, because the user pays it, never income.
+const String interestCategory = 'Interest';
 
 /// Chart color for a category. Matching is case-insensitive and accepts older
 /// spellings (e.g. `Health`, `Other`) found in existing records.
@@ -46,6 +60,12 @@ Color categoryColor(
       return dark ? const Color(0xFF9085E9) : const Color(0xFF4A3AA7);
     case 'pets':
       return const Color(0xFF008300);
+    case 'supplies':
+      return dark ? const Color(0xFF26A6B5) : const Color(0xFF0E8A99);
+    case 'service charge':
+      return dark ? const Color(0xFFB08968) : const Color(0xFF8C6239);
+    case 'interest':
+      return dark ? const Color(0xFFC060BE) : const Color(0xFF9C2F9A);
     default:
       return dark ? const Color(0xFF8A8986) : const Color(0xFF9A9994);
   }
@@ -74,6 +94,12 @@ String categoryIconAsset(String category) {
       return 'assets/icons/icons8-cat-education-96.png';
     case 'pets':
       return 'assets/icons/icons8-cat-pets-96.png';
+    case 'supplies':
+      return 'assets/icons/icons8-cat-supplies-96.png';
+    case 'service charge':
+      return 'assets/icons/icons8-cat-service-charge-96.png';
+    case 'interest':
+      return 'assets/icons/icons8-cat-interest-96.png';
     default:
       return 'assets/icons/icons8-cat-others-96.png';
   }

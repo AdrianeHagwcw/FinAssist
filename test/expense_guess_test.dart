@@ -57,7 +57,8 @@ void main() {
     test('nothing to go on means nothing guessed', () {
       final guess = say('something something');
       expect(guess.amount, isNull);
-      expect(guess.category, isNull);
+      // Named, but nothing any category knows: Others, never blank.
+      expect(guess.category, 'Others');
       expect(guess.foundSomething, isFalse);
     });
   });
@@ -65,6 +66,18 @@ void main() {
   group('category suggestion', () {
     String? suggest(String text, {List<String> from = all}) =>
         suggestCategory(text, from: from);
+
+    test('supplies are Supplies, fees are Service Charge', () {
+      expect(suggest('ballpen'), 'Supplies');
+      expect(suggest('bond paper at notebook'), 'Supplies');
+      expect(suggest('school supplies'), 'Supplies');
+      // What it is for gives way to what was bought.
+      expect(suggest('ballpen for school'), 'Supplies');
+      expect(suggest('notebook para sa school'), 'Supplies');
+      expect(suggest('tuition'), 'Education');
+      expect(suggest('instapay fee'), 'Service Charge');
+      expect(suggest('bank service charge'), 'Service Charge');
+    });
 
     test('knows local stores and Taglish', () {
       expect(suggest('Mang Inasal'), 'Food');
@@ -99,9 +112,9 @@ void main() {
       expect(suggest('date with my girlfriend sa Jollibee'), 'Food');
       expect(suggest('movie date'), 'Entertainment');
       expect(suggest('Grab papunta sa date namin'), 'Transportation');
-      // A calendar date isn't an occasion.
-      expect(suggest('due date'), isNull);
-      expect(suggest('girlfriend'), isNull);
+      // A calendar date isn't an occasion, so they fall under Others.
+      expect(suggest('due date'), 'Others');
+      expect(suggest('girlfriend'), 'Others');
     });
 
     test('a tie suggests nothing rather than guessing', () {
@@ -111,12 +124,12 @@ void main() {
     test('never suggests a hidden category', () {
       final visible = all.where((c) => c != 'Pets').toList();
       expect(suggest('dog food', from: visible), 'Food');
-      expect(suggest('vet', from: visible), isNull);
+      expect(suggest('vet', from: visible), 'Others');
     });
 
     test('matches whole words only', () {
-      expect(suggest('supermarket'), isNull, reason: 'not "market"');
-      expect(suggest('smart watch'), isNull, reason: 'not the telco');
+      expect(suggest('supermarket'), 'Others', reason: 'not "market"');
+      expect(suggest('smart watch'), 'Others', reason: 'not the telco');
     });
   });
 
@@ -174,7 +187,7 @@ CASH 400.00''');
 ABC TRADING
 Date: 09/18/2026
 TOTAL 99.00''');
-      expect(guess.category, isNull);
+      expect(guess.category, 'Others');
       expect(guess.date, DateTime(2026, 9, 18));
     });
 
@@ -185,7 +198,7 @@ ABC TRADING
 TOTAL 99.00
 Thank you for shopping!''');
       expect(guess.description, 'ABC Trading');
-      expect(guess.category, isNull, reason: 'not Shopping from the footer');
+      expect(guess.category, 'Others', reason: 'not Shopping from the footer');
       expect(read('Thank you for shopping').description, isNull);
     });
 

@@ -52,14 +52,15 @@ class DialogTitle extends StatelessWidget {
   }
 }
 
-/// The amount being entered, shown larger than the other fields because it is
-/// the one number the user came here to type.
+/// The amount being entered, with its peso sign. The same size as every
+/// other field, wherever it is, so no form looks unlike the rest.
 class AmountField extends StatelessWidget {
   const AmountField({
     required this.controller,
     required this.label,
     this.hint = '0.00',
     this.helper,
+    this.errorText,
     this.alwaysShowHint = false,
     this.enabled = true,
     this.autofocus = true,
@@ -75,6 +76,9 @@ class AmountField extends StatelessWidget {
 
   /// A short line under the field saying what goes in it.
   final String? helper;
+
+  /// What is wrong with the amount, in red under it in place of [helper].
+  final String? errorText;
 
   /// Keeps the label above the field so the example shows before it is
   /// tapped. The peso sign then waits for the first digit, so the example
@@ -95,15 +99,11 @@ class AmountField extends StatelessWidget {
       inputFormatters: const [ThousandsSeparatorFormatter()],
       textInputAction: TextInputAction.done,
       onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
-      style: TextStyle(
-        fontSize: 24,
-        fontWeight: FontWeight.bold,
-        color: context.appColors.textPrimary,
-      ),
       decoration: dialogFieldDecoration(context, label, helper: helper)
           .copyWith(
             prefixText: alwaysShowHint && controller.text.isEmpty ? null : '₱ ',
             hintText: hint,
+            errorText: errorText,
             // Wraps rather than trailing off, so the sentence can be read.
             helperMaxLines: 3,
             floatingLabelBehavior: alwaysShowHint
@@ -212,4 +212,198 @@ class DialogNote extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Says something was just taken away and gives a few seconds to put it
+/// back. A bar along the bottom shrinks as the time runs out, so the user
+/// can see how long Undo stays. [iconAsset] names what was changed, in the
+/// same colored icons the rest of the app uses.
+void showUndoSnackBar(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required VoidCallback onUndo,
+  String? iconAsset,
+  Duration duration = const Duration(seconds: 5),
+}) {
+  final messenger = ScaffoldMessenger.of(context);
+  final colors = context.appColors;
+
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        duration: duration,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: EdgeInsets.zero,
+        elevation: 6,
+        backgroundColor: colors.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: colors.border),
+        ),
+        content: _UndoNotice(
+          title: title,
+          message: message,
+          iconAsset: iconAsset,
+          duration: duration,
+          onUndo: () {
+            messenger.hideCurrentSnackBar();
+            onUndo();
+          },
+        ),
+      ),
+    );
+}
+
+class _UndoNotice extends StatelessWidget {
+  const _UndoNotice({
+    required this.title,
+    required this.message,
+    required this.iconAsset,
+    required this.duration,
+    required this.onUndo,
+  });
+
+  final String title;
+  final String message;
+  final String? iconAsset;
+  final Duration duration;
+  final VoidCallback onUndo;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colors.primaryTint,
+                    shape: BoxShape.circle,
+                  ),
+                  child: iconAsset == null
+                      ? Icon(Icons.undo, color: colors.primaryText, size: 20)
+                      : Image.asset(iconAsset!, width: 24, height: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        message,
+                        style: TextStyle(fontSize: 12, color: colors.textBody),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                TextButton.icon(
+                  onPressed: onUndo,
+                  style: TextButton.styleFrom(
+                    foregroundColor: colors.primaryText,
+                    minimumSize: const Size(64, 44),
+                  ),
+                  icon: const Icon(Icons.undo, size: 18),
+                  label: const Text(
+                    'Undo',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // How long Undo stays, shrinking to nothing.
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 1, end: 0),
+            duration: duration,
+            builder: (context, value, _) => LinearProgressIndicator(
+              value: value,
+              minHeight: 3,
+              backgroundColor: Colors.transparent,
+              color: colors.primaryText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The one warning before anything is removed: a red icon, what will
+/// happen, a blue Cancel and a red button that does it. Returns true only
+/// when the user chose to go ahead.
+Future<bool> confirmDestructive(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String action = 'Delete',
+  IconData icon = Icons.delete_outline,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      shape: dialogShape,
+      icon: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: dangerColorOn(context).withValues(alpha: 0.15),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: dangerColorOn(context), size: 26),
+      ),
+      title: Text(title),
+      content: Text(
+        message,
+        style: TextStyle(color: context.appColors.textBody, height: 1.4),
+      ),
+      actionsAlignment: MainAxisAlignment.end,
+      actions: [
+        // Blue, so the only red button is the one that removes.
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          style: TextButton.styleFrom(
+            foregroundColor: appPrimaryBlue,
+            minimumSize: const Size(64, 44),
+          ),
+          child: const Text(
+            'Cancel',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          style: dangerButtonStyle(height: 44),
+          child: Text(
+            action,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
 }

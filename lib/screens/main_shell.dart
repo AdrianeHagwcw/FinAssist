@@ -8,13 +8,15 @@ import '../services/user_profile_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/back_to_home.dart';
-import '../widgets/goal_sheets.dart';
 import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
 import '../services/bill_service.dart';
+import '../services/debt_service.dart';
 import '../services/goal_service.dart';
 import '../services/reminder_scheduler.dart';
 import '../services/reminder_service.dart';
+import '../services/wallet_service.dart';
+import '../widgets/interest_sheet.dart';
 import 'add_expense_screen.dart';
 import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
@@ -85,6 +87,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addObserver(this);
     _reminders.start();
+    // Older installments get their interest kept apart, once each.
+    DebtService.fillInterestShares();
     ReminderService.opened.addListener(_openReminder);
     // A reminder may have opened the app before this screen existed.
     WidgetsBinding.instance.addPostFrameCallback((_) => _openReminder());
@@ -127,6 +131,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           ),
         );
       }
+    } else if (payload == 'bills') {
+      // Several bills in one reminder: show them all together.
+      _selectTab(_homeIndex);
+      navigator.push(
+        MaterialPageRoute(builder: (context) => const BillCalendarScreen()),
+      );
     } else if (payload.startsWith('goal:')) {
       _openSavings();
       final goal = await GoalService.watchGoal(payload.substring(5)).first;
@@ -140,6 +150,19 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       navigator.push(
         MaterialPageRoute(builder: (context) => const AddExpenseScreen()),
       );
+    } else if (payload.startsWith('interest:')) {
+      // Interest: the user checks the account and says what came in.
+      _selectTab(_homeIndex);
+      final id = payload.substring(9);
+      final wallets = await WalletService.loadWallets();
+      final wallet = wallets.where((w) => w.id == id && !w.archived);
+      if (wallet.isNotEmpty && mounted) {
+        final added = await showAddInterestSheet(context, wallet: wallet.first);
+        if (added && mounted) setState(() => _homeRefreshKey++);
+      }
+    } else if (payload == 'installments') {
+      // The year's interest: each installment shows what it has cost.
+      _openDebts();
     } else if (payload == 'income') {
       // Payday: the user confirms the amount; nothing is added by itself.
       _selectTab(_homeIndex);
@@ -239,9 +262,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       case VoiceDestination.financialPreferences:
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => const FinancialPreferencesScreen(),
-          ),
+          MaterialPageRoute(builder: (_) => const FinancialPreferencesScreen()),
         );
         return;
       case VoiceDestination.payCycleHistory:
@@ -285,8 +306,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             onOpenTransactions: () => _selectTab(_transactionsIndex),
             onOpenWallets: () => _selectTab(_walletIndex),
             onOpenBills: _openBills,
-            // Savings on Home opens the savings balance; the goals behind it
-            // are one tap further in.
+            // Savings on Home opens the savings balance; Goals has its own
+            // shortcut, where goals are added.
+            onOpenGoals: _openGoals,
             onOpenDebts: _openDebts,
             onVoiceNavigate: _navigateFromVoice,
           ),
@@ -299,8 +321,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         ];
   }
 
-  // Things to record, one tap from anywhere. Places to go live on Home's
-  // Quick Actions and the bottom bar instead.
+  // Things to record, one tap from anywhere, and Goals, where money is
+  // saved toward a goal. Other places live on Home's Quick Actions and the
+  // bottom bar instead.
   List<QuickAddAction> _quickAddActions() {
     return widget.quickAddActions ??
         [
@@ -334,16 +357,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               if (saved && mounted) setState(() => _homeRefreshKey++);
             },
           ),
-          QuickAddAction(
-            icon: Icons.savings_outlined,
-            iconAsset: 'assets/icons/icons8-money-box-96.png',
-            label: 'Save to Goal',
-            color: appPrimaryBlue,
-            onSelected: () async {
-              final saved = await showSaveToGoal(context);
-              if (saved && mounted) _openSavings();
-            },
-          ),
           // Scanning a receipt and speaking an expense are ways of recording
           // one, so they belong here rather than only on Home. Adding an
           // installment is set up once and becomes bills afterwards, so it
@@ -375,6 +388,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 ),
               ),
             ),
+          ),
+          // Goals, as on Home: a goal is added there, and money is saved
+          // toward one from its own page.
+          QuickAddAction(
+            icon: Icons.flag_outlined,
+            iconAsset: 'assets/icons/icons8-goal-96.png',
+            label: 'Goals',
+            color: appPrimaryBlue,
+            onSelected: _openGoals,
           ),
         ];
   }

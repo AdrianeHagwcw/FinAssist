@@ -19,10 +19,10 @@ class OnboardingData {
   const OnboardingData({
     required this.name,
     required this.notificationsEnabled,
-    required this.incomeSource,
-    required this.incomeFrequency,
+    this.incomeSource,
+    this.incomeFrequency,
     this.lastPaydayAt,
-    required this.monthlyIncome,
+    this.monthlyIncome,
     required this.priorities,
     required this.wallets,
     this.bills = const [],
@@ -32,15 +32,18 @@ class OnboardingData {
 
   final String name;
   final bool notificationsEnabled;
-  final String incomeSource;
-  final String incomeFrequency;
+
+  /// Optional legacy inputs. Current setup no longer collects these, and null
+  /// values leave any existing profile income data unchanged.
+  final String? incomeSource;
+  final String? incomeFrequency;
 
   /// The day the user last received their pay. It starts the first pay
   /// period, so the days left are right from the moment setup is finished.
   final DateTime? lastPaydayAt;
 
-  /// Monthly income. For irregular income this is an optional rough estimate,
-  /// and null when the user left it blank.
+  /// Monthly income. For irregular income this is an optional rough estimate;
+  /// null when it was not collected or the user left it blank.
   final double? monthlyIncome;
 
   /// The profile's legacy `income` value represents one payment, not a month.
@@ -95,38 +98,88 @@ class OnboardingSavingsAccount {
     required this.name,
     required this.kind,
     required this.balance,
+    this.annualInterestRatePercent,
+    this.depositStartDate,
     this.maturityDate,
     this.note,
+    this.interestPayout = InterestPayout.monthly,
   });
 
   final String name;
   final SavingsKind kind;
   final double balance;
 
+  /// How often a savings deposit pays its interest.
+  final InterestPayout interestPayout;
+  final double? annualInterestRatePercent;
+  final DateTime? depositStartDate;
+
   /// When a time deposit comes due. Null for the other kinds.
   final DateTime? maturityDate;
   final String? note;
+
+  double? get estimatedSimpleInterest {
+    final rate = annualInterestRatePercent;
+    final start = depositStartDate;
+    if (kind == SavingsKind.demandDeposit) return 0;
+    if (!kind.isInterestBearing ||
+        rate == null ||
+        !isValidAnnualInterestRatePercent(rate) ||
+        start == null ||
+        !balance.isFinite ||
+        balance < 0) {
+      return null;
+    }
+    final end = kind == SavingsKind.timeDeposit ? maturityDate : DateTime.now();
+    if (end == null) return null;
+    final estimateStart =
+        kind == SavingsKind.savingsDeposit &&
+            calendarDaysBetween(start, end) > 0
+        ? end
+        : start;
+    final days = calendarDaysBetween(estimateStart, end);
+    if (kind == SavingsKind.timeDeposit && days <= 0) return null;
+    return calculateSimpleInterest(
+      principal: balance,
+      annualInterestRatePercent: rate,
+      days: days < 0 ? 0 : days,
+    );
+  }
 
   OnboardingSavingsAccount copyWith({
     String? name,
     SavingsKind? kind,
     double? balance,
+    double? annualInterestRatePercent,
+    DateTime? depositStartDate,
+    bool clearInterestRate = false,
+    bool clearDepositStartDate = false,
+    bool clearMaturityDate = false,
     DateTime? maturityDate,
     String? note,
+    InterestPayout? interestPayout,
   }) {
     return OnboardingSavingsAccount(
       name: name ?? this.name,
       kind: kind ?? this.kind,
       balance: balance ?? this.balance,
-      maturityDate: maturityDate ?? this.maturityDate,
+      annualInterestRatePercent: clearInterestRate
+          ? null
+          : annualInterestRatePercent ?? this.annualInterestRatePercent,
+      depositStartDate: clearDepositStartDate
+          ? null
+          : depositStartDate ?? this.depositStartDate,
+      maturityDate: clearMaturityDate
+          ? null
+          : maturityDate ?? this.maturityDate,
       note: note ?? this.note,
+      interestPayout: interestPayout ?? this.interestPayout,
     );
   }
 }
 
-/// What saved money is for. A goal claims part of a savings record through
-/// [allocated]; it never moves the money, so the record's balance is the same
-/// before and after.
+/// What saved money is for. A goal can claim part of a wallet's balance
+/// through [allocated]; it never moves the money, so the balance is unchanged.
 class OnboardingGoal {
   const OnboardingGoal({
     required this.name,
@@ -136,24 +189,46 @@ class OnboardingGoal {
     required this.frequency,
     required this.planAmount,
     required this.note,
+    this.customInterval,
     this.fundedBy,
-    this.allocated = 0,
-  });
+    double allocated = 0,
+    this.fundingByWalletDraftId = const {},
+    this.fundingSource,
+  }) : _recordAllocated = allocated;
 
   final String name;
   final GoalKind kind;
   final double targetAmount;
   final DateTime? targetDate;
   final ContributionFrequency frequency;
+
+  /// The rhythm the user set when [frequency] is Custom.
+  final SavingInterval? customInterval;
   final double? planAmount;
   final String? note;
 
-  /// The savings record this goal draws on, by its name in the setup list.
-  /// Null when the user did not pick one, which is allowed.
+  /// Legacy savings-record name used by older onboarding data.
+  /// New goals use [fundingByWalletDraftId] instead.
   final String? fundedBy;
 
-  /// How much of that record is already counted towards this goal.
-  final double allocated;
+  /// How much of [fundedBy] is already counted towards this goal.
+  final double _recordAllocated;
+
+  /// How much of each starting wallet, by draft id, is counted towards this
+  /// goal. Cash and bank together give more than one entry.
+  final Map<String, double> fundingByWalletDraftId;
+  final GoalFundingSource? fundingSource;
+
+  /// Everything already counted towards this goal.
+  double get allocated => fundingByWalletDraftId.isEmpty
+      ? _recordAllocated
+      : fundingByWalletDraftId.values.fold(
+          0,
+          (total, amount) => total + amount,
+        );
+
+  /// The starting wallet holding most of the goal's money.
+  String? get fundingWalletDraftId => mainFundingWallet(fundingByWalletDraftId);
 
   /// What is still to be found, never below zero.
   double get remaining {
@@ -176,10 +251,13 @@ class OnboardingGoal {
     double? targetAmount,
     DateTime? targetDate,
     ContributionFrequency? frequency,
+    SavingInterval? customInterval,
     double? planAmount,
     String? note,
     String? fundedBy,
     double? allocated,
+    Map<String, double>? fundingByWalletDraftId,
+    GoalFundingSource? fundingSource,
     bool clearFunding = false,
   }) {
     return OnboardingGoal(
@@ -188,10 +266,17 @@ class OnboardingGoal {
       targetAmount: targetAmount ?? this.targetAmount,
       targetDate: targetDate ?? this.targetDate,
       frequency: frequency ?? this.frequency,
+      customInterval: customInterval ?? this.customInterval,
       planAmount: planAmount ?? this.planAmount,
       note: note ?? this.note,
       fundedBy: clearFunding ? null : (fundedBy ?? this.fundedBy),
-      allocated: clearFunding ? 0 : (allocated ?? this.allocated),
+      allocated: clearFunding ? 0 : (allocated ?? _recordAllocated),
+      fundingByWalletDraftId: clearFunding
+          ? const {}
+          : (fundingByWalletDraftId ?? this.fundingByWalletDraftId),
+      fundingSource: clearFunding
+          ? null
+          : (fundingSource ?? this.fundingSource),
     );
   }
 }

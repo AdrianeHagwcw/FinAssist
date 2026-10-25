@@ -40,8 +40,9 @@ FinancialInsights calculateFinancialInsights(
   final categoryTotals = <String, double>{};
   for (final transaction in currentMonth) {
     if (!_isSpending(transaction)) continue;
-    categoryTotals[transaction.label] =
-        (categoryTotals[transaction.label] ?? 0) + transaction.amount;
+    for (final part in transaction.spendingParts) {
+      categoryTotals[part.key] = (categoryTotals[part.key] ?? 0) + part.value;
+    }
   }
   final sortedCategories = categoryTotals.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));

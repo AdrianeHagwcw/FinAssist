@@ -425,7 +425,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
         const SizedBox(height: 16),
         _Section(
-          title: 'Inward vs. outward',
+          title: 'Inflow vs. outflow',
           subtitle: _trendSubtitle(points.length),
           child: _TrendChart(points: points),
         ),
@@ -680,7 +680,7 @@ class _TrendChart extends StatelessWidget {
 
     if (highest <= 0) {
       return const _EmptyNote(
-        'Nothing inward or outward in these periods yet.',
+        'Nothing flowing in or out in these periods yet.',
       );
     }
 
@@ -717,9 +717,9 @@ class _TrendChart extends StatelessWidget {
       children: [
         Row(
           children: [
-            key('Inward', green),
+            key('Inflow', green),
             const SizedBox(width: 16),
-            key('Outward', red),
+            key('Outflow', red),
           ],
         ),
         const SizedBox(height: 16),

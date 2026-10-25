@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/app_transaction.dart';
 import '../models/debt.dart';
@@ -52,9 +53,10 @@ class DebtService {
   ///
   /// The terms and the payment schedule in the Bill Planner go in one batch,
   /// and nothing else: a plan is not a payment, so no wallet moves until a
-  /// payment is actually recorded. Cash handed over for a loan is income the
-  /// user records on its own. The schedule ends on the last payment's date,
-  /// so it never asks for a thirteenth payment on a twelve-month plan.
+  /// payment is actually recorded. The schedule ends on the last payment's
+  /// date, so it never asks for a thirteenth payment on a twelve-month plan,
+  /// and starts after the [paidBefore] payments made before it was tracked,
+  /// so those are never asked for again.
   static String addInstallment({
     required String name,
     required DebtCategory category,
@@ -64,8 +66,11 @@ class DebtService {
     required PaymentFrequency frequency,
     required DateTime firstDueDate,
     double lastPayment = 0,
-    String? payFromWalletId,
     String? note,
+    int paidBefore = 0,
+    double? quotedRate,
+    RatePeriod quotedRatePer = RatePeriod.year,
+    String? otherKind,
   }) {
     final batch = _firestore.batch();
     final debt = _debts.doc();
@@ -83,6 +88,7 @@ class DebtService {
       frequency: frequency,
       firstDueDate: firstDueDate,
       status: DebtStatus.active,
+      paidBefore: paidBefore,
     );
     final lastDue = terms.lastDueDate!;
 
@@ -99,6 +105,13 @@ class DebtService {
       'billId': bill.id,
       'note': _noteOrNull(note),
       'status': DebtStatus.active.name,
+      if (paidBefore > 0) 'paidBefore': paidBefore,
+      if (category == DebtCategory.other && (otherKind ?? '').trim().isNotEmpty)
+        'otherKind': otherKind!.trim(),
+      if (quotedRate != null) ...{
+        'quotedRate': quotedRate,
+        'quotedRatePer': quotedRatePer.name,
+      },
       'createdAt': FieldValue.serverTimestamp(),
     });
 
@@ -110,14 +123,33 @@ class DebtService {
       category: 'Bills',
       firstDueDate: firstDueDate,
       recurrence: frequency.recurrence,
-      walletId: payFromWalletId,
       endDate: lastDue,
       debtId: debt.id,
       lastAmount: terms.hasDifferentLastPayment ? terms.finalPayment : null,
+      startDate: paidBefore > 0 ? terms.dueDateOf(paidBefore + 1) : null,
+      // Each payment then records the interest inside it.
+      interestShare: terms.interestShare,
     );
 
     commitFirestoreWrite(batch.commit(), 'add installment');
     return debt.id;
+  }
+
+  /// Gives installments saved before interest was kept apart the same split
+  /// as new ones, so every account's Reports show what borrowing cost. Each
+  /// is done once; offline, it waits for the next start.
+  static Future<void> fillInterestShares() async {
+    try {
+      final snapshot = await _debts.get();
+      for (final doc in snapshot.docs) {
+        final debt = Debt.fromMap(doc.id, doc.data());
+        final billId = debt.billId;
+        if (debt.direction != DebtDirection.iOwe || billId == null) continue;
+        await BillService.fillInterestShare(billId, debt.interestShare);
+      }
+    } on FirebaseException catch (error) {
+      debugPrint('Installment interest: $error');
+    }
   }
 
   /// Saves money someone owes the user. When [lentFromWalletId] is given, the

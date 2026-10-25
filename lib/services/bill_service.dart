@@ -173,6 +173,8 @@ class BillService {
     DateTime? endDate,
     String? debtId,
     double? lastAmount,
+    DateTime? startDate,
+    double interestShare = 0,
   }) {
     batch.set(
       reference,
@@ -188,7 +190,16 @@ class BillService {
         )
         ..['createdAt'] = FieldValue.serverTimestamp()
         // An installment whose last payment differs, set once with its terms.
-        ..addAll({'lastAmount': ?lastAmount}),
+        ..addAll({'lastAmount': ?lastAmount})
+        // And one with payments made before it was tracked.
+        ..addAll({
+          if (startDate != null)
+            'startDate': Timestamp.fromDate(
+              DateTime(startDate.year, startDate.month, startDate.day),
+            ),
+        })
+        // And one that costs more than was borrowed.
+        ..addAll({if (interestShare > 0) 'interestShare': interestShare}),
     );
   }
 
@@ -253,6 +264,56 @@ class BillService {
       'debtId': ?debtId,
       'updatedAt': FieldValue.serverTimestamp(),
     };
+  }
+
+  /// Gives an installment saved before interest was kept apart its [share]:
+  /// on the schedule, on every date already made, and inside the payments
+  /// already recorded, so its Reports read like a new one's. Does nothing
+  /// once the schedule has a share, so it runs once per installment.
+  static Future<void> fillInterestShare(String billId, double share) async {
+    if (share <= 0) return;
+    final billDoc = await _bills.doc(billId).get();
+    if (!billDoc.exists) return;
+    if (Bill.fromMap(billDoc.id, billDoc.data()).interestShare > 0) return;
+
+    final instances = await _instances.where('billId', isEqualTo: billId).get();
+
+    // A long plan has hundreds of dates; a batch takes 500 writes at most.
+    var batch = _firestore.batch();
+    var writes = 0;
+    void write(void Function(WriteBatch batch) change) {
+      change(batch);
+      if (++writes == 400) {
+        commitFirestoreWrite(batch.commit(), 'split installment interest');
+        batch = _firestore.batch();
+        writes = 0;
+      }
+    }
+
+    for (final doc in instances.docs) {
+      final instance = BillInstance.fromMap(doc.id, doc.data());
+      write(
+        (batch) => batch.set(doc.reference, {
+          'interestShare': share,
+        }, SetOptions(merge: true)),
+      );
+      for (final paymentId in instance.paymentIds) {
+        final payment = await WalletService.loadTransaction(paymentId);
+        if (payment == null || payment.interest > 0) continue;
+        write(
+          (batch) => WalletService.setInterestInBatch(
+            batch,
+            paymentId,
+            interestPartOf(payment.amount, share),
+          ),
+        );
+      }
+    }
+    // The schedule last: until it is marked, a stopped run starts again.
+    batch.set(_bills.doc(billId), {
+      'interestShare': share,
+    }, SetOptions(merge: true));
+    commitFirestoreWrite(batch.commit(), 'split installment interest');
   }
 
   /// Stops a bill from producing any more occurrences, and clears the ones
@@ -326,6 +387,7 @@ class BillService {
         'carriedOver': occurrence.carried,
         'paymentIds': <String>[],
         'walletId': bill.walletId,
+        if (bill.interestShare > 0) 'interestShare': bill.interestShare,
         'createdAt': FieldValue.serverTimestamp(),
       });
       created++;
@@ -390,14 +452,27 @@ class BillService {
     required BillInstance instance,
     required String walletId,
     double? amount,
+    double serviceCharge = 0,
   }) {
     final batch = _firestore.batch();
+    // The payment and any service charge on it: both or neither, and one
+    // balance change for the wallet.
+    final deltas = <String, double>{};
     addPaymentToBatch(
       batch,
       instance: instance,
       walletId: walletId,
       amount: amount ?? instance.remaining,
+      collectDeltasInto: deltas,
     );
+    WalletService.addServiceChargeToBatch(
+      batch,
+      walletId: walletId,
+      amount: serviceCharge,
+      note: 'For paying ${instance.name}',
+      collectDeltasInto: deltas,
+    );
+    WalletService.applyDeltasToBatch(batch, deltas);
 
     commitFirestoreWrite(batch.commit(), 'pay bill');
   }
@@ -429,6 +504,9 @@ class BillService {
       date: date,
       collectDeltasInto: collectDeltasInto,
       billInstanceId: instance.id,
+      // An installment's interest is kept apart inside the same payment, so
+      // Reports can show what borrowing cost.
+      interest: instance.interestIn(amount),
     );
 
     final paid = instance.amountPaid + amount;

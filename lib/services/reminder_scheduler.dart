@@ -60,13 +60,6 @@ class ReminderSettingsService {
     _save({kind.name: on ?? FieldValue.delete()}, 'set ${kind.name} reminder');
   }
 
-  /// How many days before a bill to remind, or null for the suggestion.
-  static void setBillLeadDays(int? days) {
-    _save({
-      'billLeadDays': days ?? FieldValue.delete(),
-    }, 'set bill reminder timing');
-  }
-
   static void setPriorities(List<FinancialPriority> priorities) {
     commitFirestoreWrite(
       _profile.set({

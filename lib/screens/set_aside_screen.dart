@@ -18,9 +18,11 @@ import '../utils/money_format.dart';
 import '../widgets/bill_payment_sheet.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/interest_sheet.dart';
+import '../widgets/item_card.dart';
+import '../widgets/savings_form_parts.dart';
 import '../widgets/set_aside_record_sheet.dart';
 import '../widgets/money_text.dart';
-import 'goals_screen.dart';
 
 /// Which of the two is being opened. Home already keeps them apart, so each
 /// one is a screen of its own rather than two halves behind a toggle.
@@ -150,7 +152,6 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     List<Goal> goals = const [],
     bool goalsLoaded = true,
   }) {
-    final colors = context.appColors;
     final kept = [
       for (final wallet in wallets)
         if (!wallet.archived && wallet.purpose == purpose) wallet,
@@ -164,11 +165,26 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
             : 'Your savings records',
       ),
       const SizedBox(height: 10),
+      // The same card as setup's savings step.
       for (final wallet in kept)
-        InkWell(
+        ItemCard(
           key: Key('set-aside-record-${wallet.id}'),
-          borderRadius: BorderRadius.circular(14),
-          onTap: purpose == WalletPurpose.savings && !goalsLoaded
+          icon: Image.asset(
+            purpose == WalletPurpose.bills
+                ? 'assets/icons/icons8-receipt-96.png'
+                : savingsKindIcon(wallet.savingsType),
+          ),
+          title: wallet.name,
+          subtitle: purpose == WalletPurpose.bills
+              ? '${formatPeso(wallet.balance)} for bills'
+              : savingsRecordSubtitle(
+                  name: wallet.name,
+                  kind: wallet.savingsType,
+                  balance: wallet.balance,
+                ),
+          // Goal money sets the lowest a savings balance can be fixed to, so
+          // editing waits for the goals.
+          onEdit: purpose == WalletPurpose.savings && !goalsLoaded
               ? null
               : () => _editRecord(
                   wallet,
@@ -176,51 +192,39 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                       ? goalMoneyInWallet(goals, wallet.id)
                       : 0,
                 ),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-            decoration: BoxDecoration(
-              color: colors.card,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: colors.border),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        wallet.name,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: colors.textPrimary,
-                        ),
+          details: purpose == WalletPurpose.bills
+              ? const []
+              : [
+                  ...savingsRecordDetails(
+                    kind: wallet.savingsType,
+                    balance: wallet.balance,
+                    rate: wallet.earnsNoInterest
+                        ? null
+                        : wallet.annualInterestRatePercent,
+                    start: wallet.depositStartDate,
+                    end: wallet.maturityDate,
+                    interestUntilEnd: wallet.estimatedTimeDepositInterest(),
+                    promised: goalMoneyInWallet(goals, wallet.id),
+                    today: _now,
+                    payout: wallet.interestPayout,
+                  ),
+                  if (wallet.paysRegularInterest)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: Key('add-interest-${wallet.id}'),
+                        onPressed: () async {
+                          final added = await showAddInterestSheet(
+                            context,
+                            wallet: wallet,
+                          );
+                          if (added && mounted) setState(() {});
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Add interest that came in'),
                       ),
-                      if (wallet.maturityDate != null)
-                        Text(
-                          'Can be taken out '
-                          '${formatShortDate(wallet.maturityDate!)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colors.textBody,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                Text(
-                  formatPeso(wallet.balance),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(Icons.edit_outlined, size: 18, color: colors.primaryText),
-              ],
-            ),
-          ),
+                    ),
+                ],
         ),
       const SizedBox(height: 10),
     ];
@@ -235,28 +239,44 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     if (saved == true && mounted) setState(() {});
   }
 
-  Future<void> _addRecord(List<Wallet> wallets, WalletPurpose purpose) async {
+  Future<void> _addRecord(
+    List<Wallet> wallets,
+    WalletPurpose purpose, {
+    List<Goal> goals = const [],
+  }) async {
     final saved = await showSetAsideRecordSheet(
       context,
       wallets: wallets,
       purpose: purpose,
+      // The goals this screen has read, for what each wallet has free. A
+      // copy of its own, as the screen is already listening to the live
+      // ones.
+      goals: Stream.value(goals),
     );
     if (saved == true && mounted) setState(() {});
   }
 
   /// Shown even when there are no records at all, so a side left empty at
   /// sign up can still be started here.
-  Widget _addRecordButton(List<Wallet> wallets, WalletPurpose purpose) {
+  Widget _addRecordButton(
+    List<Wallet> wallets,
+    WalletPurpose purpose, {
+    List<Goal> goals = const [],
+  }) {
     final savings = purpose == WalletPurpose.savings;
 
+    // The same green Add button as the setup steps.
     return SizedBox(
       width: double.infinity,
-      child: OutlinedButton.icon(
+      height: 52,
+      child: ElevatedButton(
         key: Key(savings ? 'add-savings-record' : 'add-bills-record'),
-        onPressed: () => _addRecord(wallets, purpose),
-        icon: const Icon(Icons.add, size: 18),
-        label: Text(savings ? 'Add savings' : 'Add bills money'),
-        style: openOutlineStyle(context),
+        onPressed: () => _addRecord(wallets, purpose, goals: goals),
+        style: confirmButtonStyle(),
+        child: Text(
+          savings ? 'Add Savings' : 'Add Bills Money',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }
@@ -311,9 +331,6 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
         stream: _goals,
         builder: (context, snapshot) {
           final allGoals = snapshot.data ?? const <Goal>[];
-          final goals = allGoals
-              .where((goal) => goal.status != GoalStatus.used)
-              .toList();
           final assignedToGoals = totalSetAsideInPurposeWallets(
             allGoals,
             wallets,
@@ -327,52 +344,8 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               .clamp(0.0, double.infinity)
               .toDouble();
 
-          if (goals.isEmpty) {
-            return Column(
-              children: [
-                _TotalCard(
-                  title: 'Savings wallet',
-                  total: available,
-                  iconAsset: 'assets/icons/icons8-money-box-96.png',
-                  note: savingsNote,
-                  onTransfer: () => showTransferSheet(context),
-                  // Show only money that has been assigned to goals.
-                  breakdown: assignedToGoals <= 0
-                      ? const []
-                      : [
-                          (
-                            label: 'Towards your goals',
-                            amount: assignedToGoals,
-                          ),
-                        ],
-                ),
-                const SizedBox(height: 20),
-                const EmptyStateView(
-                  iconAsset: 'assets/icons/icons8-money-box-96.png',
-                  title: 'No savings goal yet',
-                  message:
-                      'Add a goal such as an emergency fund or school money, '
-                      'and your savings are counted towards it here.',
-                ),
-                const SizedBox(height: 16),
-                _ManageGoalsButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const GoalsScreen()),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                ..._records(
-                  wallets,
-                  WalletPurpose.savings,
-                  goals: allGoals,
-                  goalsLoaded: snapshot.hasData,
-                ),
-                _addRecordButton(wallets, WalletPurpose.savings),
-              ],
-            );
-          }
-
+          // The goals themselves live in Goals; here is only the money:
+          // what is free, what goals hold, and the records it sits in.
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -382,29 +355,10 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                 iconAsset: 'assets/icons/icons8-money-box-96.png',
                 note: savingsNote,
                 onTransfer: () => showTransferSheet(context),
+                // Show only money that has been assigned to goals.
                 breakdown: assignedToGoals <= 0
                     ? const []
                     : [(label: 'Towards your goals', amount: assignedToGoals)],
-              ),
-              const SizedBox(height: 20),
-              _SectionTitle('What it is for'),
-              const SizedBox(height: 10),
-              for (final goal in goals) ...[
-                _GoalRow(
-                  goal: goal,
-                  inSavings: totalSetAsideInPurposeWallets(
-                    [goal],
-                    wallets,
-                    WalletPurpose.savings,
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-              _ManageGoalsButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const GoalsScreen()),
-                ),
               ),
               const SizedBox(height: 24),
               ..._records(
@@ -413,7 +367,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                 goals: allGoals,
                 goalsLoaded: snapshot.hasData,
               ),
-              _addRecordButton(wallets, WalletPurpose.savings),
+              _addRecordButton(wallets, WalletPurpose.savings, goals: allGoals),
             ],
           );
         },
@@ -600,30 +554,6 @@ class _TotalCard extends StatelessWidget {
   }
 }
 
-/// Opens the goals themselves, where they are added and edited.
-class _ManageGoalsButton extends StatelessWidget {
-  const _ManageGoalsButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: onPressed,
-        icon: Image.asset(
-          'assets/icons/icons8-goal-96.png',
-          width: 18,
-          height: 18,
-        ),
-        label: const Text('Manage goals'),
-        style: openOutlineStyle(context),
-      ),
-    );
-  }
-}
-
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text);
 
@@ -642,85 +572,6 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-/// One goal the savings are going towards.
-class _GoalRow extends StatelessWidget {
-  const _GoalRow({required this.goal, required this.inSavings});
-
-  final Goal goal;
-
-  /// The part of this goal's money that is held in savings. A goal can also
-  /// be funded from a spending wallet, and that part is not in the total
-  /// above, so the difference is named rather than left to puzzle over.
-  final double inSavings;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(goal.kind.icon, size: 20, color: appPrimaryBlue),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  goal.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: colors.textPrimary,
-                  ),
-                ),
-              ),
-              MoneyText(
-                goal.savedAmount,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: colors.textPrimary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: goal.progress.clamp(0, 1),
-              minHeight: 6,
-              backgroundColor: colors.border,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'of ${formatPeso(goal.targetAmount)} target',
-            style: TextStyle(fontSize: 12, color: colors.textBody),
-          ),
-          if (goal.savedAmount - inSavings > 0.005) ...[
-            const SizedBox(height: 4),
-            Text(
-              '${formatPeso(inSavings)} of this is in your savings',
-              style: TextStyle(fontSize: 12, color: colors.primaryText),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// One bill still to pay, with what is left on it.
 class _BillRow extends StatelessWidget {
   const _BillRow({required this.bill, required this.now, required this.onPay});
 

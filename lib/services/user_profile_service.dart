@@ -2,10 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/onboarding_data.dart';
+import '../models/goal.dart';
 import '../models/wallet.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
 import 'goal_service.dart';
+import '../utils/money_format.dart';
+import '../utils/text_limits.dart';
 
 // Profile writes are not awaited and reads use Firestore's default source, so
 // they work from the local cache while offline and sync when back online. The
@@ -74,6 +77,62 @@ class UserProfileService {
     }, SetOptions(merge: true));
   }
 
+  /// Everything typed in setup, checked again before it is saved: names
+  /// readable and within their limits, amounts real numbers no bigger than
+  /// [maximumAmount]. The screens already refuse these, so this only stops a
+  /// value that got in some other way.
+  static void _checkLimits(OnboardingData data) {
+    // The same rule as the screens: a word in it, and no account number.
+    void name(String value, int maxLength, String field) {
+      final problem = itemNameProblem(value, maxLength: maxLength);
+      if (problem != null) throw ArgumentError.value(value, field, problem);
+    }
+
+    void amount(double value, String field, {bool allowZero = true}) {
+      final low = allowZero ? 0 : minimumAmount;
+      if (!value.isFinite || value < low || value > maximumAmount) {
+        throw ArgumentError.value(
+          value,
+          field,
+          'Must be from $low to $maximumAmount.',
+        );
+      }
+    }
+
+    final nameProblem = personNameProblem(data.name);
+    if (nameProblem != null) {
+      throw ArgumentError.value(data.name, 'name', nameProblem);
+    }
+    for (final wallet in data.wallets) {
+      name(wallet.name, maxSavedWalletNameLength, 'wallet.name');
+      amount(wallet.startingBalance, 'wallet.startingBalance');
+    }
+    for (final savings in data.savingsAccounts) {
+      name(savings.name, maxItemNameLength, 'savings.name');
+      amount(savings.balance, 'savings.balance');
+    }
+    for (final bill in data.bills) {
+      name(bill.name, maxItemNameLength, 'bill.name');
+      amount(bill.amount, 'bill.amount', allowZero: false);
+    }
+    for (final goal in data.goals) {
+      name(goal.name, maxItemNameLength, 'goal.name');
+      amount(goal.targetAmount, 'goal.targetAmount', allowZero: false);
+      if (goal.planAmount != null) {
+        amount(goal.planAmount!, 'goal.planAmount');
+      }
+      for (final funded in goal.fundingByWalletDraftId.values) {
+        amount(funded, 'goal.fundingByWalletDraftId');
+      }
+      final custom = goal.customInterval;
+      if (goal.frequency == ContributionFrequency.custom &&
+          custom != null &&
+          !custom.isValid) {
+        throw ArgumentError.value(custom.count, 'goal.customInterval');
+      }
+    }
+  }
+
   /// Saves the onboarding answers and starting wallets in one batch, then
   /// marks setup as completed.
   static Future<void> completeOnboarding(OnboardingData data) async {
@@ -82,23 +141,141 @@ class UserProfileService {
     if (user == null) {
       throw StateError('No authenticated user.');
     }
+    _checkLimits(data);
+    for (final wallet in data.wallets) {
+      final rate = wallet.annualInterestRatePercent;
+      if (rate != null && !isValidAnnualInterestRatePercent(rate)) {
+        throw ArgumentError.value(
+          rate,
+          'annualInterestRatePercent',
+          'Must be between 0 and '
+              '${maximumAnnualInterestRatePercent.toInt()}%.',
+        );
+      }
+    }
+    final draftIds = <String>{};
+    for (final wallet in data.wallets) {
+      final id = wallet.id;
+      if (id != null && !draftIds.add(id)) {
+        throw ArgumentError.value(id, 'wallet.id', 'Must be unique.');
+      }
+    }
+    final walletDraftsById = {
+      for (final wallet in data.wallets)
+        if (wallet.id != null) wallet.id!: wallet,
+    };
+    final allocatedByDraftId = <String, double>{};
+    for (final goal in data.goals) {
+      if (goal.allocated < 0 || !goal.allocated.isFinite) {
+        throw ArgumentError.value(goal.allocated, 'goal.allocated');
+      }
+      if (goal.allocated > goal.targetAmount + 0.005) {
+        throw ArgumentError('A goal cannot be funded beyond its target.');
+      }
+      if (goal.fundingByWalletDraftId.isEmpty) {
+        if (goal.allocated > 0 &&
+            (goal.fundedBy == null ||
+                !data.savingsAccounts.any(
+                  (savings) => savings.name == goal.fundedBy,
+                ))) {
+          throw ArgumentError(
+            'A funded goal must identify its wallet or savings record.',
+          );
+        }
+        continue;
+      }
+      // Cash, accounts, or both: every wallet is checked on its own, and
+      // the stored source must match the wallets actually used.
+      final sourceTypes = <WalletType>[];
+      for (final entry in goal.fundingByWalletDraftId.entries) {
+        final source = walletDraftsById[entry.key];
+        if (source == null) {
+          throw ArgumentError.value(
+            entry.key,
+            'goal.fundingByWalletDraftId',
+            'Must identify a wallet added during setup.',
+          );
+        }
+        if (entry.value < 0 || !entry.value.isFinite) {
+          throw ArgumentError.value(entry.value, 'goal.fundingByWalletDraftId');
+        }
+        if (source.type != WalletType.cash &&
+            !isBankOrEWalletType(source.type)) {
+          throw ArgumentError(
+            'A goal can only be funded from cash, a bank, or an e-wallet.',
+          );
+        }
+        if (entry.value > 0 && !source.balanceRecorded) {
+          throw ArgumentError(
+            'A goal cannot be funded from a wallet without a recorded balance.',
+          );
+        }
+        sourceTypes.add(source.type);
+        allocatedByDraftId.update(
+          entry.key,
+          (allocated) => allocated + entry.value,
+          ifAbsent: () => entry.value,
+        );
+      }
+      if (goal.fundingSource != GoalFundingSource.fromTypes(sourceTypes)) {
+        throw ArgumentError(
+          'A goal funding source must match its selected cash, bank, or e-wallet.',
+        );
+      }
+    }
+    for (final entry in allocatedByDraftId.entries) {
+      final wallet = walletDraftsById[entry.key]!;
+      if (entry.value > wallet.startingBalance + 0.005) {
+        throw ArgumentError(
+          'Goals cannot allocate more than ${wallet.name} contains.',
+        );
+      }
+    }
+    for (final savings in data.savingsAccounts) {
+      final rate = savings.annualInterestRatePercent;
+      if (rate != null && !isValidAnnualInterestRatePercent(rate)) {
+        throw ArgumentError.value(
+          rate,
+          'annualInterestRatePercent',
+          'Must be between 0 and '
+              '${maximumAnnualInterestRatePercent.toInt()}%.',
+        );
+      }
+      if (savings.kind.isInterestBearing && rate == null) {
+        throw ArgumentError(
+          'Interest-bearing savings require an interest rate.',
+        );
+      }
+      if (savings.kind.isInterestBearing && savings.depositStartDate == null) {
+        throw ArgumentError('Interest-bearing savings require a start date.');
+      }
+      if (savings.kind == SavingsKind.timeDeposit &&
+          (savings.maturityDate == null ||
+              !savings.maturityDate!.isAfter(savings.depositStartDate!))) {
+        throw ArgumentError(
+          'A time deposit maturity date must be after its start date.',
+        );
+      }
+    }
 
     final profileReference = _profileReference(user.uid);
     final profileData = <String, dynamic>{
       'email': user.email,
       'name': data.name,
       'notificationsEnabled': data.notificationsEnabled,
-      'incomeSource': data.incomeSource,
-      'incomeFrequency': data.incomeFrequency,
-      'plannedAllocations': {
-        'bills': 0,
-        'savings': 0,
-      },
+      'plannedAllocations': {'bills': 0, 'savings': 0},
       'priorities': data.priorities.map((priority) => priority.name).toList(),
       'setupCompleted': true,
       'onboardingVersion': 2,
       'updatedAt': FieldValue.serverTimestamp(),
     };
+
+    if (data.incomeSource != null) {
+      profileData['incomeSource'] = data.incomeSource;
+    }
+    if (data.incomeFrequency != null) {
+      profileData['incomeFrequency'] = data.incomeFrequency;
+    }
 
     if (data.lastPaydayAt != null) {
       profileData['lastPaydayAt'] = Timestamp.fromDate(data.lastPaydayAt!);
@@ -130,17 +307,22 @@ class UserProfileService {
     }
 
     final walletsCollection = profileReference.collection('wallets');
+    final walletIdsByDraftId = <String, String>{};
 
     for (var index = 0; index < data.wallets.length; index++) {
       final wallet = data.wallets[index];
       final reference = walletsCollection.doc();
+      if (wallet.id != null) walletIdsByDraftId[wallet.id!] = reference.id;
 
       batch.set(reference, {
         'name': wallet.name,
         'type': wallet.type.name,
         'balance': wallet.startingBalance,
+        'balanceRecorded': wallet.balanceRecorded,
         'startingBalance': wallet.startingBalance,
         'receivesIncome': wallet.receivesIncome,
+        if (wallet.annualInterestRatePercent != null)
+          'annualInterestRatePercent': wallet.annualInterestRatePercent,
         'archived': false,
         'sortOrder': index,
         'purpose': wallet.purpose.name,
@@ -167,8 +349,14 @@ class UserProfileService {
         'sortOrder': sortOrder++,
         'purpose': WalletPurpose.savings.name,
         'savingsKind': savings.kind.name,
+        if (savings.annualInterestRatePercent != null)
+          'annualInterestRatePercent': savings.annualInterestRatePercent,
+        if (savings.depositStartDate != null)
+          'depositStartDate': Timestamp.fromDate(savings.depositStartDate!),
         if (savings.maturityDate != null)
           'maturityDate': Timestamp.fromDate(savings.maturityDate!),
+        if (savings.kind == SavingsKind.savingsDeposit)
+          'interestPayoutMonths': savings.interestPayout.months,
         if (savings.note != null) 'note': savings.note,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -178,12 +366,20 @@ class UserProfileService {
     final goalsCollection = profileReference.collection('goals');
     for (var index = 0; index < data.goals.length; index++) {
       final goal = data.goals[index];
-      // An allocation marks part of a savings wallet as meant for this goal.
-      // The wallet keeps its balance; only the goal's own figure changes.
-      final fundingWalletId = goal.fundedBy == null
-          ? null
-          : savingsWalletIds[goal.fundedBy];
-      final allocated = fundingWalletId == null ? 0.0 : goal.allocated;
+      // An allocation earmarks part of each wallet for this goal. The
+      // wallets keep their balances; only the goal's own figures change.
+      final fundingWalletId = goal.fundingWalletDraftId == null
+          ? (goal.fundedBy == null ? null : savingsWalletIds[goal.fundedBy])
+          : walletIdsByDraftId[goal.fundingWalletDraftId];
+      final savedByWallet = setupGoalMoneyByWallet(
+        goal,
+        walletIdsByDraftId: walletIdsByDraftId,
+        fundingWalletId: fundingWalletId,
+      );
+      final allocated = savedByWallet.values.fold<double>(
+        0,
+        (total, amount) => total + amount,
+      );
 
       GoalService.addGoalToBatch(
         batch,
@@ -194,13 +390,15 @@ class UserProfileService {
         priority: index,
         kind: goal.kind,
         frequency: goal.frequency,
+        customInterval: goal.customInterval,
         planAmount: goal.planAmount,
         note: goal.note,
         walletId: fundingWalletId,
+        fundingSource:
+            goal.fundingSource ??
+            (goal.fundedBy == null ? null : GoalFundingSource.savings),
         savedAmount: allocated,
-        savedByWallet: allocated > 0
-            ? {fundingWalletId!: allocated}
-            : const {},
+        savedByWallet: savedByWallet,
       );
     }
 
@@ -229,4 +427,29 @@ class UserProfileService {
       return false;
     }
   }
+}
+
+/// Where a setup goal's money is, by the saved wallets' ids: each draft
+/// wallet's amount under the id it was saved with. A goal set up before
+/// amounts were kept per wallet has all of it in [fundingWalletId].
+///
+/// Every amount lands once, on its own wallet: an amount whose draft wallet
+/// was not saved is left out rather than moved onto another.
+Map<String, double> setupGoalMoneyByWallet(
+  OnboardingGoal goal, {
+  required Map<String, String> walletIdsByDraftId,
+  required String? fundingWalletId,
+}) {
+  final byWallet = <String, double>{};
+  if (goal.fundingByWalletDraftId.isNotEmpty) {
+    goal.fundingByWalletDraftId.forEach((draftId, amount) {
+      final walletId = walletIdsByDraftId[draftId];
+      if (amount > 0 && walletId != null) {
+        byWallet[walletId] = (byWallet[walletId] ?? 0) + amount;
+      }
+    });
+  } else if (fundingWalletId != null && goal.allocated > 0) {
+    byWallet[fundingWalletId] = goal.allocated;
+  }
+  return byWallet;
 }

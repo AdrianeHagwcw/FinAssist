@@ -1,7 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../utils/text_limits.dart';
+import '../widgets/check_after_save.dart';
 
 Future<void> _sendFirebaseResetEmail(String email) {
   return FirebaseAuth.instance.sendPasswordResetEmail(email: email);
@@ -24,7 +27,8 @@ class ForgotPasswordScreen extends StatefulWidget {
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
+    with CheckAfterSave {
   static const Color primaryBlue = Color(0xFF1976D2);
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   late final TextEditingController _emailController = TextEditingController(
@@ -41,7 +45,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Future<void> _sendResetLink() async {
-    if (_isSubmitting || !_formKey.currentState!.validate()) return;
+    if (_isSubmitting || !checkForm(_formKey)) return;
 
     setState(() {
       _isSubmitting = true;
@@ -93,6 +97,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           padding: const EdgeInsets.all(25),
           child: Form(
             key: _formKey,
+            autovalidateMode: checkMode,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -121,11 +126,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                const Center(
+                Center(
                   child: Text(
                     'Enter your email and we will send you a reset link.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: context.appColors.textMuted,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 35),
@@ -150,8 +158,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                      LengthLimitingTextInputFormatter(maxEmailLength),
+                    ],
                     textInputAction: TextInputAction.done,
                     onFieldSubmitted: (_) => _sendResetLink(),
+                    // A message about the email last tried no longer fits
+                    // once it is changed.
+                    onChanged: (_) {
+                      if (_errorMessage != null) {
+                        setState(() => _errorMessage = null);
+                      }
+                    },
                     decoration: InputDecoration(
                       hintText: 'Enter your email',
                       prefixIcon: const Icon(Icons.email_outlined),

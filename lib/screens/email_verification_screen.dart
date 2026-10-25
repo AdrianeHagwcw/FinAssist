@@ -293,10 +293,10 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      const Text(
+                      Text(
                         'Please confirm your email address before continuing.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 15, color: Colors.grey),
+                        style: TextStyle(fontSize: 15, color: context.appColors.textMuted),
                       ),
                     ],
                   ),
@@ -311,9 +311,9 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                   controller: _emailController,
                   readOnly: true,
                   decoration: InputDecoration(
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.email_outlined,
-                      color: Colors.grey,
+                      color: context.appColors.textMuted,
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),

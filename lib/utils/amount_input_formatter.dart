@@ -1,10 +1,13 @@
 import 'package:flutter/services.dart';
 
+import 'text_limits.dart';
+
 /// Groups an amount with commas while it is being typed, so nobody has to
 /// count zeroes to tell ₱10,000 from ₱100,000.
 ///
-/// Digits and one decimal point are kept, centavos are capped at two, and
-/// everything else is dropped. The caret is moved by counting the characters
+/// Digits and one decimal point are kept, centavos are capped at two, whole
+/// pesos at [maxAmountWholeDigits] (₱999,999,999.99), and everything else is
+/// dropped, pasted text included. The caret is moved by counting the characters
 /// the user actually typed rather than the characters on screen, so inserting
 /// a digit that pushes a new comma in does not leave the caret behind it.
 ///
@@ -25,6 +28,7 @@ class ThousandsSeparatorFormatter extends TextInputFormatter {
     var keptBeforeCaret = 0;
     var seenPoint = false;
     var decimals = 0;
+    var wholeDigits = 0;
 
     for (var i = 0; i < typed.length; i++) {
       final character = typed[i];
@@ -34,7 +38,14 @@ class ThousandsSeparatorFormatter extends TextInputFormatter {
       if (isDigit) {
         // A third centavo is refused rather than silently rounded later.
         if (seenPoint && decimals == 2) continue;
-        if (seenPoint) decimals++;
+        // So is a tenth whole digit: more than any account holds, and the
+        // start of totals that no longer add up exactly.
+        if (!seenPoint && wholeDigits == maxAmountWholeDigits) continue;
+        if (seenPoint) {
+          decimals++;
+        } else {
+          wholeDigits++;
+        }
       } else if (character == '.' && !seenPoint && kept.isNotEmpty) {
         seenPoint = true;
       } else {

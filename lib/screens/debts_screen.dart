@@ -133,7 +133,7 @@ class _DebtsViewState extends State<DebtsView> {
               Padding(
                 padding: const EdgeInsets.only(top: 30, bottom: 10),
                 child: EmptyStateView(
-                  iconAsset: 'assets/icons/icons8-money-box-96.png',
+                  iconAsset: 'assets/icons/lend-96.png',
                   title: 'No installments yet',
                   message:
                       'Add an installment and its payments show up '
@@ -143,15 +143,12 @@ class _DebtsViewState extends State<DebtsView> {
             else
               for (final debt in shown) ...[
                 StreamBuilder<List<BillInstance>>(
-                    stream: debt.billId == null
-                        ? Stream.value(const [])
-                        : _payments(debt.billId!),
-                    builder: (context, payments) => _InstallmentCard(
-                      debt: debt,
-                      progress: DebtProgress.of(
-                        debt,
-                        payments.data ?? const [],
-                      ),
+                  stream: debt.billId == null
+                      ? Stream.value(const [])
+                      : _payments(debt.billId!),
+                  builder: (context, payments) => _InstallmentCard(
+                    debt: debt,
+                    progress: DebtProgress.of(debt, payments.data ?? const []),
                     onTap: () => _open(debt),
                   ),
                 ),
@@ -162,10 +159,11 @@ class _DebtsViewState extends State<DebtsView> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: _add,
-                style: openButtonStyle(),
+                // Green, like every Add button in the app.
+                style: confirmButtonStyle(),
                 icon: const Icon(Icons.add),
                 label: const Text(
-                  'Add installment',
+                  'Add Installment',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -248,8 +246,8 @@ class _InstallmentCard extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            debt.category.label,
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            debt.kindLabel,
+            style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
           ),
           const SizedBox(height: 10),
           ClipRRect(
@@ -279,7 +277,10 @@ class _InstallmentCard extends StatelessWidget {
                   ' of ${formatPeso(progress.total)} paid',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.appColors.textMuted,
+                  ),
                 ),
               ),
             ],
@@ -292,11 +293,10 @@ class _InstallmentCard extends StatelessWidget {
                 : '${progress.paymentsLeft} '
                       '${progress.paymentsLeft == 1 ? 'payment' : 'payments'} left'
                       '${last == null ? '' : ' · last one ${formatShortDate(last)}'}',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
           ),
         ],
       ),
     );
   }
 }
-

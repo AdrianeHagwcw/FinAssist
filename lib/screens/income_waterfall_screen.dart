@@ -22,6 +22,7 @@ import '../utils/money_format.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/dialog_kit.dart';
+import '../widgets/service_charge_field.dart';
 import '../widgets/wallet_picker.dart';
 import '../widgets/wallet_form_sheet.dart';
 
@@ -114,6 +115,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
   /// Active goals, highest priority first. Null until loaded.
   List<Goal>? _goals;
+
+  /// Every goal, finished ones too, for the money each holds in a wallet.
+  List<Goal> _allGoals = const [];
   StreamSubscription<List<Goal>>? _goalSubscription;
 
   /// Income already logged, to place this one in the right pay period.
@@ -137,7 +141,18 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// Bills the user chose to leave alone this time, neither paid nor skipped.
   final Set<String> _leftAlone = {};
 
-  String? _error;
+  /// Whether the bank, e-wallet or biller charged for paying the bills on
+  /// this step, and how much, as on Pay Bill.
+  bool _charged = false;
+  final _chargeController = TextEditingController();
+
+  double get _charge =>
+      ServiceChargeField.amountOf(on: _charged, controller: _chargeController);
+
+  /// The step whose Next was last tapped. Its problem shows under it and
+  /// is worked out again as the user types, so it goes as soon as it is
+  /// fixed. A step not tried yet shows none.
+  _Step? _triedStep;
 
   @override
   void initState() {
@@ -165,12 +180,15 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
     _billsAmountController.addListener(_refresh);
+    _otherSourceController.addListener(_refresh);
+    _chargeController.addListener(_refresh);
     // Start looking up bills straight away, so they're ready by step 2.
     _loadBills();
     _goalSubscription = (widget.goals ?? GoalService.watchGoals()).listen(
       (goals) {
         if (!mounted) return;
         setState(() {
+          _allGoals = goals;
           _goals = goals
               .where((goal) => goal.status == GoalStatus.active)
               .toList();
@@ -199,7 +217,12 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     _billsAmountController
       ..removeListener(_refresh)
       ..dispose();
-    _otherSourceController.dispose();
+    _otherSourceController
+      ..removeListener(_refresh)
+      ..dispose();
+    _chargeController
+      ..removeListener(_refresh)
+      ..dispose();
     _goalSubscription?.cancel();
     _cycleSubscription?.cancel();
     _goalAmountController
@@ -249,11 +272,35 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   double get _income =>
       double.tryParse(_amountController.text.trim().replaceAll(',', '')) ?? 0;
 
-  bool get _salaryIncome => _resolvedSource.trim().toLowerCase() == 'salary';
+  /// Regular pay, a salary or a wage, comes with a step to set some aside
+  /// for bills rather than paying bills one by one.
+  bool get _regularPay =>
+      const {'salary', 'wage'}.contains(_resolvedSource.trim().toLowerCase());
 
-  double get _billsAmount =>
-      double.tryParse(_billsAmountController.text.trim().replaceAll(',', '')) ??
-      -1;
+  /// "salary" or "wage", for the words on the bills step.
+  String get _payWord => _resolvedSource.trim().toLowerCase();
+
+  /// What is typed to put aside for bills. Empty is nothing; -1 only for
+  /// something that is not a number, so the plan refuses it.
+  double get _billsAmount {
+    final text = _billsAmountController.text.trim().replaceAll(',', '');
+    if (text.isEmpty) return 0;
+    return double.tryParse(text) ?? -1;
+  }
+
+  /// What can be put aside: the money that came in, into the wallet it went
+  /// to.
+  String? get _billsSetAsideProblem {
+    final amount = _billsAmount;
+    if (!amount.isFinite || amount < 0) return 'Enter an amount of ₱0 or more.';
+    if (amount > _income + 0.005) {
+      final into = _selectedWallet?.name;
+      return 'Only ${formatPeso(_income)} came in'
+          '${into == null ? '' : ' to $into'}. Put aside up to '
+          '${formatPeso(_income)}.';
+    }
+    return null;
+  }
 
   List<BillAllocation> get _upcomingBills {
     final today = DateTime(_today.year, _today.month, _today.day);
@@ -276,10 +323,15 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   double get _billsWalletBalance =>
       WalletService.walletFor(_walletList, WalletPurpose.bills)?.balance ?? 0;
 
-  double get _upcomingBillsShortfall {
-    final short = _upcomingBillsTotal - _billsWalletBalance - _billsAmount;
-    return short > 0 ? short : 0;
-  }
+  /// What is put aside now, as the summary counts it: nothing while the
+  /// amount is not one that can be saved.
+  double get _billsAmountCounted =>
+      _billsSetAsideProblem == null ? _billsAmount : 0;
+
+  /// What this month's bills still need after the Bills wallet and what is
+  /// put aside now; negative when there is more than enough.
+  double get _upcomingBillsGap =>
+      _upcomingBillsTotal - _billsWalletBalance - _billsAmountCounted;
 
   String get _resolvedSource {
     if (_source != otherIncomeSource) return _source ?? '';
@@ -308,7 +360,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     setState(() {
       _walletSelectionCleared = true;
       _walletId = null;
-      _error = null;
     });
 
     final draft = await showWalletFormSheet(context);
@@ -330,7 +381,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// The plan as it stands, read from what is typed on screen.
   AllocationPlan get _plan {
     final AllocationPlan withBills;
-    if (_salaryIncome) {
+    if (_regularPay) {
       withBills = AllocationPlan(income: _income, billsSetAside: _billsAmount);
     } else {
       final bills = <BillAllocation>[];
@@ -347,7 +398,11 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         bills.add(allocation.copyWith(amount: typed ?? -1));
       }
 
-      withBills = AllocationPlan(income: _income, bills: bills);
+      withBills = AllocationPlan(
+        income: _income,
+        bills: bills,
+        serviceCharge: _charge,
+      );
     }
 
     final goal = _toGoal ? _selectedGoal : null;
@@ -372,6 +427,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       billsSetAside: withBills.billsSetAside,
       goal: goal,
       goalAmount: amount,
+      serviceCharge: withBills.serviceCharge,
     );
   }
 
@@ -389,7 +445,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// there are none to ask about, so the step count is honest.
   List<_Step> get _steps => [
     _Step.income,
-    if (_salaryIncome || (_allocations?.isNotEmpty ?? true)) _Step.bills,
+    if (_regularPay || (_allocations?.isNotEmpty ?? true)) _Step.bills,
     if (_goals?.isNotEmpty ?? false) _Step.goal,
     _Step.summary,
   ];
@@ -408,75 +464,54 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     return index <= 0 ? _Step.income : steps[index - 1];
   }
 
-  void _back() => setState(() {
-    _error = null;
-    _step = _stepBefore(_step);
-  });
+  void _back() => setState(() => _step = _stepBefore(_step));
 
-  void _fromIncomeStep() {
-    final problem = !isRecordableAmount(_income)
-        ? minimumAmountError
-        : _source == null
-        ? 'Choose where the money came from.'
-        : _source == otherIncomeSource &&
-              _otherSourceController.text.trim().isEmpty
-        ? 'Tell us where the money came from.'
-        : _selectedWalletId == null
-        ? 'Add a wallet first, so the money has somewhere to go.'
-        : null;
+  /// What stops the step on screen going on, or null.
+  String? get _problem => switch (_step) {
+    _Step.income =>
+      !isRecordableAmount(_income)
+          ? minimumAmountError
+          : _source == null
+          ? 'Choose where the money came from.'
+          : _source == otherIncomeSource &&
+                _otherSourceController.text.trim().isEmpty
+          ? 'Tell us where the money came from.'
+          : _selectedWalletId == null
+          ? 'Add a wallet first, so the money has somewhere to go.'
+          : null,
+    _Step.bills when _regularPay =>
+      _billsSetAsideProblem ?? _plan.problems.firstOrNull,
+    _Step.bills when _charged && _plan.toBills > 0 && _charge <= 0 =>
+      'Enter the service charge, or turn it off.',
+    _Step.bills || _Step.goal => _plan.problems.firstOrNull,
+    _Step.summary =>
+      _plan.problems.firstOrNull ??
+          (_selectedWalletId == null ? 'Choose a wallet.' : null),
+  };
 
-    if (problem != null) {
-      setState(() => _error = problem);
-      return;
-    }
-
-    setState(() {
-      _error = null;
-      // Skips straight past bills or goals when there are none to ask about.
-      _step = _stepAfter(_Step.income);
-    });
+  /// Notes that Next was tapped on this step, so its problem shows, and
+  /// says whether it can be left.
+  bool _checkStep() {
+    setState(() => _triedStep = _step);
+    return _problem == null;
   }
 
-  void _fromBillsStep() {
-    final problems = _plan.problems;
-
-    if (problems.isNotEmpty) {
-      setState(() => _error = problems.first);
-      return;
-    }
-
-    setState(() {
-      _error = null;
-      _step = _stepAfter(_Step.bills);
-    });
+  void _next(_Step to) {
+    if (!_checkStep()) return;
+    setState(() => _step = to);
   }
 
-  void _fromGoalStep() {
-    final problems = _plan.problems;
+  // Skips straight past bills or goals when there are none to ask about.
+  void _fromIncomeStep() => _next(_stepAfter(_Step.income));
 
-    if (problems.isNotEmpty) {
-      setState(() => _error = problems.first);
-      return;
-    }
+  void _fromBillsStep() => _next(_stepAfter(_Step.bills));
 
-    setState(() {
-      _error = null;
-      _step = _Step.summary;
-    });
-  }
+  void _fromGoalStep() => _next(_Step.summary);
 
   void _confirm() {
+    if (!_checkStep()) return;
     final plan = _plan;
-    final walletId = _selectedWalletId;
-
-    if (walletId == null || plan.problems.isNotEmpty) {
-      setState(
-        () => _error = plan.problems.isEmpty
-            ? 'Choose a wallet.'
-            : plan.problems.first,
-      );
-      return;
-    }
+    final walletId = _selectedWalletId!;
 
     final save =
         widget.onConfirm ??
@@ -547,6 +582,10 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         stream: _wallets,
         builder: (context, snapshot) {
           _walletList = snapshot.data ?? const [];
+          final error =
+              _triedStep == _step && !(_step == _Step.bills && _regularPay)
+              ? _problem
+              : null;
 
           return Column(
             children: [
@@ -565,10 +604,10 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                       _Step.goal => _buildGoalStep(context),
                       _Step.summary => _buildSummaryStep(context),
                     },
-                    if (_error != null) ...[
+                    if (error != null) ...[
                       const SizedBox(height: 14),
                       Text(
-                        _error!,
+                        error,
                         style: TextStyle(
                           color: dangerColorOn(context),
                           fontWeight: FontWeight.w600,
@@ -591,9 +630,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       case _Step.income:
         return 'What came in?';
       case _Step.bills:
-        return _salaryIncome
-            ? 'Set aside for bills?'
-            : 'Pay any bills from it?';
+        return _regularPay ? 'Set aside for bills?' : 'Pay any bills from it?';
       case _Step.goal:
         return 'Save some toward a goal?';
       case _Step.summary:
@@ -638,15 +675,17 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         ],
         const SizedBox(height: 16),
         if (_walletList.isEmpty)
-          const Text(
+          Text(
             'You have no wallets yet. Add one to receive this income.',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: context.appColors.textMuted),
           )
         else
           WalletPicker(
             wallets: _walletList,
             selectedId: _selectedWalletId,
             label: 'Into which wallet?',
+            // What can be spent, as on Home: goal money is left out.
+            goals: _allGoals,
             onChanged: (value) => setState(() {
               _walletSelectionCleared = false;
               _walletId = value;
@@ -678,7 +717,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   // ------------------------------------------------------------ step 2
 
   Widget _buildBillsStep(BuildContext context) {
-    if (_salaryIncome) return _buildSalaryBillsStep(context);
+    if (_regularPay) return _buildSalaryBillsStep(context);
 
     final allocations = _allocations;
 
@@ -747,6 +786,25 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           ),
           const SizedBox(height: 10),
         ],
+        // Only while a bill is being paid: that is what a fee is for.
+        if (plan.toBills > 0) ...[
+          ServiceChargeField(
+            on: _charged,
+            controller: _chargeController,
+            onChanged: (on) => setState(() {
+              _charged = on;
+              // What the Bills wallet, which pays these, was charged last.
+              final last = WalletService.walletFor(
+                _walletList,
+                WalletPurpose.bills,
+              )?.serviceCharge;
+              if (on && last != null && _chargeController.text.trim().isEmpty) {
+                _chargeController.text = formatAmountInput(last);
+              }
+            }),
+          ),
+          const SizedBox(height: 6),
+        ],
         const SizedBox(height: 6),
         _RunningTotal(plan: plan),
       ],
@@ -763,24 +821,64 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
     final colors = context.appColors;
     final upcoming = _upcomingBills;
-    final shortfall = _upcomingBillsShortfall;
+    final gap = _upcomingBillsGap;
+
+    Widget line(String label, double amount, {bool strong = false}) {
+      final style = TextStyle(
+        fontSize: 13,
+        color: strong ? colors.textPrimary : colors.textBody,
+        fontWeight: strong ? FontWeight.w600 : FontWeight.normal,
+      );
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          children: [
+            Expanded(child: Text(label, style: style)),
+            Text(formatPeso(amount), style: style),
+          ],
+        ),
+      );
+    }
+
+    // Short, just covered, or covered with some to spare for later bills.
+    final (String result, Color resultColor) = upcoming.isEmpty
+        ? (
+            _billsAmountCounted > 0
+                ? 'No bills are due this month, so this waits in your Bills '
+                      'wallet for the next ones.'
+                : 'No bills are due this month.',
+            colors.textBody,
+          )
+        : gap > 0.005
+        ? ('Still needed: ${formatPeso(gap)}', dangerColorOn(context))
+        : gap < -0.005
+        ? (
+            'This month’s bills are covered, with ${formatPeso(-gap)} '
+                'left for later bills.',
+            confirmColorOn(context),
+          )
+        : ('This month’s bills are covered.', confirmColorOn(context));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'How much from this salary do you want to move into your Bills '
+          'How much from this $_payWord do you want to move into your Bills '
           'wallet? You can pay bills from that wallet when you are ready.',
           style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
         ),
         const SizedBox(height: 16),
         AmountField(
+          key: const Key('bills-set-aside'),
           controller: _billsAmountController,
           label: 'Put aside for bills',
           helper: 'This moves money to Bills; it does not mark bills as paid.',
+          // Said once Next is tapped, and gone as soon as it is fixed.
+          errorText: _triedStep == _Step.bills ? _billsSetAsideProblem : null,
         ),
         const SizedBox(height: 16),
         Container(
+          key: const Key('bills-set-aside-summary'),
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -801,41 +899,19 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 ),
               ),
               const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Already in Bills wallet',
-                      style: TextStyle(color: colors.textBody, fontSize: 13),
-                    ),
-                  ),
-                  Text(formatPeso(_billsWalletBalance)),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Upcoming bills',
-                      style: TextStyle(color: colors.textBody, fontSize: 13),
-                    ),
-                  ),
-                  Text(formatPeso(_upcomingBillsTotal)),
-                ],
-              ),
-              const SizedBox(height: 10),
+              if (upcoming.isNotEmpty)
+                line('Upcoming bills', _upcomingBillsTotal),
+              line('Already in Bills wallet', _billsWalletBalance),
+              // Follows the box as it is typed.
+              line('Putting aside now', _billsAmountCounted),
+              const SizedBox(height: 4),
               Text(
-                shortfall > 0
-                    ? 'Still needed for this month’s bills: '
-                          '${formatPeso(shortfall)}'
-                    : 'Your Bills wallet will cover this month’s bills.',
+                result,
                 style: TextStyle(
-                  color: shortfall > 0
-                      ? dangerColorOn(context)
-                      : colors.textBody,
+                  color: resultColor,
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
+                  height: 1.35,
                 ),
               ),
               if (upcoming.isNotEmpty) ...[
@@ -944,10 +1020,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           ],
           selected: {_toGoal},
           showSelectedIcon: false,
-          onSelectionChanged: (value) => setState(() {
-            _toGoal = value.first;
-            _error = null;
-          }),
+          onSelectionChanged: (value) => setState(() => _toGoal = value.first),
         ),
         if (_toGoal && goal != null) ...[
           const SizedBox(height: 16),
@@ -1050,12 +1123,19 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 amount: formatPeso(bill.amount, sign: '-'),
                 color: dangerColorOn(context),
               ),
+            if (plan.billsServiceCharge > 0)
+              _SummaryLine(
+                label: 'Service charge',
+                detail: 'For paying these bills',
+                amount: formatPeso(plan.billsServiceCharge, sign: '-'),
+                color: dangerColorOn(context),
+              ),
             for (final bill in skipped)
               _SummaryLine(
                 label: bill.instance.name,
                 detail: 'Skipped this time',
                 amount: formatPeso(0),
-                color: Colors.grey,
+                color: context.appColors.textMuted,
               ),
             if (plan.goal != null && plan.toGoal > 0)
               _SummaryLine(
@@ -1068,13 +1148,14 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         ),
         if (plan.billsSetAside != null && _upcomingBillsTotal > 0) ...[
           const SizedBox(height: 12),
+          // The same bills as the step before counted: those due this month.
           Text(
-            _upcomingBillsShortfall > 0
-                ? 'After this salary, ${formatPeso(_upcomingBillsShortfall)} '
-                      'will still be needed for bills due in the next 31 days.'
-                : 'The Bills wallet will cover bills due in the next 31 days.',
+            _upcomingBillsGap > 0.005
+                ? 'After this $_payWord, ${formatPeso(_upcomingBillsGap)} will '
+                      'still be needed for bills due this month.'
+                : 'The Bills wallet will cover bills due this month.',
             style: TextStyle(
-              color: _upcomingBillsShortfall > 0
+              color: _upcomingBillsGap > 0.005
                   ? dangerColorOn(context)
                   : colors.textBody,
               fontSize: 13,
@@ -1136,11 +1217,11 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             ],
           ),
         ),
-        if (!_salaryIncome && (_allocations?.isEmpty ?? false)) ...[
+        if (!_regularPay && (_allocations?.isEmpty ?? false)) ...[
           const SizedBox(height: 12),
-          const Text(
+          Text(
             'No unpaid bills right now, so there was nothing to pay from this.',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
           ),
         ],
       ],
@@ -1221,7 +1302,7 @@ class _StepHeader extends StatelessWidget {
         children: [
           Text(
             'Step $step of $of',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
           ),
           const SizedBox(height: 4),
           Text(
@@ -1317,9 +1398,9 @@ class _BillChoice extends StatelessWidget {
                             'Due ${formatShortDate(bill.dueDate)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
-                              color: Colors.grey,
+                              color: context.appColors.textMuted,
                             ),
                           ),
                         ),
@@ -1462,7 +1543,10 @@ class _SummaryLine extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   detail,
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.appColors.textMuted,
+                  ),
                 ),
               ],
             ),

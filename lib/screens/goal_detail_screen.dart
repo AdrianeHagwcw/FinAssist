@@ -9,6 +9,8 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../widgets/goal_funding_picker.dart';
+import '../widgets/goal_progress.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/money_text.dart';
 
@@ -188,6 +190,21 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                         ),
                       ),
                     ),
+                  StreamBuilder<List<Wallet>>(
+                    stream: _wallets,
+                    builder: (context, walletSnapshot) {
+                      if (goal.fundingSource == null || goal.walletId == null) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 14),
+                        child: _GoalFundingCard(
+                          goal: goal,
+                          wallets: walletSnapshot.data ?? const [],
+                        ),
+                      );
+                    },
+                  ),
                   if (goal.status != GoalStatus.used &&
                       goal.shownSaved > 0) ...[
                     const SizedBox(height: 10),
@@ -226,6 +243,73 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 }
 
+class _GoalFundingCard extends StatelessWidget {
+  const _GoalFundingCard({required this.goal, required this.wallets});
+
+  final Goal goal;
+  final List<Wallet> wallets;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final byId = {for (final wallet in wallets) wallet.id: wallet};
+    // A goal saved before the per-wallet amounts existed is all in one.
+    final amounts = goal.savedByWallet.isNotEmpty
+        ? goal.savedByWallet
+        : {goal.walletId!: goal.shownSaved};
+    final sources = [
+      for (final entry in amounts.entries)
+        if (byId[entry.key] case final wallet?) (wallet, entry.value),
+    ];
+    // Only once the wallets have loaded, so nothing flashes as missing.
+    final missing = wallets.isEmpty
+        ? 0.0
+        : amounts.entries
+              .where((entry) => !byId.containsKey(entry.key))
+              .fold<double>(0, (total, entry) => total + entry.value);
+    final note = TextStyle(fontSize: 12, color: colors.textBody);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Set aside from',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          GoalFundingList(sources: sources),
+          if (missing > 0.005)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${formatPeso(missing)} in an account that is no longer '
+                'listed.',
+                style: note,
+              ),
+            ),
+          const SizedBox(height: 8),
+          Text(
+            'This only marks the money for this goal. No money moves and no '
+            'balance changes.',
+            style: note,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ProgressHeader extends StatelessWidget {
   const _ProgressHeader({
     required this.goal,
@@ -242,7 +326,9 @@ class _ProgressHeader extends StatelessWidget {
     final colors = context.appColors;
     final projected = projectedCompletion(goal, contributions, now: now);
     final done = goal.status != GoalStatus.active;
-    final ringColor = done ? confirmColorOn(context) : appPrimaryBlue;
+    // The same colors and words as the goal cards.
+    final percent = goalPercent(goal.progress, reached: goal.isReached);
+    final ringColor = getProgressColor(percent, dark: context.isDarkMode);
 
     String paceText;
     if (done) {
@@ -275,26 +361,47 @@ class _ProgressHeader extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                CircularProgressIndicator(
-                  value: goal.progress,
-                  strokeWidth: 12,
-                  backgroundColor: colors.track,
-                  valueColor: AlwaysStoppedAnimation(ringColor),
+                // Eases to a new amount and color, like the cards.
+                TweenAnimationBuilder<double>(
+                  tween: Tween(
+                    end: goal.isReached ? 1.0 : goal.progress.clamp(0.0, 1.0),
+                  ),
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                  builder: (context, value, _) => TweenAnimationBuilder<Color?>(
+                    tween: ColorTween(end: ringColor),
+                    duration: const Duration(milliseconds: 300),
+                    builder: (context, color, _) => CircularProgressIndicator(
+                      value: value,
+                      strokeWidth: 12,
+                      backgroundColor: colors.track,
+                      color: color,
+                    ),
+                  ),
                 ),
                 Center(
                   child: Text(
-                    '${(goal.progress * 100).round()}%',
+                    '$percent%',
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
+                      color: ringColor,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          Text(
+            getProgressLabel(percent),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: ringColor,
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -308,7 +415,10 @@ class _ProgressHeader extends StatelessWidget {
               ),
               Text(
                 ' of ${formatPeso(goal.targetAmount)}',
-                style: const TextStyle(fontSize: 16, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 16,
+                  color: context.appColors.textMuted,
+                ),
               ),
             ],
           ),
@@ -322,7 +432,7 @@ class _ProgressHeader extends StatelessWidget {
               'Priority #${goal.priority + 1}',
             ].join(' · '),
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, color: Colors.grey),
+            style: TextStyle(fontSize: 13, color: context.appColors.textMuted),
           ),
           const SizedBox(height: 12),
           Text(
@@ -423,11 +533,11 @@ class _History extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (contributions.isEmpty) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
         child: Text(
           'Nothing set aside yet.',
-          style: TextStyle(color: Colors.grey),
+          style: TextStyle(color: context.appColors.textMuted),
         ),
       );
     }
@@ -470,9 +580,9 @@ class _History extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         formatShortDate(entry.date),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey,
+                          color: context.appColors.textMuted,
                         ),
                       ),
                     ],
@@ -499,7 +609,8 @@ class _History extends StatelessWidget {
   }
 }
 
-/// The goal's saving plan and whether the user is keeping up with it.
+/// The goal's saving plan and whether the user is keeping up with it, the
+/// same line as on its card.
 class _PlanLine extends StatelessWidget {
   const _PlanLine({required this.goal, required this.now});
 
@@ -508,56 +619,21 @@ class _PlanLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final plan = goal.planAmount;
-    final needed = neededPerContribution(
+    final line = goalPlanLine(
       remaining: goal.remaining,
       targetDate: goal.targetDate,
-      frequency: goal.frequency,
       now: now,
+      frequency: goal.frequency,
+      custom: goal.customInterval,
       planStartedAt: goal.planStartedAt,
+      planAmount: goal.planAmount,
+      behind: behindPlan(goal, now: now),
     );
-
-    final String text;
-    final Color color;
-
-    if (plan != null) {
-      final behind = behindPlan(goal, now: now) ?? 0;
-      if (behind > 0.005) {
-        text =
-            'Plan: ${formatPeso(plan)} ${goal.frequency.per} · behind by '
-            '${formatPeso(behind)}';
-        color = dangerColorOn(context);
-      } else {
-        text = 'Plan: ${formatPeso(plan)} ${goal.frequency.per} · on track';
-        color = confirmColorOn(context);
-      }
-    } else if (needed != null) {
-      text =
-          'Save ${formatPeso(needed)} ${goal.frequency.per} to finish by '
-          '${formatShortDate(goal.targetDate!)}';
-      color = context.appColors.textBody;
-    } else {
-      return const SizedBox.shrink();
-    }
+    if (line == null) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.only(top: 10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: color,
-          ),
-        ),
-      ),
+      child: GoalPlanNote(line),
     );
   }
 }

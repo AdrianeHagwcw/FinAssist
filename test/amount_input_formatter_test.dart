@@ -26,15 +26,17 @@ void main() {
       expect(type('1234567').text, '1,234,567');
     });
 
-    test('it keeps grouping however big the amount gets', () {
+    test('it keeps grouping up to the largest amount, ₱999,999,999.99', () {
       expect(type('12345').text, '12,345');
       expect(type('123456').text, '123,456');
       expect(type('12345678').text, '12,345,678');
       expect(type('123456789').text, '123,456,789');
-      expect(type('1234567890').text, '1,234,567,890');
-      expect(type('123456789012').text, '123,456,789,012');
-      // And with centavos on the end of a long one.
-      expect(type('9876543210.25').text, '9,876,543,210.25');
+      // A tenth whole digit is refused, typed or pasted.
+      expect(type('1234567890').text, '123,456,789');
+      expect(type('123456789012').text, '123,456,789');
+      // Centavos still fit on the end of the largest one.
+      expect(type('9876543210.25').text, '987,654,321.25');
+      expect(type('999999999.99').text, '999,999,999.99');
     });
 
     test('centavos are kept, and capped at two', () {

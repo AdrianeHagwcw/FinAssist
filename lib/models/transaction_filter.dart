@@ -161,8 +161,10 @@ List<MapEntry<String, double>> spendingByCategory(
   for (final transaction in transactions) {
     if (transaction.type != TransactionType.expense) continue;
     if (transaction.isDebtMovement) continue;
-    totals[transaction.label] =
-        (totals[transaction.label] ?? 0) + transaction.amount;
+    // An installment payment counts its interest apart.
+    for (final part in transaction.spendingParts) {
+      totals[part.key] = (totals[part.key] ?? 0) + part.value;
+    }
   }
 
   return totals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));

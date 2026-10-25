@@ -13,7 +13,9 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 import '../widgets/bill_status_badge.dart';
+import '../widgets/check_after_save.dart';
 import '../widgets/dialog_kit.dart';
+import '../widgets/item_card.dart';
 import '../widgets/money_text.dart';
 import '../widgets/wallet_picker.dart';
 import 'bill_calendar_screen.dart';
@@ -171,7 +173,11 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
             ],
           ),
           body: iOwe
-              ? _InstallmentBody(debt: debt, payments: _payments)
+              ? _InstallmentBody(
+                  debt: debt,
+                  payments: _payments,
+                  wallets: _wallets,
+                )
               : _OwedToMeBody(
                   debt: debt,
                   transactions: _transactions,
@@ -195,10 +201,15 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
 }
 
 class _InstallmentBody extends StatelessWidget {
-  const _InstallmentBody({required this.debt, required this.payments});
+  const _InstallmentBody({
+    required this.debt,
+    required this.payments,
+    required this.wallets,
+  });
 
   final Debt debt;
   final Stream<List<BillInstance>> payments;
+  final Stream<List<Wallet>> wallets;
 
   @override
   Widget build(BuildContext context) {
@@ -227,7 +238,10 @@ class _InstallmentBody extends StatelessWidget {
                 children: [
                   Text(
                     progress.isPaidOff ? 'Paid off' : 'Still to pay',
-                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: context.appColors.textMuted,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   MoneyText(
@@ -262,14 +276,20 @@ class _InstallmentBody extends StatelessWidget {
                   ),
                   const Divider(height: 28),
                   _Line('Borrowed', formatPeso(debt.principal)),
-                  _Line(
-                    debt.frequency == PaymentFrequency.weekly
-                        ? 'Each week'
-                        : 'Each month',
-                    formatPeso(debt.perPayment),
-                  ),
+                  _Line(debt.frequency.eachLabel, formatPeso(debt.perPayment)),
                   if (debt.extraCost > 0)
-                    _Line('More than you borrowed', formatPeso(debt.extraCost)),
+                    _Line(
+                      'More than you borrowed',
+                      '${formatPeso(debt.extraCost)} '
+                          '(${roundedPercent(debt.extraCostPercent)})',
+                    ),
+                  if (debt.paidBefore > 0)
+                    _Line(
+                      'Paid before FinAssist',
+                      debt.paidBefore == 1
+                          ? '1 payment'
+                          : '${debt.paidBefore} payments',
+                    ),
                   if (last != null)
                     _Line(
                       'Last payment',
@@ -282,6 +302,8 @@ class _InstallmentBody extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 16),
+            _CostOfBorrowing(debt: debt, wallets: wallets, paid: progress.paid),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -301,11 +323,14 @@ class _InstallmentBody extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Each payment is a bill, so you pay it, part-pay it, and choose '
               'the wallet there.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 12,
+                color: context.appColors.textMuted,
+              ),
             ),
             const SizedBox(height: 22),
             Text(
@@ -317,23 +342,182 @@ class _InstallmentBody extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            const Text(
+            Text(
               'Every payment, what you have paid on it, and what is left to '
               'pay after it.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 12,
+                color: context.appColors.textMuted,
+              ),
             ),
             const SizedBox(height: 12),
-            if (instances.isEmpty)
-              const Text(
+            // The plan's own dates are enough to list every payment; only
+            // one with no start date waits for its bills.
+            if (instances.isEmpty && debt.firstDueDate == null)
+              Text(
                 'Payments appear here once their month is opened in the Bill '
                 'Planner.',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: context.appColors.textMuted),
               )
             else
               ..._statementRows(context, debt, instances, progress),
           ],
         );
       },
+    );
+  }
+}
+
+/// What borrowing costs, the way a lender has to disclose it: the extra in
+/// pesos and as a share of what was borrowed, the true rate a month and a
+/// year, the rate the user was told, and how it compares with what their
+/// savings earn. Borrowing usually costs far more than saving earns.
+class _CostOfBorrowing extends StatelessWidget {
+  const _CostOfBorrowing({
+    required this.debt,
+    required this.wallets,
+    required this.paid,
+  });
+
+  final Debt debt;
+  final Stream<List<Wallet>> wallets;
+
+  /// Everything paid on it so far, before FinAssist too.
+  final double paid;
+
+  /// The best yearly rate the user's own accounts earn, after the 20% tax
+  /// banks keep, or null when no rate was entered.
+  static double? _bestSavingsRate(List<Wallet> wallets) {
+    double? best;
+    for (final wallet in wallets) {
+      final rate = wallet.annualInterestRatePercent;
+      if (wallet.archived || rate == null || rate <= 0) continue;
+      final kept = afterTax(rate);
+      if (best == null || kept > best) best = kept;
+    }
+    return best;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final quoted = debt.quotedRate;
+    final fromFamily = debt.category == DebtCategory.familyFriend;
+    final body = TextStyle(fontSize: 13, height: 1.4, color: colors.textBody);
+
+    return Container(
+      key: const Key('installment-cost'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // The app's interest icon, as on savings.
+              Image.asset(
+                'assets/icons/icons8-combo-chart-100.png',
+                width: 22,
+                height: 22,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'What borrowing costs',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (debt.extraCost <= 0)
+            Text(
+              'Nothing extra: you pay back exactly what you borrowed.',
+              style: body,
+            )
+          else ...[
+            Text(
+              '${formatPeso(debt.extraCost)} more than you borrowed, '
+              '${roundedPercent(debt.extraCostPercent)} of '
+              '${formatPeso(debt.principal)}.',
+              style: body,
+            ),
+            const SizedBox(height: 4),
+            Text(costRateText(debt), style: body),
+            // The interest inside each payment, which is how it shows in
+            // Transactions and Reports.
+            const SizedBox(height: 4),
+            Text(
+              '${formatPeso(debt.interestOf(1))} of each payment is interest. '
+              'Paid so far: '
+              '${formatPeso(interestPartOf(paid, debt.interestShare))}.',
+              key: const Key('installment-interest-paid'),
+              style: body,
+            ),
+          ],
+          if (quoted != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Interest they told you: ${percentText(quoted)} '
+              '${debt.quotedRatePer.label}.',
+              style: body,
+            ),
+            if (debt.costsMoreThanQuoted) ...[
+              const SizedBox(height: 10),
+              DialogNote(
+                text:
+                    'These payments cost more than ${percentText(quoted)} '
+                    '${debt.quotedRatePer.label}. Ask the store or lender '
+                    'what else is added, such as fees.',
+              ),
+            ] else if (debt.extraCost > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                'A quoted rate is often worked out on the whole amount for '
+                'the whole time, even as you pay it down, so the real yearly '
+                'cost is higher than it sounds.',
+                style: TextStyle(fontSize: 12, color: colors.textMuted),
+              ),
+            ],
+          ],
+          if (debt.extraCost > 0)
+            StreamBuilder<List<Wallet>>(
+              stream: wallets,
+              builder: (context, snapshot) {
+                final savings = _bestSavingsRate(snapshot.data ?? const []);
+                final yearly = debt.yearlyCostPercent!;
+                if (savings != null && savings >= yearly) {
+                  return const SizedBox.shrink();
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    '${savings == null ? 'Savings usually earn far less than this.' : 'Your savings earn up to ${roundedPercent(savings)} a year after tax.'} '
+                    'Paying this off early usually saves you more than '
+                    'keeping that money in savings, if there is no fee for '
+                    'paying early. Keep some emergency money first.',
+                    style: body,
+                  ),
+                );
+              },
+            ),
+          const SizedBox(height: 12),
+          DialogNote(
+            text: fromFamily
+                ? 'Between family and friends, interest is only owed if you '
+                      'both agreed to it in writing.'
+                : 'Lenders and stores must tell you the full cost and the '
+                      'yearly rate before you sign. If they did not, ask for '
+                      'it.',
+          ),
+        ],
+      ),
     );
   }
 }
@@ -391,10 +575,12 @@ List<Widget> _statementRows(
     final due = payment.due;
     final scheduled = payment.amount;
 
-    final instance = _instanceOn(instances, due);
+    // Paid before it was tracked: no bill stands for it, but it was paid.
+    final paidEarlier = first != null && number <= debt.paidBefore;
+    final instance = paidEarlier ? null : _instanceOn(instances, due);
     final amount = instance?.amount ?? scheduled;
-    final paid = instance?.amountPaid ?? 0;
-    final stillDue = instance?.remaining ?? amount;
+    final paid = paidEarlier ? scheduled : instance?.amountPaid ?? 0;
+    final stillDue = paidEarlier ? 0.0 : instance?.remaining ?? amount;
 
     owed = (owed - paid).clamp(0.0, double.infinity).toDouble();
 
@@ -425,7 +611,12 @@ List<Widget> _statementRows(
                     ),
                   ),
                 ),
-                if (instance != null)
+                if (paidEarlier)
+                  Text(
+                    'Paid before FinAssist',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  )
+                else if (instance != null)
                   BillStatusBadge(instance: instance)
                 else
                   Text(
@@ -522,7 +713,10 @@ class _OwedToMeBody extends StatelessWidget {
             children: [
               Text(
                 settled ? 'Settled' : 'Still owed to you',
-                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: context.appColors.textMuted,
+                ),
               ),
               const SizedBox(height: 6),
               MoneyText(
@@ -599,9 +793,9 @@ class _OwedToMeBody extends StatelessWidget {
                     .toList();
 
                 if (repayments.isEmpty) {
-                  return const Text(
+                  return Text(
                     'Nothing paid back yet.',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(color: context.appColors.textMuted),
                   );
                 }
 
@@ -676,7 +870,10 @@ class _Line extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontSize: 13, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 13,
+                color: context.appColors.textMuted,
+              ),
             ),
           ),
           Flexible(
@@ -719,14 +916,21 @@ class RepaymentSheet extends StatefulWidget {
   State<RepaymentSheet> createState() => _RepaymentSheetState();
 }
 
-class _RepaymentSheetState extends State<RepaymentSheet> {
+class _RepaymentSheetState extends State<RepaymentSheet>
+    with CheckAfterSave, WatchesGoals {
   late final _amountController = TextEditingController(
     text: formatAmountInput(widget.debt.stillOwedToMe),
   );
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
   String? _walletId;
-  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    recheckWhenChanged(_amountController);
+    watchGoals(walletsGiven: widget.wallets != null);
+  }
 
   @override
   void dispose() {
@@ -734,25 +938,27 @@ class _RepaymentSheetState extends State<RepaymentSheet> {
     super.dispose();
   }
 
-  void _save(List<Wallet> wallets) {
-    final amount = double.tryParse(
-      _amountController.text.trim().replaceAll(',', ''),
-    );
-    final walletId = _walletId ?? defaultWalletId(wallets);
-    final owed = widget.debt.stillOwedToMe;
+  double? get _amount =>
+      double.tryParse(_amountController.text.trim().replaceAll(',', ''));
 
-    final problem = amount == null || !isRecordableAmount(amount)
+  /// What stops the repayment being saved as it stands, or null.
+  String? _problem(List<Wallet> wallets) {
+    final amount = _amount;
+    final owed = widget.debt.stillOwedToMe;
+    return amount == null || !isRecordableAmount(amount)
         ? minimumAmountError
         : amount > owed + 0.005
         ? 'Only ${formatPeso(owed)} is still owed.'
-        : walletId == null
+        : (_walletId ?? defaultWalletId(wallets)) == null
         ? 'Add a wallet first.'
         : null;
+  }
 
-    if (problem != null) {
-      setState(() => _error = problem);
-      return;
-    }
+  void _save(List<Wallet> wallets) {
+    markTriedToSave();
+    if (_problem(wallets) != null) return;
+    final amount = _amount;
+    final walletId = _walletId ?? defaultWalletId(wallets);
 
     if (widget.onSave != null) {
       widget.onSave!(amount!, walletId!);
@@ -779,6 +985,7 @@ class _RepaymentSheetState extends State<RepaymentSheet> {
             stream: _wallets,
             builder: (context, snapshot) {
               final wallets = snapshot.data ?? const <Wallet>[];
+              final error = triedToSave ? _problem(wallets) : null;
 
               return Column(
                 mainAxisSize: MainAxisSize.min,
@@ -800,12 +1007,13 @@ class _RepaymentSheetState extends State<RepaymentSheet> {
                       wallets: wallets,
                       selectedId: _walletId ?? defaultWalletId(wallets),
                       label: 'Into which wallet?',
+                      goals: heldGoals,
                       onChanged: (value) => setState(() => _walletId = value),
                     ),
-                  if (_error != null) ...[
+                  if (error != null) ...[
                     const SizedBox(height: 10),
                     Text(
-                      _error!,
+                      error,
                       style: TextStyle(
                         color: dangerColorOn(context),
                         fontWeight: FontWeight.w600,

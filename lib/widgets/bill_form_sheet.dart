@@ -10,7 +10,9 @@ import '../theme/app_buttons.dart';
 import '../utils/category_options.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../utils/text_limits.dart';
 import 'category_icon.dart';
+import 'check_after_save.dart';
 import 'dialog_kit.dart';
 import 'wallet_picker.dart';
 
@@ -58,7 +60,8 @@ class BillFormSheet extends StatefulWidget {
   State<BillFormSheet> createState() => _BillFormSheetState();
 }
 
-class _BillFormSheetState extends State<BillFormSheet> {
+class _BillFormSheetState extends State<BillFormSheet>
+    with CheckAfterSave, WatchesGoals {
   final _formKey = GlobalKey<FormState>();
 
   late final _nameController = TextEditingController(
@@ -82,6 +85,12 @@ class _BillFormSheetState extends State<BillFormSheet> {
   bool get _isEditing => widget.existing != null;
 
   @override
+  void initState() {
+    super.initState();
+    watchGoals(walletsGiven: widget.wallets != null);
+  }
+
+  @override
   void dispose() {
     _nameController.dispose();
     _amountController.dispose();
@@ -101,7 +110,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
   }
 
   void _save() {
-    if (!_formKey.currentState!.validate()) return;
+    if (!checkForm(_formKey)) return;
 
     final amount = double.parse(
       _amountController.text.trim().replaceAll(',', ''),
@@ -109,7 +118,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
 
     final save = widget.onSave ?? _saveToFirestore;
     save(
-      name: _nameController.text,
+      name: cleanText(_nameController.text),
       amount: amount,
       category: _category,
       firstDueDate: _dueDate,
@@ -162,6 +171,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
           child: Form(
             key: _formKey,
+            autovalidateMode: checkMode,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -189,15 +199,18 @@ class _BillFormSheetState extends State<BillFormSheet> {
                 TextFormField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
-                  maxLength: 40,
+                  maxLength: maxItemNameLength,
+                  inputFormatters: const [SafeTextFormatter()],
                   decoration: dialogFieldDecoration(
                     context,
                     'Bill name',
                     hint: 'e.g. Rent, Internet, Tuition',
                   ),
-                  validator: (value) => (value ?? '').trim().isEmpty
-                      ? 'Give the bill a name.'
-                      : null,
+                  validator: (value) => itemNameProblem(
+                    value ?? '',
+                    maxLength: maxItemNameLength,
+                    empty: 'Give the bill a name.',
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -206,10 +219,7 @@ class _BillFormSheetState extends State<BillFormSheet> {
                     decimal: true,
                   ),
                   inputFormatters: const [ThousandsSeparatorFormatter()],
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  // The same size as every other field in this form.
                   decoration: dialogFieldDecoration(
                     context,
                     'Amount',
@@ -296,7 +306,10 @@ class _BillFormSheetState extends State<BillFormSheet> {
                 const SizedBox(height: 8),
                 Text(
                   _recurrence.explanation,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.appColors.textMuted,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 StreamBuilder<List<Wallet>>(
@@ -317,14 +330,18 @@ class _BillFormSheetState extends State<BillFormSheet> {
                             WalletPurpose.spending,
                             WalletPurpose.bills,
                           },
+                          goals: heldGoals,
                           onChanged: (value) =>
                               setState(() => _walletId = value),
                         ),
                         const SizedBox(height: 8),
-                        const Text(
+                        Text(
                           'Only a suggestion. You still choose the wallet when '
                           'you actually pay it.',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: context.appColors.textMuted,
+                          ),
                         ),
                       ],
                     );

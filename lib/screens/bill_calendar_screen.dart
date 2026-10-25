@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/bill.dart';
 import '../services/bill_service.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/back_to_home.dart';
 import '../theme/app_theme.dart';
@@ -70,6 +71,7 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
   late DateTime? _selectedDay = _today;
 
   bool _showAsList = false;
+
   /// Set once when the screen opens. Which side you are on is decided by
   /// how you got here, not by a control on the screen.
   late final bool _showDebts = widget.initialShowDebts;
@@ -155,8 +157,12 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
       floatingActionButton: _showDebts
           ? null
           : FloatingActionButton.extended(
+              // Its own tag: as a tab, this sits under the shell's "+",
+              // and two buttons sharing the default tag break page changes.
+              heroTag: 'add-bill',
               onPressed: _addBill,
-              backgroundColor: appPrimaryBlue,
+              // Green, like every Add button in the app.
+              backgroundColor: appConfirmGreen,
               foregroundColor: Colors.white,
               icon: const Icon(Icons.add),
               label: const Text('Add Bill'),
@@ -330,7 +336,7 @@ class _SummaryFigure extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
+            style: TextStyle(fontSize: 11, color: context.appColors.textMuted),
           ),
           const SizedBox(height: 4),
           MoneyText(
@@ -411,7 +417,7 @@ class _CalendarAndDay extends StatelessWidget {
                   ? 'Nothing due this month.'
                   : 'Nothing due on this day.',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
+              style: TextStyle(color: context.appColors.textMuted),
             ),
           )
         else
@@ -501,10 +507,10 @@ class _MonthGrid extends StatelessWidget {
                   child: Center(
                     child: Text(
                       label,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
-                        color: Colors.grey,
+                        color: context.appColors.textMuted,
                       ),
                     ),
                   ),
@@ -624,12 +630,12 @@ class _BillList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (instances.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
           padding: EdgeInsets.all(32),
           child: Text(
             'Nothing due this month.',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: context.appColors.textMuted),
           ),
         ),
       );
@@ -709,9 +715,9 @@ class _BillRow extends StatelessWidget {
                             formatShortDate(instance.dueDate),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
-                              color: Colors.grey,
+                              color: context.appColors.textMuted,
                             ),
                           ),
                         ),
@@ -744,7 +750,10 @@ class _BillRow extends StatelessWidget {
                     const SizedBox(height: 2),
                     MoneyText(
                       instance.remaining,
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: context.appColors.textMuted,
+                      ),
                     ),
                   ],
                 ],
@@ -768,7 +777,11 @@ class _BillsError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off_outlined, size: 42, color: Colors.grey),
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 42,
+              color: context.appColors.textMuted,
+            ),
             const SizedBox(height: 14),
             Text(
               'We could not load your bills',
@@ -779,10 +792,13 @@ class _BillsError extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Check your connection and try again.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 13,
+                color: context.appColors.textMuted,
+              ),
             ),
           ],
         ),

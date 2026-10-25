@@ -656,6 +656,8 @@ ${responseLanguage == null ? '' : 'Write the explanation entirely in ${responseL
                 'targetDate': goal.targetDate!.toIso8601String(),
               'kind': goal.kind.name,
               'contributionFrequency': goal.frequency.name,
+              if (goal.customInterval != null)
+                'customContributionInterval': goal.customInterval!.label,
               if (goal.planAmount != null)
                 'plannedContribution': goal.planAmount,
             },

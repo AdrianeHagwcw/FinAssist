@@ -1,6 +1,11 @@
+import 'dart:async';
+
+import '../theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
+import '../models/goal.dart';
 import '../models/wallet.dart';
+import '../services/goal_service.dart';
 import '../utils/money_format.dart';
 import 'dialog_kit.dart';
 
@@ -32,8 +37,12 @@ class WalletPicker extends StatelessWidget {
     this.excludeId,
     this.allowed = const {WalletPurpose.spending},
     this.disabledWalletIds = const {},
+    this.disabledLabel,
     this.displayBalances,
     this.onAddWallet,
+    this.errorText,
+    this.helper,
+    this.goals,
     super.key,
   });
 
@@ -54,13 +63,35 @@ class WalletPicker extends StatelessWidget {
   /// Wallets that should remain visible but cannot be selected.
   final Set<String> disabledWalletIds;
 
+  /// Shown instead of the balance on a wallet that cannot be chosen, such
+  /// as "Added", so the reason is plain without trying it.
+  final String? disabledLabel;
+
   /// Optional balances to show instead of the wallet's raw balance, such as
   /// money still free after existing goal claims are deducted.
   final Map<String, double>? displayBalances;
   final VoidCallback? onAddWallet;
 
+  /// What is wrong with the choice, in red under it, for a screen that
+  /// checks it itself rather than through a [Form].
+  final String? errorText;
+
+  /// A line under the picker, such as what its amounts mean.
+  final String? helper;
+
+  /// The goals, so each wallet shows what it has free to spend rather than
+  /// what it holds: money set aside for a goal is not spending money. Null
+  /// shows what each holds.
+  final List<Goal>? goals;
+
   @override
   Widget build(BuildContext context) {
+    final goals = this.goals;
+    final shown =
+        displayBalances ??
+        (goals == null ? null : freeByWallet(wallets, goals));
+    final note =
+        helper ?? (goals == null ? null : goalMoneyNote(wallets, goals));
     final choices = wallets
         .where(
           (wallet) =>
@@ -79,29 +110,44 @@ class WalletPicker extends StatelessWidget {
     return DropdownButtonFormField<String>(
       initialValue: value,
       isExpanded: true,
-      decoration: dialogFieldDecoration(context, label),
+      decoration: dialogFieldDecoration(
+        context,
+        label,
+        helper: note,
+      ).copyWith(errorText: errorText, helperMaxLines: 2),
       items: [
         for (final wallet in choices)
           DropdownMenuItem(
             value: wallet.id,
             enabled: !disabledWalletIds.contains(wallet.id),
-            child: Row(
-              children: [
-                Image.asset(wallet.iconAsset, width: 20, height: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    wallet.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+            // A wallet that cannot be chosen is dimmed, so it does not look
+            // tappable.
+            child: Opacity(
+              opacity: disabledWalletIds.contains(wallet.id) ? 0.4 : 1,
+              child: Row(
+                children: [
+                  Image.asset(wallet.iconAsset, width: 20, height: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      wallet.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  formatPeso(displayBalances?[wallet.id] ?? wallet.balance),
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Text(
+                    disabledWalletIds.contains(wallet.id) &&
+                            disabledLabel != null
+                        ? disabledLabel!
+                        : formatPeso(shown?[wallet.id] ?? wallet.balance),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.appColors.textMuted,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         if (onAddWallet != null)
@@ -125,5 +171,33 @@ class WalletPicker extends StatelessWidget {
       },
       validator: (selected) => selected == null ? 'Choose a wallet.' : null,
     );
+  }
+}
+
+/// Keeps the goals at hand for a screen's wallet pickers and amounts, so
+/// each wallet shows what it has free to spend: its balance less what goals
+/// hold in it. The same rule on every screen, for every account.
+mixin WatchesGoals<T extends StatefulWidget> on State<T> {
+  /// Every goal, finished ones too: their money stays set aside until used.
+  List<Goal> heldGoals = const [];
+  StreamSubscription<List<Goal>>? _goalsSubscription;
+
+  /// Starts listening: to [given] in tests, to none when a test hands in
+  /// only its wallets, otherwise to the live goals.
+  void watchGoals({Stream<List<Goal>>? given, required bool walletsGiven}) {
+    _goalsSubscription =
+        (given ??
+                (walletsGiven
+                    ? Stream.value(const <Goal>[])
+                    : GoalService.watchGoals()))
+            .listen((goals) {
+              if (mounted) setState(() => heldGoals = goals);
+            }, onError: (Object _) {});
+  }
+
+  @override
+  void dispose() {
+    _goalsSubscription?.cancel();
+    super.dispose();
   }
 }

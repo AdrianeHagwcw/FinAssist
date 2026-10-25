@@ -50,6 +50,7 @@ class AllocationPlan {
     this.billsSetAside,
     this.goal,
     this.goalAmount = 0,
+    this.serviceCharge = 0,
   });
 
   final double income;
@@ -64,12 +65,24 @@ class AllocationPlan {
   final Goal? goal;
   final double goalAmount;
 
+  /// What the bank, e-wallet or biller charged for paying these bills, as
+  /// on Pay Bill. Optional, and only counted while a bill is being paid.
+  final double serviceCharge;
+
+  /// [serviceCharge] while bills are paid one by one here; nothing when they
+  /// are only set aside, since nothing is paid yet.
+  double get billsServiceCharge =>
+      billsSetAside == null && toBills > 0 && serviceCharge > 0
+      ? serviceCharge
+      : 0;
+
   /// Set aside for the goal this cycle.
   double get toGoal => goal == null || goalAmount <= 0 ? 0 : goalAmount;
 
-  /// What is left once bills are paid, before anything goes to a goal. This
-  /// is what "use what's left" puts toward the goal.
-  double get afterBills => income - toBills;
+  /// What is left once bills, and any charge for paying them, are paid,
+  /// before anything goes to a goal. This is what "use what's left" puts
+  /// toward the goal.
+  double get afterBills => income - toBills - billsServiceCharge;
 
   /// Total going to bills this cycle.
   double get toBills =>
@@ -81,7 +94,7 @@ class AllocationPlan {
   /// What is left of the income after bills. Negative means the bills chosen
   /// cost more than came in, and the difference comes out of money already in
   /// the wallet.
-  double get remaining => income - toBills - toGoal;
+  double get remaining => income - toBills - billsServiceCharge - toGoal;
 
   bool get dipsIntoSavings => remaining < -0.005;
 
@@ -104,6 +117,10 @@ class AllocationPlan {
           '${formatPeso(bill.instance.remaining)}.',
         );
       }
+    }
+
+    if (!serviceCharge.isFinite || serviceCharge < 0) {
+      problems.add('Enter the service charge, or turn it off.');
     }
 
     final setAside = billsSetAside;
@@ -136,6 +153,7 @@ class AllocationPlan {
       billsSetAside: billsSetAside,
       goal: goal,
       goalAmount: goalAmount,
+      serviceCharge: serviceCharge,
     );
   }
 }

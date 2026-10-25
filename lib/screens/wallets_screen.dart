@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/user_profile_service.dart';
 import '../services/wallet_service.dart';
@@ -13,15 +14,20 @@ import '../widgets/money_text.dart';
 import '../widgets/transfer_sheet.dart';
 import '../widgets/wallet_actions.dart';
 import '../widgets/wallet_form_sheet.dart';
+import '../widgets/wallet_picker.dart';
 import 'income_waterfall_screen.dart';
 import 'wallet_detail_screen.dart';
 
 /// The Wallet tab: the combined balance, then one card per wallet.
 class WalletsScreen extends StatefulWidget {
-  const WalletsScreen({this.wallets, this.incomeSource, super.key});
+  const WalletsScreen({this.wallets, this.incomeSource, this.goals, super.key});
 
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
+
+  /// Replaces the live goals, for what they hold in each wallet. Used by
+  /// tests.
+  final Stream<List<Goal>>? goals;
 
   /// Replaces the income source saved during onboarding, e.g. "Allowance".
   final Stream<String?>? incomeSource;
@@ -30,7 +36,7 @@ class WalletsScreen extends StatefulWidget {
   State<WalletsScreen> createState() => _WalletsScreenState();
 }
 
-class _WalletsScreenState extends State<WalletsScreen> {
+class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
   // Held in state so a rebuild doesn't start a second listener.
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
@@ -41,6 +47,12 @@ class _WalletsScreenState extends State<WalletsScreen> {
         (profile) => profile.data()?['incomeSource'] as String?,
       );
 
+  @override
+  void initState() {
+    super.initState();
+    watchGoals(given: widget.goals, walletsGiven: widget.wallets != null);
+  }
+
   Future<void> _addWallet(List<Wallet> currentWallets) async {
     final draft = await showWalletFormSheet(context);
 
@@ -50,6 +62,8 @@ class _WalletsScreenState extends State<WalletsScreen> {
       type: draft.type,
       name: draft.name,
       startingBalance: draft.startingBalance,
+      balanceRecorded: draft.balanceRecorded,
+      annualInterestRatePercent: draft.annualInterestRatePercent,
       // The very first wallet receives income until the user picks another.
       receivesIncome: currentWallets.isEmpty,
       currentWallets: currentWallets,
@@ -128,9 +142,12 @@ class _WalletsScreenState extends State<WalletsScreen> {
                 children: [
                   const LegacyImportCard(),
                   _TotalBalanceCard(
-                    total: totalWalletBalance(wallets),
+                    total: spending.fold<double>(
+                      0,
+                      (sum, wallet) => sum + freeInWallet(wallet, heldGoals),
+                    ),
+                    inWallets: totalWalletBalance(wallets),
                     walletCount: spending.length,
-                    setAside: setAsideWalletBalance(wallets),
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -145,6 +162,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
                   for (final wallet in spending) ...[
                     _WalletCard(
                       wallet: wallet,
+                      forGoals: goalMoneyInWallet(heldGoals, wallet.id),
                       incomeSource: incomeSnapshot.data,
                       onTap: () => _openWallet(wallet),
                       onTransfer: () =>
@@ -172,22 +190,59 @@ class _WalletsScreenState extends State<WalletsScreen> {
   }
 }
 
+/// The top of the Wallets tab, read like a statement so it adds up: what is
+/// in these wallets, less what goals hold in them, is the available
+/// balance. Only these wallets, so every figure on it belongs to the sum.
 class _TotalBalanceCard extends StatelessWidget {
   const _TotalBalanceCard({
     required this.total,
+    required this.inWallets,
     required this.walletCount,
-    this.setAside = 0,
   });
 
+  /// What can be spent: the spending wallets less what goals hold in them.
   final double total;
+
+  /// What the spending wallets hold in all, goal money included.
+  final double inWallets;
   final int walletCount;
 
-  /// Held in the bills and savings wallets, shown underneath so the money is
-  /// still accounted for even though it is not spendable.
-  final double setAside;
+  double get _forGoals => inWallets - total;
 
   @override
   Widget build(BuildContext context) {
+    Widget line(
+      String label,
+      double amount, {
+      String sign = '',
+      bool result = false,
+    }) => Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: result ? Colors.white : Colors.white70,
+                fontSize: result ? 13 : 12,
+                fontWeight: result ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ),
+          MoneyText(
+            amount,
+            sign: sign.isEmpty ? null : sign,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: result ? 13 : 12,
+              fontWeight: result ? FontWeight.bold : FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -206,7 +261,7 @@ class _TotalBalanceCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Total Balance',
+            'Available Balance',
             style: TextStyle(color: Colors.white70, fontSize: 14),
           ),
           const SizedBox(height: 14),
@@ -223,24 +278,15 @@ class _TotalBalanceCard extends StatelessWidget {
             'Across $walletCount wallet${walletCount == 1 ? '' : 's'}',
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
-          if (setAside > 0) ...[
+          // How the figure above is reached, only when goals hold some:
+          // in these wallets, less what goals hold, is what is available.
+          if (_forGoals > 0.005) ...[
+            const SizedBox(height: 8),
+            line('In these wallets', inWallets),
+            line('Set aside for goals', _forGoals, sign: '-'),
             const SizedBox(height: 6),
-            Row(
-              children: [
-                const Text(
-                  'Set aside for bills and savings: ',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                MoneyText(
-                  setAside,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+            const Divider(height: 1, color: Colors.white24),
+            line('Available balance', total, result: true),
           ],
         ],
       ),
@@ -251,6 +297,7 @@ class _TotalBalanceCard extends StatelessWidget {
 class _WalletCard extends StatelessWidget {
   const _WalletCard({
     required this.wallet,
+    this.forGoals = 0,
     required this.incomeSource,
     required this.onTap,
     required this.onTransfer,
@@ -261,6 +308,9 @@ class _WalletCard extends StatelessWidget {
   });
 
   final Wallet wallet;
+
+  /// What goals hold in this wallet; the rest is what can be spent.
+  final double forGoals;
 
   /// What the user called their income during onboarding, e.g. "Allowance".
   final String? incomeSource;
@@ -321,8 +371,30 @@ class _WalletCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       wallet.type.label,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.appColors.textMuted,
+                      ),
                     ),
+                    if (forGoals > 0.005)
+                      Row(
+                        children: [
+                          MoneyText(
+                            forGoals,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: context.appColors.textMuted,
+                            ),
+                          ),
+                          Text(
+                            ' set aside for goals',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: context.appColors.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
                     if (wallet.receivesIncome) ...[
                       const SizedBox(height: 8),
                       Container(
@@ -351,8 +423,13 @@ class _WalletCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  // What can be spent from it.
                   MoneyText(
-                    wallet.balance,
+                    wallet.balance < 0 || forGoals <= 0
+                        ? wallet.balance
+                        : (wallet.balance - forGoals)
+                              .clamp(0.0, double.infinity)
+                              .toDouble(),
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.bold,
@@ -440,14 +517,8 @@ class _AddWalletButton extends StatelessWidget {
           'Add Wallet',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: appPrimaryBlue,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
+        // Green, like every Add button in the app.
+        style: confirmButtonStyle(),
       ),
     );
   }
@@ -466,7 +537,11 @@ class _WalletsError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off_outlined, size: 42, color: Colors.grey),
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 42,
+              color: context.appColors.textMuted,
+            ),
             const SizedBox(height: 14),
             Text(
               'We could not load your wallets',
@@ -481,7 +556,10 @@ class _WalletsError extends StatelessWidget {
             Text(
               'Check your connection and try again.\n$error',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 13,
+                color: context.appColors.textMuted,
+              ),
             ),
           ],
         ),

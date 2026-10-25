@@ -191,10 +191,80 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Clear conversation'));
     await tester.pumpAndSettle();
+    // It asks first; Cancel keeps the chat.
+    expect(find.text('Clear this conversation?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('How do I save more?'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear conversation'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Clear'));
+    await tester.pumpAndSettle();
+    expect(find.text('How do I save more?'), findsNothing);
+    expect(
+      find.text("Hello! I'm Fin. How can I help you with your finances today?"),
+      findsOneWidget,
+    );
     assistant.pendingAnswer!.complete('Old conversation answer.');
     await tester.pump();
     expect(find.text('Old conversation answer.'), findsNothing);
     expect(tester.widget<TextField>(find.byType(TextField)).enabled, isTrue);
+  });
+
+  testWidgets('the menu floats under the dots; About explains Fin', (
+    tester,
+  ) async {
+    await _pumpChat(tester, assistant: _FakeFinancialAssistant());
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    // A floating menu, not a sheet from the bottom.
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.text('About Fin'), findsOneWidget);
+    // Nothing asked yet, so there is nothing to clear.
+    final clear = tester.widget<PopupMenuItem<Object?>>(
+      find.ancestor(
+        of: find.text('Clear conversation'),
+        matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
+      ),
+    );
+    expect(clear.enabled, isFalse);
+
+    await tester.tap(find.text('About Fin'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining("Fin is FinAssist's money helper"),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Answers are based on what you record, so keep your records '
+        'complete and up to date.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('can be wrong'), findsNothing);
+    // The app's own icons: records, the privacy shield, recording.
+    for (final asset in [
+      'icons8-transactions-96.png',
+      'icons8-shield-96.png',
+      'icons8-expenses-64.png',
+    ]) {
+      expect(
+        find.image(AssetImage('assets/icons/$asset')),
+        findsOneWidget,
+        reason: asset,
+      );
+    }
+    expect(find.text('Open-source licenses'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining("Fin is FinAssist's money helper"),
+      findsNothing,
+    );
   });
 
   testWidgets('rejects unrelated questions without calling Gemini', (

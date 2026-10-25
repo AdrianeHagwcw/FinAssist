@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../models/debt.dart';
 import '../models/goal.dart';
 import '../services/goal_service.dart';
-import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -11,9 +10,9 @@ import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 import '../widgets/back_to_home.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/goal_progress.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/money_text.dart';
-import '../widgets/savings_guide.dart';
 import 'goal_detail_screen.dart';
 
 /// The Goals tab: what the user is saving toward, in the order money reaches
@@ -62,7 +61,6 @@ class GoalsScreen extends StatefulWidget {
   const GoalsScreen({
     this.controller,
     this.goals,
-    this.profile,
     this.onReorder,
     this.onOpen,
     super.key,
@@ -74,10 +72,6 @@ class GoalsScreen extends StatefulWidget {
 
   /// Replaces the live goals. Used by tests.
   final Stream<List<Goal>>? goals;
-
-  /// Replaces the live profile, read for the savings suggestion. Used by
-  /// tests.
-  final Stream<Map<String, dynamic>?>? profile;
 
   /// Replaces saving a new order. Used by tests.
   final void Function(List<Goal> ordered)? onReorder;
@@ -92,10 +86,6 @@ class GoalsScreen extends StatefulWidget {
 class _GoalsScreenState extends State<GoalsScreen> {
   late final Stream<List<Goal>> _goals =
       widget.goals ?? GoalService.watchGoals();
-
-  late final Stream<Map<String, dynamic>?> _profile =
-      widget.profile ??
-      UserProfileService.watchProfile().map((snapshot) => snapshot.data());
 
   bool _showFinished = false;
 
@@ -139,21 +129,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
           children: [
-            SegmentedButton<bool>(
-              segments: [
-                ButtonSegment(
-                  value: false,
-                  label: Text('Active (${active.length})'),
-                ),
-                ButtonSegment(
-                  value: true,
-                  label: Text('Completed (${finished.length})'),
-                ),
-              ],
-              selected: {_showFinished},
-              showSelectedIcon: false,
-              onSelectionChanged: (value) =>
-                  setState(() => _showFinished = value.first),
+            _GoalsFilter(
+              showFinished: _showFinished,
+              activeCount: active.length,
+              finishedCount: finished.length,
+              onChanged: (finished) => setState(() => _showFinished = finished),
             ),
             const SizedBox(height: 16),
             if (goals.isEmpty)
@@ -175,17 +155,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       ? 'Goals you finish will show up here.'
                       : 'Every goal is done. Add a new one to keep going.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
+                  style: TextStyle(color: context.appColors.textMuted),
                 ),
               )
             else ...[
               if (!_showFinished && active.length > 1)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(bottom: 10),
                   child: Text(
                     'Money from income reaches the top goal first. Use the '
                     'arrows to change the order.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.appColors.textMuted,
+                    ),
                   ),
                 ),
               for (var i = 0; i < shown.length; i++) ...[
@@ -204,29 +187,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
               ],
             ],
             const SizedBox(height: 4),
+            // The same green Add button as setup's goals step.
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton.icon(
+              height: 52,
+              child: ElevatedButton(
                 onPressed: () =>
                     showGoalFormSheet(context, nextPriority: active.length),
-                style: openButtonStyle(),
-                icon: const Icon(Icons.add),
-                label: const Text(
-                  'Add New Goal',
+                style: confirmButtonStyle(),
+                child: const Text(
+                  'Add Goal',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-            const SizedBox(height: 28),
-            StreamBuilder<Map<String, dynamic>?>(
-              stream: _profile,
-              builder: (context, profile) => SavingsGuide(
-                monthlyIncome: monthlyIncomeFrom(profile.data),
-                onCreateGoal: (name, kind) => showGoalFormSheet(
-                  context,
-                  nextPriority: active.length,
-                  initialName: name,
-                  initialKind: kind,
                 ),
               ),
             ),
@@ -277,108 +248,99 @@ class _GoalCard extends StatelessWidget {
   final VoidCallback? onUp;
   final VoidCallback? onDown;
 
+  /// The plan note names the finish date, so it only shows on its own for a
+  /// goal planned by an amount each time.
+  bool get _showsFinishDate =>
+      goal.targetDate != null &&
+      goal.status == GoalStatus.active &&
+      goal.planAmount != null;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final done = goal.status != GoalStatus.active;
+    final reached = goal.isReached;
+    final used = goal.status == GoalStatus.used;
 
+    // Laid out like setup's goal card: the goal icon, the name with what is
+    // saved, then the bar with how far along it is.
     return Material(
       color: colors.card,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+          padding: const EdgeInsets.fromLTRB(14, 12, 4, 14),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: colors.border),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              Row(
+                children: [
+                  // A reached goal trades its target for a green check.
+                  Image.asset(
+                    reached
+                        ? goalReachedIcon
+                        : 'assets/icons/icons8-goal-96.png',
+                    width: 32,
+                    height: 32,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(goal.kind.icon, size: 20, color: appPrimaryBlue),
-                        const SizedBox(width: 8),
-                        if (rank != null) ...[
-                          _Tag(text: '#$rank', color: appPrimaryBlue),
-                          const SizedBox(width: 8),
-                        ],
-                        if (done) ...[
-                          _Tag(
-                            text: goal.status == GoalStatus.used
-                                ? 'Used'
-                                : 'Reached',
-                            color: confirmColorOn(context),
-                            icon: Icons.check,
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        Expanded(
-                          child: Text(
-                            goal.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: colors.textPrimary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: goal.progress,
-                        minHeight: 8,
-                        backgroundColor: colors.track,
-                        valueColor: AlwaysStoppedAnimation(
-                          done ? confirmColorOn(context) : appPrimaryBlue,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        MoneyText(
-                          goal.shownSaved,
+                        Text(
+                          goal.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                             color: colors.textPrimary,
                           ),
                         ),
-                        Text(
-                          ' of ${formatPeso(goal.targetAmount)}',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (goal.targetDate != null && !done)
+                        const SizedBox(height: 2),
+                        if (reached)
                           Text(
-                            'by ${formatShortDate(goal.targetDate!)}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                            '${formatPeso(goal.targetAmount)} saved — '
+                            'completed!',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: colors.textBody,
                             ),
+                          )
+                        else
+                          // The saved amount hides with the eye toggle, as
+                          // it did before.
+                          Row(
+                            children: [
+                              MoneyText(
+                                goal.shownSaved,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: colors.textBody,
+                                ),
+                              ),
+                              Flexible(
+                                child: Text(
+                                  ' of ${formatPeso(goal.targetAmount)} saved',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: colors.textBody,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              if (rank != null)
-                Column(
-                  children: [
+                  ),
+                  if (rank != null) ...[
                     IconButton(
                       tooltip: 'Move up',
                       visualDensity: VisualDensity.compact,
@@ -392,8 +354,203 @@ class _GoalCard extends StatelessWidget {
                       onPressed: onDown,
                     ),
                   ],
+                ],
+              ),
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: GoalProgressBar(
+                  progress: goal.progress,
+                  reached: reached,
                 ),
+              ),
+              if (!done)
+                if (goalPlanLine(
+                      remaining: goal.remaining,
+                      targetDate: goal.targetDate,
+                      now: DateTime.now(),
+                      frequency: goal.frequency,
+                      custom: goal.customInterval,
+                      planStartedAt: goal.planStartedAt,
+                      planAmount: goal.planAmount,
+                      behind: behindPlan(goal, now: DateTime.now()),
+                    )
+                    case final line?) ...[
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: GoalPlanNote(line),
+                  ),
+                ],
+              // Its place in line, whether it was used, and when it is due.
+              // A reached goal says so under its bar already.
+              if (rank != null || used || _showsFinishDate) ...[
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (rank != null)
+                        _Tag(text: '#$rank', color: appPrimaryBlue),
+                      if (used)
+                        _Tag(
+                          text: 'Used',
+                          color: confirmColorOn(context),
+                          icon: Icons.check,
+                        ),
+                      if (_showsFinishDate)
+                        Text(
+                          'Finish by ${formatShortDate(goal.targetDate!)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.textMuted,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Active or Completed, as two large tiles like the wallet types in New
+/// Wallet: the chosen one solid blue, so which list is showing is never in
+/// doubt, each with its own icon and how many goals it holds. Each tile is
+/// a full 48 points high and read out as a selected or unselected button.
+class _GoalsFilter extends StatelessWidget {
+  const _GoalsFilter({
+    required this.showFinished,
+    required this.activeCount,
+    required this.finishedCount,
+    required this.onChanged,
+  });
+
+  final bool showFinished;
+  final int activeCount;
+  final int finishedCount;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _GoalsFilterTile(
+            key: const Key('goals-filter-active'),
+            iconAsset: 'assets/icons/icons8-goal-96.png',
+            label: 'Active',
+            count: activeCount,
+            selected: !showFinished,
+            onTap: () => onChanged(false),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _GoalsFilterTile(
+            key: const Key('goals-filter-completed'),
+            iconAsset: goalReachedIcon,
+            label: 'Completed',
+            count: finishedCount,
+            selected: showFinished,
+            onTap: () => onChanged(true),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GoalsFilterTile extends StatelessWidget {
+  const _GoalsFilterTile({
+    required this.iconAsset,
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+    super.key,
+  });
+
+  final String iconAsset;
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final foreground = selected ? Colors.white : colors.textBody;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$label goals, $count',
+      excludeSemantics: true,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              color: selected ? appPrimaryBlue : colors.card,
+              border: Border.all(
+                color: selected ? appPrimaryBlue : colors.border,
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(iconAsset, width: 18, height: 18),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+                      color: foreground,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // How many, in a badge of its own rather than in brackets.
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.25)
+                        : colors.primaryTint,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: selected ? Colors.white : colors.primaryText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

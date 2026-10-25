@@ -218,12 +218,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         ),
         const SizedBox(height: 16),
         if (shown.isEmpty)
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 40),
             child: Text(
               'Nothing matches these filters.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: context.appColors.textMuted),
             ),
           ),
       ],
@@ -314,10 +314,10 @@ class _DayHeader extends SliverPersistentHeaderDelegate {
       padding: const EdgeInsets.fromLTRB(_sideInset, 0, _sideInset, 8),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: Colors.grey,
+          color: context.appColors.textMuted,
         ),
       ),
     );
@@ -353,7 +353,7 @@ class _InOutStrip extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              style: TextStyle(fontSize: 11, color: context.appColors.textMuted),
             ),
             const SizedBox(height: 4),
             MoneyText(
@@ -409,9 +409,9 @@ class _InOutStrip extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Lent, borrowed or paid back. Not counted as inward or outward.',
-              style: TextStyle(fontSize: 11, color: Colors.grey),
+              style: TextStyle(fontSize: 11, color: context.appColors.textMuted),
             ),
           ],
         ],

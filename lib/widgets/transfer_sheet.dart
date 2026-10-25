@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../utils/amount_input_formatter.dart';
+import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
 import '../utils/money_format.dart';
+import 'check_after_save.dart';
+import 'service_charge_field.dart';
 import 'wallet_picker.dart';
 
 /// Moves money between two wallets. Returns true when a transfer was saved.
@@ -41,6 +44,8 @@ class TransferSheet extends StatefulWidget {
 
   const TransferSheet({
     this.wallets,
+    this.goals,
+    this.onSave,
     this.initialFromWalletId,
     this.initialToWalletId,
     this.initialAmount,
@@ -49,6 +54,19 @@ class TransferSheet extends StatefulWidget {
 
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
+
+  /// Replaces the live goals, for what they hold in each wallet. Used by
+  /// tests.
+  final Stream<List<Goal>>? goals;
+
+  /// Replaces saving. Used by tests.
+  final void Function({
+    required String fromWalletId,
+    required String toWalletId,
+    required double amount,
+    required double serviceCharge,
+  })?
+  onSave;
 
   /// The wallet the money starts in. Set when the sheet is opened from a
   /// particular wallet, so the user doesn't have to pick it again.
@@ -63,7 +81,8 @@ class TransferSheet extends StatefulWidget {
   State<TransferSheet> createState() => _TransferSheetState();
 }
 
-class _TransferSheetState extends State<TransferSheet> {
+class _TransferSheetState extends State<TransferSheet>
+    with CheckAfterSave, WatchesGoals {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
 
@@ -75,13 +94,27 @@ class _TransferSheetState extends State<TransferSheet> {
   );
   final _noteController = TextEditingController();
 
+  /// Whether the bank or e-wallet charged for this transfer, and how much.
+  bool _charged = false;
+  final _chargeController = TextEditingController();
+
+  double get _charge =>
+      ServiceChargeField.amountOf(on: _charged, controller: _chargeController);
+
   late String? _fromId = widget.initialFromWalletId;
   late String? _toId = widget.initialToWalletId;
+
+  @override
+  void initState() {
+    super.initState();
+    watchGoals(given: widget.goals, walletsGiven: widget.wallets != null);
+  }
 
   @override
   void dispose() {
     _amountController.dispose();
     _noteController.dispose();
+    _chargeController.dispose();
     super.dispose();
   }
 
@@ -94,7 +127,7 @@ class _TransferSheetState extends State<TransferSheet> {
   static const _newSavings = TransferSheet.newSavingsWalletId;
 
   void _save(String? fromId, List<Wallet> wallets) {
-    if (fromId == null || !_formKey.currentState!.validate()) return;
+    if (!checkForm(_formKey) || fromId == null) return;
 
     final purpose = switch (_toId) {
       _newBills => WalletPurpose.bills,
@@ -102,12 +135,21 @@ class _TransferSheetState extends State<TransferSheet> {
       _ => null,
     };
 
-    if (purpose == null) {
+    final charge = _charge;
+    if (widget.onSave != null) {
+      widget.onSave!(
+        fromWalletId: fromId,
+        toWalletId: _toId!,
+        amount: _amount!,
+        serviceCharge: charge,
+      );
+    } else if (purpose == null) {
       WalletService.recordTransfer(
         fromWalletId: fromId,
         toWalletId: _toId!,
         amount: _amount!,
         note: _noteController.text,
+        serviceCharge: charge,
       );
     } else {
       WalletService.transferToPurpose(
@@ -116,7 +158,17 @@ class _TransferSheetState extends State<TransferSheet> {
         amount: _amount!,
         wallets: wallets,
         note: _noteController.text,
+        serviceCharge: charge,
       );
+    }
+
+    // The bank charges the same next time, so it is filled in then.
+    final source = _walletById(wallets, fromId);
+    if (widget.onSave == null &&
+        charge > 0 &&
+        source != null &&
+        source.serviceCharge != charge) {
+      WalletService.rememberServiceCharge(fromId, charge);
     }
 
     Navigator.pop(context, true);
@@ -138,7 +190,9 @@ class _TransferSheetState extends State<TransferSheet> {
     );
 
     return [
-      ...wallets,
+      // Nothing can be added to a time deposit once it is placed; more money
+      // goes into a new one, made in Add Savings.
+      ...wallets.where((wallet) => !wallet.isLockedSavings),
       if (WalletService.walletFor(wallets, WalletPurpose.bills) == null)
         placeholder(_newBills, WalletPurpose.bills),
       if (WalletService.walletFor(wallets, WalletPurpose.savings) == null)
@@ -173,6 +227,7 @@ class _TransferSheetState extends State<TransferSheet> {
 
               return Form(
                 key: _formKey,
+                autovalidateMode: checkMode,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,10 +252,13 @@ class _TransferSheetState extends State<TransferSheet> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Move money you already have from one wallet to another. '
                       'Your total stays the same.',
-                      style: TextStyle(fontSize: 13, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: context.appColors.textMuted,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     if (wallets.isEmpty)
@@ -213,6 +271,7 @@ class _TransferSheetState extends State<TransferSheet> {
                         // Moving money on purpose is the one place every
                         // wallet may be picked, in either direction.
                         allowed: WalletPurpose.values.toSet(),
+                        goals: heldGoals,
                         onChanged: (value) => setState(() {
                           _fromId = value;
                           if (_toId == value) _toId = null;
@@ -225,6 +284,7 @@ class _TransferSheetState extends State<TransferSheet> {
                         label: 'To',
                         excludeId: from,
                         allowed: WalletPurpose.values.toSet(),
+                        goals: heldGoals,
                         onChanged: (value) => setState(() => _toId = value),
                       ),
                       const SizedBox(height: 16),
@@ -239,8 +299,14 @@ class _TransferSheetState extends State<TransferSheet> {
                           labelText: 'Amount',
                           prefixText: '₱ ',
                           hintText: '0.00',
+                          // What can be moved: goal money stays put.
                           helperText: source == null
                               ? null
+                              : freeInWallet(source, heldGoals) <
+                                    source.balance - 0.005
+                              ? '${source.name} has '
+                                    '${formatPeso(freeInWallet(source, heldGoals))} '
+                                    'free to move'
                               : '${source.name} holds '
                                     '${formatPeso(source.balance)}',
                           border: OutlineInputBorder(
@@ -249,6 +315,21 @@ class _TransferSheetState extends State<TransferSheet> {
                         ),
                         validator: (value) =>
                             _validateAmount(value, source: source),
+                      ),
+                      const SizedBox(height: 8),
+                      ServiceChargeField(
+                        on: _charged,
+                        controller: _chargeController,
+                        onChanged: (on) => setState(() {
+                          _charged = on;
+                          // What this wallet charged last time.
+                          final last = source?.serviceCharge;
+                          if (on &&
+                              last != null &&
+                              _chargeController.text.trim().isEmpty) {
+                            _chargeController.text = formatAmountInput(last);
+                          }
+                        }),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -299,8 +380,26 @@ class _TransferSheetState extends State<TransferSheet> {
       return minimumAmountError;
     }
 
-    if (source != null && amount > source.balance) {
-      return '${source.name} only holds ${formatPeso(source.balance)}.';
+    // The service charge comes out of the same wallet, so it counts too.
+    final charge = _charge;
+    final total = amount + charge;
+    final withCharge = charge > 0
+        ? 'With the ${formatPeso(charge)} service charge, that is '
+              '${formatPeso(total)}. '
+        : '';
+
+    if (source != null && total > source.balance + 0.005) {
+      return '$withCharge${source.name} only holds '
+          '${formatPeso(source.balance)}.';
+    }
+
+    // Money set aside for a goal stays where it is until it is taken out of
+    // the goal.
+    final free = source == null ? null : freeInWallet(source, heldGoals);
+    if (source != null && free != null && total > free + 0.005) {
+      return '$withCharge${source.name} has ${formatPeso(free)} free to move. '
+          'The other ${formatPeso(source.balance - free)} is set aside for '
+          'goals.';
     }
 
     return null;
@@ -328,7 +427,11 @@ class _NeedsTwoWallets extends StatelessWidget {
             ? 'Add a wallet first, then you can move money between them.'
             : 'You need a second wallet before you can transfer. Add one from '
                   'the Wallet tab.',
-        style: const TextStyle(fontSize: 14, color: Colors.grey, height: 1.4),
+        style: TextStyle(
+          fontSize: 14,
+          color: context.appColors.textMuted,
+          height: 1.4,
+        ),
       ),
     );
   }

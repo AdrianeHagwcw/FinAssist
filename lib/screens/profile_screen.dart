@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../utils/text_limits.dart';
+import '../widgets/check_after_save.dart';
 import '../widgets/export_transactions_tile.dart';
 import '../widgets/light_dark_toggle.dart';
 import 'login_screen.dart';
@@ -214,9 +217,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (message == null || !mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<String> _saveAccountInformation(
@@ -231,8 +234,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         nameWasUpdated = true;
       }
 
-      final emailChanged = email.toLowerCase() !=
-          (user.email ?? '').toLowerCase();
+      final emailChanged =
+          email.toLowerCase() != (user.email ?? '').toLowerCase();
       if (emailChanged) {
         await user.verifyBeforeUpdateEmail(email);
       }
@@ -295,11 +298,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       // BODY
       // =====================================================
       body: user == null
-          ? const Center(
+          ? Center(
               child: Text(
                 'No user is currently logged in.',
 
-                style: TextStyle(fontSize: 16, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 16,
+                  color: context.appColors.textMuted,
+                ),
               ),
             )
           : SingleChildScrollView(
@@ -373,9 +379,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                           textAlign: TextAlign.center,
 
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey,
+                            color: context.appColors.textMuted,
                           ),
                         ),
                       ],
@@ -441,9 +447,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          trailing: const Icon(
+                          trailing: Icon(
                             Icons.chevron_right,
-                            color: Colors.grey,
+                            color: context.appColors.textMuted,
                           ),
                           onTap: _editAccountInformation,
                         ),
@@ -692,7 +698,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       title: Text(
         title,
 
-        style: const TextStyle(fontSize: 13, color: Colors.grey),
+        style: TextStyle(fontSize: 13, color: context.appColors.textMuted),
       ),
 
       subtitle: Padding(
@@ -744,7 +750,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
       ),
 
-      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+      trailing: Icon(Icons.chevron_right, color: context.appColors.textMuted),
 
       onTap: onTap,
     );
@@ -768,7 +774,8 @@ class _EditAccountInformationDialog extends StatefulWidget {
 }
 
 class _EditAccountInformationDialogState
-    extends State<_EditAccountInformationDialog> {
+    extends State<_EditAccountInformationDialog>
+    with CheckAfterSave {
   late final _formKey = GlobalKey<FormState>();
   late final _nameController = TextEditingController(text: widget.initialName);
   late final _emailController = TextEditingController(
@@ -784,11 +791,11 @@ class _EditAccountInformationDialogState
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!checkForm(_formKey)) return;
     setState(() => _saving = true);
 
     final message = await widget.onSave(
-      _nameController.text.trim(),
+      cleanText(_nameController.text),
       _emailController.text.trim(),
     );
     if (!mounted) return;
@@ -800,6 +807,7 @@ class _EditAccountInformationDialogState
     title: const Text('Edit account information'),
     content: Form(
       key: _formKey,
+      autovalidateMode: checkMode,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -807,16 +815,26 @@ class _EditAccountInformationDialogState
             key: const Key('account-name-field'),
             controller: _nameController,
             textCapitalization: TextCapitalization.words,
+            // The same rules as sign-up and setup, so a name cannot be
+            // changed here into one they would refuse.
+            inputFormatters: [
+              personNameFormatter,
+              const SafeTextFormatter(),
+              LengthLimitingTextInputFormatter(maxPersonNameLength),
+            ],
             decoration: const InputDecoration(labelText: 'Full Name'),
-            validator: (value) => value == null || value.trim().isEmpty
-                ? 'Enter your name.'
-                : null,
+            validator: (value) =>
+                personNameProblem(value ?? '', empty: 'Enter your name.'),
           ),
           const SizedBox(height: 12),
           TextFormField(
             key: const Key('account-email-field'),
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
+            inputFormatters: [
+              FilteringTextInputFormatter.deny(RegExp(r'\s')),
+              LengthLimitingTextInputFormatter(maxEmailLength),
+            ],
             decoration: const InputDecoration(labelText: 'Email'),
             validator: (value) {
               final email = value?.trim() ?? '';
@@ -828,9 +846,9 @@ class _EditAccountInformationDialogState
             },
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Changing your email sends a verification link to the new address.',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
           ),
         ],
       ),

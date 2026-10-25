@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/categories.dart';
+
 /// What a transaction does to the money in a wallet.
 enum TransactionType {
   expense('Expense'),
@@ -37,6 +39,7 @@ class AppTransaction {
     this.isLegacy = false,
     this.billInstanceId,
     this.debtId,
+    this.interest = 0,
   });
 
   /// Reads a stored transaction document.
@@ -65,6 +68,7 @@ class AppTransaction {
       isLegacy: map['legacy'] == true,
       billInstanceId: _asString(map['billInstanceId']),
       debtId: _asString(map['debtId']),
+      interest: _asDouble(map['interest']).abs(),
     );
   }
 
@@ -106,6 +110,23 @@ class AppTransaction {
   final String? debtId;
 
   bool get isDebtMovement => debtId != null;
+
+  /// The part of an installment payment that is interest: what borrowing
+  /// costs on top of the amount borrowed. It is still spending, only in its
+  /// own category, the way an accountant splits a loan payment into the
+  /// amount paid back and the interest. Zero for everything else.
+  final double interest;
+
+  /// Where this expense's money went, by category: the payment under its
+  /// own label, and any interest in it under Interest. Together they add up
+  /// to [amount], so a split payment is never counted twice.
+  List<MapEntry<String, double>> get spendingParts {
+    final share = interest.clamp(0.0, amount).toDouble();
+    return [
+      if (amount - share > 0.005) MapEntry(label, amount - share),
+      if (share > 0.005) MapEntry(interestCategory, share),
+    ];
+  }
 
   /// How this transaction changes the balance of [walletId].
   double get sourceDelta {

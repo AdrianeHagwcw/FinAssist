@@ -5,23 +5,7 @@ import '../models/wallet.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../utils/money_format.dart';
-
-/// Monthly income worked out from the onboarding answers, or null when there
-/// is none to go on. Irregular income is already a rough monthly estimate.
-double? monthlyIncomeFrom(Map<String, dynamic>? profile) {
-  final income = profile?['income'];
-  if (income is! num || income <= 0) return null;
-
-  final perMonth = switch (profile?['incomeFrequency']) {
-    'Weekly' => 52 / 12,
-    'Bi-weekly' => 26 / 12,
-    'Semi-monthly' => 2,
-    _ => 1,
-  };
-
-  return income.toDouble() * perMonth;
-}
+import 'savings_form_parts.dart';
 
 /// One kind of place to keep savings, explained in plain words.
 ///
@@ -139,6 +123,44 @@ const List<SavingsOption> savingsOptions = [
     savingsKind: SavingsKind.account,
   ),
   SavingsOption(
+    icon: Icons.savings_outlined,
+    summary: 'Earn interest while keeping the deposit accessible',
+    risk: 'Low risk; terms vary by provider',
+    access: 'Access depends on the account terms',
+    whatItIs:
+        'A savings deposit with an annual interest rate. FinAssist estimates '
+        'simple interest from the balance history you record.',
+    howItWorks: [
+      'Enter the rate shown by your provider and the date interest starts.',
+      'The estimate is not a bank calculation or a guaranteed return.',
+    ],
+    bestFor: ['Savings that earn interest without a fixed maturity date'],
+    watchOutFor: [
+      'Rates, fees and withdrawal rules can change.',
+      'The estimate does not change the recorded balance in FinAssist.',
+    ],
+    savingsKind: SavingsKind.savingsDeposit,
+  ),
+  SavingsOption(
+    icon: Icons.account_balance_wallet_outlined,
+    summary: 'Money available on demand',
+    risk: 'Depends on the account provider',
+    access: 'Withdrawal terms depend on the account',
+    whatItIs:
+        'A demand deposit that does not earn interest in this FinAssist '
+        'summary.',
+    howItWorks: [
+      'Record the balance you have already put aside.',
+      'FinAssist does not estimate interest or add projected money to it.',
+    ],
+    bestFor: ['Money held in an accessible account without interest'],
+    watchOutFor: [
+      'Check withdrawal conditions and fees with the provider.',
+      'FinAssist does not connect to or move money in the account.',
+    ],
+    savingsKind: SavingsKind.demandDeposit,
+  ),
+  SavingsOption(
     icon: Icons.lock_clock_outlined,
     summary: 'Leave it for a set time, earn more',
     risk: 'Low risk',
@@ -185,6 +207,16 @@ const List<SavingsOption> savingsOptions = [
   ),
 ];
 
+/// The option's picture. A place to keep money uses the same colored icon
+/// as its tile in Add Savings, so the two are recognisably the same thing;
+/// a purpose keeps its line icon.
+Widget optionIcon(SavingsOption option, {double size = 30}) {
+  final kind = option.savingsKind;
+  return kind == null
+      ? Icon(option.icon, color: appPrimaryBlue, size: size)
+      : Image.asset(savingsKindIcon(kind), width: size, height: size);
+}
+
 /// The guide entry for a savings kind, so Add savings can explain the
 /// choice being made.
 SavingsOption savingsOptionFor(SavingsKind kind) =>
@@ -214,279 +246,6 @@ Future<void> showSavingsOptionSheet(
       onAct: onAct,
     ),
   );
-}
-
-/// "Grow Your Money": a suggested monthly amount to save, and what that
-/// saving can be for.
-///
-/// Where to keep it is explained inside Add savings instead, next to the
-/// choice itself, rather than sending the reader there from here.
-class SavingsGuide extends StatelessWidget {
-  const SavingsGuide({
-    required this.monthlyIncome,
-    required this.onCreateGoal,
-    super.key,
-  });
-
-  /// Null when there is no income to base a suggestion on.
-  final double? monthlyIncome;
-
-  /// Opens the goal form with this name and kind filled in.
-  final void Function(String goalName, GoalKind kind) onCreateGoal;
-
-  /// The savings share of the 50/30/20 rule: half for needs, 30% for wants,
-  /// 20% for savings.
-  static const savingsShare = 0.20;
-
-  void _open(BuildContext context, SavingsOption option) {
-    showSavingsOptionSheet(
-      context,
-      option: option,
-      monthlyIncome: monthlyIncome,
-      actionLabel: 'Create Savings Goal',
-      onAct: () => onCreateGoal(option.goalName!, option.goalKind),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // The icon says this section explains rather than instructs, before
-        // the reader has taken any of it as a recommendation.
-        Row(
-          children: [
-            Text(
-              'Grow Your Money',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: colors.textPrimary,
-              ),
-            ),
-            IconButton(
-              key: const Key('guide-info'),
-              onPressed: () => _aboutThisGuide(context),
-              tooltip: 'What is this?',
-              visualDensity: VisualDensity.compact,
-              icon: Icon(
-                Icons.info_outline,
-                size: 20,
-                color: colors.primaryText,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        _SuggestionCard(monthlyIncome: monthlyIncome),
-        const SizedBox(height: 18),
-        _GroupTitle(
-          title: 'What you can save for',
-          subtitle:
-              'The one to start with. For anything else, use Add '
-              'New Goal above.',
-        ),
-        for (final option in savingsOptions.where((o) => o.startsAGoal)) ...[
-          _optionCard(context, option),
-          const SizedBox(height: 10),
-        ],
-        const SizedBox(height: 4),
-        const Text(
-          'This is an educational guide, not financial advice. Check each '
-          "bank's fees, rates and rules before putting money in.",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.4),
-        ),
-      ],
-    );
-  }
-
-  Widget _optionCard(BuildContext context, SavingsOption option) {
-    final colors = context.appColors;
-
-    return _CardShell(
-      onTap: () => _open(context, option),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: colors.primaryTint,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(option.icon, color: appPrimaryBlue),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  option.name,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  option.summary,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right, color: Colors.grey),
-        ],
-      ),
-    );
-  }
-}
-
-/// The heading over each group, saying plainly what the group is.
-class _GroupTitle extends StatelessWidget {
-  const _GroupTitle({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: colors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            style: TextStyle(fontSize: 12, color: colors.textBody),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CardShell extends StatelessWidget {
-  const _CardShell({required this.onTap, required this.child});
-
-  final VoidCallback onTap;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Material(
-      color: colors.card,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: colors.border),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-/// What this section is, and what it is not, for a reader who has not met
-/// it before.
-void _aboutThisGuide(BuildContext context) {
-  showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('About this guide'),
-      content: const Text(
-        'This part explains ways people save, in plain words, so you can '
-        'choose for yourself.\n\n'
-        'It names no banks and no rates, because those change and it is not '
-        'here to tell you where to put your money. Check the fees, rates and '
-        'rules yourself before you do.\n\n'
-        'The suggested amount comes from the income you gave when setting '
-        'up. It is a guide, not a rule.',
-        style: TextStyle(height: 1.45),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Got it'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _SuggestionCard extends StatelessWidget {
-  const _SuggestionCard({required this.monthlyIncome});
-
-  final double? monthlyIncome;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final income = monthlyIncome;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.primaryTint,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Suggested to save each month',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            income == null
-                ? 'Add your usual income to see this'
-                : 'About ${formatPeso(income * SavingsGuide.savingsShare)}',
-            style: TextStyle(
-              fontSize: income == null ? 15 : 20,
-              fontWeight: FontWeight.bold,
-              color: colors.primaryText,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            income == null
-                ? 'It comes from the income you gave when setting up.'
-                : '20% of your income, from the 50/30/20 rule: half for '
-                      'needs, 30% for wants, 20% for savings. A guideline, not '
-                      'a rule.',
-            style: TextStyle(fontSize: 12, color: colors.textBody, height: 1.4),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _OptionSheet extends StatelessWidget {
@@ -534,22 +293,6 @@ class _OptionSheet extends StatelessWidget {
       );
     }
 
-    Widget tag(String text) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: colors.primaryTint,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: colors.primaryText,
-        ),
-      ),
-    );
-
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -562,7 +305,7 @@ class _OptionSheet extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(option.icon, color: appPrimaryBlue, size: 30),
+                  optionIcon(option, size: 32),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
@@ -578,11 +321,21 @@ class _OptionSheet extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(option.summary, style: TextStyle(color: colors.textBody)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [tag(option.risk), tag(option.access)],
+              const SizedBox(height: 12),
+              // Two facts side by side, each with what it is about, so "low
+              // risk" and "locked until the date" read as answers. The same
+              // cards as under the choice in Add Savings.
+              FactPair(
+                first: FactCard(
+                  iconAsset: 'assets/icons/icons8-shield-96.png',
+                  label: 'Risk',
+                  value: option.risk,
+                ),
+                second: FactCard(
+                  iconAsset: 'assets/icons/icons8-wallet-96.png',
+                  label: 'Taking money out',
+                  value: option.access,
+                ),
               ),
               section('What it is', [option.whatItIs]),
               section('How it works', option.howItWorks),
@@ -599,8 +352,9 @@ class _OptionSheet extends StatelessWidget {
                       Navigator.pop(context);
                       onAct!();
                     },
-                    // Blue: it opens the form where the saving happens.
-                    style: openButtonStyle(),
+                    // Green: saying yes to this option, the same color as
+                    // every button that goes ahead.
+                    style: confirmButtonStyle(),
                     child: Text(
                       actionLabel ?? 'Continue',
                       style: const TextStyle(
@@ -612,11 +366,18 @@ class _OptionSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
               ],
-              Center(
-                child: TextButton(
+              // The same full-width button as the one above, in red, so
+              // closing is as easy to find and tap as going on.
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  key: const Key('savings-option-close'),
                   onPressed: () => Navigator.pop(context),
-                  style: cancelTextStyle(context),
-                  child: const Text('Close'),
+                  style: dangerButtonStyle(),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
             ],

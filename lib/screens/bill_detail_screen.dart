@@ -14,6 +14,7 @@ import '../widgets/bill_form_sheet.dart';
 import '../widgets/bill_payment_sheet.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
+import '../widgets/check_after_save.dart';
 import '../widgets/money_text.dart';
 import '../utils/money_format.dart';
 
@@ -404,7 +405,8 @@ class _OccurrenceAmountDialog extends StatefulWidget {
       _OccurrenceAmountDialogState();
 }
 
-class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
+class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog>
+    with CheckAfterSave {
   late final TextEditingController _controller = TextEditingController(
     text: formatAmountInput(widget.amount),
   );
@@ -415,16 +417,14 @@ class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
     super.dispose();
   }
 
-  void _save() {
-    final amount = double.tryParse(_controller.text.trim().replaceAll(',', ''));
-    if (!isRecordableAmount(amount)) {
-      setState(() => _error = minimumAmountError);
-      return;
-    }
-    Navigator.pop(context, amount);
-  }
+  double? get _amount =>
+      double.tryParse(_controller.text.trim().replaceAll(',', ''));
 
-  String? _error;
+  void _save() {
+    markTriedToSave();
+    if (!isRecordableAmount(_amount)) return;
+    Navigator.pop(context, _amount);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -437,10 +437,10 @@ class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Change what this one costs. The bill itself and the dates '
             'after it stay as they are.',
-            style: TextStyle(fontSize: 13, color: Colors.grey),
+            style: TextStyle(fontSize: 13, color: context.appColors.textMuted),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -452,8 +452,14 @@ class _OccurrenceAmountDialogState extends State<_OccurrenceAmountDialog> {
               labelText: 'Amount',
               prefixText: '₱ ',
               hintText: '0.00',
-              errorText: _error,
+              errorText: triedToSave && !isRecordableAmount(_amount)
+                  ? minimumAmountError
+                  : null,
             ),
+            // Checked again as it is typed, once Save has been tapped.
+            onChanged: (_) {
+              if (triedToSave) setState(() {});
+            },
             onSubmitted: (_) => _save(),
           ),
         ],
@@ -521,7 +527,10 @@ class _BillHeader extends StatelessWidget {
                   children: [
                     Text(
                       instance.category,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.appColors.textMuted,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -551,7 +560,10 @@ class _BillHeader extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               recurrence!.explanation,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 12,
+                color: context.appColors.textMuted,
+              ),
             ),
           ],
           if (instance.carriedOver > 0) ...[
@@ -601,7 +613,10 @@ class _BillHeader extends StatelessWidget {
               children: [
                 Text(
                   'Paid ${_peso(instance.amountPaid)}',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.appColors.textMuted,
+                  ),
                 ),
                 Text(
                   instance.isCarriedForward
@@ -698,7 +713,7 @@ class _BillActions extends StatelessWidget {
                   onPressed: onSkip,
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 46),
-                    foregroundColor: Colors.grey,
+                    foregroundColor: context.appColors.textMuted,
                   ),
                   child: const Text('Skip this one'),
                 ),
@@ -744,11 +759,11 @@ class _BillHistory extends StatelessWidget {
         .toList();
 
     if (others.isEmpty) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
         child: Text(
           'This is the only scheduled bill so far.',
-          style: TextStyle(color: Colors.grey, fontSize: 13),
+          style: TextStyle(color: context.appColors.textMuted, fontSize: 13),
         ),
       );
     }
@@ -836,11 +851,11 @@ class _PaymentBreakdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (payments.isEmpty) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
         child: Text(
           'Loading payments...',
-          style: TextStyle(color: Colors.grey, fontSize: 13),
+          style: TextStyle(color: context.appColors.textMuted, fontSize: 13),
         ),
       );
     }
@@ -887,9 +902,9 @@ class _PaymentBreakdown extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         formatShortDate(payment.date),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey,
+                          color: context.appColors.textMuted,
                         ),
                       ),
                     ],

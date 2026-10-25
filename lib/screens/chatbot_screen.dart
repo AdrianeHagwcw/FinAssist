@@ -12,13 +12,16 @@ import '../models/financial_topic_validator.dart';
 import '../models/financial_ai_guardrails.dart';
 import '../models/finance_snapshot.dart';
 import '../models/financial_insights.dart';
+import '../models/goal.dart';
 import '../screens/add_expense_screen.dart';
 import '../screens/income_waterfall_screen.dart';
 import '../services/finance_snapshot_service.dart';
 import '../services/financial_ai_service.dart';
+import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../widgets/dialog_kit.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/transfer_sheet.dart';
 import '../widgets/wallet_picker.dart';
@@ -543,6 +546,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     }
 
     final wallets = await WalletService.loadWallets();
+    // For what each wallet has free, as everywhere else. Without them the
+    // picker shows what each holds.
+    List<Goal>? goals;
+    try {
+      goals = await GoalService.watchGoals().first;
+    } catch (_) {}
     if (!mounted) return;
     if (wallets.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -578,6 +587,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 WalletPicker(
                   wallets: wallets,
                   selectedId: selectedWalletId,
+                  goals: goals,
                   onChanged: (value) =>
                       setDialogState(() => selectedWalletId = value),
                 ),
@@ -792,12 +802,45 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         ),
 
         actions: [
-          IconButton(
+          // A small card right under the dots, the menu Android users know.
+          PopupMenuButton<_ChatMenuAction>(
             tooltip: 'More options',
             icon: const Icon(Icons.more_vert),
-            onPressed: () {
-              _showOptions();
+            position: PopupMenuPosition.under,
+            offset: const Offset(0, 6),
+            color: context.appColors.card,
+            elevation: 6,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: context.appColors.border),
+            ),
+            onSelected: (action) => switch (action) {
+              _ChatMenuAction.clear => _confirmClearConversation(),
+              _ChatMenuAction.about => _showAbout(),
             },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: _ChatMenuAction.clear,
+                // Nothing to clear until something has been asked.
+                enabled: _messages.length > 1 || _isSending,
+                height: 48,
+                child: _menuRow(
+                  icon: Icons.delete_outline,
+                  label: 'Clear conversation',
+                  color: dangerColorOn(context),
+                  enabled: _messages.length > 1 || _isSending,
+                ),
+              ),
+              PopupMenuItem(
+                value: _ChatMenuAction.about,
+                height: 48,
+                child: _menuRow(
+                  icon: Icons.info_outline,
+                  label: 'About Fin',
+                  color: context.appColors.primaryText,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -878,16 +921,15 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       ),
                     if (isLatest && choices.isNotEmpty && _messages.length > 1)
                       _quickActionChoices(choices),
+                    // Right under the greeting, so a new chat has no empty
+                    // gap between Fin's hello and what to ask.
+                    if (index == 0 && _messages.length == 1)
+                      _suggestedQuestions(),
                   ],
                 );
               },
             ),
           ),
-
-          // ===================================================
-          // SUGGESTED QUESTIONS
-          // ===================================================
-          if (_messages.length == 1) _suggestedQuestions(),
 
           // ===================================================
           // MESSAGE INPUT
@@ -944,72 +986,58 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     }
   }
 
+  /// Fin's face in a small circle, beside each of its messages.
+  Widget _finAvatar() => Container(
+    width: 30,
+    height: 30,
+    margin: const EdgeInsets.only(right: 8, top: 2),
+    padding: const EdgeInsets.all(4),
+    decoration: BoxDecoration(
+      color: context.appColors.primaryTint,
+      shape: BoxShape.circle,
+    ),
+    child: Image.asset('assets/icons/assistant-robot-192.png'),
+  );
+
   Widget _messageBubble({required String message, required bool isUser}) {
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.78,
+    final colors = context.appColors;
+    final bubble = Container(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.74,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: isUser ? primaryBlue : colors.card,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(isUser ? 18 : 4),
+          bottomRight: Radius.circular(isUser ? 4 : 18),
         ),
-
-        margin: const EdgeInsets.only(bottom: 12),
-
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-
-        decoration: BoxDecoration(
-          color: isUser ? primaryBlue : context.appColors.card,
-
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-
-            bottomLeft: isUser
-                ? const Radius.circular(16)
-                : const Radius.circular(4),
-
-            bottomRight: isUser
-                ? const Radius.circular(4)
-                : const Radius.circular(16),
-          ),
-
-          boxShadow: isUser
-              ? null
-              : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+        // A thin edge keeps a white bubble visible on a light page.
+        border: isUser ? null : Border.all(color: colors.border),
+      ),
+      child: Text(
+        message,
+        style: TextStyle(
+          fontSize: 15,
+          height: 1.4,
+          color: isUser ? Colors.white : colors.textPrimary,
         ),
+      ),
+    );
 
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!isUser) ...[
-              Image.asset(
-                'assets/icons/assistant-robot-192.png',
-                width: 20,
-                height: 20,
-              ),
-
-              const SizedBox(width: 8),
-            ],
-
-            Flexible(
-              child: Text(
-                message,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 1.4,
-                  color: isUser ? Colors.white : context.appColors.textBody,
-                ),
-              ),
-            ),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isUser) _finAvatar(),
+          Flexible(child: bubble),
+        ],
       ),
     );
   }
@@ -1018,47 +1046,93 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // SUGGESTED QUESTIONS
   // =========================================================
 
+  /// The picture each suggested question gets: the same colored icon the
+  /// app uses for that thing elsewhere, so a question about bills looks
+  /// like the Bills card on Home.
+  static String _suggestionIcon(String question) {
+    final q = question.toLowerCase();
+    if (q.contains('spend today')) {
+      return 'assets/icons/icons8-banknotes-96.png';
+    }
+    if (q.contains('spending')) return 'assets/icons/icons8-pie-chart-96.png';
+    if (q.contains('bill')) return 'assets/icons/icons8-receipt-96.png';
+    if (q.contains('buy')) return 'assets/icons/icons8-cat-shopping-96.png';
+    if (q.contains('formula')) return 'assets/icons/icons8-idea-96.png';
+    return 'assets/icons/assistant-robot-192.png';
+  }
+
   Widget _suggestedQuestions() {
     const questions = suggestedQuestions;
+    final colors = context.appColors;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(15, 0, 15, 10),
+    return Padding(
+      // Lined up with the bubble, past Fin's face.
+      padding: const EdgeInsets.only(left: 38, top: 4, bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Try asking:',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w600,
+          Text(
+            'Try asking',
+            style: TextStyle(
+              fontSize: 13,
+              color: colors.textMuted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final question in questions)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: colors.card,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(color: colors.border),
+                ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => _sendMessage(question),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 34,
+                            height: 34,
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: colors.primaryTint,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Image.asset(_suggestionIcon(question)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              question,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.north_east,
+                            size: 16,
+                            color: colors.textMuted,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final question in questions)
-                ActionChip(
-                  label: Text(question),
-                  backgroundColor: context.appColors.primaryTint,
-                  side: BorderSide.none,
-                  labelStyle: TextStyle(
-                    color: context.appColors.primaryText,
-                    fontSize: 11,
-                  ),
-                  onPressed: () => _sendMessage(question),
-                ),
-            ],
-          ),
+            ),
         ],
       ),
     );
@@ -1066,7 +1140,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Widget _quickActionChoices(List<String> choices) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 12, left: 38),
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -1078,7 +1152,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               side: BorderSide.none,
               labelStyle: TextStyle(
                 color: context.appColors.primaryText,
-                fontSize: 12,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
               onPressed: () => _sendMessage(choice),
             ),
@@ -1094,8 +1169,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   Widget _messageInput() {
     return SafeArea(
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-        decoration: BoxDecoration(color: context.appColors.card),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        decoration: BoxDecoration(
+          color: context.appColors.card,
+          border: Border(top: BorderSide(color: context.appColors.border)),
+        ),
 
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1119,19 +1197,34 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     decoration: InputDecoration(
                       hintText: 'Ask FinAssist something...',
 
-                      hintStyle: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey,
+                      hintStyle: TextStyle(
+                        fontSize: 14,
+                        color: context.appColors.textMuted,
                       ),
 
                       filled: true,
 
                       fillColor: context.appColors.inputFill,
 
+                      // Outlined, so the box shows on a white bar.
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(25),
-
-                        borderSide: BorderSide.none,
+                        borderSide: BorderSide(
+                          color: context.appColors.inputBorder,
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(25),
+                        borderSide: BorderSide(
+                          color: context.appColors.inputBorder,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(25),
+                        borderSide: const BorderSide(
+                          color: primaryBlue,
+                          width: 1.5,
+                        ),
                       ),
 
                       contentPadding: const EdgeInsets.symmetric(
@@ -1146,8 +1239,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
                 // Send button
                 Container(
-                  width: 45,
-                  height: 45,
+                  width: 48,
+                  height: 48,
                   decoration: const BoxDecoration(
                     color: primaryBlue,
                     shape: BoxShape.circle,
@@ -1183,50 +1276,74 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         : 'Finance questions only. Gemini receives your question and a '
               'small summary of verified financial totals.';
 
-    return Row(
-      children: [
-        Icon(
-          offline ? Icons.cloud_off_outlined : Icons.info_outline,
-          size: 14,
-          color: Colors.grey,
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            '$status Answers depend on your inputs being accurate and complete.',
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: context.appColors.primaryTint,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(
+              offline ? Icons.cloud_off_outlined : Icons.info_outline,
+              size: 15,
+              color: context.appColors.primaryText,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$status Answers depend on your inputs being accurate and '
+              'complete.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                color: context.appColors.textMuted,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _typingIndicator() => Align(
-    alignment: Alignment.centerLeft,
-    child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-      decoration: BoxDecoration(
-        color: context.appColors.card,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(16),
-          topRight: Radius.circular(16),
-          bottomRight: Radius.circular(16),
-          bottomLeft: Radius.circular(4),
-        ),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
+  /// Fin's face, then a bubble saying it is working on the answer.
+  Widget _typingIndicator() => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _finAvatar(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: context.appColors.card,
+            border: Border.all(color: context.appColors.border),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(18),
+              topRight: Radius.circular(18),
+              bottomRight: Radius.circular(18),
+              bottomLeft: Radius.circular(4),
+            ),
           ),
-          SizedBox(width: 10),
-          Text('Fin is thinking…'),
-        ],
-      ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 10),
+              Text('Fin is thinking…'),
+            ],
+          ),
+        ),
+      ],
     ),
   );
 
@@ -1234,69 +1351,165 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // OPTIONS MENU
   // =========================================================
 
-  void _showOptions() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+  Widget _menuRow({
+    required IconData icon,
+    required String label,
+    required Color color,
+    bool enabled = true,
+  }) {
+    final faded = context.appColors.textMuted.withValues(alpha: 0.6);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 20, color: enabled ? color : faded),
+        const SizedBox(width: 12),
+        // Wraps with large text instead of running off the menu.
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: enabled ? color : faded,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
-      builder: (context) {
-        return SafeArea(
+  /// Asks before the chat is wiped, since it cannot be brought back.
+  Future<void> _confirmClearConversation() async {
+    final clear = await confirmDestructive(
+      context,
+      title: 'Clear this conversation?',
+      message:
+          "Every message here will be removed. Your money records aren't "
+          'touched.',
+      action: 'Clear',
+    );
+    if (!clear || !mounted) return;
+    setState(() {
+      _conversationEpoch++;
+      _isSending = false;
+      _messages.clear();
+      _pending = null;
+      _messages.add({
+        'message':
+            'Hello! I\'m Fin. How can I help you with your finances today?',
+        'isUser': false,
+      });
+    });
+  }
+
+  /// What Fin is and how it answers, in plain words.
+  void _showAbout() {
+    final colors = context.appColors;
+
+    // The same colored icons the rest of the app uses for each idea.
+    Widget point(String iconAsset, String text) => Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Image.asset(iconAsset, width: 22, height: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: colors.textBody,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: dialogShape,
+        icon: Container(
+          width: 64,
+          height: 64,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: colors.primaryTint,
+            shape: BoxShape.circle,
+          ),
+          child: Image.asset('assets/icons/assistant-robot-192.png'),
+        ),
+        title: const Text('About Fin'),
+        content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 10),
-
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Clear conversation'),
-                onTap: () {
-                  Navigator.pop(context);
-
-                  setState(() {
-                    _conversationEpoch++;
-                    _isSending = false;
-                    _messages.clear();
-                    _pending = null;
-                    _messages.add({
-                      'message':
-                          'Hello! I\'m Fin AI. How can I help you with your finances today?',
-                      'isUser': false,
-                    });
-                  });
-                },
+              Text(
+                "Fin is FinAssist's money helper. Ask about your spending, "
+                'bills, goals, or whether you can afford something.',
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                  color: colors.textPrimary,
+                ),
               ),
-
-              ListTile(
-                leading: const Icon(Icons.info_outline, color: primaryBlue),
-                title: const Text('About FinAssist AI'),
-                onTap: () {
-                  Navigator.pop(context);
-
-                  showAboutDialog(
-                    context: context,
-                    applicationName: 'FinAssist',
-                    applicationVersion: '1.0.0',
-                    applicationIcon: Image.asset(
-                      'assets/icons/assistant-robot-192.png',
-                      width: 40,
-                      height: 40,
-                    ),
-                    children: const [
-                      Text(
-                        'FinAssist is an AI-driven financial assistant designed to help users understand and manage their personal finances.',
-                      ),
-                    ],
-                  );
-                },
+              // Saved records: the Transactions icon.
+              point(
+                'assets/icons/icons8-transactions-96.png',
+                'Answers come from the records you saved in FinAssist.',
               ),
-
-              const SizedBox(height: 10),
+              // What is shared online: the privacy shield from setup.
+              point(
+                'assets/icons/icons8-shield-96.png',
+                'When online, Gemini receives your question and a small '
+                    'summary of your totals.',
+              ),
+              // Said as what keeps answers right, not as a warning: the
+              // same point the notice above the chat box makes.
+              // Recording: the "Record what you spend" icon.
+              point(
+                'assets/icons/icons8-expenses-64.png',
+                'Answers are based on what you record, so keep your '
+                    'records complete and up to date.',
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'FinAssist 1.0.0',
+                style: TextStyle(fontSize: 12, color: colors.textMuted),
+              ),
             ],
           ),
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => showLicensePage(
+              context: dialogContext,
+              applicationName: 'FinAssist',
+              applicationVersion: '1.0.0',
+            ),
+            style: TextButton.styleFrom(foregroundColor: colors.textMuted),
+            child: const Text('Open-source licenses'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            style: TextButton.styleFrom(
+              foregroundColor: primaryBlue,
+              minimumSize: const Size(64, 44),
+            ),
+            child: const Text(
+              'Close',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
+
+/// The choices behind the dots in the chat's top bar.
+enum _ChatMenuAction { clear, about }

@@ -4,6 +4,8 @@
 const List<String> incomeSources = [
   'Allowance',
   'Salary',
+  // Pay by the day or the hour, set aside for bills like a salary.
+  'Wage',
   'Part-time Job',
   'Business',
   'Freelance',
@@ -11,6 +13,8 @@ const List<String> incomeSources = [
   'Gift',
   'Sold Something',
   'Refund',
+  // What a bank or e-wallet pays on the money kept there.
+  'Interest',
   'Other',
 ];
 

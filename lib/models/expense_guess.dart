@@ -17,14 +17,18 @@ class ExpenseGuess {
   /// The date printed on a receipt, when there is a believable one.
   final DateTime? date;
 
-  /// Whether anything worth filling in was found.
-  bool get foundSomething => amount != null || category != null;
+  /// Whether anything worth filling in was found. Others only says nothing
+  /// was recognised, so it doesn't count.
+  bool get foundSomething =>
+      amount != null || (category != null && category != 'Others');
 }
 
 // ------------------------------------------------------------- categories
 
 /// The category [text] points to, out of [from] (the categories the user
-/// hasn't hidden), or null when nothing matches or two categories tie.
+/// hasn't hidden). Others when it names something no category knows, and
+/// null only when two categories tie, so the user picks between them, or
+/// when there is nothing yet to go on.
 ///
 /// An occasion, like a date, decides only when nothing names what was paid
 /// for.
@@ -32,8 +36,49 @@ String? suggestCategory(String text, {required Iterable<String> from}) {
   final allowed = from.toSet();
   final scores = _categoryScores(text, allowed);
   if (scores.isNotEmpty) return _best(scores);
-  return _best(_categoryScores(text, allowed, keywords: occasionKeywords));
+  final occasions = _categoryScores(text, allowed, keywords: occasionKeywords);
+  if (occasions.isNotEmpty) return _best(occasions);
+
+  // A word of three letters or more is something to go on; one or two are
+  // only the start of typing, and an amount with "pesos" names nothing.
+  final named = _words(text).any(
+    (word) =>
+        word.length >= 3 &&
+        !_fillerWords.contains(word) &&
+        !RegExp(r'^[0-9]+$').hasMatch(word),
+  );
+  return named && allowed.contains('Others') ? 'Others' : null;
 }
+
+/// Words said around an amount that name nothing bought.
+const _fillerWords = {
+  'peso',
+  'pesos',
+  'php',
+  'piso',
+  'bucks',
+  'gastos',
+  'gumastos',
+  'spent',
+  'spend',
+  'paid',
+  'pay',
+  'bayad',
+  'nagbayad',
+  'binayaran',
+  'bought',
+  'buy',
+  'bumili',
+  'binili',
+  'ako',
+  'the',
+  'for',
+  'and',
+  'yung',
+  'worth',
+  'total',
+  'amount',
+};
 
 /// How strongly [text] points to each category: the number of words matched.
 /// A longer phrase wins over a shorter one inside it, so "grab food" counts
@@ -88,6 +133,14 @@ Map<String, int> _categoryScores(
     (m) => m.category == 'Transportation' && !isDestination(m.start),
   );
 
+  // In "ballpen for school", the ballpen is what was paid for; school is only
+  // what it is for. With something bought named, what it is for doesn't
+  // count.
+  bool isPurpose(int start) =>
+      (start > 0 && _forWords.contains(words[start - 1])) ||
+      (start > 1 && words[start - 2] == 'para' && words[start - 1] == 'sa');
+  final hasItem = kept.any((m) => !isPurpose(m.start));
+
   final scores = <String, int>{};
   for (final match in kept) {
     if (hasRide &&
@@ -95,6 +148,7 @@ Map<String, int> _categoryScores(
         isDestination(match.start)) {
       continue;
     }
+    if (hasItem && isPurpose(match.start)) continue;
     scores[match.category] =
         (scores[match.category] ?? 0) + (match.end - match.start);
   }
@@ -108,6 +162,9 @@ bool _sameWord(String word, String listed) =>
 
 /// Words before a place someone went to.
 const _towards = {'to', 'papunta', 'pauwi', 'punta', 'galing', 'from'};
+
+/// Words before what something is for.
+const _forWords = {'for', 'pang', 'para'};
 
 String? _best(Map<String, int> scores) {
   if (scores.isEmpty) return null;
@@ -320,7 +377,11 @@ ExpenseGuess guessFromReceipt(
 
   return ExpenseGuess(
     amount: _receiptTotal(lines),
-    category: _best(scores),
+    // A receipt nothing on it points anywhere is Others, as for typed text;
+    // a tie still leaves the choice to the user.
+    category: scores.isEmpty && allowed.contains('Others')
+        ? 'Others'
+        : _best(scores),
     description: store,
     date: _receiptDate(text, now ?? DateTime.now()),
   );

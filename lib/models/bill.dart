@@ -73,6 +73,8 @@ class Bill {
     this.endDate,
     this.debtId,
     this.lastAmount,
+    this.startDate,
+    this.interestShare = 0,
   });
 
   factory Bill.fromMap(String id, Map<String, dynamic>? data) {
@@ -93,6 +95,8 @@ class Bill {
       lastAmount: map['lastAmount'] is num && (map['lastAmount'] as num) > 0
           ? (map['lastAmount'] as num).toDouble()
           : null,
+      startDate: _asDate(map['startDate']),
+      interestShare: _shareOf(map['interestShare']),
     );
   }
 
@@ -123,6 +127,17 @@ class Bill {
   /// payment differs from the others.
   final double? lastAmount;
 
+  /// The first due date still to pay, for an installment some of whose
+  /// payments were made before the user tracked it. Earlier dates are left
+  /// out; the schedule itself still counts from [firstDueDate], so the dates
+  /// after it never drift.
+  final DateTime? startDate;
+
+  /// For an installment, the part of every peso paid that is interest:
+  /// ₱4,000 of the ₱24,000 paid back on ₱20,000 borrowed, about 0.17. Zero
+  /// for an ordinary bill.
+  final double interestShare;
+
   /// What the occurrence due on [dueDate] asks for.
   double amountOn(DateTime dueDate) {
     final last = lastAmount;
@@ -137,10 +152,14 @@ class Bill {
   /// years ago doesn't fill the database with rows nobody has looked at.
   List<DateTime> occurrencesIn(int year, int month) {
     final end = endDate == null ? null : _dateOnly(endDate!);
-    return _occurrencesIn(
-      year,
-      month,
-    ).where((date) => end == null || !date.isAfter(end)).toList();
+    final start = startDate == null ? null : _dateOnly(startDate!);
+    return _occurrencesIn(year, month)
+        .where(
+          (date) =>
+              (end == null || !date.isAfter(end)) &&
+              (start == null || !date.isBefore(start)),
+        )
+        .toList();
   }
 
   List<DateTime> _occurrencesIn(int year, int month) {
@@ -266,6 +285,7 @@ class BillInstance {
     this.paymentIds = const [],
     this.walletId,
     this.carriedInto,
+    this.interestShare = 0,
   });
 
   factory BillInstance.fromMap(String id, Map<String, dynamic>? data) {
@@ -285,6 +305,7 @@ class BillInstance {
       paymentIds: _asStringList(map['paymentIds']),
       walletId: _asString(map['walletId']),
       carriedInto: _asString(map['carriedInto']),
+      interestShare: _shareOf(map['interestShare']),
     );
   }
 
@@ -312,6 +333,13 @@ class BillInstance {
   /// The occurrence this one's unpaid part was carried into. The money is
   /// then owed there, not here, so it is never counted twice.
   final String? carriedInto;
+
+  /// Copied from the installment's [Bill.interestShare]: how much of a
+  /// payment on this is interest.
+  final double interestShare;
+
+  /// The part of a payment of [paid] that is interest, to the centavo.
+  double interestIn(double paid) => interestPartOf(paid, interestShare);
 
   /// Whether the unpaid part moved to the next occurrence.
   bool get isCarriedForward =>
@@ -552,3 +580,11 @@ List<({String from, String into})> unclosedCarries(
 }
 
 DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
+
+/// The part of [paid] that is interest at [share], to the centavo.
+double interestPartOf(double paid, double share) =>
+    share <= 0 ? 0 : (paid * share * 100).roundToDouble() / 100;
+
+/// A stored share between 0 and 1, or 0 when missing or out of range.
+double _shareOf(Object? value) =>
+    value is num && value > 0 && value < 1 ? value.toDouble() : 0;

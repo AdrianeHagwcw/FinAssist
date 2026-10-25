@@ -13,6 +13,8 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/interest_sheet.dart';
+import '../widgets/item_card.dart';
 import '../widgets/money_text.dart';
 import '../widgets/transaction_row.dart';
 import '../widgets/transfer_sheet.dart';
@@ -26,6 +28,7 @@ class WalletDetailScreen extends StatefulWidget {
     this.wallets,
     this.transactions,
     this.incomeSource,
+    this.goals,
     super.key,
   });
 
@@ -41,6 +44,10 @@ class WalletDetailScreen extends StatefulWidget {
 
   /// Replaces the income source saved during onboarding, e.g. "Allowance".
   final Stream<String?>? incomeSource;
+
+  /// Replaces the live goals, for what they hold in this wallet. Used by
+  /// tests.
+  final Stream<List<Goal>>? goals;
 
   @override
   State<WalletDetailScreen> createState() => _WalletDetailScreenState();
@@ -61,7 +68,12 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
       UserProfileService.watchProfile().map(
         (profile) => profile.data()?['incomeSource'] as String?,
       );
-  late final Stream<List<Goal>> _goals = GoalService.watchGoals();
+  // Tests that hand in their wallets have no goals behind them.
+  late final Stream<List<Goal>> _goals =
+      widget.goals ??
+      (widget.wallets == null
+          ? GoalService.watchGoals()
+          : Stream.value(const <Goal>[]));
 
   Future<void> _remove(Wallet wallet) async {
     final removed = await removeWallet(context, wallet);
@@ -170,21 +182,34 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                     }
 
                     final transactions = snapshot.data!;
-
-                    if (transactions.isEmpty) {
-                      return const EmptyStateView(
-                        iconAsset: 'assets/icons/icons8-transactions-96.png',
-                        title: 'No transactions yet',
-                        message:
-                            'Money you spend from or add to this wallet shows '
-                            'up here.',
-                      );
-                    }
-
-                    return _TransactionList(
-                      transactions: transactions,
-                      wallet: wallet,
-                      wallets: wallets,
+                    return Column(
+                      children: [
+                        // An account that pays interest now and then gets the
+                        // card to add it; other savings keep their summary.
+                        if (wallet.paysRegularInterest)
+                          InterestCard(wallet: wallet)
+                        else if (wallet.purpose == WalletPurpose.savings)
+                          _SavingsInterestSummary(
+                            wallet: wallet,
+                            transactions: transactions,
+                          ),
+                        Expanded(
+                          child: transactions.isEmpty
+                              ? const EmptyStateView(
+                                  iconAsset:
+                                      'assets/icons/icons8-transactions-96.png',
+                                  title: 'No transactions yet',
+                                  message:
+                                      'Money you spend from or add to this '
+                                      'wallet shows up here.',
+                                )
+                              : _TransactionList(
+                                  transactions: transactions,
+                                  wallet: wallet,
+                                  wallets: wallets,
+                                ),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -193,6 +218,106 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _SavingsInterestSummary extends StatelessWidget {
+  const _SavingsInterestSummary({
+    required this.wallet,
+    required this.transactions,
+  });
+
+  final Wallet wallet;
+  final List<AppTransaction> transactions;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final kind = wallet.savingsType;
+    final isTimeDeposit = kind == SavingsKind.timeDeposit;
+    final isSavingsDeposit = kind == SavingsKind.savingsDeposit;
+    final isDemandDeposit = kind == SavingsKind.demandDeposit;
+    final interest = isTimeDeposit
+        ? wallet.estimatedTimeDepositInterest()
+        : isSavingsDeposit
+        ? wallet.estimatedSavingsDepositInterest(transactions: transactions)
+        : null;
+    // What reaches the account, once the bank keeps its tax.
+    final net = interest == null ? null : afterTax(interest);
+    final endValue = isTimeDeposit && net != null
+        ? wallet.startingBalance + net
+        : null;
+    final status = isTimeDeposit
+        ? wallet.isMaturedTimeDeposit
+              ? 'Its end date has come. Say what you did with the money when '
+                    'you are ready.'
+              : 'The money stays locked until the end date. Taking it out '
+                    'early may cost you.'
+        : isSavingsDeposit
+        ? 'Counted from what was recorded since you added this account.'
+        : isDemandDeposit
+        ? 'No interest. You can take money out anytime.'
+        : 'This older kind of savings has no interest estimate.';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            kind.label,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+          if (wallet.annualInterestRatePercent != null)
+            Text(
+              'Interest: ${percentText(wallet.annualInterestRatePercent!)} '
+              'a year',
+              style: TextStyle(fontSize: 12, color: colors.textBody),
+            ),
+          if (wallet.depositStartDate != null)
+            Text(
+              'Started ${formatShortDate(wallet.depositStartDate!)}',
+              style: TextStyle(fontSize: 12, color: colors.textBody),
+            ),
+          if (isTimeDeposit && wallet.maturityDate != null)
+            Text(
+              'Ends ${formatShortDate(wallet.maturityDate!)}',
+              style: TextStyle(fontSize: 12, color: colors.textBody),
+            ),
+          const SizedBox(height: 6),
+          if (net != null)
+            Text(
+              'May earn about ${formatPeso(net)} after tax'
+              '${endValue == null ? '' : ' · about ${formatPeso(endValue)} at the end'}',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colors.primaryText,
+              ),
+            )
+          else if (isTimeDeposit || isSavingsDeposit)
+            Text(
+              'No estimate yet. Check the balance, rate and dates.',
+              style: TextStyle(fontSize: 12, color: colors.textBody),
+            ),
+          const SizedBox(height: 4),
+          Text(
+            '$status Estimates never change the recorded balance.',
+            style: TextStyle(fontSize: 11, color: colors.textBody),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -237,15 +362,20 @@ class _WalletHeader extends StatelessWidget {
             style: const TextStyle(color: Colors.white70, fontSize: 13),
           ),
           const SizedBox(height: 6),
+          // A spending wallet leads with what can be spent from it; savings
+          // money is all set aside, so it leads with what it holds.
           MoneyText(
-            wallet.balance,
+            wallet.purpose == WalletPurpose.savings || wallet.balance < 0
+                ? wallet.balance
+                : freeInWallet(wallet, goals),
             style: TextStyle(
               color: wallet.balance < 0 ? Colors.redAccent : Colors.white,
               fontSize: 32,
               fontWeight: FontWeight.bold,
             ),
           ),
-          if (wallet.purpose == WalletPurpose.savings) ...[
+          if (wallet.purpose == WalletPurpose.savings ||
+              goalMoneyInWallet(goals, wallet.id) > 0.005) ...[
             const SizedBox(height: 10),
             _SavingsWalletBreakdown(wallet: wallet, goals: goals),
           ],
@@ -312,8 +442,8 @@ class _SavingsWalletBreakdown extends StatelessWidget {
       child: Column(
         children: [
           row('Currently holds', wallet.balance),
-          row('Assigned to goals', assigned),
-          row('Still available', available),
+          row('Set aside for goals', assigned),
+          row('Available', available),
           if (wallet.isLockedSavings)
             const Padding(
               padding: EdgeInsets.only(top: 5),
@@ -352,10 +482,10 @@ class _TransactionList extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(4, lastLabel == null ? 0 : 18, 4, 8),
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey,
+                color: context.appColors.textMuted,
               ),
             ),
           ),
@@ -501,7 +631,10 @@ class _TransactionRow extends StatelessWidget {
                     ].join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.appColors.textMuted,
+                    ),
                   ),
                 ],
               ),

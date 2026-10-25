@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/app_transaction.dart';
 import '../models/wallet.dart';
+import '../providers/app_settings_provider.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
+import '../utils/money_format.dart';
 import 'category_icon.dart';
 import 'money_text.dart';
 
@@ -88,6 +91,9 @@ class TransactionRow extends StatelessWidget {
       TransactionType.transfer => appPrimaryBlue,
     };
     final direction = transactionDirection(t, wallets);
+    final masked = context.select<AppSettingsProvider, bool>(
+      (settings) => settings.amountsMasked,
+    );
 
     final title = t.type == TransactionType.transfer
         ? '${walletNameFor(wallets, t.walletId)} → '
@@ -102,6 +108,8 @@ class TransactionRow extends StatelessWidget {
       if (t.type != TransactionType.transfer)
         t.isLegacy ? 'Before wallets' : walletNameFor(wallets, t.walletId),
       if (t.isBillPayment) 'Bill payment',
+      // What this installment payment cost in interest, as Reports counts it.
+      if (t.interest > 0) '${formatPeso(t.interest, masked: masked)} interest',
       if ((t.note ?? '').isNotEmpty) t.note!,
     ].join(' · ');
 
@@ -166,9 +174,9 @@ class TransactionRow extends StatelessWidget {
                         details,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey,
+                          color: context.appColors.textMuted,
                         ),
                       ),
                     ],

@@ -2,8 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/app_transaction.dart';
+import '../models/goal.dart';
 import '../models/wallet.dart';
+import '../utils/unique_name.dart';
+import '../utils/text_limits.dart';
 import 'firestore_write.dart';
+import 'goal_service.dart';
+import '../utils/categories.dart';
 
 class ExpenseBatchEntry {
   const ExpenseBatchEntry({
@@ -126,28 +131,66 @@ class WalletService {
     required String name,
     double startingBalance = 0,
     bool receivesIncome = false,
+    bool balanceRecorded = true,
+    double? annualInterestRatePercent,
     List<Wallet>? currentWallets,
     WalletPurpose purpose = WalletPurpose.spending,
     String? savingsKind,
     DateTime? maturityDate,
+    DateTime? depositStartDate,
+    InterestPayout? interestPayout,
+    Map<String, double> fundedFrom = const {},
   }) async {
+    if (annualInterestRatePercent != null &&
+        !isValidAnnualInterestRatePercent(annualInterestRatePercent)) {
+      throw ArgumentError.value(
+        annualInterestRatePercent,
+        'annualInterestRatePercent',
+        'Must be between 0 and '
+            '${maximumAnnualInterestRatePercent.toInt()}%.',
+      );
+    }
+    _validateSavingsDetails(
+      purpose: purpose,
+      savingsKind: savingsKind,
+      annualInterestRatePercent: annualInterestRatePercent,
+      depositStartDate: depositStartDate,
+      maturityDate: maturityDate,
+    );
     final wallets = currentWallets ?? await loadWallets();
-    final trimmedName = name.trim();
+    final trimmedName = cleanText(name);
     final reference = _walletsCollection.doc();
 
     final batch = _firestore.batch()
       ..set(reference, {
-        'name': trimmedName.isEmpty ? type.label : trimmedName,
+        // A repeated name gets the next number: "Cash", then "Cash 2".
+        'name': uniqueName(
+          trimmedName.isEmpty ? type.label : trimmedName,
+          [
+            for (final wallet in wallets)
+              if (!wallet.archived) wallet.name,
+          ],
+          maxLength: purpose == WalletPurpose.spending
+              ? maxSavedWalletNameLength
+              : maxItemNameLength,
+        ),
         'type': type.name,
-        'balance': startingBalance,
-        'startingBalance': startingBalance,
+        // Money moved in from other wallets arrives by the transfers below,
+        // so the record starts empty and they fill it.
+        'balance': fundedFrom.isEmpty ? startingBalance : 0,
+        'balanceRecorded': balanceRecorded,
+        'startingBalance': fundedFrom.isEmpty ? startingBalance : 0,
+        'annualInterestRatePercent': ?annualInterestRatePercent,
         'receivesIncome': receivesIncome,
         'archived': false,
         'sortOrder': nextWalletSortOrder(wallets),
         'purpose': purpose.name,
         'savingsKind': ?savingsKind,
+        if (depositStartDate != null)
+          'depositStartDate': Timestamp.fromDate(depositStartDate),
         if (maturityDate != null)
           'maturityDate': Timestamp.fromDate(maturityDate),
+        'interestPayoutMonths': ?interestPayout?.months,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -155,6 +198,27 @@ class WalletService {
     // A second wallet can't quietly take over as the income wallet.
     if (receivesIncome) {
       _addIncomeWalletUpdates(batch, wallets, reference.id);
+    }
+
+    // Money moved in from the user's wallets, as when savings are opened
+    // with cash or bank money: transfers in the same batch, so it leaves
+    // them as it arrives here, all or nothing, and the total stays the same.
+    if (fundedFrom.isNotEmpty) {
+      final deltas = <String, double>{};
+      fundedFrom.forEach((walletId, amount) {
+        if (!amount.isFinite || amount <= 0) return;
+        addTransactionToBatch(
+          batch,
+          type: TransactionType.transfer,
+          amount: amount,
+          label: TransactionType.transfer.label,
+          walletId: walletId,
+          toWalletId: reference.id,
+          note: 'Moved into ${trimmedName.isEmpty ? type.label : trimmedName}',
+          collectDeltasInto: deltas,
+        );
+      });
+      _applyDeltas(batch, deltas);
     }
 
     commitFirestoreWrite(batch.commit(), 'add wallet');
@@ -204,7 +268,33 @@ class WalletService {
     required String walletId,
     String? name,
     WalletType? type,
+    bool updateAnnualInterestRate = false,
+    double? annualInterestRatePercent,
+    bool updateSavingsMetadata = false,
+    String? savingsKind,
+    DateTime? depositStartDate,
+    DateTime? maturityDate,
   }) {
+    if (updateSavingsMetadata) {
+      _validateSavingsDetails(
+        purpose: WalletPurpose.savings,
+        savingsKind: savingsKind,
+        annualInterestRatePercent: annualInterestRatePercent,
+        depositStartDate: depositStartDate,
+        maturityDate: maturityDate,
+      );
+    }
+    if (updateAnnualInterestRate &&
+        annualInterestRatePercent != null &&
+        !isValidAnnualInterestRatePercent(annualInterestRatePercent)) {
+      throw ArgumentError.value(
+        annualInterestRatePercent,
+        'annualInterestRatePercent',
+        'Must be between 0 and '
+            '${maximumAnnualInterestRatePercent.toInt()}%.',
+      );
+    }
+
     final fields = <String, dynamic>{'updatedAt': FieldValue.serverTimestamp()};
     final trimmedName = name?.trim();
 
@@ -213,11 +303,56 @@ class WalletService {
     }
 
     if (type != null) fields['type'] = type.name;
+    if (updateAnnualInterestRate) {
+      fields['annualInterestRatePercent'] =
+          annualInterestRatePercent ?? FieldValue.delete();
+    }
+    if (updateSavingsMetadata) {
+      fields['savingsKind'] = savingsKind ?? FieldValue.delete();
+      fields['depositStartDate'] = depositStartDate == null
+          ? FieldValue.delete()
+          : Timestamp.fromDate(depositStartDate);
+      fields['maturityDate'] = maturityDate == null
+          ? FieldValue.delete()
+          : Timestamp.fromDate(maturityDate);
+      if (annualInterestRatePercent == null) {
+        fields['annualInterestRatePercent'] = FieldValue.delete();
+      } else {
+        fields['annualInterestRatePercent'] = annualInterestRatePercent;
+      }
+    }
 
     commitFirestoreWrite(
       _walletsCollection.doc(walletId).set(fields, SetOptions(merge: true)),
       'update wallet',
     );
+  }
+
+  static void _validateSavingsDetails({
+    required WalletPurpose purpose,
+    required String? savingsKind,
+    required double? annualInterestRatePercent,
+    required DateTime? depositStartDate,
+    required DateTime? maturityDate,
+  }) {
+    if (purpose != WalletPurpose.savings || savingsKind == null) return;
+    final kind = SavingsKind.fromName(savingsKind);
+    if (kind.isInterestBearing) {
+      if (!isValidAnnualInterestRatePercent(annualInterestRatePercent)) {
+        throw ArgumentError('Interest-bearing savings require a valid rate.');
+      }
+      if (depositStartDate == null) {
+        throw ArgumentError('Interest-bearing savings require a start date.');
+      }
+    }
+    if (kind == SavingsKind.timeDeposit &&
+        (depositStartDate == null ||
+            maturityDate == null ||
+            !maturityDate.isAfter(depositStartDate))) {
+      throw ArgumentError(
+        'A time deposit maturity date must be after its start date.',
+      );
+    }
   }
 
   /// Hides a wallet without deleting it, so its past transactions keep the
@@ -402,6 +537,7 @@ class WalletService {
     required List<Wallet> wallets,
     String? note,
     DateTime? date,
+    double serviceCharge = 0,
   }) {
     final batch = _firestore.batch();
     final toWalletId = addPurposeWalletToBatch(
@@ -414,6 +550,7 @@ class WalletService {
       throw ArgumentError('A transfer needs two different wallets.');
     }
 
+    final deltas = <String, double>{};
     final id = addTransactionToBatch(
       batch,
       type: TransactionType.transfer,
@@ -423,10 +560,71 @@ class WalletService {
       toWalletId: toWalletId,
       note: note,
       date: date,
+      collectDeltasInto: deltas,
     );
+    addServiceChargeToBatch(
+      batch,
+      walletId: fromWalletId,
+      amount: serviceCharge,
+      note: 'For a transfer',
+      date: date,
+      collectDeltasInto: deltas,
+    );
+    _applyDeltas(batch, deltas);
 
     commitFirestoreWrite(batch.commit(), 'set money aside');
     return id;
+  }
+
+  /// Adds what a bank or e-wallet charged, as a Service Charge expense from
+  /// [walletId], to [batch]. Nothing when [amount] is zero: a charge is only
+  /// recorded when the user says there was one.
+  ///
+  /// It is an expense of its own, apart from the money moved or the bill
+  /// paid, so it is counted with the rest of the spending.
+  static void addServiceChargeToBatch(
+    WriteBatch batch, {
+    required String walletId,
+    required double amount,
+    required String note,
+    DateTime? date,
+    Map<String, double>? collectDeltasInto,
+  }) {
+    if (!amount.isFinite || amount <= 0) return;
+    addTransactionToBatch(
+      batch,
+      type: TransactionType.expense,
+      amount: amount,
+      label: serviceChargeCategory,
+      walletId: walletId,
+      note: note,
+      date: date,
+      collectDeltasInto: collectDeltasInto,
+    );
+  }
+
+  /// [rememberServiceCharge], in a batch being written anyway.
+  static void rememberServiceChargeInBatch(
+    WriteBatch batch,
+    String walletId,
+    double amount,
+  ) {
+    if (!amount.isFinite || amount <= 0) return;
+    batch.set(_walletsCollection.doc(walletId), {
+      'serviceCharge': amount,
+    }, SetOptions(merge: true));
+  }
+
+  /// Keeps [amount] as [walletId]'s service charge, to fill in next time.
+  static void rememberServiceCharge(String walletId, double amount) {
+    if (!amount.isFinite || amount <= 0) return;
+    commitFirestoreWrite(
+      _walletsCollection.doc(walletId).set({
+        'serviceCharge': amount,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)),
+      'remember service charge',
+    );
   }
 
   /// Moves money between two wallets: one transaction, two balance changes,
@@ -437,9 +635,39 @@ class WalletService {
     required double amount,
     String? note,
     DateTime? date,
+    double serviceCharge = 0,
   }) {
     if (fromWalletId == toWalletId) {
       throw ArgumentError('A transfer needs two different wallets.');
+    }
+
+    // With a service charge, the transfer and the charge go in one batch:
+    // both or neither, and one balance change per wallet.
+    if (serviceCharge > 0) {
+      final batch = _firestore.batch();
+      final deltas = <String, double>{};
+      final id = addTransactionToBatch(
+        batch,
+        type: TransactionType.transfer,
+        amount: amount,
+        label: TransactionType.transfer.label,
+        walletId: fromWalletId,
+        toWalletId: toWalletId,
+        note: note,
+        date: date,
+        collectDeltasInto: deltas,
+      );
+      addServiceChargeToBatch(
+        batch,
+        walletId: fromWalletId,
+        amount: serviceCharge,
+        note: 'For a transfer',
+        date: date,
+        collectDeltasInto: deltas,
+      );
+      _applyDeltas(batch, deltas);
+      commitFirestoreWrite(batch.commit(), 'record transfer');
+      return id;
     }
 
     return _writeTransaction(
@@ -496,14 +724,16 @@ class WalletService {
     }
     // Rounded to centavos, so a long decimal cannot leave a stray fraction.
     final delta = ((recorded - wallet.balance) * 100).round() / 100;
-    if (delta == 0) return;
-
+    final fields = <String, dynamic>{
+      'balanceRecorded': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (delta != 0) {
+      fields['balance'] = FieldValue.increment(delta);
+      fields['startingBalance'] = FieldValue.increment(delta);
+    }
     commitFirestoreWrite(
-      _walletsCollection.doc(wallet.id).set({
-        'balance': FieldValue.increment(delta),
-        'startingBalance': FieldValue.increment(delta),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)),
+      _walletsCollection.doc(wallet.id).set(fields, SetOptions(merge: true)),
       'correct declared balance',
     );
   }
@@ -518,11 +748,16 @@ class WalletService {
   ///
   /// Nothing happens to a real account; this only records what the user says
   /// already happened.
+  ///
+  /// Goal money in [wallet] goes with it to [toWalletId], up to what was
+  /// taken out, so a goal saved in a time deposit stays set aside once the
+  /// deposit is paid out.
   static void settleMatured({
     required Wallet wallet,
     required double received,
     required String toWalletId,
     DateTime? date,
+    List<Goal> goals = const [],
   }) {
     if (!received.isFinite || received <= 0) {
       throw ArgumentError.value(
@@ -550,7 +785,7 @@ class WalletService {
         batch,
         type: TransactionType.income,
         amount: interest,
-        label: 'Interest',
+        label: interestIncomeLabel,
         walletId: wallet.id,
         note: 'Interest on ${wallet.name}',
         date: when,
@@ -572,6 +807,19 @@ class WalletService {
 
     applyDeltasToBatch(batch, deltas);
 
+    goalMoneyMoving(goals, from: wallet.id, moved: taken).forEach((
+      goal,
+      amount,
+    ) {
+      GoalService.moveMoneyInBatch(
+        batch,
+        goal,
+        from: wallet.id,
+        to: toWalletId,
+        amount: amount,
+      );
+    });
+
     // Whatever is left keeps its own maturity until the user says otherwise;
     // an emptied record has nothing left to come due.
     if (taken >= balance) {
@@ -584,15 +832,75 @@ class WalletService {
     commitFirestoreWrite(batch.commit(), 'settle matured savings');
   }
 
-  /// Pushes a matured record's date forward, for a deposit that rolled over.
-  static void rollOverMaturity(Wallet wallet, DateTime nextDate) {
+  /// Records interest the user says [wallet] was paid, as income into that
+  /// account. FinAssist cannot see a real account, so this is only ever
+  /// what the user enters, never an estimate added by itself.
+  static void recordInterest({
+    required Wallet wallet,
+    required double amount,
+    DateTime? date,
+  }) {
+    final batch = FirebaseFirestore.instance.batch();
+    final deltas = <String, double>{};
+    addTransactionToBatch(
+      batch,
+      type: TransactionType.income,
+      amount: amount,
+      label: interestIncomeLabel,
+      walletId: wallet.id,
+      note: 'Interest from ${wallet.name}',
+      date: date ?? DateTime.now(),
+      collectDeltasInto: deltas,
+    );
+    applyDeltasToBatch(batch, deltas);
+    commitFirestoreWrite(batch.commit(), 'record interest');
+  }
+
+  /// Saves how often [wallet] pays its interest, for its reminders.
+  static void setInterestPayout(Wallet wallet, InterestPayout payout) {
     commitFirestoreWrite(
       _walletsCollection.doc(wallet.id).set({
-        'maturityDate': Timestamp.fromDate(nextDate),
+        // Months between payments, 0 for every day. Any older named one is
+        // still read, but this number wins.
+        'interestPayoutMonths': payout.months,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)),
-      'roll over maturity',
+      'set interest payout',
     );
+  }
+
+  /// Pushes a matured record's date forward, for a deposit that rolled over.
+  ///
+  /// [interest] the bank added on renewal is income, kept in the same deposit.
+  /// The new term starts where the old one ended, so its interest is counted
+  /// from there and not twice.
+  static void rollOverMaturity(
+    Wallet wallet,
+    DateTime nextDate, {
+    double interest = 0,
+  }) {
+    final batch = FirebaseFirestore.instance.batch();
+    if (interest > 0) {
+      final deltas = <String, double>{};
+      addTransactionToBatch(
+        batch,
+        type: TransactionType.income,
+        amount: interest,
+        label: interestIncomeLabel,
+        walletId: wallet.id,
+        note: 'Interest on ${wallet.name}',
+        date: DateTime.now(),
+        collectDeltasInto: deltas,
+      );
+      applyDeltasToBatch(batch, deltas);
+    }
+    batch.set(_walletsCollection.doc(wallet.id), {
+      'maturityDate': Timestamp.fromDate(nextDate),
+      if (wallet.maturityDate != null)
+        'depositStartDate': Timestamp.fromDate(wallet.maturityDate!),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    commitFirestoreWrite(batch.commit(), 'roll over maturity');
   }
 
   /// Adds a transaction, and the balance changes it causes, to [batch].
@@ -619,6 +927,7 @@ class WalletService {
     Map<String, double>? collectDeltasInto,
     String? billInstanceId,
     String? debtId,
+    double interest = 0,
   }) {
     if (!amount.isFinite || amount <= 0) {
       throw ArgumentError.value(amount, 'amount', 'Must be greater than zero.');
@@ -650,6 +959,7 @@ class WalletService {
       'legacy': false,
       'billInstanceId': billInstanceId,
       'debtId': debtId,
+      if (interest > 0) 'interest': interest,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
@@ -661,6 +971,18 @@ class WalletService {
     if (collectDeltasInto == null) _applyDeltas(batch, deltas);
 
     return reference.id;
+  }
+
+  /// Marks how much of a payment already made was interest. Only that one
+  /// field changes; the amount and the balance stay as they were.
+  static void setInterestInBatch(
+    WriteBatch batch,
+    String transactionId,
+    double interest,
+  ) {
+    batch.set(_transactionsCollection.doc(transactionId), {
+      'interest': interest,
+    }, SetOptions(merge: true));
   }
 
   /// Writes balance changes gathered with `collectDeltasInto`, one write per

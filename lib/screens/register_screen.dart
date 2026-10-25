@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../utils/text_limits.dart';
 import '../widgets/app_logo.dart';
 import 'email_verification_screen.dart';
 import 'login_screen.dart';
@@ -17,10 +18,6 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  static const int _maxTextLength = 50;
-  static final TextInputFormatter _nameCharacterFormatter =
-      FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9 ]'));
-
   Widget? _buildCharacterCounter(
     BuildContext context, {
     required int currentLength,
@@ -60,21 +57,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _formError;
   bool _showPasswordRequirements = false;
 
+  /// Set by the first Create Account tap. From then on every field is
+  /// checked as it is typed, so a message goes as soon as its field is right.
+  bool _triedToRegister = false;
+
   // =========================================================
   // REGISTER WITH FIREBASE
   // =========================================================
 
-  Future<void> _register() async {
-    final name = _nameController.text.trim();
+  /// Shows what is wrong with each field, or nothing where it is right.
+  /// Returns whether all of them are right.
+  bool _checkFields() {
+    final name = cleanText(_nameController.text);
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     final confirmPassword = _confirmPasswordController.text;
 
-    final nameError = name.isEmpty
-        ? 'This field is required.'
-        : !RegExp(r'^[a-zA-Z0-9]+(?: [a-zA-Z0-9]+)*$').hasMatch(name)
-        ? 'Use only letters, numbers, and spaces.'
-        : null;
+    final nameError = personNameProblem(name, empty: 'This field is required.');
     final emailError = email.isEmpty
         ? 'This field is required.'
         : !_validEmail(email)
@@ -95,17 +94,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _emailError = emailError;
       _passwordError = passwordError;
       _confirmPasswordError = confirmPasswordError;
+    });
+
+    return nameError == null &&
+        emailError == null &&
+        passwordError == null &&
+        passwordMeetsPolicy &&
+        confirmPasswordError == null;
+  }
+
+  Future<void> _register() async {
+    final name = cleanText(_nameController.text);
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    _triedToRegister = true;
+    setState(() {
       _formError = null;
       _showPasswordRequirements = password.isNotEmpty;
     });
-
-    if (nameError != null ||
-        emailError != null ||
-        passwordError != null ||
-        !passwordMeetsPolicy ||
-        confirmPasswordError != null) {
-      return;
-    }
+    if (!_checkFields()) return;
 
     // ---------------------------------------------------------
     // START LOADING
@@ -222,25 +230,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _onFieldChanged(String field) {
     setState(() {
       _formError = null;
-      switch (field) {
-        case 'name':
-          _nameError = null;
-          break;
-        case 'email':
-          _emailError = null;
-          break;
-        case 'password':
-          _passwordError = null;
-          _showPasswordRequirements = true;
-          if (_confirmPasswordController.text.isNotEmpty) {
-            _confirmPasswordError = null;
-          }
-          break;
-        case 'confirmPassword':
-          _confirmPasswordError = null;
-          break;
-      }
+      if (field == 'password') _showPasswordRequirements = true;
     });
+    if (_triedToRegister) _checkFields();
   }
 
   // =========================================================
@@ -331,12 +323,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                       const SizedBox(height: 6),
 
-                      const Text(
+                      Text(
                         'Smart insights. Better financial future.',
 
                         textAlign: TextAlign.center,
 
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: context.appColors.textMuted,
+                        ),
                       ),
                     ],
                   ),
@@ -359,10 +354,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                 const SizedBox(height: 8),
 
-                const Text(
+                Text(
                   'Create your account to get started with FinAssist',
 
-                  style: TextStyle(fontSize: 15, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: context.appColors.textMuted,
+                  ),
                 ),
 
                 const SizedBox(height: 30),
@@ -385,11 +383,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   textCapitalization: TextCapitalization.words,
 
-                  maxLength: _maxTextLength,
+                  maxLength: maxPersonNameLength,
                   buildCounter: _buildCharacterCounter,
+                  // Letters from any language, so Niño and Ma. Clara fit.
                   inputFormatters: [
-                    _nameCharacterFormatter,
-                    LengthLimitingTextInputFormatter(_maxTextLength),
+                    personNameFormatter,
+                    const SafeTextFormatter(),
+                    LengthLimitingTextInputFormatter(maxPersonNameLength),
                   ],
 
                   onChanged: (_) => _onFieldChanged('name'),
@@ -398,9 +398,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     hintText: 'Enter your full name',
                     errorText: _nameError,
 
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.person_outline,
-                      color: Colors.grey,
+                      color: context.appColors.textMuted,
                     ),
 
                     border: OutlineInputBorder(
@@ -460,10 +460,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   keyboardType: TextInputType.emailAddress,
 
-                  maxLength: _maxTextLength,
+                  maxLength: maxEmailLength,
                   buildCounter: _buildCharacterCounter,
                   inputFormatters: [
-                    LengthLimitingTextInputFormatter(_maxTextLength),
+                    FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                    LengthLimitingTextInputFormatter(maxEmailLength),
                   ],
 
                   onChanged: (_) => _onFieldChanged('email'),
@@ -472,9 +473,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     hintText: 'Enter your email',
                     errorText: _emailError,
 
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.email_outlined,
-                      color: Colors.grey,
+                      color: context.appColors.textMuted,
                     ),
 
                     border: OutlineInputBorder(
@@ -541,10 +542,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   obscureText: _obscurePassword,
 
-                  maxLength: _maxTextLength,
+                  maxLength: maxPasswordLength,
                   buildCounter: _buildCharacterCounter,
                   inputFormatters: [
-                    LengthLimitingTextInputFormatter(_maxTextLength),
+                    LengthLimitingTextInputFormatter(maxPasswordLength),
                   ],
 
                   onChanged: (_) => _onFieldChanged('password'),
@@ -583,9 +584,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           )
                         : null,
 
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.lock_outline,
-                      color: Colors.grey,
+                      color: context.appColors.textMuted,
                     ),
 
                     suffixIcon: IconButton(
@@ -664,10 +665,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   obscureText: _obscureConfirmPassword,
 
-                  maxLength: _maxTextLength,
+                  maxLength: maxPasswordLength,
                   buildCounter: _buildCharacterCounter,
                   inputFormatters: [
-                    LengthLimitingTextInputFormatter(_maxTextLength),
+                    LengthLimitingTextInputFormatter(maxPasswordLength),
                   ],
 
                   onChanged: (_) => _onFieldChanged('confirmPassword'),
@@ -676,9 +677,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     hintText: 'Confirm your password',
                     errorText: _confirmPasswordError,
 
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.lock_outline,
-                      color: Colors.grey,
+                      color: context.appColors.textMuted,
                     ),
 
                     suffixIcon: IconButton(
@@ -795,7 +796,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     text: TextSpan(
                       text: 'Already have an account? ',
 
-                      style: const TextStyle(color: Colors.grey, fontSize: 14),
+                      style: TextStyle(
+                        color: context.appColors.textMuted,
+                        fontSize: 14,
+                      ),
 
                       children: [
                         WidgetSpan(
