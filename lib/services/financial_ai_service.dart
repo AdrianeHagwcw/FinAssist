@@ -493,9 +493,8 @@ ${responseLanguage == null ? '' : 'Write the explanation entirely in ${responseL
       'recordCompleteness':
           'User-entered records; completeness is not verified. '
           'No recorded amount does not establish no actual income or spending.',
-      'incomeFrequency': records.incomeFrequency,
       'planningEndExclusive': records.period.end.toIso8601String(),
-      'planningEndIsGuaranteedPayday': false,
+      'planningWindow': 'calendar month',
       'spendingWalletBalance': records.walletBalance,
       'safeToSpendToday': records.safeToSpend.leftToday,
       'dailySpendingShare': records.safeToSpend.dailyLimit,

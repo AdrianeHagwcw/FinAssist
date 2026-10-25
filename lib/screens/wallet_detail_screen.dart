@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../models/app_transaction.dart';
 import '../models/goal.dart';
 import '../models/wallet.dart';
-import '../services/user_profile_service.dart';
 import '../services/wallet_service.dart';
 import '../services/goal_service.dart';
 import '../utils/money_format.dart';
@@ -63,11 +62,6 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
       widget.transactions ??
       WalletService.watchWalletTransactions(widget.wallet.id);
 
-  late final Stream<String?> _incomeSource =
-      widget.incomeSource ??
-      UserProfileService.watchProfile().map(
-        (profile) => profile.data()?['incomeSource'] as String?,
-      );
   // Tests that hand in their wallets have no goals behind them.
   late final Stream<List<Goal>> _goals =
       widget.goals ??
@@ -162,16 +156,12 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
           ),
           body: Column(
             children: [
-              StreamBuilder<String?>(
-                stream: _incomeSource,
-                builder: (context, incomeSnapshot) => StreamBuilder<List<Goal>>(
+              StreamBuilder<List<Goal>>(
                   stream: _goals,
                   builder: (context, goalsSnapshot) => _WalletHeader(
                     wallet: wallet,
-                    incomeSource: incomeSnapshot.data,
                     goals: goalsSnapshot.data ?? const [],
                   ),
-                ),
               ),
               Expanded(
                 child: StreamBuilder<List<AppTransaction>>(
@@ -325,20 +315,15 @@ class _SavingsInterestSummary extends StatelessWidget {
 class _WalletHeader extends StatelessWidget {
   const _WalletHeader({
     required this.wallet,
-    required this.incomeSource,
     required this.goals,
   });
 
   final Wallet wallet;
-  final String? incomeSource;
   final List<Goal> goals;
 
   @override
   Widget build(BuildContext context) {
-    final source = incomeSource?.trim();
-    final incomeLabel = source == null || source.isEmpty
-        ? 'Your income is paid into this wallet'
-        : 'Your $source is paid into this wallet';
+    const incomeLabel = 'Your income is paid into this wallet';
 
     return Container(
       width: double.infinity,

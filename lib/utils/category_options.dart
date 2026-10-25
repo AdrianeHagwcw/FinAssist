@@ -8,7 +8,7 @@ List<String> categoryOptions(
   String? selected,
   bool includeHidden = false,
 }) {
-  final prefs = context.watch<AppSettingsProvider?>()?.financial;
+  final prefs = context.watch<AppSettingsProvider?>()?.categories;
   final categories = includeHidden
       ? prefs?.allCategories
       : prefs?.availableCategories;
@@ -22,5 +22,5 @@ List<String> categoryOptions(
 /// The categories a new expense can use, read once rather than watched, for
 /// use outside `build`, such as when a suggestion is worked out.
 List<String> availableCategoriesOf(BuildContext context) =>
-    context.read<AppSettingsProvider?>()?.financial.availableCategories ??
+    context.read<AppSettingsProvider?>()?.categories.availableCategories ??
     expenseCategories;

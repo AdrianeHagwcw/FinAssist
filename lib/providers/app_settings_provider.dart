@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/financial_preferences.dart';
+import '../models/expense_category_preferences.dart';
 import '../services/launch_screen.dart';
 
-/// Device display preferences and the signed-in account's live financial profile.
+/// Device display preferences and the signed-in account's category choices.
 class AppSettingsProvider extends ChangeNotifier {
   AppSettingsProvider({
     this._themeMode = ThemeMode.light,
@@ -21,14 +21,14 @@ class AppSettingsProvider extends ChangeNotifier {
   final SharedPreferences? _preferences;
   ThemeMode _themeMode;
   bool _amountsMasked;
-  FinancialPreferences _financial = const FinancialPreferences();
+  ExpenseCategoryPreferences _categories = const ExpenseCategoryPreferences();
 
   ThemeMode get themeMode => _themeMode;
   bool get amountsMasked => _amountsMasked;
-  FinancialPreferences get financial => _financial;
+  ExpenseCategoryPreferences get categories => _categories;
 
-  void updateFinancialProfile(Map<String, dynamic>? profile) {
-    _financial = FinancialPreferences.fromMap(profile);
+  void updateCategoryPreferences(Map<String, dynamic>? profile) {
+    _categories = ExpenseCategoryPreferences.fromMap(profile);
     notifyListeners();
   }
 

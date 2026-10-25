@@ -244,10 +244,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
     required List<AllocationCycle> cycles,
   }) {
     final now = _now;
-    final frequency = profile?['incomeFrequency'] as String?;
-    // Only pay starts a new period; a gift just adds to this one.
-    final lastIncome = periodAnchor(cycles, profile);
-    final period = payPeriodFor(frequency, lastIncomeAt: lastIncome, now: now);
+    final period = payPeriodFor(null, now: now);
     final startOfToday = DateTime(now.year, now.month, now.day);
 
     return SafeToSpendInputs(
@@ -265,7 +262,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       ),
       wallets: wallets,
       period: period,
-      frequency: frequency,
+      frequency: null,
       cycles: cycles,
       transactions: transactions,
       bills: _bills,
@@ -321,7 +318,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                     // Named for the stretch it covers, so it is not read as
                     // what can be spent today.
                     _Working(
-                      'Left until your next pay',
+                      'Left through the end of this month',
                       s.spendableThisPeriod,
                       strong: true,
                     ),
@@ -340,9 +337,9 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                     s.walletBalance <= 0
                         ? 'Once you add income or a wallet balance, this '
                               'shows how much of it you can spend each day '
-                              'until your next pay.'
+                              'through the end of this month.'
                         : 'That is ${formatPeso(s.recommendedDailyLimit)} a '
-                              'day for the $days until your next pay.',
+                              'day for the $days left this month.',
                     style: const TextStyle(height: 1.45),
                   ),
                 ],

@@ -35,7 +35,6 @@ import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
 import 'chatbot_screen.dart';
 import 'categories_screen.dart';
-import 'financial_preferences_screen.dart';
 import 'goals_screen.dart';
 import 'help_screen.dart';
 import 'income_waterfall_screen.dart';
@@ -177,9 +176,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       case VoiceDestination.expenseCategories:
         _push(const CategoriesScreen());
-        return;
-      case VoiceDestination.financialPreferences:
-        _push(const FinancialPreferencesScreen());
         return;
       case VoiceDestination.payCycleHistory:
         _push(const HistoryScreen());
@@ -489,12 +485,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _leftoverNotice(BuildContext context, SafeToSpendInputs inputs) {
     final cycle = cycleAwaitingReview(
       inputs.cycles,
-      inputs.frequency,
+      null,
       now: DateTime.now(),
     );
     if (cycle == null) return const SizedBox.shrink();
 
-    final period = periodOf(cycle, inputs.frequency);
+    final period = periodOf(cycle, null);
     final leftover = leftoverOf(cycle, inputs.transactions, period);
     if (leftover <= 0) return const SizedBox.shrink();
 
@@ -1023,9 +1019,8 @@ class _TotalBalanceCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Not counted: your Bills and Savings wallets. That '
-                          'money is already kept for bills, installments and '
-                          'savings.',
+                          'Not included: money set aside for bills, '
+                          'installments, or savings.',
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.4,

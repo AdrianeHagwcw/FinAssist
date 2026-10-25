@@ -198,10 +198,7 @@ void main() {
       expect(find.text('Check the text'), findsNothing);
       expect(fieldText(tester, '0.00'), '150');
       expect(fieldText(tester, 'What did you spend money on?'), 'Jollibee');
-      expect(
-        fieldText(tester, 'Add additional notes...'),
-        'JOLLIBEE\nTOTAL 150.00',
-      );
+      expect(find.text('Notes (optional)'), findsNothing);
       expect(find.text('Food'), findsOneWidget);
       expect(
         find.text("Suggested for you. Change it if it's wrong."),
@@ -223,10 +220,7 @@ void main() {
       await tester.tap(find.text('Use This'));
       await tester.pumpAndSettle();
       expect(fieldText(tester, '0.00'), '');
-      expect(
-        fieldText(tester, 'Add additional notes...'),
-        'Thank you for shopping',
-      );
+      expect(find.text('Notes (optional)'), findsNothing);
     });
 
     testWidgets('backing out of the camera changes nothing', (tester) async {
@@ -293,11 +287,7 @@ void main() {
       await tester.tap(find.text('Use This'));
       await tester.pumpAndSettle();
       expect(fieldText(tester, '0.00'), '465');
-      expect(
-        fieldText(tester, 'Add additional notes...'),
-        'PUREGOLD\nRice 5kg  250.00\nEggs  120.00\nMilk  95.00\nTOTAL  465.00',
-        reason: 'the overlapping lines only once',
-      );
+      expect(find.text('Notes (optional)'), findsNothing);
     });
 
     testWidgets('Retake redoes the last part, and any part can be removed', (
@@ -606,7 +596,6 @@ void main() {
         ('scan receipt', VoiceDestination.scanReceipt),
         ('open AI assistant', VoiceDestination.assistant),
         ('manage expense categories', VoiceDestination.expenseCategories),
-        ('open financial preferences', VoiceDestination.financialPreferences),
         ('open pay cycle history', VoiceDestination.payCycleHistory),
         ('open reminders', VoiceDestination.reminders),
         ('open help and support', VoiceDestination.help),

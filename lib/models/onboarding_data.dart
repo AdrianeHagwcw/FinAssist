@@ -19,10 +19,6 @@ class OnboardingData {
   const OnboardingData({
     required this.name,
     required this.notificationsEnabled,
-    this.incomeSource,
-    this.incomeFrequency,
-    this.lastPaydayAt,
-    this.monthlyIncome,
     required this.priorities,
     required this.wallets,
     this.bills = const [],
@@ -32,33 +28,6 @@ class OnboardingData {
 
   final String name;
   final bool notificationsEnabled;
-
-  /// Optional legacy inputs. Current setup no longer collects these, and null
-  /// values leave any existing profile income data unchanged.
-  final String? incomeSource;
-  final String? incomeFrequency;
-
-  /// The day the user last received their pay. It starts the first pay
-  /// period, so the days left are right from the moment setup is finished.
-  final DateTime? lastPaydayAt;
-
-  /// Monthly income. For irregular income this is an optional rough estimate;
-  /// null when it was not collected or the user left it blank.
-  final double? monthlyIncome;
-
-  /// The profile's legacy `income` value represents one payment, not a month.
-  double? get incomePerPayPeriod {
-    final amount = monthlyIncome;
-    if (amount == null) return null;
-
-    final paymentsPerMonth = switch (incomeFrequency) {
-      'Weekly' => 52 / 12,
-      'Bi-weekly' => 26 / 12,
-      'Semi-monthly' => 2,
-      _ => 1,
-    };
-    return amount / paymentsPerMonth;
-  }
 
   /// Most important first.
   final List<FinancialPriority> priorities;

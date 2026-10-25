@@ -278,19 +278,10 @@ class AllocationCycle {
   static double _asDouble(Object? value) => value is num ? value.toDouble() : 0;
 }
 
-/// The pay period a cycle's income was meant to cover.
-PayPeriod periodOf(AllocationCycle cycle, String? frequency) {
-  if (cycle.periodStart != null &&
-      cycle.periodEnd != null &&
-      cycle.periodEnd!.isAfter(cycle.periodStart!)) {
-    return PayPeriod(start: cycle.periodStart!, end: cycle.periodEnd!);
-  }
-  return payPeriodFor(
-    frequency,
-    lastIncomeAt: cycle.receivedAt,
-    now: cycle.receivedAt,
-  );
-}
+/// The calendar month an income entry belongs to. Legacy saved pay-period
+/// bounds and profile schedules are intentionally ignored.
+PayPeriod periodOf(AllocationCycle cycle, String? frequency) =>
+    payPeriodFor(null, now: cycle.receivedAt);
 
 /// What is left of a cycle's income: what was left after bills, less what was
 /// spent during its period. Never below zero.

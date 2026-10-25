@@ -18,9 +18,6 @@ class SavingsSuggestionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final suggestion = SavingsSuggestion.from(records);
-    final irregular =
-        records.incomeFrequency == null ||
-        records.incomeFrequency == 'Irregular';
     return Card(
       margin: const EdgeInsets.only(bottom: 20),
       child: Padding(
@@ -54,7 +51,7 @@ class SavingsSuggestionCard extends StatelessWidget {
                 'After bills, installment payments and money already saved, '
                 '${formatPeso(suggestion.available)} is available. We allow '
                 '${formatPeso(suggestion.dailyCosts)} for everyday spending '
-                '${irregular ? 'through the end of this month' : 'until your next expected income'}, '
+                'through the end of this month, '
                 'based on your recent records.',
               ),
               const SizedBox(height: 8),

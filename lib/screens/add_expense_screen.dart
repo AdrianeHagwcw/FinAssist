@@ -32,7 +32,6 @@ class AddExpenseScreen extends StatefulWidget {
   final String? initialDescription;
   final Timestamp? initialDate;
   final String? initialPaymentMethod;
-  final String? initialNotes;
   final bool requireCategorySelection;
   final bool requireWalletSelection;
 
@@ -55,7 +54,6 @@ class AddExpenseScreen extends StatefulWidget {
     this.initialDescription,
     this.initialDate,
     this.initialPaymentMethod,
-    this.initialNotes,
     this.requireCategorySelection = false,
     this.requireWalletSelection = false,
   });
@@ -76,7 +74,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
 
   final TextEditingController _descriptionController = TextEditingController();
 
-  final TextEditingController _notesController = TextEditingController();
 
   // =========================================================
   // SELECTED VALUES
@@ -142,7 +139,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
     }
 
     _descriptionController.text = widget.initialDescription ?? '';
-    _notesController.text = widget.initialNotes ?? '';
     recheckWhenChanged(_amountController);
     recheckWhenChanged(_descriptionController);
 
@@ -186,7 +182,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
     _goalsSubscription?.cancel();
     _amountController.dispose();
     _descriptionController.dispose();
-    _notesController.dispose();
 
     super.dispose();
   }
@@ -339,10 +334,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
 
     final wallet = _selectedWallet;
     final description = _descriptionController.text.trim();
-    final note = [
-      description,
-      _notesController.text.trim(),
-    ].where((part) => part.isNotEmpty).join('\n\n');
+    final note = description;
 
     // Writes are not awaited: Firestore saves them locally right away and
     // syncs when online, so saving also works without a connection.
@@ -674,21 +666,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
 
                   const SizedBox(height: 16),
 
-                  // =================================================
-                  // NOTES
-                  // =================================================
-                  TextField(
-                    controller: _notesController,
-                    maxLines: 4,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: dialogFieldDecoration(
-                      context,
-                      'Notes (optional)',
-                      hint: 'Add additional notes...',
-                    ).copyWith(alignLabelWithHint: true),
-                  ),
-
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 12),
                 ],
               ),
             ),
@@ -733,22 +711,16 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
             // =================================================
             SizedBox(
               width: double.infinity,
-              height: 50,
+              height: 55,
 
-              child: OutlinedButton(
+              child: ElevatedButton(
                 onPressed: _isSaving
                     ? null
                     : () {
                         Navigator.pop(context);
                       },
 
-                style: dangerOutlineStyle(context, height: 50).copyWith(
-                  shape: WidgetStatePropertyAll(
-                    RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                ),
+                style: dangerButtonStyle(height: 55),
 
                 child: const Text(
                   'Cancel',

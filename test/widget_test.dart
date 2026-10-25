@@ -2000,26 +2000,6 @@ void main() {
   });
 
   group('Onboarding', () {
-    test(
-      'monthly income converts to a per-pay amount for legacy profile data',
-      () {
-        OnboardingData data(String frequency) => OnboardingData(
-          name: 'Dave',
-          notificationsEnabled: false,
-          incomeSource: 'Salary',
-          incomeFrequency: frequency,
-          monthlyIncome: 5200,
-          priorities: const [],
-          wallets: const [],
-        );
-
-        expect(data('Weekly').incomePerPayPeriod, closeTo(1200, 0.01));
-        expect(data('Bi-weekly').incomePerPayPeriod, closeTo(2400, 0.01));
-        expect(data('Semi-monthly').incomePerPayPeriod, 2600);
-        expect(data('Monthly').incomePerPayPeriod, 5200);
-      },
-    );
-
     Future<void> pumpOnboarding(
       WidgetTester tester, {
       required Future<void> Function(OnboardingData) save,
@@ -3680,10 +3660,6 @@ void main() {
       expect(saved, isNotNull);
       expect(saved!.name, 'Dave');
       expect(saved!.notificationsEnabled, isTrue);
-      expect(saved!.incomeSource, isNull);
-      expect(saved!.incomeFrequency, isNull);
-      expect(saved!.lastPaydayAt, isNull);
-      expect(saved!.monthlyIncome, isNull);
       expect(saved!.bills, hasLength(1));
       expect(saved!.bills.single.name, 'Internet');
       expect(saved!.bills.single.amount, 1500);
@@ -5187,7 +5163,7 @@ void main() {
       tester,
     ) async {
       final settings = AppSettingsProvider()
-        ..updateFinancialProfile({
+        ..updateCategoryPreferences({
           'incomeSource': 'Salary',
           'incomeFrequency': 'Semi-monthly',
           // Onboarding stores monthly income divided by two paychecks.
@@ -7839,8 +7815,7 @@ void main() {
       // from and Home falls back to the calendar.
       expect(periodAnchor(cycles, profile), isNull);
 
-      // The payday saved at setup, or changed in Financial preferences, is
-      // what the period runs from.
+      // A saved payday on the profile is what the period runs from.
       final saved = {
         ...profile,
         'lastPaydayAt': Timestamp.fromDate(DateTime(2026, 9, 29)),

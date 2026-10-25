@@ -134,8 +134,7 @@ const Map<int, List<int>> logReminderWeekdays = {
 /// When a reminder comes, in plain words, for [times] reminders.
 String reminderTimingText(ReminderKind kind, int times) {
   return switch (kind) {
-    ReminderKind.payday =>
-      'On payday at 12 PM, then daily for 3 days until you log it.',
+    ReminderKind.payday => 'This reminder is no longer available.',
     ReminderKind.bills => switch (times) {
       4 => '7 days, 3 days and 1 day before, and on the due day, at 9 AM.',
       3 => '3 days and 1 day before, and on the due day, at 9 AM.',
@@ -152,15 +151,15 @@ String reminderTimingText(ReminderKind kind, int times) {
     },
     ReminderKind.leftover => switch (times) {
       4 =>
-        '3 days and 1 day before your next pay, then on payday and 2 days '
+        '3 days and 1 day before the end of the month, then on it and 2 days '
             "after if you haven't decided.",
       3 =>
-        'The night before your next pay, then on payday and 2 days after '
+        'The night before the month ends, then on it and 2 days after '
             "if you haven't decided.",
       2 =>
-        "The night before your next pay, then on payday if you haven't "
+        "The night before the month ends, then on it if you haven't "
             'decided.',
-      _ => 'The night before your next pay.',
+      _ => 'The night before the month ends.',
     },
     ReminderKind.dailyLog => switch (times) {
       4 => 'Monday, Wednesday, Friday and Sunday at 8 PM.',
@@ -341,62 +340,6 @@ List<PlannedReminder> planReminders({
           payload: 'bills',
         ),
       );
-    }
-  }
-
-  // Payday: on the day pay is expected, then once a day for a few days while
-  // none is logged, since pay can be late. Income is never added by itself:
-  // tapping opens Add Income for the user to confirm.
-  if (settings.isOn(ReminderKind.payday)) {
-    final lastLoggedPayday = lastPayday(cycles, usualSource: incomeSource);
-    final lastPay =
-        setupLastPayday == null ||
-            (lastLoggedPayday != null &&
-                !lastLoggedPayday.isBefore(setupLastPayday))
-        ? lastLoggedPayday ?? setupLastPayday
-        : setupLastPayday;
-    final pay = _payWord(incomeSource);
-
-    for (final payday in expectedPaydays(
-      incomeFrequency,
-      lastPay: lastPay,
-      // A payday a few days back still gets its late reminders. With no pay
-      // logged yet, there is no telling whether an earlier one came.
-      from: lastPay == null
-          ? today
-          : DateTime(today.year, today.month, today.day - latePayDays),
-      until: today.add(const Duration(days: 42)),
-    )) {
-      final date = '${payday.year}-${payday.month}-${payday.day}';
-      add(
-        PlannedReminder(
-          kind: ReminderKind.payday,
-          key: 'payday:$date',
-          at: at(payday, paydayHour),
-          title: 'Payday today?',
-          body:
-              "Once your $pay is in, tap to log it. If it's late, you'll get "
-              'another reminder tomorrow.',
-          payload: 'income',
-        ),
-      );
-      for (var late = 1; late <= latePayDays; late++) {
-        add(
-          PlannedReminder(
-            kind: ReminderKind.payday,
-            key: 'payday-late:$date:$late',
-            at: at(
-              DateTime(payday.year, payday.month, payday.day + late),
-              paydayHour,
-            ),
-            title: 'Has your $pay come in?',
-            body:
-                "Payday was ${formatMonthDay(payday)}. If it's in, tap to log "
-                'it.',
-            payload: 'income',
-          ),
-        );
-      }
     }
   }
 
@@ -700,11 +643,11 @@ List<PlannedReminder> planReminders({
     final newest = cycles.reduce(
       (a, b) => a.receivedAt.isAfter(b.receivedAt) ? a : b,
     );
-    final waiting = cycleAwaitingReview(cycles, incomeFrequency, now: now);
+    final waiting = cycleAwaitingReview(cycles, null, now: now);
     final undecided = {?waiting, if (!newest.isResolved) newest};
 
     for (final cycle in undecided) {
-      final end = periodOf(cycle, incomeFrequency).end;
+      final end = periodOf(cycle, null).end;
       final nextPay = DateTime(end.year, end.month, end.day);
       final source = cycle.source.toLowerCase();
 
@@ -714,7 +657,7 @@ List<PlannedReminder> planReminders({
             kind: ReminderKind.leftover,
             key: 'leftover:${cycle.id}:3-before',
             at: at(nextPay.subtract(const Duration(days: 3)), leftoverHour),
-            title: '3 days until your next pay',
+            title: '3 days until month end',
             body:
                 'See what is left of your $source and plan to save it or '
                 'spend it.',
@@ -727,7 +670,7 @@ List<PlannedReminder> planReminders({
           kind: ReminderKind.leftover,
           key: 'leftover:${cycle.id}',
           at: at(nextPay.subtract(const Duration(days: 1)), leftoverHour),
-          title: 'Your next pay is tomorrow',
+          title: 'This month ends tomorrow',
           body:
               'See what is left of your $source and choose to save it or '
               'spend it.',

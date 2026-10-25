@@ -208,10 +208,10 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   if (goal.status != GoalStatus.used &&
                       goal.shownSaved > 0) ...[
                     const SizedBox(height: 10),
-                    OutlinedButton.icon(
+                    ElevatedButton.icon(
                       onPressed: () =>
                           showContributionSheet(context, goal, takeOut: true),
-                      style: dangerOutlineStyle(context),
+                      style: dangerButtonStyle(),
                       icon: const Icon(Icons.remove, size: 18),
                       label: const Text('Take money out'),
                     ),

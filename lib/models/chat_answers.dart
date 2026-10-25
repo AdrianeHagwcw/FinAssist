@@ -794,7 +794,7 @@ ChatReply _formula(String text, FinanceSnapshot? records) {
     return const ChatReply(
       'Unpaid bill amount = bill amount − payments recorded for it, '
       'never below zero. Safe to Spend adds the unpaid bills due before '
-      'the next expected income date, including overdue payments and scheduled '
+      'the end of this calendar month, including overdue payments and scheduled '
       'installments. It subtracts only what the Bills wallet does not already '
       'cover. Paid bills are not subtracted again.',
       choices: choices,
@@ -837,8 +837,6 @@ ChatReply _formula(String text, FinanceSnapshot? records) {
   }
   final s = records.safeToSpend;
   final shortfall = math.max(0.0, s.billsDue - s.billsWalletBalance);
-  final irregular =
-      records.incomeFrequency == null || records.incomeFrequency == 'Irregular';
   return ChatReply(
     'Here is how Safe to Spend is worked out from your records:\n\n'
     '1. Spending wallets ${formatPeso(s.walletBalance)} + today’s spending '
@@ -858,7 +856,7 @@ ChatReply _formula(String text, FinanceSnapshot? records) {
     'Today’s spending is added back in step 1 because your wallet balance '
     'already went down, then subtracted in step 3. Bill payments and money '
     'lent are excluded from everyday spending. '
-    '${irregular ? 'With no fixed income date, the days run through the end of this month.' : 'The days follow the income date and schedule in Financial preferences; recording income does not restart the countdown.'} '
+    'The days run through the end of this calendar month. '
     'Figures depend on what you record. Which calculation would you like next?',
     choices: choices,
   );
@@ -1259,21 +1257,21 @@ const _financeWords = [
 ChatReply _safeToday(FinanceSnapshot records) {
   if (records.wallets.isEmpty) return _noWallets;
   final s = records.safeToSpend;
-  final payday = records.period.end;
+  final monthEnd = records.period.end;
 
   if (s.isOverLimit) {
     return ChatReply(
       "You've spent ${formatPeso(s.spentToday)} today, which is "
       '${formatPeso(-s.leftToday)} over your limit of '
       '${formatPeso(s.dailyLimit)}. Keeping tomorrow light helps you catch '
-      'up before payday on ${formatMonthDay(payday)}.',
+      'up before month end on ${formatMonthDay(monthEnd)}.',
     );
   }
   return ChatReply(
     'You can still spend ${formatPeso(_down(s.leftToday))} today, out of '
     "today's ${formatPeso(_down(s.dailyLimit))} limit. That keeps bills "
-    'and money set aside safe, with ${_days(s.daysLeft)} left until payday '
-    'on ${formatMonthDay(payday)}.',
+    'and money set aside safe, with ${_days(s.daysLeft)} left in this month '
+    'through ${formatMonthDay(monthEnd)}.',
   );
 }
 
@@ -1563,7 +1561,7 @@ ChatReply _balance(FinanceSnapshot records) {
     '${wallets.length} ${wallets.length == 1 ? 'wallet' : 'wallets'}: '
     '${wallets.take(5).map((w) => '${w.name} ${formatPeso(free(w))}').join(', ')}.'
     '${forGoals > 0.005 ? ' Another ${formatPeso(forGoals)} is set aside for your goals.' : ''}'
-    '\n\nAfter bills due before payday and money set aside, '
+    '\n\nAfter bills due this month and money set aside, '
     '${formatPeso(spendable < 0 ? 0 : spendable)} is free to spend until '
     '${formatMonthDay(records.period.end)}.',
   );
@@ -1720,7 +1718,7 @@ ChatReply _advice(FinanceSnapshot records, String question) {
           'total. Spending 10% less there saves about '
           '${formatPeso(_up(top.value * 0.1))} a month.',
       ...insights,
-      'Setting aside savings on payday, before you spend, makes it much '
+      'Setting aside savings when income arrives, before you spend, makes it much '
           'easier to stick to.',
     ].join('\n\n'),
   );
@@ -2117,14 +2115,11 @@ ChatReply _purchaseAnswer(PurchaseQuestion q, FinanceSnapshot records) {
   final restOfToday = math.max(0.0, daily - records.spentToday);
   final usual = daily * (days - 1) + restOfToday;
 
-  final paydays = _paydaysBefore(records, q.deadline);
-  final income = (records.usualIncome ?? 0) * paydays;
-  final spare = _down(available + income - usual);
+  final spare = _down(available - usual);
 
   final notes = [
-    if (income > 0)
-      'That counts ${formatPeso(income)} of income you usually get before '
-          'then.',
+    'This estimate uses current balances and recorded spending; it does not '
+        'include future income.',
     if (daily <= 0)
       "You haven't recorded day-to-day spending yet, so I couldn't allow for "
           'it.',
@@ -2245,21 +2240,6 @@ String? _habit(FinanceSnapshot records) {
       'place to trim.';
 }
 
-/// How many paydays fall before [deadline], after the current one.
-int _paydaysBefore(FinanceSnapshot records, DateTime deadline) {
-  var count = 0;
-  var period = records.period;
-  for (var i = 0; i < 60 && period.end.isBefore(deadline); i++) {
-    count++;
-    period = payPeriodFor(
-      records.incomeFrequency,
-      lastIncomeAt: records.lastIncomeAt,
-      now: period.end,
-    );
-  }
-  return count;
-}
-
 const _monthNames = [
   'january',
   'february',
@@ -2275,7 +2255,7 @@ const _monthNames = [
   'december',
 ];
 
-/// By when it would be bought. Unless the question says, before payday.
+/// By when it would be bought. Unless the question says, before month end.
 (DateTime, String) _deadlineIn(String lower, FinanceSnapshot records) {
   final text = ' ${_plain(lower)} ';
   final today = records.today;
@@ -2305,8 +2285,8 @@ const _monthNames = [
       return (DateTime(year, i + 2), 'by the end of $label');
     }
   }
-  final payday = records.period.end;
-  return (payday, 'before payday (${formatMonthDay(payday)})');
+  final monthEnd = records.period.end;
+  return (monthEnd, 'by month end (${formatMonthDay(monthEnd)})');
 }
 
 final _timeWords = RegExp(

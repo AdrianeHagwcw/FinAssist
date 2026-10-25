@@ -4,7 +4,6 @@ import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/cycle_history.dart';
 import '../services/budget_service.dart';
-import '../services/user_profile_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -12,7 +11,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/money_text.dart';
-import 'financial_preferences_screen.dart';
+import '../widgets/info_intro_card.dart';
 import 'leftover_review_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -37,15 +36,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
   late final _cycles = widget.cycles ?? BudgetService.watchHistory();
   late final _transactions =
       widget.transactions ?? WalletService.watchTransactions();
-  late final _profile =
-      widget.profile ?? UserProfileService.watchProfile().map((s) => s.data());
   bool _pendingOnly = false;
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text(
-        'Income history',
+        'Total Cash-in flows',
         style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
       ),
       centerTitle: true,
@@ -53,14 +50,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
       foregroundColor: Colors.white,
       elevation: 0,
     ),
-    body: StreamBuilder<Map<String, dynamic>?>(
-      stream: _profile,
-      builder: (context, profile) => StreamBuilder<List<AppTransaction>>(
+    body: StreamBuilder<List<AppTransaction>>(
         stream: _transactions,
         builder: (context, transactions) => StreamBuilder<List<AllocationCycle>>(
           stream: _cycles,
           builder: (context, cycles) {
-            if (profile.hasError || transactions.hasError || cycles.hasError) {
+            if (transactions.hasError || cycles.hasError) {
               return const EmptyStateView(
                 iconAsset: 'assets/icons/icons8-calendar-96.png',
                 title: 'History is unavailable',
@@ -68,9 +63,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     'Your records have not been changed. Reopen this screen to try again.',
               );
             }
-            if (!cycles.hasData ||
-                !transactions.hasData ||
-                profile.connectionState == ConnectionState.waiting) {
+            if (!cycles.hasData || !transactions.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
             if (cycles.data!.isEmpty) {
@@ -78,10 +71,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 iconAsset: 'assets/icons/icons8-calendar-96.png',
                 title: 'Your story starts with income',
                 message:
-                    'Use + to add income and plan it. Every pay you log shows up here: what came in, where it went, and what was left at the end.',
+                    'Use + to add income and plan it. Every cash-in you log shows up here: what came in, where it went, and what was left.',
               );
             }
-            final frequency = profile.data?['incomeFrequency'] as String?;
+            const String? frequency = null;
             final now = widget.today ?? DateTime.now();
             final all = newestCycles(cycles.data!);
             final pending = all
@@ -104,11 +97,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      PreferenceIntro(
+                      InfoIntroCard(
                         icon: Icons.history,
-                        title: 'Every payday, a clearer picture',
+                        title: 'Every cash-in, a clearer picture',
                         message: pending == 0
-                            ? 'Every pay you log: what came in, where it went, and what was left.'
+                            ? 'Every cash-in you log: what came in, where it went, and what was left.'
                             : '$pending ${pending == 1 ? 'entry is' : 'entries are'} waiting for a leftover decision.',
                       ),
                       const SizedBox(height: 16),
@@ -131,7 +124,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Newest first · Amounts are from the plan you made on payday',
+                        'Newest first · Amounts are from the plan you made when logging income',
                         style: TextStyle(
                           fontSize: 12,
                           color: context.appColors.textBody,
@@ -173,9 +166,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             cycle: cycle,
                             leftover: left,
                             periodEnd: period.end,
-                            initialDecision: LeftoverDecision.fromName(
-                              profile.data?['defaultLeftover'] as String?,
-                            ),
                           ),
                         ),
                       );
@@ -186,7 +176,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             );
           },
         ),
-      ),
     ),
   );
 }
@@ -293,14 +282,6 @@ class _CycleCard extends StatelessWidget {
                   periodLabel,
                   style: TextStyle(color: colors.textBody, fontSize: 13),
                 ),
-                if (cycle.periodStart == null || cycle.periodEnd == null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      'An older pay · dates worked out from how often you are paid now',
-                      style: TextStyle(color: colors.textBody, fontSize: 12),
-                    ),
-                  ),
                 const SizedBox(height: 18),
                 _line(
                   context,

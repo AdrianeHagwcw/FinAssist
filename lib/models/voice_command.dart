@@ -14,7 +14,6 @@ enum VoiceDestination {
   scanReceipt,
   assistant,
   expenseCategories,
-  financialPreferences,
   payCycleHistory,
   reminders,
   help,
@@ -146,11 +145,6 @@ VoiceDestination? _destinationFor(String words, double? amount) {
       'expense categories',
       'manage categories',
       'categories',
-    ],
-    VoiceDestination.financialPreferences: [
-      'income preferences',
-      'financial preferences',
-      'leftover preferences',
     ],
     VoiceDestination.payCycleHistory: [
       'pay cycle history',

@@ -119,14 +119,14 @@ String? _spendingWalletId(List<Wallet> wallets) {
 
 /// The day the current pay period starts.
 ///
-/// The payday the user entered during setup or in Financial preferences.
+/// The payday saved on the profile.
 /// Recording income changes the available balance, but does not restart the
 /// countdown; pay periods roll forward on the saved schedule.
 DateTime? periodAnchor(
   Iterable<AllocationCycle> cycles,
   Map<String, dynamic>? profile,
 ) {
-  return setupPaydayFrom(profile);
+  return null;
 }
 
 /// The payday the user gave during setup, before any income is recorded.
@@ -134,9 +134,6 @@ DateTime? periodAnchor(
 /// Without it a fresh account has nothing to count a pay period from, and
 /// Home would fall back to the calendar instead of the user's own payday.
 DateTime? setupPaydayFrom(Map<String, dynamic>? profile) {
-  final value = profile?['lastPaydayAt'];
-  if (value is Timestamp) return value.toDate();
-  if (value is DateTime) return value;
   return null;
 }
 

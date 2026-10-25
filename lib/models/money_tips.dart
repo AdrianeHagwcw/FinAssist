@@ -24,7 +24,7 @@ List<String> moneyTipsFor(FinanceSnapshot records, {int limit = 2}) {
       records.transactions.isEmpty
           ? 'Track every expense for one week, even the small ones. They are '
                 'the easiest to forget.'
-          : 'Set aside savings on payday, before you spend. Saving first '
+          : 'Set aside savings when income arrives, before you spend. Saving first '
                 'makes it much easier to stick to.',
     );
   }
@@ -60,7 +60,7 @@ String? _payday(FinanceSnapshot records) {
   );
   if (!paid) return null;
 
-  return 'Payday tip: set aside your savings today, before spending starts. '
+  return 'Income tip: set aside your savings today, before spending starts. '
       'Saving first makes it automatic.';
 }
 

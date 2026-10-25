@@ -240,13 +240,13 @@ class _ErrorActions extends StatelessWidget {
   final VoidCallback onLogOut;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext _) {
     return Row(
       children: [
         Expanded(
-          child: OutlinedButton(
+          child: ElevatedButton(
             onPressed: onLogOut,
-            style: dangerOutlineStyle(context, height: 52),
+            style: dangerButtonStyle(height: 52),
             child: const Text('Log Out'),
           ),
         ),
@@ -254,15 +254,7 @@ class _ErrorActions extends StatelessWidget {
         Expanded(
           child: ElevatedButton(
             onPressed: onRetry,
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size(0, 52),
-              backgroundColor: appPrimaryBlue,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
+            style: openButtonStyle(height: 52),
             child: const Text('Try Again'),
           ),
         ),

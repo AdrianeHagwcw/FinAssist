@@ -220,9 +220,8 @@ class _OcrScreenState extends State<OcrScreen> {
   ExpenseGuess _guess(List<String> categories) =>
       guessFromReceipt(_text, categories: categories);
 
-  /// Opens a new expense started from the receipt, with its text in the
-  /// notes. The scan is finished, so saving or leaving the form goes back to
-  /// where it began.
+  /// Opens a new expense with the receipt's recognized details prefilled.
+  /// The scan is finished, so saving or leaving the form returns to its caller.
   void _useText() {
     final guess = _guess(availableCategoriesOf(context));
 
@@ -236,7 +235,6 @@ class _OcrScreenState extends State<OcrScreen> {
           initialDate: guess.date == null
               ? null
               : Timestamp.fromDate(guess.date!),
-          initialNotes: _text,
           wallets: widget.wallets,
         ),
       ),
@@ -344,8 +342,8 @@ class _OcrScreenState extends State<OcrScreen> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Use This starts a new expense from this receipt, with its text in '
-          'the notes. You check everything before saving.',
+          'Use This to start an expense with the recognized amount, store, '
+          'category and date. Review them before saving.',
           style: TextStyle(color: colors.textBody, height: 1.4),
         ),
         const SizedBox(height: 14),

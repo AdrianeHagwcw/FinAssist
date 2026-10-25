@@ -30,12 +30,13 @@ class FinanceSnapshot {
   final List<Goal> goals;
   final List<Debt> debts;
 
-  /// From onboarding: how often income comes, and the usual amount, if given.
+  /// Legacy fields retained so older callers still deserialize safely. They
+  /// are not used by current calculations.
   final String? incomeFrequency;
   final double? usualIncome;
 
-  /// When the user was last paid, which anchors the pay period. See
-  /// [lastPayday]: a gift or a refund doesn't count.
+  /// Legacy field retained for older callers. Current periods use calendar
+  /// months and do not read this value.
   final DateTime? lastIncomeAt;
 
   final double? periodBudget;
@@ -57,9 +58,9 @@ class FinanceSnapshot {
     periodBudget: periodBudget,
   );
 
-  /// The pay period today falls in; its end is the next payday.
-  PayPeriod get period =>
-      payPeriodFor(incomeFrequency, lastIncomeAt: lastIncomeAt, now: now);
+  /// The calendar month today falls in. Saved pay schedules no longer drive
+  /// spending forecasts or Safe to Spend calculations.
+  PayPeriod get period => payPeriodFor(null, now: now);
 
   double get walletBalance => totalWalletBalance(wallets);
 

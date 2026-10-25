@@ -695,6 +695,7 @@ class _GoalFundingPickerState extends State<GoalFundingPicker> {
               IconButton(
                 tooltip: 'Remove ${wallet?.name ?? 'account'}',
                 onPressed: () => _removeAccount(row),
+                color: dangerColorOn(context),
                 icon: const Icon(Icons.close),
               ),
             ],

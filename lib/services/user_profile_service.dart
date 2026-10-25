@@ -22,7 +22,7 @@ class UserProfileService {
         ...values,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)),
-      'update financial preferences',
+      'update account preferences',
     );
   }
 
@@ -269,22 +269,6 @@ class UserProfileService {
       'onboardingVersion': 2,
       'updatedAt': FieldValue.serverTimestamp(),
     };
-
-    if (data.incomeSource != null) {
-      profileData['incomeSource'] = data.incomeSource;
-    }
-    if (data.incomeFrequency != null) {
-      profileData['incomeFrequency'] = data.incomeFrequency;
-    }
-
-    if (data.lastPaydayAt != null) {
-      profileData['lastPaydayAt'] = Timestamp.fromDate(data.lastPaydayAt!);
-    }
-
-    if (data.monthlyIncome != null) {
-      // Existing profile consumers treat `income` as an amount per payday.
-      profileData['income'] = data.incomePerPayPeriod;
-    }
 
     if (await _isMissingCreatedAt(profileReference)) {
       profileData['createdAt'] = FieldValue.serverTimestamp();

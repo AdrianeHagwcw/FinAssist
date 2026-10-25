@@ -110,7 +110,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 leading: backToHomeButton(context),
                 actions: [
                   IconButton(
-                    tooltip: 'Income history',
+                    tooltip: 'Total Cash-in flows',
                     icon: Image.asset(
                       'assets/icons/icons8-idea-96.png',
                       width: 24,

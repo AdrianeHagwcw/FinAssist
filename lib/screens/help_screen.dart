@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
-import 'financial_preferences_screen.dart';
+import '../widgets/info_intro_card.dart';
 
 class HelpScreen extends StatelessWidget {
   const HelpScreen({super.key});
@@ -20,7 +20,7 @@ class HelpScreen extends StatelessWidget {
     body: ListView(
       padding: const EdgeInsets.all(20),
       children: const [
-        PreferenceIntro(
+        InfoIntroCard(
           icon: Icons.help_outline,
           title: 'A little clarity goes a long way',
           message:
@@ -65,7 +65,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Open Income history from Transactions or Settings, then Needs review. Choose Review leftover to save, spend or split it. Your default choice is only a suggestion until you confirm.',
+                'Open Total Cash-in flows from Transactions or Settings, then Needs review. Choose Review leftover to save, keep for spending or split it. You can also decide later.',
               ),
             ),
           ],

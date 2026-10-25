@@ -1,9 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../utils/amount_input_formatter.dart';
-import '../providers/app_settings_provider.dart';
 
 import '../models/allocation.dart';
 import '../models/bill.dart';
@@ -157,15 +155,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   @override
   void initState() {
     super.initState();
-    final preferences = context.read<AppSettingsProvider?>()?.financial;
-    if (preferences != null && preferences.source.isNotEmpty) {
-      _source = incomeSources.contains(preferences.source)
-          ? preferences.source
-          : otherIncomeSource;
-      if (_source == otherIncomeSource) {
-        _otherSourceController.text = preferences.source;
-      }
-    }
     if (widget.initialSource != null) {
       _source = incomeSources.contains(widget.initialSource)
           ? widget.initialSource
@@ -521,11 +510,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           required String source,
           required DateTime receivedAt,
         }) {
-          final financial = context.read<AppSettingsProvider?>()?.financial;
-
           AllocationService.confirm(
-            incomeFrequency: financial?.frequency,
-            usualSource: financial?.source,
             recentCycles: _recentCycles,
             plan: plan,
             walletId: walletId,

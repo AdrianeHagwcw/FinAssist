@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../utils/amount_input_formatter.dart';
-import '../providers/app_settings_provider.dart';
 
 import '../models/allocation.dart';
 import '../models/wallet.dart';
@@ -128,14 +126,11 @@ class LeftoverReviewScreen extends StatefulWidget {
     required this.leftover,
     required this.periodEnd,
     this.onResolve,
-    this.initialDecision,
     super.key,
   });
 
   final AllocationCycle cycle;
   final double leftover;
-  final LeftoverDecision? initialDecision;
-
   /// The day after the period's last day.
   final DateTime periodEnd;
 
@@ -172,15 +167,6 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
           if (mounted) _wallets = wallets;
         })
         .catchError((Object _) {});
-    final suggested =
-        widget.initialDecision ??
-        context.read<AppSettingsProvider?>()?.financial.leftover;
-    _choice = switch (suggested) {
-      LeftoverDecision.saved => _Choice.save,
-      LeftoverDecision.spent => _Choice.spend,
-      LeftoverDecision.split => _Choice.split,
-      _ => null,
-    };
     // Start the split down the middle, so the two boxes already add up.
     final half = (widget.leftover * 50).round() / 100;
     _saveController.text = formatAmountInput(half);

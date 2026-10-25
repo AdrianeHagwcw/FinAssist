@@ -13,13 +13,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:testapp/models/allocation.dart';
 import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/cycle_history.dart';
-import 'package:testapp/models/financial_preferences.dart';
+import 'package:testapp/models/expense_category_preferences.dart';
 import 'package:testapp/models/goal.dart';
 import 'package:testapp/models/wallet.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
 import 'package:testapp/screens/add_expense_screen.dart';
 import 'package:testapp/screens/categories_screen.dart';
-import 'package:testapp/screens/financial_preferences_screen.dart';
 import 'package:testapp/screens/history_screen.dart';
 import 'package:testapp/screens/income_waterfall_screen.dart';
 import 'package:testapp/screens/leftover_review_screen.dart';
@@ -187,7 +186,7 @@ void main() {
   });
 
   test('hiding a category keeps Others and the original labels', () {
-    final prefs = FinancialPreferences.fromMap({
+    final prefs = ExpenseCategoryPreferences.fromMap({
       // Added before the list was fixed; it still shows and can be hidden.
       'customCategories': ['Pets'],
       'hiddenCategories': ['Food', 'Others'],
@@ -217,21 +216,19 @@ void main() {
   });
 
   test(
-    'account preferences reset without carrying categories across accounts',
+    'category preferences reset when the account changes',
     () {
       final settings = AppSettingsProvider();
-      settings.updateFinancialProfile({
+      settings.updateCategoryPreferences({
         // Added on an older build, before the list was fixed.
         'customCategories': ['Hobbies'],
-        'defaultLeftover': 'saved',
       });
-      expect(settings.financial.availableCategories, contains('Hobbies'));
-      settings.updateFinancialProfile(null);
+      expect(settings.categories.availableCategories, contains('Hobbies'));
+      settings.updateCategoryPreferences(null);
       expect(
-        settings.financial.availableCategories,
+        settings.categories.availableCategories,
         isNot(contains('Hobbies')),
       );
-      expect(settings.financial.leftover, LeftoverDecision.pending);
     },
   );
 
@@ -332,113 +329,6 @@ void main() {
     expect(find.text('History is unavailable'), findsOneWidget);
   });
 
-  testWidgets('income form validates and saves actual preferences', (
-    tester,
-  ) async {
-    Map<String, dynamic>? saved;
-    await pumpScreen(
-      tester,
-      FinancialPreferencesScreen(
-        profile: Stream.value({
-          'incomeSource': 'Allowance',
-          'incomeFrequency': 'Weekly',
-          'income': 2500,
-        }),
-        onSave: (values) => saved = values,
-      ),
-    );
-    await capture(tester, 'preferences-light');
-    await tester.enterText(find.byKey(const Key('income-source')), 'Freelance');
-    await scrollTo(tester, find.byKey(const Key('usual-income')));
-    await tester.enterText(find.byKey(const Key('usual-income')), '0');
-    await scrollTo(tester, find.text('Save preferences'));
-    await tester.tap(find.text('Save preferences'));
-    await tester.pumpAndSettle();
-    expect(saved, isNull);
-    await scrollTo(tester, find.byKey(const Key('usual-income')), delta: -250);
-    expect(find.text('Enter an amount of at least ₱0.01.'), findsOneWidget);
-    await tester.enterText(find.byKey(const Key('usual-income')), '4500.50');
-    await scrollTo(tester, find.text('Save it'));
-    await tester.tap(find.text('Save it'));
-    await scrollTo(tester, find.text('Save preferences'));
-    await tester.tap(find.text('Save preferences'));
-    expect(saved, {
-      'incomeSource': 'Freelance',
-      'incomeFrequency': 'Weekly',
-      'income': 4500.50,
-      'defaultLeftover': 'saved',
-    });
-  });
-
-  testWidgets('the payday can be corrected, which restarts the period', (
-    tester,
-  ) async {
-    Map<String, dynamic>? saved;
-    await pumpScreen(
-      tester,
-      FinancialPreferencesScreen(
-        profile: Stream.value({
-          'incomeSource': 'Salary',
-          'incomeFrequency': 'Semi-monthly',
-        }),
-        onSave: (values) => saved = values,
-      ),
-    );
-
-    await scrollTo(tester, find.byKey(const Key('last-payday')));
-    expect(find.text('Not set yet'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('last-payday')));
-    await tester.pumpAndSettle();
-    expect(find.text('When did you last get paid?'), findsOneWidget);
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
-
-    await scrollTo(tester, find.text('Save preferences'));
-    await tester.tap(find.text('Save preferences'));
-    await tester.pumpAndSettle();
-
-    expect(saved?['lastPaydayAt'], isA<Timestamp>());
-  });
-
-  testWidgets('changing how often pay comes in starts the period today', (
-    tester,
-  ) async {
-    Map<String, dynamic>? saved;
-    await pumpScreen(
-      tester,
-      FinancialPreferencesScreen(
-        profile: Stream.value({
-          'incomeSource': 'Allowance',
-          'incomeFrequency': 'Weekly',
-        }),
-        onSave: (values) => saved = values,
-      ),
-    );
-
-    await scrollTo(tester, find.byKey(const Key('last-payday')));
-    expect(find.text('Not set yet'), findsOneWidget);
-
-    await tester.tap(find.text('Weekly'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Twice a month (15th & month end)').last);
-    await tester.pumpAndSettle();
-
-    // The new cadence has to start somewhere, so it starts today.
-    expect(find.text('Not set yet'), findsNothing);
-
-    await scrollTo(tester, find.text('Save preferences'));
-    await tester.tap(find.text('Save preferences'));
-    await tester.pumpAndSettle();
-
-    final stored = (saved?['lastPaydayAt'] as Timestamp?)?.toDate();
-    final today = DateTime.now();
-    expect(stored, isNotNull);
-    expect(stored!.year, today.year);
-    expect(stored.month, today.month);
-    expect(stored.day, today.day);
-  });
-
   testWidgets('hiding a category saves it and adding one is not offered', (
     tester,
   ) async {
@@ -474,7 +364,7 @@ void main() {
     tester,
   ) async {
     final settings = AppSettingsProvider()
-      ..updateFinancialProfile({
+      ..updateCategoryPreferences({
         'customCategories': ['Pets'],
         'hiddenCategories': ['Food'],
       });
@@ -628,15 +518,9 @@ void main() {
     expect(find.byType(AddExpenseScreen), findsOneWidget);
   });
 
-  testWidgets('Add Income starts with the usual source, never the amount', (
+  testWidgets('Add Income asks for the source each time', (
     tester,
   ) async {
-    final settings = AppSettingsProvider()
-      ..updateFinancialProfile({
-        'incomeSource': 'Salary',
-        'incomeFrequency': 'Monthly',
-        'income': 18000,
-      });
     await pumpScreen(
       tester,
       IncomeWaterfallScreen(
@@ -645,10 +529,9 @@ void main() {
         goals: Stream.value(const []),
         cycles: Stream.value(const []),
       ),
-      settings: settings,
     );
 
-    expect(find.text('Salary'), findsOneWidget);
+    expect(find.text('Salary'), findsNothing);
     // Typed fresh, so a late or partial pay is never saved as the usual one.
     expect(
       tester.widget<TextField>(find.byType(TextField).first).controller!.text,
@@ -657,7 +540,7 @@ void main() {
   });
 
   testWidgets(
-    'leftover default only preselects and still requires confirmation',
+    'leftover review requires a choice and confirmation',
     (tester) async {
       var writes = 0;
       await pumpScreen(
@@ -666,7 +549,6 @@ void main() {
           cycle: cycle('Salary', DateTime(2026, 8, 1)),
           leftover: 1000,
           periodEnd: DateTime(2026, 9, 1),
-          initialDecision: LeftoverDecision.saved,
           onResolve: (decision, saved, spent) {
             writes++;
             expect(decision, LeftoverDecision.saved);
@@ -676,6 +558,8 @@ void main() {
         ),
       );
       expect(writes, 0);
+      await tester.ensureVisible(find.text('Save it'));
+      await tester.tap(find.text('Save it'));
       await tester.ensureVisible(find.text('Confirm'));
       await tester.tap(find.text('Confirm'));
       expect(writes, 1);

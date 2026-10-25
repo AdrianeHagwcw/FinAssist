@@ -11,7 +11,6 @@ import '../widgets/light_dark_toggle.dart';
 import 'login_screen.dart';
 import 'reminders_screen.dart';
 import 'categories_screen.dart';
-import 'financial_preferences_screen.dart';
 import 'forgot_password_screen.dart';
 import 'help_screen.dart';
 import 'history_screen.dart';
@@ -491,15 +490,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Column(
                       children: [
                         _buildActionTile(
-                          iconAsset: 'assets/icons/icons8-banknotes-96.png',
-                          title: 'Income & leftover preferences',
-                          onTap: () =>
-                              _open(const FinancialPreferencesScreen()),
-                        ),
-                        const Divider(height: 1, indent: 65),
-                        _buildActionTile(
                           iconAsset: 'assets/icons/icons8-calendar-96.png',
-                          title: 'Income history',
+                          title: 'Total Cash-in flows',
                           onTap: () => _open(const HistoryScreen()),
                         ),
                         const Divider(height: 1, indent: 65),
@@ -576,31 +568,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     width: double.infinity,
                     height: 52,
 
-                    child: OutlinedButton.icon(
+                    child: ElevatedButton(
                       onPressed: _confirmSwitchAccount,
-
-                      icon: Image.asset(
-                        'assets/icons/icons8-user-96.png',
-                        width: 22,
-                        height: 22,
-                      ),
-
-                      label: const Text(
+                      style: openButtonStyle(),
+                      child: const Text(
                         'Switch Account',
-
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
-                        ),
-                      ),
-
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF1976D2),
-
-                        side: const BorderSide(color: Color(0xFF1976D2)),
-
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                     ),
@@ -612,32 +587,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     width: double.infinity,
                     height: 52,
 
-                    child: OutlinedButton.icon(
+                    child: ElevatedButton.icon(
                       onPressed: _confirmLogOut,
-
-                      icon: Image.asset(
-                        'assets/icons/icons8-logout-96.png',
-                        width: 22,
-                        height: 22,
-                      ),
-
+                      icon: const Icon(Icons.logout),
                       label: const Text(
                         'Log Out',
-
                         style: TextStyle(
-                          color: Colors.red,
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
                         ),
                       ),
-
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.red),
-
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
+                      style: dangerButtonStyle(),
                     ),
                   ),
 

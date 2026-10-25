@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../models/goal.dart';
 import '../models/wallet.dart';
-import '../services/user_profile_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -40,12 +39,6 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
   // Held in state so a rebuild doesn't start a second listener.
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
-
-  late final Stream<String?> _incomeSource =
-      widget.incomeSource ??
-      UserProfileService.watchProfile().map(
-        (profile) => profile.data()?['incomeSource'] as String?,
-      );
 
   @override
   void initState() {
@@ -133,10 +126,7 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
           // wallets are listed here; their total is named underneath.
           final spending = wallets.where((w) => !w.isSetAside).toList();
 
-          return StreamBuilder<String?>(
-            stream: _incomeSource,
-            builder: (context, incomeSnapshot) {
-              return ListView(
+          return ListView(
                 // Room for the bottom bar and the docked "+" button.
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
                 children: [
@@ -163,7 +153,6 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
                     _WalletCard(
                       wallet: wallet,
                       forGoals: goalMoneyInWallet(heldGoals, wallet.id),
-                      incomeSource: incomeSnapshot.data,
                       onTap: () => _openWallet(wallet),
                       onTransfer: () =>
                           showTransferSheet(context, fromWalletId: wallet.id),
@@ -182,8 +171,6 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
                   _AddWalletButton(onPressed: () => _addWallet(wallets)),
                 ],
               );
-            },
-          );
         },
       ),
     );
@@ -298,7 +285,6 @@ class _WalletCard extends StatelessWidget {
   const _WalletCard({
     required this.wallet,
     this.forGoals = 0,
-    required this.incomeSource,
     required this.onTap,
     required this.onTransfer,
     required this.onAddIncome,
@@ -312,8 +298,6 @@ class _WalletCard extends StatelessWidget {
   /// What goals hold in this wallet; the rest is what can be spent.
   final double forGoals;
 
-  /// What the user called their income during onboarding, e.g. "Allowance".
-  final String? incomeSource;
   final VoidCallback onTap;
   final VoidCallback onTransfer;
   final VoidCallback onAddIncome;
@@ -324,10 +308,7 @@ class _WalletCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final source = incomeSource?.trim();
-    final incomeLabel = source == null || source.isEmpty
-        ? 'Receives my income'
-        : 'Receives my $source';
+    const incomeLabel = 'Receives my income';
 
     return Material(
       color: colors.card,

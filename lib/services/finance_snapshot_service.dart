@@ -12,7 +12,6 @@ import 'bill_service.dart';
 import 'budget_service.dart';
 import 'debt_service.dart';
 import 'goal_service.dart';
-import 'user_profile_service.dart';
 import 'wallet_service.dart';
 
 /// The user's records for the assistant, kept up to date as they change.
@@ -36,17 +35,14 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
 
   var wallets = const <Wallet>[];
   var transactions = const <AppTransaction>[];
-  var cycles = const <AllocationCycle>[];
   var goals = const <Goal>[];
   var debts = const <Debt>[];
   var bills = const <BillInstance>[];
-  Map<String, dynamic>? profile;
 
   // The first answer waits for these, so it is never worked out from half
   // the picture.
   var walletsRead = false;
   var transactionsRead = false;
-  var profileRead = false;
   var goalsRead = false;
   var debtsRead = false;
   var billsRead = false;
@@ -55,7 +51,6 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
   void send() {
     if (!walletsRead ||
         !transactionsRead ||
-        !profileRead ||
         !goalsRead ||
         !debtsRead ||
         !billsRead ||
@@ -63,7 +58,6 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
       return;
     }
     if (controller.isClosed) return;
-    final income = profile?['income'];
     controller.add(
       FinanceSnapshot(
         now: (clock ?? DateTime.now)(),
@@ -72,9 +66,6 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
         bills: bills,
         goals: goals,
         debts: debts,
-        incomeFrequency: profile?['incomeFrequency'] as String?,
-        usualIncome: income is num && income > 0 ? income.toDouble() : null,
-        lastIncomeAt: periodAnchor(cycles, profile),
       ),
     );
   }
@@ -148,22 +139,6 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
         transactionsRead = true;
         readBills();
       }, onFail: () => transactionsRead = false);
-      watch(
-        () =>
-            profileStream ??
-            UserProfileService.watchProfile().map(
-              (snapshot) => snapshot.data(),
-            ),
-        (value) {
-          profile = value;
-          profileRead = true;
-        },
-        onFail: () => profileRead = false,
-      );
-      watch(
-        () => cycleStream ?? BudgetService.watchRecentCycles(),
-        (value) => cycles = value,
-      );
       watch(() => goalStream ?? GoalService.watchGoals(), (value) {
         goals = value;
         goalsRead = true;

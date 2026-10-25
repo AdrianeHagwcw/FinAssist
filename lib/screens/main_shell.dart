@@ -22,7 +22,6 @@ import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
 import 'categories_screen.dart';
 import 'chatbot_screen.dart';
-import 'financial_preferences_screen.dart';
 import 'goal_detail_screen.dart';
 import 'goals_screen.dart';
 import 'help_screen.dart';
@@ -78,9 +77,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // Subscribe per signed-in shell so another account never inherits categories.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      settings.updateFinancialProfile(null);
+      settings.updateCategoryPreferences(null);
       _profileSubscription = UserProfileService.watchProfile().listen(
-        (snapshot) => settings.updateFinancialProfile(snapshot.data()),
+        (snapshot) => settings.updateCategoryPreferences(snapshot.data()),
         onError: (Object error) => debugPrint('Profile preferences: $error'),
       );
     });
@@ -257,12 +256,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const CategoriesScreen()),
-        );
-        return;
-      case VoiceDestination.financialPreferences:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const FinancialPreferencesScreen()),
         );
         return;
       case VoiceDestination.payCycleHistory:

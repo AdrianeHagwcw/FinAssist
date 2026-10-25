@@ -139,9 +139,9 @@ class ReminderScheduler {
         goals: _goals,
         wallets: _wallets,
         cycles: _cycles,
-        incomeFrequency: profile['incomeFrequency'] as String?,
-        incomeSource: profile['incomeSource'] as String?,
-        setupLastPayday: setupPaydayFrom(profile),
+        incomeFrequency: null,
+        incomeSource: null,
+        setupLastPayday: null,
         transactions: _transactions,
         now: now,
       );

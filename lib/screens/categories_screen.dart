@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../models/financial_preferences.dart';
+import '../models/expense_category_preferences.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_colors.dart';
 import '../widgets/category_icon.dart';
-import 'financial_preferences_screen.dart';
+import '../widgets/info_intro_card.dart';
 
 class CategoriesScreen extends StatefulWidget {
   const CategoriesScreen({this.profile, this.onSave, super.key});
@@ -23,7 +23,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       (widget.onSave ?? UserProfileService.updatePreferences)(values);
 
   /// Everything but Others is hidden, so the button offers to show them again.
-  bool _allHidden(FinancialPreferences prefs) =>
+  bool _allHidden(ExpenseCategoryPreferences prefs) =>
       prefs.availableCategories.length <= 1;
 
   @override
@@ -51,11 +51,11 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final prefs = FinancialPreferences.fromMap(snapshot.data);
+        final prefs = ExpenseCategoryPreferences.fromMap(snapshot.data);
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const PreferenceIntro(
+            const InfoIntroCard(
               title: 'Keep the list to what you use',
               message:
                   'Hide the categories you never pick, so recording an '

@@ -146,7 +146,9 @@ class _RemindersScreenState extends State<RemindersScreen> {
               ),
               const SizedBox(height: 24),
               const _Heading('Reminders', null),
-              for (final kind in ReminderKind.values) ...[
+              for (final kind in ReminderKind.values.where(
+                (kind) => kind != ReminderKind.payday,
+              )) ...[
                 _KindCard(
                   kind: kind,
                   settings: settings,
@@ -159,9 +161,9 @@ class _RemindersScreenState extends State<RemindersScreen> {
                 const SizedBox(height: 10),
               ],
               const SizedBox(height: 8),
-              OutlinedButton.icon(
+              ElevatedButton.icon(
                 onPressed: _sendTest,
-                style: openOutlineStyle(context),
+                style: openButtonStyle(),
                 icon: const Icon(Icons.notifications_active_outlined),
                 label: const Text('Send a Test Reminder'),
               ),

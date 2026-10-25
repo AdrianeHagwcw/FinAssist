@@ -150,20 +150,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   /// The pay cycle [moment] falls in, read from the user's own pay settings.
   /// Without them this is the monthly default the rest of the app uses.
-  ReportPeriod _cycleAt(DateTime moment) {
-    final pay = payPeriodFor(
-      _records?.incomeFrequency,
-      lastIncomeAt: _records?.lastIncomeAt,
-      now: moment,
-    );
-    // A pay period's end is the next payday; a report's end is its last day.
-    return ReportPeriod(pay.start, pay.end.subtract(const Duration(days: 1)));
-  }
-
   /// The stretch of [range] that [moment] falls in.
   ReportPeriod _periodFor(ReportRange range, DateTime moment) =>
       switch (range) {
-        ReportRange.cycle => _cycleAt(moment),
+        ReportRange.cycle => ReportPeriod.monthOf(moment),
         ReportRange.week => ReportPeriod.weekOf(moment),
         ReportRange.month => ReportPeriod.monthOf(moment),
         ReportRange.quarter => ReportPeriod.quarterOf(moment),
@@ -340,7 +330,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (final range in ReportRange.values)
+            for (final range in ReportRange.values.where(
+              (range) => range != ReportRange.cycle,
+            ))
               ChoiceChip(
                 label: Text(range.label),
                 selected: _range == range,
