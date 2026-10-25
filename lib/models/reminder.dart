@@ -818,14 +818,6 @@ List<DateTime> expectedPaydays(
   }
 }
 
-/// What the user calls their pay, from their usual income source.
-String _payWord(String? source) {
-  final name = source?.toLowerCase() ?? '';
-  if (name.contains('salary') || name.contains('sahod')) return 'salary';
-  if (name.contains('allowance') || name.contains('baon')) return 'allowance';
-  return 'pay';
-}
-
 /// Bills worth a notice on Home: unpaid, and overdue or due within [days].
 List<BillInstance> billsDueSoon(
   Iterable<BillInstance> bills, {

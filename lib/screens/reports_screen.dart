@@ -11,7 +11,6 @@ import '../models/finance_snapshot.dart';
 import '../models/goal.dart';
 import '../models/money_tips.dart';
 import '../models/report.dart';
-import '../models/safe_to_spend.dart';
 import '../models/transaction_filter.dart';
 import '../providers/app_settings_provider.dart';
 import '../services/finance_snapshot_service.dart';

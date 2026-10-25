@@ -9,7 +9,6 @@ import '../models/goal.dart';
 import '../models/wallet.dart';
 import 'allocation_service.dart';
 import 'bill_service.dart';
-import 'budget_service.dart';
 import 'debt_service.dart';
 import 'goal_service.dart';
 import 'wallet_service.dart';
