@@ -13,8 +13,6 @@ const List<String> incomeSources = [
   'Gift',
   'Sold Something',
   'Refund',
-  // What a bank or e-wallet pays on the money kept there.
-  'Interest',
   'Other',
 ];
 

@@ -310,7 +310,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
       end: _period.end.isAfter(_now) ? _now : _period.end,
       from: _period,
     );
-    final insights = insightsFor(transactions, period: _period, range: _range);
     final financialInsights = calculateFinancialInsights(
       transactions,
       now: _now,
@@ -318,9 +317,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
     _currentInsightsKey = financialInsightsKey(financialInsights);
     final suggestionsAreCurrent = _aiSuggestionsKey == _currentInsightsKey;
-    final amountsMasked = context.select<AppSettingsProvider, bool>(
-      (settings) => settings.amountsMasked,
-    );
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -422,86 +418,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
         const SizedBox(height: 16),
         _Section(
-          title: 'Insights',
+          title: 'AI insights Suggestions',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _Line(
-                icon: Icons.account_balance_wallet_outlined,
-                text:
-                    'Net cash flow this month: '
-                    '${formatPeso(financialInsights.netCashFlow, masked: amountsMasked)} '
-                    '(recorded income minus recorded expenses).',
-              ),
-              _Line(
-                icon: Icons.savings_outlined,
-                text: financialInsights.netCashFlowSavingsRatePercent == null
-                    ? 'Net cash-flow savings rate: unavailable until income is '
-                          'recorded this month.'
-                    : 'Net cash-flow savings rate: '
-                          '${financialInsights.netCashFlowSavingsRatePercent!.toStringAsFixed(1)}%. '
-                          'This is net cash flow divided by recorded income, '
-                          'not a record of money transferred to savings.',
-              ),
-              _Line(
-                icon: Icons.pie_chart_outline,
-                text: financialInsights.expenseCategories.isEmpty
-                    ? 'No eligible expense categories are recorded this month.'
-                    : 'Expense categories this month: ${financialInsights.expenseCategories.take(3).map((entry) => '${entry.category} ${formatPeso(entry.amount, masked: amountsMasked)}').join(', ')}.',
-              ),
-              _Line(
-                icon: Icons.account_balance_outlined,
-                text: financialInsights.budgetUtilizationPercent == null
-                    ? 'Budget utilization: unavailable because no spending '
-                          'budget is configured.'
-                    : 'Spending budget used: '
-                          '${financialInsights.budgetUtilizationPercent!.toStringAsFixed(1)}%.',
-              ),
-              _Line(
-                icon: Icons.compare_arrows,
-                text: financialInsights.spendingChangePercent == null
-                    ? 'Month-to-month spending change: unavailable until the '
-                          'comparable prior period has recorded expenses.'
-                    : 'Month-to-date spending is '
-                          '${financialInsights.spendingChangePercent!.abs().toStringAsFixed(1)}% '
-                          '${financialInsights.spendingChangePercent! < 0 ? 'lower' : 'higher'} '
-                          'than the same number of days last month.',
-              ),
-              _Line(
-                icon: Icons.health_and_safety_outlined,
-                text: financialInsights.healthScore == null
-                    ? 'Financial health score: unavailable until income and a '
-                          'comparable prior spending period are recorded.'
-                    : 'Rule-based financial health score: '
-                          '${financialInsights.healthScore}/100. This is a '
-                          'transparent guide, not a credit score or prediction.',
-              ),
-              const Padding(
-                padding: EdgeInsets.only(left: 30, bottom: 8),
-                child: Text(
-                  'Score criteria: 40 points for non-negative cash flow, up '
-                  'to 40 points scaled from a 0–20% net cash-flow savings '
-                  'rate, and 20 points when comparable month-to-date spending '
-                  'is flat or lower. All three inputs must be available.',
-                  style: TextStyle(fontSize: 11, height: 1.35),
-                ),
-              ),
-              _Line(
-                icon: Icons.auto_graph,
-                text: !financialInsights.forecast.isAvailable
-                    ? 'Spending forecast unavailable: record expenses in each '
-                          'of the three previous complete months. The forecast '
-                          'is a historical baseline, not a promise.'
-                    : 'Three-month historical spending baseline: '
-                          '${formatPeso(financialInsights.forecast.monthlyAverage!, masked: amountsMasked)} per month'
-                          '${financialInsights.forecast.isHighlyVariable ? '; recent months varied substantially, so this estimate is uncertain.' : '.'}',
-              ),
-              if (insights.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                for (final line in insights)
-                  _Line(icon: Icons.lightbulb_outline, text: line),
-              ],
-              const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _loadingAiSuggestions
                     ? null
@@ -516,7 +436,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 label: Text(
                   _loadingAiSuggestions
                       ? 'Preparing suggestions…'
-                      : 'Get AI saving suggestions',
+                      : 'Get AI insights Suggestions',
                 ),
               ),
               const Padding(

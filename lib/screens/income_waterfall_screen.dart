@@ -103,7 +103,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       widget.wallets ?? WalletService.watchWallets();
 
   final _amountController = TextEditingController();
-  final _billsAmountController = TextEditingController(text: '0');
   final _otherSourceController = TextEditingController();
 
   /// One amount box per bill, kept so typing isn't lost between rebuilds.
@@ -168,7 +167,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     }
     _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
-    _billsAmountController.addListener(_refresh);
     _otherSourceController.addListener(_refresh);
     _chargeController.addListener(_refresh);
     // Start looking up bills straight away, so they're ready by step 2.
@@ -201,9 +199,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   @override
   void dispose() {
     _amountController
-      ..removeListener(_refresh)
-      ..dispose();
-    _billsAmountController
       ..removeListener(_refresh)
       ..dispose();
     _otherSourceController
@@ -261,67 +256,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   double get _income =>
       double.tryParse(_amountController.text.trim().replaceAll(',', '')) ?? 0;
 
-  /// Regular pay, a salary or a wage, comes with a step to set some aside
-  /// for bills rather than paying bills one by one.
-  bool get _regularPay =>
-      const {'salary', 'wage'}.contains(_resolvedSource.trim().toLowerCase());
-
-  /// "salary" or "wage", for the words on the bills step.
-  String get _payWord => _resolvedSource.trim().toLowerCase();
-
-  /// What is typed to put aside for bills. Empty is nothing; -1 only for
-  /// something that is not a number, so the plan refuses it.
-  double get _billsAmount {
-    final text = _billsAmountController.text.trim().replaceAll(',', '');
-    if (text.isEmpty) return 0;
-    return double.tryParse(text) ?? -1;
-  }
-
-  /// What can be put aside: the money that came in, into the wallet it went
-  /// to.
-  String? get _billsSetAsideProblem {
-    final amount = _billsAmount;
-    if (!amount.isFinite || amount < 0) return 'Enter an amount of ₱0 or more.';
-    if (amount > _income + 0.005) {
-      final into = _selectedWallet?.name;
-      return 'Only ${formatPeso(_income)} came in'
-          '${into == null ? '' : ' to $into'}. Put aside up to '
-          '${formatPeso(_income)}.';
-    }
-    return null;
-  }
-
-  List<BillAllocation> get _upcomingBills {
-    final today = DateTime(_today.year, _today.month, _today.day);
-    final nextMonth = DateTime(today.year, today.month + 1);
-    return (_allocations ?? const <BillAllocation>[]).where((bill) {
-      final dueDate = DateTime(
-        bill.instance.dueDate.year,
-        bill.instance.dueDate.month,
-        bill.instance.dueDate.day,
-      );
-      return dueDate.isBefore(nextMonth);
-    }).toList();
-  }
-
-  double get _upcomingBillsTotal => _upcomingBills.fold<double>(
-    0,
-    (sum, bill) => sum + bill.instance.remaining,
-  );
-
-  double get _billsWalletBalance =>
-      WalletService.walletFor(_walletList, WalletPurpose.bills)?.balance ?? 0;
-
-  /// What is put aside now, as the summary counts it: nothing while the
-  /// amount is not one that can be saved.
-  double get _billsAmountCounted =>
-      _billsSetAsideProblem == null ? _billsAmount : 0;
-
-  /// What this month's bills still need after the Bills wallet and what is
-  /// put aside now; negative when there is more than enough.
-  double get _upcomingBillsGap =>
-      _upcomingBillsTotal - _billsWalletBalance - _billsAmountCounted;
-
   String get _resolvedSource {
     if (_source != otherIncomeSource) return _source ?? '';
 
@@ -369,30 +303,25 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
   /// The plan as it stands, read from what is typed on screen.
   AllocationPlan get _plan {
-    final AllocationPlan withBills;
-    if (_regularPay) {
-      withBills = AllocationPlan(income: _income, billsSetAside: _billsAmount);
-    } else {
-      final bills = <BillAllocation>[];
+    final bills = <BillAllocation>[];
 
-      for (final allocation in _allocations ?? const <BillAllocation>[]) {
-        final id = allocation.instance.id;
+    for (final allocation in _allocations ?? const <BillAllocation>[]) {
+      final id = allocation.instance.id;
 
-        if (_leftAlone.contains(id)) continue;
+      if (_leftAlone.contains(id)) continue;
 
-        final typed = double.tryParse(
-          (_billControllers[id]?.text ?? '').trim().replaceAll(',', ''),
-        );
-
-        bills.add(allocation.copyWith(amount: typed ?? -1));
-      }
-
-      withBills = AllocationPlan(
-        income: _income,
-        bills: bills,
-        serviceCharge: _charge,
+      final typed = double.tryParse(
+        (_billControllers[id]?.text ?? '').trim().replaceAll(',', ''),
       );
+
+      bills.add(allocation.copyWith(amount: typed ?? -1));
     }
+
+    final withBills = AllocationPlan(
+      income: _income,
+      bills: bills,
+      serviceCharge: _charge,
+    );
 
     final goal = _toGoal ? _selectedGoal : null;
     if (goal == null) return withBills;
@@ -413,7 +342,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     return AllocationPlan(
       income: _income,
       bills: withBills.bills,
-      billsSetAside: withBills.billsSetAside,
       goal: goal,
       goalAmount: amount,
       serviceCharge: withBills.serviceCharge,
@@ -434,7 +362,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// there are none to ask about, so the step count is honest.
   List<_Step> get _steps => [
     _Step.income,
-    if (_regularPay || (_allocations?.isNotEmpty ?? true)) _Step.bills,
+    if (_allocations?.isNotEmpty ?? true) _Step.bills,
     if (_goals?.isNotEmpty ?? false) _Step.goal,
     _Step.summary,
   ];
@@ -468,8 +396,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           : _selectedWalletId == null
           ? 'Add a wallet first, so the money has somewhere to go.'
           : null,
-    _Step.bills when _regularPay =>
-      _billsSetAsideProblem ?? _plan.problems.firstOrNull,
     _Step.bills when _charged && _plan.toBills > 0 && _charge <= 0 =>
       'Enter the service charge, or turn it off.',
     _Step.bills || _Step.goal => _plan.problems.firstOrNull,
@@ -567,10 +493,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         stream: _wallets,
         builder: (context, snapshot) {
           _walletList = snapshot.data ?? const [];
-          final error =
-              _triedStep == _step && !(_step == _Step.bills && _regularPay)
-              ? _problem
-              : null;
+          final error = _triedStep == _step ? _problem : null;
 
           return Column(
             children: [
@@ -615,7 +538,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       case _Step.income:
         return 'What came in?';
       case _Step.bills:
-        return _regularPay ? 'Set aside for bills?' : 'Pay any bills from it?';
+        return 'Pay any bills from it?';
       case _Step.goal:
         return 'Save some toward a goal?';
       case _Step.summary:
@@ -702,8 +625,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   // ------------------------------------------------------------ step 2
 
   Widget _buildBillsStep(BuildContext context) {
-    if (_regularPay) return _buildSalaryBillsStep(context);
-
     final allocations = _allocations;
 
     if (allocations == null) {
@@ -792,149 +713,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         ],
         const SizedBox(height: 6),
         _RunningTotal(plan: plan),
-      ],
-    );
-  }
-
-  Widget _buildSalaryBillsStep(BuildContext context) {
-    if (_allocations == null) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    final colors = context.appColors;
-    final upcoming = _upcomingBills;
-    final gap = _upcomingBillsGap;
-
-    Widget line(String label, double amount, {bool strong = false}) {
-      final style = TextStyle(
-        fontSize: 13,
-        color: strong ? colors.textPrimary : colors.textBody,
-        fontWeight: strong ? FontWeight.w600 : FontWeight.normal,
-      );
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(
-          children: [
-            Expanded(child: Text(label, style: style)),
-            Text(formatPeso(amount), style: style),
-          ],
-        ),
-      );
-    }
-
-    // Short, just covered, or covered with some to spare for later bills.
-    final (String result, Color resultColor) = upcoming.isEmpty
-        ? (
-            _billsAmountCounted > 0
-                ? 'No bills are due this month, so this waits in your Bills '
-                      'wallet for the next ones.'
-                : 'No bills are due this month.',
-            colors.textBody,
-          )
-        : gap > 0.005
-        ? ('Still needed: ${formatPeso(gap)}', dangerColorOn(context))
-        : gap < -0.005
-        ? (
-            'This month’s bills are covered, with ${formatPeso(-gap)} '
-                'left for later bills.',
-            confirmColorOn(context),
-          )
-        : ('This month’s bills are covered.', confirmColorOn(context));
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'How much from this $_payWord do you want to move into your Bills '
-          'wallet? You can pay bills from that wallet when you are ready.',
-          style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
-        ),
-        const SizedBox(height: 16),
-        AmountField(
-          key: const Key('bills-set-aside'),
-          controller: _billsAmountController,
-          label: 'Put aside for bills',
-          helper: 'This moves money to Bills; it does not mark bills as paid.',
-          // Said once Next is tapped, and gone as soon as it is fixed.
-          errorText: _triedStep == _Step.bills ? _billsSetAsideProblem : null,
-        ),
-        const SizedBox(height: 16),
-        Container(
-          key: const Key('bills-set-aside-summary'),
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: colors.card,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: colors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                upcoming.isEmpty
-                    ? 'No bills due this month'
-                    : 'Bills due this month',
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (upcoming.isNotEmpty)
-                line('Upcoming bills', _upcomingBillsTotal),
-              line('Already in Bills wallet', _billsWalletBalance),
-              // Follows the box as it is typed.
-              line('Putting aside now', _billsAmountCounted),
-              const SizedBox(height: 4),
-              Text(
-                result,
-                style: TextStyle(
-                  color: resultColor,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                  height: 1.35,
-                ),
-              ),
-              if (upcoming.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                for (final allocation in upcoming) ...[
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                allocation.instance.name,
-                                style: TextStyle(
-                                  color: colors.textPrimary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              BillStatusBadge(
-                                instance: allocation.instance,
-                                now: _today,
-                              ),
-                            ],
-                          ),
-                        ),
-                        Text(formatPeso(allocation.instance.remaining)),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ],
-          ),
-        ),
       ],
     );
   }
@@ -1092,13 +870,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               amount: formatPeso(plan.income, sign: '+'),
               color: confirmColorOn(context),
             ),
-            if (plan.billsSetAside != null && plan.toBills > 0)
-              _SummaryLine(
-                label: 'Bills wallet',
-                detail: 'Set aside for upcoming bills',
-                amount: formatPeso(plan.toBills, sign: '-'),
-                color: appPrimaryBlue,
-              ),
             for (final bill in paying)
               _SummaryLine(
                 label: bill.instance.name,
@@ -1131,23 +902,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               ),
           ],
         ),
-        if (plan.billsSetAside != null && _upcomingBillsTotal > 0) ...[
-          const SizedBox(height: 12),
-          // The same bills as the step before counted: those due this month.
-          Text(
-            _upcomingBillsGap > 0.005
-                ? 'After this $_payWord, ${formatPeso(_upcomingBillsGap)} will '
-                      'still be needed for bills due this month.'
-                : 'The Bills wallet will cover bills due this month.',
-            style: TextStyle(
-              color: _upcomingBillsGap > 0.005
-                  ? dangerColorOn(context)
-                  : colors.textBody,
-              fontSize: 13,
-              height: 1.4,
-            ),
-          ),
-        ],
         const SizedBox(height: 16),
         Container(
           width: double.infinity,
@@ -1184,14 +938,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               if (plan.dipsIntoSavings) ...[
                 const SizedBox(height: 6),
                 Text(
-                  plan.billsSetAside != null
-                      ? 'The amount set aside for bills and goals is more '
-                            'than this income. The difference will come out '
-                            'of what was already in ${wallet?.name ?? 'the '
-                                    'wallet'}.'
-                      : 'The bills you chose cost more than this income. The '
-                            'difference will come out of what was already in '
-                            '${wallet?.name ?? 'the wallet'}.',
+                  'The bills and goals you chose cost more than this income. '
+                  'The difference will come out of what was already in '
+                  '${wallet?.name ?? 'the wallet'}.',
                   style: TextStyle(
                     fontSize: 12,
                     color: colors.textBody,
@@ -1202,7 +951,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             ],
           ),
         ),
-        if (!_regularPay && (_allocations?.isEmpty ?? false)) ...[
+        if (_allocations?.isEmpty ?? false) ...[
           const SizedBox(height: 12),
           Text(
             'No unpaid bills right now, so there was nothing to pay from this.',
