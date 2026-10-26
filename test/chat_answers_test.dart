@@ -3,8 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:testapp/models/app_transaction.dart';
 import 'package:testapp/models/bill.dart';
 import 'package:testapp/models/chat_answers.dart';
+import 'package:testapp/models/chat_language.dart';
 import 'package:testapp/models/debt.dart';
 import 'package:testapp/models/finance_snapshot.dart';
+import 'package:testapp/models/financial_ai_guardrails.dart';
+import 'package:testapp/models/financial_topic_validator.dart';
 import 'package:testapp/models/goal.dart';
 import 'package:testapp/models/wallet.dart';
 
@@ -121,11 +124,13 @@ ChatReply ask(
   FinanceSnapshot? from,
   bool loading = false,
   String? contextMessage,
+  ChatLanguage? language,
 }) => answerChat(
   message,
   records: loading ? null : from ?? records(),
   pending: pending,
   contextMessage: contextMessage,
+  language: language,
 );
 
 void main() {
@@ -162,7 +167,7 @@ void main() {
       final reply = ask('How much can I spend today?');
       expect(reply.text, contains('₱854 today'));
       expect(reply.text, contains('₱1,004 limit'));
-      expect(reply.text, contains('12 days left in this month through Oct 1'));
+      expect(reply.text, contains('12 days left in this month through Sep 30'));
     });
 
     test('spending in a category, in Taglish', () {
@@ -197,13 +202,16 @@ void main() {
       expect(reply.text, contains('2. Bills: ₱2,000 (40%)'));
     });
 
-    test('responds to a Taglish request for better financial insights', () {
-      final reply = ask(
-        'kaya mo ba akong bigyan ng maayos na insights sa susunod',
-      );
+    test('a Taglish request for insights has English and Tagalog', () {
+      const question =
+          'kaya mo ba akong bigyan ng maayos na insights sa susunod';
 
-      expect(reply.text, contains('clear insights'));
-      expect(reply.text, contains('records na nasa FinAssist'));
+      // English first; the Tagalog is ready for the bubble's button.
+      expect(ask(question).text, contains('help explain your recorded'));
+      expect(
+        ask(question, language: ChatLanguage.taglish).text,
+        contains('rekord na nasa FinAssist'),
+      );
     });
 
     test('categorizes multiple expenses using the shared category keywords', () {
@@ -249,7 +257,7 @@ void main() {
       expect(reply.text, contains('₱20,000 available across 2 wallets'));
       expect(reply.text, contains('GCash ₱15,000'));
       // ₱20,000 − ₱2,100 bills − ₱6,000 for goals.
-      expect(reply.text, contains('₱11,900 is free to spend until Oct 1'));
+      expect(reply.text, contains('₱11,900 is free to spend until Sep 30'));
     });
 
     test('savings and goals', () {
@@ -419,8 +427,10 @@ void main() {
       final reply = ask(
         'pano ako makakaipon ng 40000 sa loob ng 3months kung araw araw '
         'ako mag ipon',
+        language: ChatLanguage.tagalog,
       );
       expect(reply.isVerifiedGoalPlan, isTrue);
+      expect(reply.text, contains('sa loob ng 3 buwan'));
       expect(reply.text, contains('₱40,000'));
       expect(reply.text, contains('₱444.45 araw-araw'));
       expect(reply.text, contains('₱13,333.34 kada buwan'));
@@ -492,10 +502,13 @@ void main() {
       expect(reply.choices, contains('How much can I save?'));
     });
 
-    test('advice points at the biggest category', () {
+    test('advice gives the same tips as Reports', () {
       final reply = ask('How can I save more?');
-      expect(reply.text, contains('Food at ₱2,850'));
-      expect(reply.text, contains('about ₱285 a month'));
+      expect(reply.text, contains('Food takes the biggest share'));
+      expect(reply.text, contains('baon'));
+      // Shown under Gemini's answer online, not replaced by it.
+      expect(reply.keepUnderAi, isTrue);
+      expect(reply.useLocalAnswer, isFalse);
     });
 
     test('plans a purchase goal from the stated price and timeline', () {
@@ -514,11 +527,13 @@ void main() {
     });
 
     test('plans a daily savings target from a Taglish house question', () {
-      final reply = ask(
-        'gusto kong bumili ng bahay worth 5000000 in the next 2 years '
-        'magkano ang dapat kong I save everyday para makabili ng bahay?',
-      );
+      const question =
+          'gusto kong bumili ng bahay worth 5000000 in the next 2 years '
+          'magkano ang dapat kong I save everyday para makabili ng bahay?';
+      // Taglish: English first.
+      expect(ask(question).text, contains('₱6,839.95 per day'));
 
+      final reply = ask(question, language: ChatLanguage.taglish);
       expect(reply.isVerifiedGoalPlan, isTrue);
       expect(reply.text, contains('₱6,839.95 araw-araw'));
       expect(reply.text, contains('₱5,000,000 pa ang kailangang ipunin'));
@@ -622,7 +637,7 @@ void main() {
       // ₱11,900 free, less the usual ₱156 a day (food and one ride),
       // leaves ₱10,172 by month end.
       final answer = ask('₱14,990', pending: second.pending);
-      expect(answer.text, contains("It doesn't fit by month end (Oct 1)"));
+      expect(answer.text, contains("It doesn't fit by month end (Sep 30)"));
       expect(answer.text, contains('₱10,172 spare, ₱4,818 short of ₱14,990'));
       // ₱200 a week is within 30% of the ₱1,095 usually spent in a week.
       expect(answer.text, contains('Saving ₱200 a week'));
@@ -663,7 +678,7 @@ void main() {
       expect(
         answer.text,
         contains(
-          'By month end (Oct 1), the most you can spend on the laptop is '
+          'By month end (Sep 30), the most you can spend on the laptop is '
           'about ₱10,172',
         ),
       );
@@ -748,6 +763,278 @@ void main() {
       expect(reply.text, contains('Just type the price'));
       reply = ask('hmm', pending: reply.pending);
       expect(reply.text, contains('the most you can spend'));
+    });
+  });
+
+  group('budgeting', () {
+    test('how to budget walks through the records', () {
+      final reply = ask('Paano mag budget?');
+      expect(reply.text, contains('A simple way to budget'));
+      expect(reply.text, contains('₱2,100 in bills to pay this month'));
+      expect(
+        reply.text,
+        contains('10% of the ₱20,000 you received this month is ₱2,000'),
+      );
+      expect(reply.text, contains('Today you can spend'));
+      expect(reply.keepUnderAi, isTrue);
+      expect(reply.choices, contains('How should I budget ₱20,000?'));
+    });
+
+    test('"help me budget" is about budgeting, not about Fin', () {
+      expect(ask('Can you help me budget?').text, contains('Pay bills first'));
+      expect(
+        ask('How should I divide my salary?').text,
+        contains('Pay bills first'),
+      );
+    });
+
+    test('an amount is split: bills, then savings, then each day', () {
+      final reply = ask('Paano ko ibubudget ang 15000 na sahod ko?');
+      expect(reply.text, contains('Here is a simple way to budget ₱15,000'));
+      expect(reply.text, contains('Bills first: ₱2,100'));
+      expect(reply.text, contains('Savings next: ₱1,500 (10%)'));
+      expect(reply.text, contains('The rest, ₱11,400'));
+      expect(reply.text, contains('about ₱380 a day or ₱2,660 a week'));
+      expect(reply.useLocalAnswer, isTrue);
+    });
+
+    test('for two weeks, it lasts two weeks', () {
+      final reply = ask('How should I budget ₱8,000 for 2 weeks?');
+      // ₱8,000 − ₱2,100 bills − ₱800 saved = ₱5,100 over 15 days.
+      expect(reply.text, contains('about ₱340 a day'));
+      expect(reply.text, contains('if it has to last two weeks'));
+    });
+
+    test('needs come before saving when bills take most of it', () {
+      final tight = ask('How should I budget ₱2,500?');
+      expect(tight.text, isNot(contains('Savings next')));
+      expect(tight.text, contains('Skip saving this time'));
+
+      final short = ask('How should I budget ₱1,000?');
+      expect(short.text, contains('more than ₱1,000'));
+    });
+
+    test("the 50/30/20 rule, on this month's income", () {
+      final reply = ask('What is the 50/30/20 rule?');
+      expect(reply.text, contains('50% for needs'));
+      expect(
+        reply.text,
+        contains(
+          'about ₱10,000 for needs, ₱6,000 for wants and ₱4,000 for savings',
+        ),
+      );
+      expect(reply.useLocalAnswer, isTrue);
+    });
+
+    test('an emergency fund, from the last 30 days of spending', () {
+      final reply = ask('How much should my emergency fund be?');
+      expect(reply.text, contains('3 to 6 months'));
+      expect(
+        reply.text,
+        contains(
+          'Based on the ₱6,550 you spent in the last 30 days, 3 months is '
+          'about ₱19,650 and 6 months about ₱39,300',
+        ),
+      );
+    });
+
+    test('is the budget enough: bills against what is free', () {
+      final enough = ask('Is my budget enough for this month?');
+      expect(enough.text, startsWith("You're covered."));
+      expect(enough.text, contains('enough for the ₱2,100 in bills'));
+      expect(enough.text, contains('until Sep 30'));
+
+      final short = ask(
+        'Sapat ba ang pera ko hanggang katapusan?',
+        from: FinanceSnapshot(
+          now: now,
+          wallets: [wallet('cash', 'Cash', 1000)],
+          bills: [bill('Rent', 5000, DateTime(2026, 9, 25))],
+        ),
+      );
+      expect(short.text, startsWith("You're short."));
+      expect(short.text, contains('short by ₱4,000'));
+    });
+
+    test('tips never say to cut back on health', () {
+      final reply = ask(
+        'Tips para makaipon',
+        from: FinanceSnapshot(
+          now: now,
+          wallets: [wallet('cash', 'Cash', 3000)],
+          transactions: [
+            spend('Health', 6000, DateTime(2026, 9, 8)),
+            spend('Food', 1500, DateTime(2026, 9, 9)),
+          ],
+        ),
+      );
+      expect(reply.text, isNot(contains('Health')));
+      expect(reply.text, isNot(contains('less')));
+      expect(reply.text, contains('emergency fund'));
+    });
+  });
+
+  test('the same question in English or Filipino gets the same answer', () {
+    const pairs = [
+      ('How do I budget?', 'Paano mag-budget?'),
+      ('How do I manage my money?', 'Paano i-manage ang pera ko?'),
+      ('How should I budget 15000?', 'Paano ko pagkakasyahin ang 15000?'),
+      ('What is the 50/30/20 rule?', 'Ano ang 50/30/20 rule?'),
+      (
+        'How much should my emergency fund be?',
+        'Gaano kalaki dapat ang ipon ko para sa emergency?',
+      ),
+      (
+        'Will my money last until the end of the month?',
+        'Kukulangin ba ang pera ko ngayong buwan?',
+      ),
+      ('Give me money saving tips', 'Mga paraan para magtipid'),
+      ('What is my biggest expense?', 'Ano ang pinakamalaking gastos ko?'),
+      ('Who owes me money?', 'Sino ang may utang sa akin?'),
+      (
+        'How much did I earn this month?',
+        'Magkano ang kinita ko ngayong buwan?',
+      ),
+      ('How much can I spend today?', 'Magkano pa pwede kong gastusin ngayon?'),
+      ('Where does my money go?', 'Saan napupunta ang pera ko?'),
+      ('How much money do I have?', 'Magkano ang pera ko?'),
+    ];
+    for (final (english, filipino) in pairs) {
+      expect(ask(filipino).text, ask(english).text, reason: filipino);
+      expect(ask(english).text, isNot(contains("I'm not sure")));
+      // Online, Gemini is asked in either language.
+      expect(isFinancialTopic(filipino), isTrue, reason: filipino);
+    }
+  });
+
+  group('in Filipino', () {
+    ChatReply tagalog(String question) => answerChat(
+      question,
+      records: records(),
+      language: ChatLanguage.tagalog,
+    );
+
+    test('common answers are in Filipino, with the same figures', () {
+      for (final question in [
+        'hello',
+        'What can you do?',
+        'How much can I spend today?',
+        'How much did I spend this month?',
+        'How much did I spend on food this month?',
+        'What is my biggest expense?',
+        'Where does my money go?',
+        'May bills ba ako this week?',
+        'How much money do I have?',
+        'How much have I saved?',
+        'Who do I owe?',
+        'How much did I earn this month?',
+        'How much can I save this month?',
+        'How do I budget?',
+        'How should I budget 15000?',
+        'What is the 50/30/20 rule?',
+        'How much should my emergency fund be?',
+        'Is my budget enough for this month?',
+        'Give me money saving tips',
+        'What should I do with my money situation?',
+        // The rarer answers.
+        'Can you give me insights?',
+        'Safe to Spend formula',
+        'Suggested savings formula',
+        'Installment formula',
+        'Goal formula',
+        'How are reports calculated?',
+        'How is my wallet balance computed?',
+        'Can I buy AirPods?',
+        'Can I buy a laptop?',
+        'Can I buy a laptop for 50000?',
+        'Can I buy a bag for 500 this month?',
+        'Can I buy a phone for 5000 this week?',
+        'How should I save 40000 in 3 months?',
+        'If I save 100 per day, can I have 5000 in 2 months?',
+        'How much should I save daily to have 3000 per month?',
+        'I want to buy a house worth 5000000 in the next 2 years, how '
+            'should I save?',
+        'Can you make me a savings plan?',
+        'Compare my spending this week',
+        '150 on lunch, 50 on jeep',
+      ]) {
+        final english = answerChat(question, records: records());
+        final filipino = tagalog(question);
+        expect(english.filipino, isFalse, reason: question);
+        expect(filipino.filipino, isTrue, reason: question);
+        expect(filipino.text, isNot(english.text), reason: question);
+        expect(
+          keepsFigures(english.text, filipino.text),
+          isTrue,
+          reason: '$question | ${english.text} | ${filipino.text}',
+        );
+      }
+    });
+
+    test('Taglish gets the same Filipino', () {
+      final reply = answerChat(
+        'May bills ba ako this week?',
+        records: records(),
+        language: ChatLanguage.taglish,
+      );
+      expect(reply.filipino, isTrue);
+      expect(reply.text, contains('Lampas na sa due'));
+    });
+
+    test('the quick replies in Filipino are understood', () {
+      for (final question in [
+        ...suggestedQuestionsFilipino,
+        ...tagalog('hmm ano').choices,
+        ...tagalog('Paano mag-budget?').choices,
+        ...tagalog('Ano ang 50/30/20 rule?').choices,
+        ...tagalog('Paano ko ibubudget ang 15000?').choices,
+      ]) {
+        final reply = tagalog(question);
+        expect(
+          reply.text,
+          isNot(contains('Hindi ko pa sigurado')),
+          reason: question,
+        );
+        expect(reply.text, isNot(contains('Pasensya na')), reason: question);
+      }
+    });
+
+    test('a purchase can be talked through in Tagalog', () {
+      var reply = tagalog('Kaya ko bang bumili ng AirPods?');
+      expect(reply.text, startsWith('Aling AirPods'));
+      expect(reply.choices, contains(anyBrandFilipino));
+
+      reply = answerChat(
+        anyBrandFilipino,
+        records: records(),
+        pending: reply.pending,
+        language: ChatLanguage.tagalog,
+      );
+      expect(reply.filipino, isTrue);
+      // No price yet: the most that could go to it, by month end.
+      expect(reply.text, contains('Wala pang presyo'));
+      expect(reply.text, contains('Bago matapos ang buwan (Sep 30)'));
+
+      reply = answerChat(
+        '₱8,990',
+        records: records(),
+        pending: reply.pending,
+        language: ChatLanguage.tagalog,
+      );
+      expect(reply.filipino, isTrue);
+      expect(reply.text, contains('₱8,990'));
+    });
+
+    test('a translation must keep every figure', () {
+      expect(
+        keepsFigures(
+          'You can spend ₱1,250 today, with 12 days left.',
+          'Pwede kang gumastos ng ₱1,250 ngayon, may 12 araw pa.',
+        ),
+        isTrue,
+      );
+      expect(keepsFigures('₱1,250 today', '₱1,520 ngayon'), isFalse);
+      expect(keepsFigures('12 days left', 'labindalawang araw pa'), isFalse);
     });
   });
 }

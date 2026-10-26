@@ -20,7 +20,14 @@ class _FakeFinancialAssistant implements FinancialAssistant {
     required FinanceSnapshot? records,
     required List<FinancialChatTurn> history,
     String? verifiedGoalPlan,
+    ChatLanguage? responseLanguage,
   }) async => '';
+
+  @override
+  Future<String> translateReply(
+    String text, {
+    required ChatLanguage language,
+  }) async => text;
 
   @override
   Future<List<String>> explainInsights(

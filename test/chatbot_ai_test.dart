@@ -18,6 +18,8 @@ class _FakeFinancialAssistant implements FinancialAssistant {
   List<FinancialChatTurn>? receivedHistory;
   Completer<String>? pendingAnswer;
   bool fail = false;
+  ChatLanguage? receivedLanguage;
+  final translated = <String>[];
   int productPriceRequests = 0;
   String? requestedProduct;
   String response = 'Compound interest can help savings grow over time.';
@@ -31,8 +33,10 @@ class _FakeFinancialAssistant implements FinancialAssistant {
     required FinanceSnapshot? records,
     required List<FinancialChatTurn> history,
     String? verifiedGoalPlan,
+    ChatLanguage? responseLanguage,
   }) async {
     questionsAsked++;
+    receivedLanguage = responseLanguage;
     receivedVerifiedGoalPlan = verifiedGoalPlan;
     receivedHistory = history;
     if (fail) {
@@ -41,6 +45,15 @@ class _FakeFinancialAssistant implements FinancialAssistant {
     final pending = pendingAnswer;
     if (pending != null) return pending.future;
     return response;
+  }
+
+  @override
+  Future<String> translateReply(
+    String text, {
+    required ChatLanguage language,
+  }) async {
+    translated.add(text);
+    return 'Sa ${language.label}: $text';
   }
 
   @override
@@ -195,7 +208,11 @@ void main() {
     expect(find.text('Clear this conversation?'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
-    expect(find.text('How do I save more?'), findsOneWidget);
+    // The reply's quick replies can push the question above the screen.
+    expect(
+      find.text('How do I save more?', skipOffstage: false),
+      findsOneWidget,
+    );
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Clear conversation'));
@@ -295,9 +312,10 @@ void main() {
       find.textContaining('Compound interest can help savings grow'),
       findsOneWidget,
     );
+    // Gemini can't give amounts, so the app's own tips stay under it.
     expect(
       find.textContaining('Start by recording every expense'),
-      findsNothing,
+      findsOneWidget,
     );
   });
 
@@ -426,8 +444,16 @@ void main() {
     );
 
     expect(assistant.questionsAsked, 0);
-    expect(find.textContaining('clear insights'), findsOneWidget);
-    expect(find.textContaining('records na nasa FinAssist'), findsOneWidget);
+    // Taglish: English first, then Tagalog from the bubble's button.
+    expect(
+      find.textContaining('help explain your recorded spending'),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(find.text('Translate into Tagalog'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Translate into Tagalog'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('rekord na nasa FinAssist'), findsOneWidget);
     expect(
       find.textContaining('I can only help with money questions'),
       findsNothing,
@@ -574,8 +600,9 @@ void main() {
     await _ask(tester, question);
 
     expect(assistant.questionsAsked, 1);
-    expect(assistant.receivedVerifiedGoalPlan, contains('₱6,839.95 araw-araw'));
-    expect(find.textContaining('₱6,839.95 araw-araw'), findsOneWidget);
+    // Taglish is answered in English first.
+    expect(assistant.receivedVerifiedGoalPlan, contains('₱6,839.95 per day'));
+    expect(find.textContaining('₱6,839.95 per day'), findsOneWidget);
   });
 
   testWidgets('routes a Taglish multi-purchase affordability follow-up', (
@@ -690,5 +717,179 @@ void main() {
 
     expect(find.text('Type a financial question first.'), findsOneWidget);
     expect(assistant.questionsAsked, 0);
+  });
+
+  group('answers in the language asked', () {
+    testWidgets("a Tagalog question gets Fin's Tagalog, even offline", (
+      tester,
+    ) async {
+      final assistant = _FakeFinancialAssistant();
+      await _pumpChat(tester, assistant: assistant, isOnline: false);
+
+      await _ask(tester, 'Magkano pa ang pwede kong gastusin ngayon?');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Idagdag muna ang mga wallet mo'),
+        findsOneWidget,
+      );
+      // Only a Taglish answer can be switched.
+      expect(find.text('Translate into Tagalog'), findsNothing);
+      expect(find.text('Translate into English'), findsNothing);
+    });
+
+    testWidgets('a Taglish answer comes in English and switches both ways', (
+      tester,
+    ) async {
+      final assistant = _FakeFinancialAssistant();
+      await _pumpChat(tester, assistant: assistant, isOnline: false);
+
+      await _ask(tester, 'May bills ba ako this week?');
+      await tester.pumpAndSettle();
+      expect(
+        find.text("You don't have any unpaid bills coming up."),
+        findsOneWidget,
+      );
+
+      // Fin's own Tagalog: no Gemini, so it works offline.
+      await tester.tap(find.text('Translate into Tagalog'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Wala kang paparating na bills na hindi pa bayad.'),
+        findsOneWidget,
+      );
+      expect(assistant.translated, isEmpty);
+
+      await tester.tap(find.text('Translate into English'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text("You don't have any unpaid bills coming up."),
+        findsOneWidget,
+      );
+      expect(find.text('Translate into Tagalog'), findsOneWidget);
+    });
+
+    testWidgets("every one of Fin's own answers switches, even offline", (
+      tester,
+    ) async {
+      final assistant = _FakeFinancialAssistant();
+      await _pumpChat(tester, assistant: assistant, isOnline: false);
+
+      // A formula is one of the rarer answers.
+      await _ask(tester, 'Anong formula ang ginamit sa safe to spend?');
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Here is how Safe to Spend is worked out'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Translate into Tagalog'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Ganito kinukuwenta ang Safe to Spend'),
+        findsOneWidget,
+      );
+      expect(assistant.translated, isEmpty);
+    });
+
+    testWidgets('when Gemini fails, a Taglish bubble still switches offline', (
+      tester,
+    ) async {
+      final assistant = _FakeFinancialAssistant()..fail = true;
+      await _pumpChat(tester, assistant: assistant);
+
+      await _ask(tester, 'Pahingi ng tips para makatipid this month');
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('AI is unavailable right now'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Start by recording every expense'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Translate into Tagalog'));
+      await tester.pumpAndSettle();
+      // The notice and Fin's answer both have Tagalog in the app.
+      expect(
+        find.textContaining('Hindi available ang AI ngayon'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Simulan sa pagtala'), findsOneWidget);
+      expect(assistant.translated, isEmpty);
+    });
+
+    testWidgets("when Gemini fails, Fin's whole Tagalog answer stays", (
+      tester,
+    ) async {
+      final assistant = _FakeFinancialAssistant()..fail = true;
+      await _pumpChat(tester, assistant: assistant);
+
+      await _ask(tester, 'Paano ko ibubudget ang pera ko?');
+      await tester.pumpAndSettle();
+
+      final bubble = find.textContaining('Hindi available ang AI ngayon');
+      expect(bubble, findsOneWidget);
+      final text = tester.widget<Text>(bubble).data!;
+      // Every paragraph of it, not just the last.
+      expect(text, contains('Simpleng paraan ng pag-budget'));
+      expect(text, contains('Unahin ang bills'));
+      expect(text, contains('Itala ang bawat gastos'));
+    });
+
+    testWidgets("only Gemini's own words are sent to be translated", (
+      tester,
+    ) async {
+      final assistant = _FakeFinancialAssistant();
+      await _pumpChat(tester, assistant: assistant);
+
+      await _ask(tester, 'Pahingi ng tips para makatipid this month');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Translate into Tagalog'));
+      await tester.pumpAndSettle();
+
+      expect(assistant.translated, [
+        'Compound interest can help savings grow over time.',
+      ]);
+      expect(
+        find.textContaining('Sa Tagalog: Compound interest'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Simulan sa pagtala'), findsOneWidget);
+    });
+
+    testWidgets("Gemini's own words need the internet to translate", (
+      tester,
+    ) async {
+      final assistant = _FakeFinancialAssistant();
+      final online = StreamController<bool>();
+      addTearDown(online.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: ChatbotScreen(
+            assistant: assistant,
+            onlineStatus: online.stream,
+            records: Stream.value(FinanceSnapshot(now: DateTime(2026, 10, 14))),
+          ),
+        ),
+      );
+      online.add(true);
+      await tester.pump();
+
+      await _ask(tester, 'Pahingi ng tips para makatipid this month');
+      await tester.pumpAndSettle();
+      online.add(false);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Translate into Tagalog'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Translating this one needs an internet connection.'),
+        findsOneWidget,
+      );
+      expect(find.text('Translate into Tagalog'), findsOneWidget);
+    });
   });
 }

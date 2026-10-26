@@ -24,6 +24,16 @@ bool isUsableFinancialExplanation(String text) {
   return true;
 }
 
+/// Whether [translated] carries exactly the figures in [original], so a
+/// translation can never change an amount, a count or a date.
+bool keepsFigures(String original, String translated) {
+  List<String> figures(String text) => [
+    for (final match in RegExp(r'\d[\d,]*(?:\.\d+)?').allMatches(text))
+      match.group(0)!.replaceAll(',', ''),
+  ]..sort();
+  return figures(original).join('|') == figures(translated).join('|');
+}
+
 bool isUncertainFinancialExplanation(String text) => RegExp(
   r'\b(?:i\s+(?:do not|dont|can not|cant|cannot)\s+know|'
   r'not\s+sure|unclear|need\s+more\s+(?:information|details)|'

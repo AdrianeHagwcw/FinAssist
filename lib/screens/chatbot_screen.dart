@@ -98,11 +98,6 @@ String _localizedFailureMessage(
         : english.startsWith('Your records changed')
         ? 'Nagbago ang iyong records habang sumasagot ako. Magtanong muli '
               'para magamit ko ang updated na impormasyon.'
-        : english.contains('The following is verified FinAssist guidance')
-        ? 'Hindi available ang AI ngayon. Ang sumusunod ay verified '
-              'FinAssist guidance mula sa iyong saved records, hindi ito '
-              'Gemini response:\n\n'
-              '${english.split('The following is verified FinAssist guidance').last.split('\n\n').last}'
         : 'Hindi available ang AI ngayon. Hindi nabago ang iyong financial '
               'records. Subukan muli mamaya.',
   ChatLanguage.taglish =>
@@ -116,13 +111,25 @@ String _localizedFailureMessage(
         : english.startsWith('Your records changed')
         ? 'Nagbago ang records mo habang sumasagot ako. Ask again para '
               'magamit ko ang updated information.'
-        : english.contains('The following is verified FinAssist guidance')
-        ? 'AI unavailable ngayon. Ang sumusunod ay verified FinAssist '
-              'guidance mula sa saved records mo, hindi ito Gemini response:\n\n'
-              '${english.split('The following is verified FinAssist guidance').last.split('\n\n').last}'
         : 'AI unavailable ngayon. Hindi nabago ang financial records mo. '
               'Subukan muli mamaya.',
 };
+
+/// Said above Fin's own answer when Gemini couldn't answer: why, and that
+/// what follows comes from the records. Fin's answer goes under it whole.
+String _aiUnavailableNotice(ChatLanguage language, String reason) =>
+    switch (language) {
+      ChatLanguage.english =>
+        'AI is unavailable right now: $reason\n\n'
+            'The following is verified FinAssist guidance from your saved '
+            'records, not a Gemini response:',
+      ChatLanguage.tagalog =>
+        'Hindi available ang AI ngayon. Ang sumusunod ay verified FinAssist '
+            'guidance mula sa iyong saved records, hindi ito Gemini response:',
+      ChatLanguage.taglish =>
+        'AI unavailable ngayon. Ang sumusunod ay verified FinAssist guidance '
+            'mula sa saved records mo, hindi ito Gemini response:',
+    };
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({
@@ -317,6 +324,23 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               ),
         ],
       );
+      // A Taglish question is answered in English first, with a button on
+      // the bubble to read it in Tagalog.
+      final taglish = responseLanguage == ChatLanguage.taglish;
+      final shownLanguage = taglish ? ChatLanguage.english : responseLanguage;
+      // The Tagalog of each fixed part of a Taglish answer, so its bubble
+      // switches without AI. Only Gemini's own words need translating.
+      final tagalogOf = <String, String>{};
+      String say(String Function(ChatLanguage language) inLanguage) {
+        final shown = inLanguage(shownLanguage);
+        if (taglish) tagalogOf[shown] = inLanguage(ChatLanguage.tagalog);
+        return shown;
+      }
+
+      String actionText(String english) =>
+          say((language) => _localizedActionMessage(language, english));
+      String failureText(String english) =>
+          say((language) => _localizedFailureMessage(language, english));
       final contextMessage = _messages.reversed
           .skip(1)
           .map(
@@ -329,32 +353,44 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         records: records,
         pending: _pending,
         contextMessage: contextMessage,
+        language: shownLanguage,
       );
+      // Fin's own Tagalog, for the button on a Taglish answer.
+      final tagalogReply = taglish
+          ? answerChat(
+              text,
+              records: records,
+              pending: _pending,
+              contextMessage: contextMessage,
+              language: ChatLanguage.tagalog,
+            )
+          : null;
+      if (tagalogReply != null && tagalogReply.filipino) {
+        tagalogOf[localReply.text] = tagalogReply.text;
+      }
       if (localReply.useLocalAnswer || action != null) {
         _messages.last['financialContext'] = true;
       }
       var usedAi = false;
+      var aiFailed = false;
       GroundedProductPriceAnswer? groundedPriceAnswer;
       var answer = switch (action?.type) {
         ChatActionType.expense =>
           action!.description == null
-              ? _localizedActionMessage(
-                  responseLanguage,
+              ? actionText(
                   'I can start an expense for you. What was it for? Please '
                   'choose its category and the wallet to deduct it from. '
                   'Nothing will be saved '
                   'until you review and confirm it.',
                 )
-              : _localizedActionMessage(
-                  responseLanguage,
+              : actionText(
                   'I filled in the expense amount and description. Choose its '
                   'category and wallet, then review and confirm it. '
                   'Nothing is saved before you confirm.',
                 ),
         ChatActionType.income ||
         ChatActionType.transfer ||
-        ChatActionType.savingsGoal => _localizedActionMessage(
-          responseLanguage,
+        ChatActionType.savingsGoal => actionText(
           'I can prepare this in FinAssist. Review and edit the details in '
           'the existing form, then save it yourself. Nothing is saved '
           'until you confirm.',
@@ -364,7 +400,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
       final isPurchaseFollowUp =
           _pending != null &&
-          localReply.text != answerChat(text, records: records).text;
+          localReply.text !=
+              answerChat(text, records: records, language: shownLanguage).text;
       final usesReportSavingsSuggestions =
           records != null && isSavingsSuggestionsQuestion(text);
       final needsRuleBasedFlow =
@@ -394,7 +431,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             if (productPriceQuery != null) {
               groundedPriceAnswer = await assistant.lookupProductPrices(
                 product: productPriceQuery,
-                responseLanguage: responseLanguage,
+                responseLanguage: shownLanguage,
               );
               return groundedPriceAnswer!.text;
             }
@@ -406,7 +443,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               );
               final suggestions = await assistant.explainInsights(
                 insights,
-                responseLanguage: responseLanguage,
+                responseLanguage: shownLanguage,
               );
               if (suggestions.isEmpty ||
                   !suggestions.every(isUsableFinancialExplanation)) {
@@ -420,6 +457,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               question: text,
               records: records,
               history: history,
+              responseLanguage: shownLanguage,
               verifiedGoalPlan: localReply.isVerifiedGoalPlan
                   ? localReply.text
                   : null,
@@ -432,7 +470,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           usedAi = true;
           if (groundedPriceAnswer != null) {
             answer = geminiAnswer;
-          } else if (localReply.isVerifiedGoalPlan) {
+          } else if (localReply.isVerifiedGoalPlan || localReply.keepUnderAi) {
+            // Generated text has no amounts, so the verified figures stay
+            // under it.
             answer =
                 RegExp(
                   r"\bnot sure what you're asking\b",
@@ -446,13 +486,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           if (contextKey != null &&
               contextKey != financialContextKey(_records?.at(DateTime.now()))) {
             usedAi = false;
-            answer = _localizedFailureMessage(
-              responseLanguage,
+            answer = failureText(
               'Your records changed while I was answering. Please ask again '
               'so I can use the updated information.',
             );
           }
         } on FinancialAssistantFailure catch (error) {
+          aiFailed = true;
           debugPrint(
             'FinAssist Gemini chat failed (${error.kind.name}); '
             'showing verified local guidance.',
@@ -460,29 +500,37 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           answer = productPriceQuery != null && localReply.pending != null
               // No price online, so the question carries on here, the way
               // it does offline: which one, or type the price.
-              ? '${_priceLookupFallback(responseLanguage)}\n\n'
+              ? '${say(_priceLookupFallback)}\n\n'
                     '${localReply.text}'
               : productPriceQuery != null
-              ? _localizedFailureMessage(
-                  responseLanguage,
+              ? failureText(
                   'I could not find a reliable current price right now. '
                   'Please try again in a moment. I will not guess the price.',
                 )
               : isFinancialFollowUp(text)
-              ? _localizedFailureMessage(
-                  responseLanguage,
+              ? failureText(
                   'I want to answer accurately. Please clarify whether you '
                   'want me to use your recorded income, expenses, balance, '
                   'bills, or a savings target. Include the amount and time '
                   'period you mean.',
                 )
-              : _localizedFailureMessage(
-                  responseLanguage,
-                  'AI is unavailable right now: ${error.message}\n\n'
-                  'The following is verified FinAssist guidance from your '
-                  'saved records, not a Gemini response:\n\n'
-                  '${localReply.text}',
-                );
+              : '${say((language) => _aiUnavailableNotice(language, error.message))}'
+                    '\n\n${localReply.text}';
+        }
+      }
+
+      // Fin's own answer to a Tagalog question where it has no Tagalog of its
+      // own yet: translated online, keeping every figure, else English.
+      if (shownLanguage == ChatLanguage.tagalog &&
+          !localReply.filipino &&
+          answer.contains(localReply.text) &&
+          !aiFailed) {
+        final translated = await _translated(
+          localReply.text,
+          ChatLanguage.tagalog,
+        );
+        if (translated != null) {
+          answer = answer.replaceFirst(localReply.text, translated);
         }
       }
 
@@ -509,7 +557,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         _messages.add({
           'message': answer,
           'isUser': false,
-          'choices': usedAi ? const <String>[] : localReply.choices,
+          'choices': usedAi && !localReply.keepUnderAi
+              ? const <String>[]
+              : localReply.choices,
           'goal': localReply.goal,
           'action': action,
           ...expenseBatchMessage,
@@ -517,6 +567,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           'searchSuggestionsHtml': groundedPriceAnswer?.searchSuggestionsHtml,
           'financialContext':
               financialTopic || action != null || localReply.useLocalAnswer,
+          if (taglish && expenseBatchMessage.isEmpty) ...{
+            'english': answer,
+            'tagalogOf': tagalogOf,
+          },
         });
       });
     } on FinancialAssistantFailure catch (error) {
@@ -533,15 +587,24 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               ),
         ],
       );
+      final english =
+          'AI is unavailable right now: ${error.message} Your saved '
+          'financial records were not changed. Please try again later.';
+      final taglish = fallbackLanguage == ChatLanguage.taglish;
       setState(() {
         _messages.add({
           'message': _localizedFailureMessage(
-            fallbackLanguage,
-            'AI is unavailable right now: ${error.message} Your saved '
-            'financial records were not changed. Please try again later.',
+            taglish ? ChatLanguage.english : fallbackLanguage,
+            english,
           ),
           'isUser': false,
           'financialContext': financialTopic,
+          if (taglish) ...{
+            'english': english,
+            'tagalogOf': {
+              english: _localizedFailureMessage(ChatLanguage.tagalog, english),
+            },
+          },
         });
       });
     } finally {
@@ -550,6 +613,126 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         _scrollToBottom();
       }
     }
+  }
+
+  /// Switches a Taglish answer's bubble between English and Tagalog. Fin's
+  /// own Tagalog is used where there is one, so it works offline; the rest
+  /// is translated online, keeping every figure.
+  Future<void> _toggleTranslation(Map<String, dynamic> message) async {
+    final english = message['english'] as String;
+    if (message['showsTagalog'] == true) {
+      setState(() {
+        message['message'] = english;
+        message['showsTagalog'] = false;
+      });
+      return;
+    }
+
+    var tagalog = message['tagalog'] as String?;
+    if (tagalog == null) {
+      setState(() => message['translating'] = true);
+      tagalog = await _tagalogOf(
+        english,
+        message['tagalogOf'] as Map<String, String>? ?? const {},
+      );
+      if (!mounted) return;
+      setState(() => message['translating'] = false);
+      if (tagalog == null) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                _isOnline
+                    ? 'Could not translate it right now. Please try again.'
+                    : 'Translating this one needs an internet connection.',
+              ),
+            ),
+          );
+        return;
+      }
+      message['tagalog'] = tagalog;
+    }
+    setState(() {
+      message['message'] = tagalog;
+      message['showsTagalog'] = true;
+    });
+  }
+
+  /// [english] in Tagalog. Each part with Tagalog written in the app, as in
+  /// [known], is swapped for it; only what is left, Gemini's own words, is
+  /// translated online.
+  Future<String?> _tagalogOf(String english, Map<String, String> known) async {
+    var pieces = [(text: english, done: false)];
+    // Longest first, so a whole answer is matched before a piece of it.
+    for (final part
+        in known.keys.toList()..sort((a, b) => b.length.compareTo(a.length))) {
+      pieces = [
+        for (final piece in pieces)
+          if (piece.done || !piece.text.contains(part))
+            piece
+          else
+            for (final (i, text) in piece.text.split(part).indexed) ...[
+              if (i > 0) (text: known[part]!, done: true),
+              (text: text, done: false),
+            ],
+      ];
+    }
+
+    final tagalog = StringBuffer();
+    for (final piece in pieces) {
+      final words = piece.text.trim();
+      if (piece.done || words.isEmpty) {
+        tagalog.write(piece.text);
+        continue;
+      }
+      final translated = await _translated(words, ChatLanguage.tagalog);
+      if (translated == null) return null;
+      tagalog.write(piece.text.replaceFirst(words, translated));
+    }
+    return tagalog.toString();
+  }
+
+  /// [text] in [language] from Gemini, or null offline or when the
+  /// translation would change a figure.
+  Future<String?> _translated(String text, ChatLanguage language) async {
+    if (!_isOnline) return null;
+    try {
+      final assistant = widget.assistant ?? FirebaseFinancialAssistant();
+      return await requestFinancialAssistant(
+        () => assistant.translateReply(text, language: language),
+      );
+    } on FinancialAssistantFailure catch (error) {
+      debugPrint('FinAssist translation failed: ${error.message}');
+      return null;
+    }
+  }
+
+  Widget _translateButton(Map<String, dynamic> message) {
+    final showsTagalog = message['showsTagalog'] == true;
+    final busy = message['translating'] == true;
+    return Padding(
+      // Under the bubble, past Fin's avatar.
+      padding: const EdgeInsets.only(left: 38, bottom: 10),
+      child: TextButton.icon(
+        onPressed: busy ? null : () => _toggleTranslation(message),
+        style: TextButton.styleFrom(
+          foregroundColor: context.appColors.primaryText,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          visualDensity: VisualDensity.compact,
+        ),
+        icon: busy
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.translate, size: 16),
+        label: Text(
+          showsTagalog ? 'Translate into English' : 'Translate into Tagalog',
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmAndAddExpenseBatch(
@@ -867,6 +1050,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       : CrossAxisAlignment.start,
                   children: [
                     _messageBubble(message: message['message'], isUser: isUser),
+                    if (!isUser && message['english'] != null)
+                      _translateButton(message),
                     if (!isUser && priceSources.isNotEmpty)
                       _groundedPriceSources(
                         priceSources,
