@@ -4,14 +4,12 @@ import 'bill.dart';
 import 'goal.dart';
 import 'wallet.dart';
 import 'onboarding_data.dart';
-import 'safe_to_spend.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 
 /// The kinds of reminder FinAssist can send.
 enum ReminderKind {
   bills,
-  payday,
   goals,
   leftover,
   dailyLog,
@@ -106,7 +104,7 @@ class ReminderSettings {
   /// the same.
   static FinancialPriority? priorityFor(ReminderKind kind) {
     return switch (kind) {
-      ReminderKind.payday || ReminderKind.interest => null,
+      ReminderKind.interest => null,
       ReminderKind.bills => FinancialPriority.payBills,
       ReminderKind.goals => FinancialPriority.saveForGoal,
       ReminderKind.leftover => FinancialPriority.generalSavings,
@@ -134,7 +132,6 @@ const Map<int, List<int>> logReminderWeekdays = {
 /// When a reminder comes, in plain words, for [times] reminders.
 String reminderTimingText(ReminderKind kind, int times) {
   return switch (kind) {
-    ReminderKind.payday => 'This reminder is no longer available.',
     ReminderKind.bills => switch (times) {
       4 => '7 days, 3 days and 1 day before, and on the due day, at 9 AM.',
       3 => '3 days and 1 day before, and on the due day, at 9 AM.',
@@ -232,17 +229,11 @@ class PlannedReminder {
   }
 }
 
-/// Hours reminders go out at: bills and goals in the morning, payday at noon
-/// when pay has usually come in, the leftover question before dinner, and the
-/// logging nudge once the day is mostly done.
+/// Hours reminders go out at: bills and goals in the morning, the leftover
+/// question before dinner, and the logging nudge once the day is mostly done.
 const int morningHour = 9;
-const int paydayHour = 12;
 const int leftoverHour = 19;
 const int eveningHour = 20;
-
-/// Days after a payday to ask again while no pay is logged, since pay can
-/// come late.
-const int latePayDays = 3;
 
 /// Android keeps a limited number of scheduled alarms per app. Well under it,
 /// and more than enough between app opens.
@@ -258,11 +249,8 @@ List<PlannedReminder> planReminders({
   required List<Goal> goals,
   required List<AllocationCycle> cycles,
   List<Wallet> wallets = const [],
-  required String? incomeFrequency,
   required List<AppTransaction> transactions,
   required DateTime now,
-  String? incomeSource,
-  DateTime? setupLastPayday,
 }) {
   if (!settings.enabled) return const [];
 
@@ -643,11 +631,11 @@ List<PlannedReminder> planReminders({
     final newest = cycles.reduce(
       (a, b) => a.receivedAt.isAfter(b.receivedAt) ? a : b,
     );
-    final waiting = cycleAwaitingReview(cycles, null, now: now);
+    final waiting = cycleAwaitingReview(cycles, now: now);
     final undecided = {?waiting, if (!newest.isResolved) newest};
 
     for (final cycle in undecided) {
-      final end = periodOf(cycle, null).end;
+      final end = periodOf(cycle).end;
       final nextPay = DateTime(end.year, end.month, end.day);
       final source = cycle.source.toLowerCase();
 
@@ -759,63 +747,6 @@ String _listNames(List<String> names) {
   if (names.length < 2) return names.join();
   return '${names.sublist(0, names.length - 1).join(', ')} and '
       '${names.last}';
-}
-
-/// The days pay is expected from [from] up to [until], leaving out any
-/// already paid.
-///
-/// Twice a month is the 15th and the 30th (the last day in February), as
-/// onboarding describes it; pay logged up to three days early counts for
-/// that payday. Monthly, weekly and every-two-weeks pay follow the pay
-/// periods Safe to Spend uses, counted from [lastPay], so they need pay
-/// logged once to know the day. Irregular income has no payday.
-List<DateTime> expectedPaydays(
-  String? frequency, {
-  required DateTime? lastPay,
-  required DateTime from,
-  required DateTime until,
-}) {
-  final start = DateTime(from.year, from.month, from.day);
-  final paid = lastPay == null
-      ? null
-      : DateTime(lastPay.year, lastPay.month, lastPay.day);
-  final days = <DateTime>[];
-
-  switch (frequency) {
-    case 'Semi-monthly':
-      for (var month = 0; month < 1200; month++) {
-        final lastDay = DateTime(start.year, start.month + month + 1, 0).day;
-        for (final date in [15, 30 < lastDay ? 30 : lastDay]) {
-          final day = DateTime(start.year, start.month + month, date);
-          if (day.isAfter(until)) return days;
-          if (day.isBefore(start)) continue;
-          if (paid != null &&
-              !paid.isBefore(DateTime(day.year, day.month, day.day - 3))) {
-            continue;
-          }
-          days.add(day);
-        }
-      }
-      return days;
-
-    case 'Monthly' || 'Weekly' || 'Bi-weekly':
-      if (paid == null) return days;
-      // Each pay period ends on the next payday.
-      DateTime next(DateTime day) =>
-          payPeriodFor(frequency, lastIncomeAt: paid, now: day).end;
-
-      var day = start.isAfter(paid)
-          ? payPeriodFor(frequency, lastIncomeAt: paid, now: start).start
-          : paid;
-      for (var i = 0; i < 2000 && !day.isAfter(until); i++) {
-        if (day.isAfter(paid) && !day.isBefore(start)) days.add(day);
-        day = next(day);
-      }
-      return days;
-
-    default:
-      return days;
-  }
 }
 
 /// Bills worth a notice on Home: unpaid, and overdue or due within [days].

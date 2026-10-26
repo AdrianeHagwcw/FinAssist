@@ -500,7 +500,6 @@ ${responseLanguage == null ? '' : 'Write the explanation entirely in ${responseL
       'dailySpendingShare': records.safeToSpend.dailyLimit,
       'daysInPlanningWindow': records.safeToSpend.daysLeft,
       'billsDueInPlanningWindow': records.safeToSpend.billsDue,
-      'moneyInBillsWallets': records.safeToSpend.billsWalletBalance,
       'goalMoneyProtectedInSpendingWallets':
           records.goalSavingsInSpendingWallets,
       'activeDebtsIOwe': records.debts

@@ -11,6 +11,7 @@ import '../utils/money_format.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
 import 'wallet_picker.dart';
+import 'wallet_split_picker.dart';
 
 /// Asks what happened to a savings record that has reached its maturity date.
 ///
@@ -21,7 +22,7 @@ Future<bool?> showMaturedSavingsSheet(
   BuildContext context, {
   required Wallet wallet,
   required List<Wallet> wallets,
-  void Function(double received, String toWalletId)? onSettle,
+  void Function(double received, Map<String, double> to)? onSettle,
   void Function(DateTime nextDate, double interest)? onRollOver,
 }) {
   return showModalBottomSheet<bool>(
@@ -56,7 +57,7 @@ class MaturedSavingsSheet extends StatefulWidget {
   final List<Wallet> wallets;
 
   /// Replaces the write. Used by tests.
-  final void Function(double received, String toWalletId)? onSettle;
+  final void Function(double received, Map<String, double> to)? onSettle;
 
   /// Replaces the write. Gets the interest above the balance, if any.
   final void Function(DateTime nextDate, double interest)? onRollOver;
@@ -78,20 +79,18 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
   late final _amountController = TextEditingController(
     text: formatAmountInput(widget.wallet.balance + (_expectedInterest ?? 0)),
   );
-  late String? _toWalletId = _destinations.isEmpty
-      ? null
-      : _destinations.first.id;
 
-  /// Anywhere the money can land, including the bills and savings wallets.
-  /// Only the record that matured is left out.
-  List<Wallet> get _destinations => [
-    for (final wallet in widget.wallets)
-      // Never into another time deposit: one can't be added to.
-      if (!wallet.archived &&
-          wallet.id != widget.wallet.id &&
-          !wallet.isLockedSavings)
-        wallet,
-  ];
+  /// Where the money went, by wallet: as much as came back, no more.
+  Map<String, double> _to = const {};
+
+  /// Anywhere the money can land, savings included. Only the record that
+  /// matured is left out, and any time deposit, which can't be added to.
+  bool get _hasDestination => widget.wallets.any(
+    (wallet) =>
+        !wallet.archived &&
+        wallet.id != widget.wallet.id &&
+        !wallet.isLockedSavings,
+  );
 
   @override
   void initState() {
@@ -166,23 +165,29 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
     if (amount == null || !isRecordableAmount(amount)) {
       return minimumAmountError;
     }
-    if (_toWalletId == null) return 'Add another wallet to move it into.';
-    return null;
+    if (!_hasDestination) return 'Add another wallet to move it into.';
+    return walletSplitProblem(
+      purpose: SplitPurpose.receiving,
+      amounts: _to,
+      wallets: widget.wallets,
+      goals: heldGoals,
+      target: amount,
+      matchTarget: true,
+    );
   }
 
   void _settle() {
     markTriedToSave();
     if (_problem != null) return;
     final amount = _typed!;
-    final toWalletId = _toWalletId!;
 
     if (widget.onSettle != null) {
-      widget.onSettle!(amount, toWalletId);
+      widget.onSettle!(amount, _to);
     } else {
       WalletService.settleMatured(
         wallet: widget.wallet,
         received: amount,
-        toWalletId: toWalletId,
+        to: _to,
         goals: heldGoals,
       );
     }
@@ -258,18 +263,19 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                 style: TextStyle(fontSize: 12, color: colors.primaryText),
               ),
               const SizedBox(height: 16),
-              if (_destinations.isNotEmpty)
-                WalletPicker(
-                  wallets: _destinations,
-                  selectedId: _toWalletId,
-                  label: 'Where did it go?',
-                  allowed: const {
-                    WalletPurpose.spending,
-                    WalletPurpose.bills,
-                    WalletPurpose.savings,
-                  },
+              if (_hasDestination)
+                WalletSplitPicker(
+                  key: const ValueKey('matured-to'),
+                  wallets: widget.wallets,
                   goals: heldGoals,
-                  onChanged: (value) => setState(() => _toWalletId = value),
+                  purpose: SplitPurpose.receiving,
+                  question: 'Where did it go?',
+                  includeSavings: true,
+                  excludeWalletId: widget.wallet.id,
+                  target: _typed ?? 0,
+                  matchTarget: true,
+                  totalLabel: 'Taken out',
+                  onChanged: (amounts) => setState(() => _to = amounts),
                 ),
               const SizedBox(height: 6),
               // Money saved here for a goal goes with it, still set aside.
@@ -277,15 +283,15 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                 Text(
                   '${formatPeso(goalMoneyInWallet(heldGoals, widget.wallet.id))} '
                   'of it is for your goals. It stays set aside for them in '
-                  'the wallet you choose.',
+                  'the wallets you choose.',
                   key: const Key('matured-goal-money'),
                   style: TextStyle(fontSize: 12, color: colors.textBody),
                 ),
                 const SizedBox(height: 6),
               ],
               Text(
-                'Put it in Bills or Savings and it stays out of your daily '
-                'spending money.',
+                'Put it in Savings and it stays out of your daily spending '
+                'money.',
                 style: TextStyle(fontSize: 12, color: colors.textBody),
               ),
               if (error != null) ...[

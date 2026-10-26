@@ -25,7 +25,6 @@ Future<bool?> showSetAsideRecordSheet(
   BuildContext context, {
   Wallet? wallet,
   List<Wallet> wallets = const [],
-  WalletPurpose purpose = WalletPurpose.savings,
   SavingsKind? initialKind,
   double minimumBalance = 0,
   void Function(String name, double recorded)? onSave,
@@ -42,7 +41,6 @@ Future<bool?> showSetAsideRecordSheet(
     builder: (_) => SetAsideRecordSheet(
       wallet: wallet,
       wallets: wallets,
-      purpose: purpose,
       initialKind: initialKind,
       minimumBalance: minimumBalance,
       onSave: onSave,
@@ -55,7 +53,6 @@ class SetAsideRecordSheet extends StatefulWidget {
   const SetAsideRecordSheet({
     this.wallet,
     this.wallets = const [],
-    this.purpose = WalletPurpose.savings,
     this.initialKind,
     this.minimumBalance = 0,
     this.onSave,
@@ -70,10 +67,6 @@ class SetAsideRecordSheet extends StatefulWidget {
   /// Everything already saved, used to give a new record its place in the
   /// list. Only needed when adding.
   final List<Wallet> wallets;
-
-  /// Which side of Set aside this record belongs to. An existing record
-  /// keeps its own.
-  final WalletPurpose purpose;
 
   /// The kind to open on, for a new record started from the savings guide.
   final SavingsKind? initialKind;
@@ -118,12 +111,6 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
 
   bool get _isNew => widget.wallet == null;
 
-  WalletPurpose get _purpose => widget.wallet?.purpose ?? widget.purpose;
-
-  /// Bills money is simply money waiting, so it has no kinds and never
-  /// matures. Only savings asks those questions.
-  bool get _isSavings => _purpose == WalletPurpose.savings;
-
   bool get _canEditSavingsMetadata {
     if (_isNew) return true;
     final wallet = widget.wallet!;
@@ -136,14 +123,13 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
         wallet.depositStartDate != null;
   }
 
-  String get _addLabel => _isSavings ? 'Add Savings' : 'Add Bills Money';
+  String get _addLabel => 'Add Savings';
 
   static const _timeDepositNeedsMoney =
       'A time deposit is opened with its money in it. Enter the amount you '
       'placed.';
 
-  bool get _asksRate =>
-      _isSavings && _canEditSavingsMetadata && _kind.isInterestBearing;
+  bool get _asksRate => _canEditSavingsMetadata && _kind.isInterestBearing;
 
   /// What is wrong with each field as it stands, or null where it is right.
   /// Shown under its field once Save has been tapped, so each one goes as
@@ -178,12 +164,9 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
           ? 'Enter an amount of zero or more.'
           // A time deposit is opened with the money placed in it, all at
           // once; it can't start empty and be filled later.
-          : _isNew &&
-                _isSavings &&
-                _kind == SavingsKind.timeDeposit &&
-                recorded <= 0
+          : _isNew && _kind == SavingsKind.timeDeposit && recorded <= 0
           ? _timeDepositNeedsMoney
-          : _isSavings && recorded + 0.005 < widget.minimumBalance
+          : recorded + 0.005 < widget.minimumBalance
           ? 'At least ${formatPeso(widget.minimumBalance)} is already '
                 'assigned to goals. Reduce the goal contributions first.'
           : null,
@@ -195,8 +178,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
           ? 'Choose the start date.'
           : null,
       end:
-          _isSavings &&
-              _canEditSavingsMetadata &&
+          _canEditSavingsMetadata &&
               _kind == SavingsKind.timeDeposit &&
               (_maturityDate == null ||
                   (_depositStartDate != null &&
@@ -228,7 +210,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
   bool _movingIn = false;
   Map<String, double> _from = const {};
 
-  bool get _asksSource => _isNew && _isSavings;
+  bool get _asksSource => _isNew;
 
   bool get _isMovingIn => _asksSource && _movingIn;
 
@@ -297,7 +279,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
     final typed = cleanText(_nameController.text);
     if (!_isNew) return typed;
 
-    final fallback = _isSavings ? _kind.label : 'Bills wallet';
+    final fallback = _kind.label;
     return uniqueName(typed.isEmpty ? fallback : typed, [
       for (final wallet in widget.wallets)
         if (!wallet.archived) wallet.name,
@@ -342,16 +324,12 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
         // Moved in now: the wallets it comes from give it, as transfers.
         fundedFrom: _isMovingIn ? _from : const {},
         currentWallets: widget.wallets,
-        purpose: _purpose,
-        savingsKind: _isSavings ? _kind.name : null,
+        purpose: WalletPurpose.savings,
+        savingsKind: _kind.name,
         annualInterestRatePercent: rate,
-        depositStartDate: _isSavings ? _depositStartDate : null,
-        maturityDate: _isSavings && _kind == SavingsKind.timeDeposit
-            ? _maturityDate
-            : null,
-        interestPayout: _isSavings && _kind == SavingsKind.savingsDeposit
-            ? _payout
-            : null,
+        depositStartDate: _depositStartDate,
+        maturityDate: _kind == SavingsKind.timeDeposit ? _maturityDate : null,
+        interestPayout: _kind == SavingsKind.savingsDeposit ? _payout : null,
       );
     } else {
       final wallet = widget.wallet!;
@@ -359,7 +337,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
         WalletService.updateWallet(walletId: wallet.id, name: name);
       }
       WalletService.correctDeclaredBalance(wallet: wallet, recorded: amount);
-      if (_isSavings && _canEditSavingsMetadata) {
+      if (_canEditSavingsMetadata) {
         WalletService.updateWallet(
           walletId: wallet.id,
           updateSavingsMetadata: true,
@@ -426,23 +404,19 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
               Text(
                 !_isNew
                     ? 'Fix what you entered when you set this up.'
-                    : _isSavings
-                    ? "Money you've already put aside. FinAssist isn't "
-                          'connected to your bank, so you enter the amount '
-                          'yourself.'
-                    : 'Where you keep the money waiting for your bills. '
-                          "FinAssist isn't connected to your bank, so you "
-                          'enter the amount yourself.',
+                    // What Savings means, in one line, where it is chosen.
+                    : "Money you're keeping. It's not counted in your "
+                          'Available Balance until you move it out.',
                 style: TextStyle(fontSize: 13, color: colors.textBody),
               ),
-              if (_isSavings && _canEditSavingsMetadata)
+              if (_canEditSavingsMetadata)
                 SavingsKindPicker(
                   kind: _kind,
                   keyPrefix: 'new-savings-',
                   onChanged: (kind) => setState(() => _kind = kind),
                   onLearnMore: _explain,
                 ),
-              if (!_isSavings || !_isNew) ...[
+              if (!_isNew) ...[
                 const FieldLabel('Name'),
                 TextField(
                   key: const Key('set-aside-name'),
@@ -451,9 +425,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                   maxLength: maxItemNameLength,
                   inputFormatters: const [SafeTextFormatter()],
                   decoration: outlinedFieldDecoration(
-                    hint: _isSavings
-                        ? 'e.g. ${_kind.label}'
-                        : 'e.g. Bills wallet',
+                    hint: 'e.g. ${_kind.label}',
                     error: problems?.name,
                   ),
                 ),
@@ -475,12 +447,11 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
               ],
               if (_isMovingIn) ...[
                 const SizedBox(height: 12),
-                GoalFundingPicker(
+                WalletSplitPicker(
                   key: const ValueKey('savings-from-wallets'),
                   wallets: widget.wallets,
-                  otherGoals: heldGoals,
-                  target: 0,
-                  movingIn: true,
+                  goals: heldGoals,
+                  purpose: SplitPurpose.giving,
                   onChanged: (amounts) => setState(() => _from = amounts),
                 ),
                 if (problems?.balance != null) ...[
@@ -509,7 +480,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                     helper: _isNew
                         ? "Check your bank app or passbook. Enter 0 if it's "
                               'empty.'
-                        : _isSavings && widget.minimumBalance > 0
+                        : widget.minimumBalance > 0
                         ? 'At least ${formatPeso(widget.minimumBalance)} is '
                               'assigned to goals, so it cannot go below that.'
                         : 'Changing this only fixes a figure you typed. It is '
@@ -549,8 +520,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                   payout: _payout,
                   onChanged: (payout) => setState(() => _payout = payout),
                 ),
-              if (_isSavings &&
-                  _canEditSavingsMetadata &&
+              if (_canEditSavingsMetadata &&
                   _kind == SavingsKind.timeDeposit) ...[
                 const FieldLabel('End date'),
                 PickDateField(

@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../utils/amount_input_formatter.dart';
 import '../models/bill.dart';
-import '../models/wallet.dart';
 import '../services/bill_service.dart';
-import '../services/wallet_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_buttons.dart';
 import '../utils/category_options.dart';
@@ -14,14 +12,9 @@ import '../utils/text_limits.dart';
 import 'category_icon.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
-import 'wallet_picker.dart';
 
 /// Adds or edits a bill schedule. Returns true when it was saved.
-Future<bool> showBillFormSheet(
-  BuildContext context, {
-  Bill? existing,
-  Stream<List<Wallet>>? wallets,
-}) async {
+Future<bool> showBillFormSheet(BuildContext context, {Bill? existing}) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -30,20 +23,17 @@ Future<bool> showBillFormSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) => BillFormSheet(existing: existing, wallets: wallets),
+    builder: (context) => BillFormSheet(existing: existing),
   );
 
   return saved ?? false;
 }
 
 class BillFormSheet extends StatefulWidget {
-  const BillFormSheet({this.existing, this.wallets, this.onSave, super.key});
+  const BillFormSheet({this.existing, this.onSave, super.key});
 
   /// The bill being edited, or null when adding one.
   final Bill? existing;
-
-  /// Replaces the live wallet list. Used by tests, which can't load Firebase.
-  final Stream<List<Wallet>>? wallets;
 
   /// Saves the bill. Tests pass a fake instead of Firestore.
   final void Function({
@@ -60,8 +50,7 @@ class BillFormSheet extends StatefulWidget {
   State<BillFormSheet> createState() => _BillFormSheetState();
 }
 
-class _BillFormSheetState extends State<BillFormSheet>
-    with CheckAfterSave, WatchesGoals {
+class _BillFormSheetState extends State<BillFormSheet> with CheckAfterSave {
   final _formKey = GlobalKey<FormState>();
 
   late final _nameController = TextEditingController(
@@ -73,22 +62,16 @@ class _BillFormSheetState extends State<BillFormSheet>
         : formatAmountInput(widget.existing!.amount),
   );
 
-  late final Stream<List<Wallet>> _wallets =
-      widget.wallets ?? WalletService.watchWallets();
-
   late String _category = widget.existing?.category ?? 'Bills';
   late DateTime _dueDate = widget.existing?.firstDueDate ?? DateTime.now();
   late BillRecurrence _recurrence =
       widget.existing?.recurrence ?? BillRecurrence.monthly;
-  late String? _walletId = widget.existing?.walletId;
+
+  /// Kept from an existing bill. The wallet is chosen when paying: cash on
+  /// hand, a bank, or both.
+  late final String? _walletId = widget.existing?.walletId;
 
   bool get _isEditing => widget.existing != null;
-
-  @override
-  void initState() {
-    super.initState();
-    watchGoals(walletsGiven: widget.wallets != null);
-  }
 
   @override
   void dispose() {
@@ -310,42 +293,6 @@ class _BillFormSheetState extends State<BillFormSheet>
                     fontSize: 12,
                     color: context.appColors.textMuted,
                   ),
-                ),
-                const SizedBox(height: 16),
-                StreamBuilder<List<Wallet>>(
-                  stream: _wallets,
-                  builder: (context, snapshot) {
-                    final wallets = snapshot.data ?? const <Wallet>[];
-
-                    if (wallets.isEmpty) return const SizedBox.shrink();
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        WalletPicker(
-                          wallets: wallets,
-                          selectedId: _walletId,
-                          label: 'Usually paid from (optional)',
-                          allowed: const {
-                            WalletPurpose.spending,
-                            WalletPurpose.bills,
-                          },
-                          goals: heldGoals,
-                          onChanged: (value) =>
-                              setState(() => _walletId = value),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Only a suggestion. You still choose the wallet when '
-                          'you actually pay it.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: context.appColors.textMuted,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
                 ),
                 const SizedBox(height: 20),
                 SizedBox(

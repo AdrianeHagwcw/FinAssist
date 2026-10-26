@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../models/bill.dart';
 import '../models/goal.dart';
 import '../models/wallet.dart';
-import '../services/allocation_service.dart';
 import '../models/finance_snapshot.dart';
 import '../services/finance_snapshot_service.dart';
 import '../widgets/savings_suggestion_card.dart';
@@ -13,34 +11,25 @@ import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../utils/date_format.dart';
 import '../utils/money_format.dart';
-import '../widgets/bill_payment_sheet.dart';
-import '../widgets/category_icon.dart';
-import '../widgets/empty_state_view.dart';
 import '../widgets/interest_sheet.dart';
 import '../widgets/item_card.dart';
+import '../widgets/money_text.dart';
 import '../widgets/savings_form_parts.dart';
 import '../widgets/set_aside_record_sheet.dart';
-import '../widgets/money_text.dart';
 
-/// Which of the two is being opened. Home already keeps them apart, so each
-/// one is a screen of its own rather than two halves behind a toggle.
-enum SetAsidePart { savings, bills }
-
-/// The money the user has already promised, kept apart from what they can
-/// spend: what is saved, and what is waiting for the bills.
+/// The user's savings: the accounts they keep money in rather than spend
+/// from, what is free in them, and what goals hold there.
 ///
-/// Both hold real money in their own wallet, so each side opens with its own
-/// total balance, and underneath it says where that money is going.
+/// This money is not counted in the Available Balance. Savings deposits and
+/// demand deposits can be moved out any time; a time deposit waits for its
+/// end date.
 class SetAsideScreen extends StatefulWidget {
   const SetAsideScreen({
     this.wallets,
     this.goals,
-    this.loadBills,
     this.today,
     this.finances,
-    this.initialPart = SetAsidePart.savings,
     super.key,
   });
 
@@ -50,14 +39,9 @@ class SetAsideScreen extends StatefulWidget {
   /// Replaces the live goals. Used by tests.
   final Stream<List<Goal>>? goals;
 
-  /// Replaces reading the bills still to pay. Used by tests.
-  final Future<List<BillInstance>> Function()? loadBills;
-
   /// Replaces the clock. Used by tests.
   final DateTime? today;
   final Stream<FinanceSnapshot>? finances;
-
-  final SetAsidePart initialPart;
 
   @override
   State<SetAsideScreen> createState() => _SetAsideScreenState();
@@ -70,42 +54,13 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
   late final Stream<List<Goal>> _goals =
       widget.goals ?? GoalService.watchGoals();
 
-  bool get _isBills => widget.initialPart == SetAsidePart.bills;
-
   late final Stream<FinanceSnapshot> _finances =
       widget.finances ??
-      (widget.wallets == null && !_isBills
+      (widget.wallets == null
           ? watchFinanceSnapshot()
           : const Stream<FinanceSnapshot>.empty());
 
-  List<BillInstance> _bills = const [];
-
   DateTime get _now => widget.today ?? DateTime.now();
-
-  @override
-  void initState() {
-    super.initState();
-    _loadBills();
-  }
-
-  void _loadBills() {
-    final load =
-        widget.loadBills ??
-        () => AllocationService.loadOutstandingBills(now: _now);
-
-    load()
-        .then((bills) {
-          if (mounted) setState(() => _bills = bills);
-        })
-        .catchError((Object _) {
-          // Offline and never cached: show the total on its own.
-        });
-  }
-
-  Future<void> _pay(BillInstance instance) async {
-    final paid = await showBillPaymentSheet(context, instance: instance);
-    if (paid && mounted) _loadBills();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -114,9 +69,9 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     return Scaffold(
       backgroundColor: colors.pageBackground,
       appBar: AppBar(
-        title: Text(
-          _isBills ? 'Bills wallet' : 'Savings wallet',
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        title: const Text(
+          'Savings',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         backgroundColor: appPrimaryBlue,
@@ -133,8 +88,6 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
             children: [
               if (wallets == null)
                 const Center(child: CircularProgressIndicator())
-              else if (_isBills)
-                ..._billsPart(wallets)
               else
                 ..._savings(wallets),
             ],
@@ -144,87 +97,85 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     );
   }
 
-  /// The records behind a total, so a figure typed at sign up can still be
-  /// fixed. Without this there is no way back into them.
+  /// The records behind the total, so a figure typed at sign up can still be
+  /// fixed, and money can be moved out of one.
   List<Widget> _records(
-    List<Wallet> wallets,
-    WalletPurpose purpose, {
+    List<Wallet> wallets, {
     List<Goal> goals = const [],
     bool goalsLoaded = true,
   }) {
     final kept = [
       for (final wallet in wallets)
-        if (!wallet.archived && wallet.purpose == purpose) wallet,
+        if (!wallet.archived && wallet.purpose == WalletPurpose.savings) wallet,
     ];
     if (kept.isEmpty) return const [];
 
     return [
-      _SectionTitle(
-        purpose == WalletPurpose.bills
-            ? 'Where it is kept'
-            : 'Your savings records',
-      ),
+      const _SectionTitle('Your savings records'),
       const SizedBox(height: 10),
       // The same card as setup's savings step.
       for (final wallet in kept)
         ItemCard(
           key: Key('set-aside-record-${wallet.id}'),
-          icon: Image.asset(
-            purpose == WalletPurpose.bills
-                ? 'assets/icons/icons8-receipt-96.png'
-                : savingsKindIcon(wallet.savingsType),
-          ),
+          icon: Image.asset(savingsKindIcon(wallet.savingsType)),
           title: wallet.name,
-          subtitle: purpose == WalletPurpose.bills
-              ? '${formatPeso(wallet.balance)} for bills'
-              : savingsRecordSubtitle(
-                  name: wallet.name,
-                  kind: wallet.savingsType,
-                  balance: wallet.balance,
-                ),
+          subtitle: savingsRecordSubtitle(
+            name: wallet.name,
+            kind: wallet.savingsType,
+            balance: wallet.balance,
+          ),
           // Goal money sets the lowest a savings balance can be fixed to, so
           // editing waits for the goals.
-          onEdit: purpose == WalletPurpose.savings && !goalsLoaded
+          onEdit: !goalsLoaded
               ? null
               : () => _editRecord(
                   wallet,
-                  minimumBalance: purpose == WalletPurpose.savings
-                      ? goalMoneyInWallet(goals, wallet.id)
-                      : 0,
+                  minimumBalance: goalMoneyInWallet(goals, wallet.id),
                 ),
-          details: purpose == WalletPurpose.bills
-              ? const []
-              : [
-                  ...savingsRecordDetails(
-                    kind: wallet.savingsType,
-                    balance: wallet.balance,
-                    rate: wallet.earnsNoInterest
-                        ? null
-                        : wallet.annualInterestRatePercent,
-                    start: wallet.depositStartDate,
-                    end: wallet.maturityDate,
-                    interestUntilEnd: wallet.estimatedTimeDepositInterest(),
-                    promised: goalMoneyInWallet(goals, wallet.id),
-                    today: _now,
-                    payout: wallet.interestPayout,
-                  ),
-                  if (wallet.paysRegularInterest)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        key: Key('add-interest-${wallet.id}'),
-                        onPressed: () async {
-                          final added = await showAddInterestSheet(
-                            context,
-                            wallet: wallet,
-                          );
-                          if (added && mounted) setState(() {});
-                        },
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Add interest that came in'),
-                      ),
-                    ),
-                ],
+          details: [
+            ...savingsRecordDetails(
+              kind: wallet.savingsType,
+              balance: wallet.balance,
+              rate: wallet.earnsNoInterest
+                  ? null
+                  : wallet.annualInterestRatePercent,
+              start: wallet.depositStartDate,
+              end: wallet.maturityDate,
+              interestUntilEnd: wallet.estimatedTimeDepositInterest(),
+              promised: goalMoneyInWallet(goals, wallet.id),
+              today: _now,
+              payout: wallet.interestPayout,
+            ),
+            if (wallet.paysRegularInterest)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: Key('add-interest-${wallet.id}'),
+                  onPressed: () async {
+                    final added = await showAddInterestSheet(
+                      context,
+                      wallet: wallet,
+                    );
+                    if (added && mounted) setState(() {});
+                  },
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add interest that came in'),
+                ),
+              ),
+            // A savings or demand deposit can be drawn on any time: into
+            // cash on hand, a bank, or both.
+            if (!wallet.isLockedSavings && wallet.balance > 0)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: Key('move-out-${wallet.id}'),
+                  onPressed: () =>
+                      showTransferSheet(context, fromWalletId: wallet.id),
+                  icon: const Icon(Icons.swap_horiz, size: 18),
+                  label: const Text('Move money out'),
+                ),
+              ),
+          ],
         ),
       const SizedBox(height: 10),
     ];
@@ -240,14 +191,12 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
   }
 
   Future<void> _addRecord(
-    List<Wallet> wallets,
-    WalletPurpose purpose, {
+    List<Wallet> wallets, {
     List<Goal> goals = const [],
   }) async {
     final saved = await showSetAsideRecordSheet(
       context,
       wallets: wallets,
-      purpose: purpose,
       // The goals this screen has read, for what each wallet has free. A
       // copy of its own, as the screen is already listening to the live
       // ones.
@@ -256,36 +205,28 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     if (saved == true && mounted) setState(() {});
   }
 
-  /// Shown even when there are no records at all, so a side left empty at
+  /// Shown even when there are no records at all, so savings left empty at
   /// sign up can still be started here.
-  Widget _addRecordButton(
-    List<Wallet> wallets,
-    WalletPurpose purpose, {
-    List<Goal> goals = const [],
-  }) {
-    final savings = purpose == WalletPurpose.savings;
-
+  Widget _addRecordButton(List<Wallet> wallets, {List<Goal> goals = const []}) {
     // The same green Add button as the setup steps.
     return SizedBox(
       width: double.infinity,
       height: 52,
       child: ElevatedButton(
-        key: Key(savings ? 'add-savings-record' : 'add-bills-record'),
-        onPressed: () => _addRecord(wallets, purpose, goals: goals),
+        key: const Key('add-savings-record'),
+        onPressed: () => _addRecord(wallets, goals: goals),
         style: confirmButtonStyle(),
-        child: Text(
-          savings ? 'Add Savings' : 'Add Bills Money',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        child: const Text(
+          'Add Savings',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
     );
   }
 
-  // ------------------------------------------------------------- savings
-
   List<Widget> _savings(List<Wallet> wallets) {
     // Matches Home: only savings that can actually be drawn on. A time
-    // deposit or government savings is named on its own.
+    // deposit is named on its own.
     final walletTotal = walletBalanceFor(wallets, WalletPurpose.savings);
     final locked = lockedSavingsBalance(wallets);
     final savingsNote = locked > 0
@@ -310,15 +251,18 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
           return SavingsSuggestionCard(
             records: records.at(_now),
             onTransfer: (amount) {
-              final destinations = promisableSavingsRecords(wallets);
+              // Saving needs a savings account to go into: with none yet,
+              // the user adds one, moving the money in from their wallets.
+              final destinations = promisableSavingsRecords(
+                wallets,
+              ).where((wallet) => !wallet.isLockedSavings).toList();
+              if (destinations.isEmpty) {
+                _addRecord(wallets);
+                return;
+              }
               showTransferSheet(
                 context,
-                toWalletId:
-                    !wallets.any(
-                      (w) => !w.archived && w.purpose == WalletPurpose.savings,
-                    )
-                    ? TransferSheet.newSavingsWalletId
-                    : destinations.length == 1
+                toWalletId: destinations.length == 1
                     ? destinations.single.id
                     : null,
                 initialAmount: amount,
@@ -336,10 +280,10 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
             wallets,
             WalletPurpose.savings,
           );
-          // Contributions remain part of the Savings wallet's real balance,
-          // but are already held inside their goals. Show only the amount
-          // that is still free in the wallet here. A withdrawal reduces the
-          // goal's savedByWallet amount, returning it to this total.
+          // Contributions remain part of the savings' real balance, but are
+          // already held inside their goals. Show only the amount that is
+          // still free here. Taking money out of a goal returns it to this
+          // total.
           final available = (walletTotal - assignedToGoals)
               .clamp(0.0, double.infinity)
               .toDouble();
@@ -350,7 +294,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _TotalCard(
-                title: 'Savings wallet',
+                title: 'Savings',
                 total: available,
                 iconAsset: 'assets/icons/icons8-money-box-96.png',
                 note: savingsNote,
@@ -363,67 +307,19 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               const SizedBox(height: 24),
               ..._records(
                 wallets,
-                WalletPurpose.savings,
                 goals: allGoals,
                 goalsLoaded: snapshot.hasData,
               ),
-              _addRecordButton(wallets, WalletPurpose.savings, goals: allGoals),
+              _addRecordButton(wallets, goals: allGoals),
             ],
           );
         },
       ),
     ];
   }
-
-  // --------------------------------------------------------------- bills
-
-  List<Widget> _billsPart(List<Wallet> wallets) {
-    final total = walletBalanceFor(wallets, WalletPurpose.bills);
-    final owed = _bills.fold<double>(0, (sum, bill) => sum + bill.remaining);
-    final short = owed - total;
-
-    return [
-      _TotalCard(
-        title: 'Bills wallet',
-        total: total,
-        iconAsset: 'assets/icons/icons8-receipt-96.png',
-        note:
-            'Money waiting for your bills. Paying a bill takes it from here '
-            'first.',
-        onTransfer: () => showTransferSheet(context),
-      ),
-      const SizedBox(height: 20),
-      if (_bills.isEmpty)
-        const EmptyStateView(
-          iconAsset: 'assets/icons/icons8-receipt-96.png',
-          title: 'No bills to pay',
-          message:
-              'Bills you add show up here with what you still owe on them.',
-        )
-      else ...[
-        _SectionTitle('Bills to pay'),
-        const SizedBox(height: 10),
-        for (final bill in _bills) ...[
-          _BillRow(bill: bill, now: _now, onPay: () => _pay(bill)),
-          const SizedBox(height: 10),
-        ],
-        _NoteRow(
-          label: short > 0 ? 'Still to set aside' : 'Left after these bills',
-          amount: short.abs(),
-          hint: short > 0
-              ? 'Your bills come to more than this wallet holds.'
-              : 'Enough is here for every bill on the list.',
-        ),
-      ],
-      const SizedBox(height: 24),
-      ..._records(wallets, WalletPurpose.bills),
-      _addRecordButton(wallets, WalletPurpose.bills),
-    ];
-  }
 }
 
-/// The balance at the top of either side, named the way the user asked for
-/// it: what it is, then the total in it.
+/// The balance at the top, named for what it is, then the total in it.
 class _TotalCard extends StatelessWidget {
   const _TotalCard({
     required this.title,
@@ -567,134 +463,6 @@ class _SectionTitle extends StatelessWidget {
         fontSize: 16,
         fontWeight: FontWeight.bold,
         color: context.appColors.textPrimary,
-      ),
-    );
-  }
-}
-
-class _BillRow extends StatelessWidget {
-  const _BillRow({required this.bill, required this.now, required this.onPay});
-
-  final BillInstance bill;
-  final DateTime now;
-  final VoidCallback onPay;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final overdue = bill.dueDate.isBefore(
-      DateTime(now.year, now.month, now.day),
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colors.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: colors.primaryTint,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: CategoryIcon(bill.category, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  bill.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  overdue
-                      ? 'Overdue · ${formatShortDate(bill.dueDate)}'
-                      : 'Due ${formatShortDate(bill.dueDate)}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: overdue ? Colors.redAccent : colors.textBody,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          MoneyText(
-            bill.remaining,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: colors.textPrimary,
-            ),
-          ),
-          const SizedBox(width: 10),
-          TextButton(onPressed: onPay, child: const Text('Pay')),
-        ],
-      ),
-    );
-  }
-}
-
-/// The line that closes each list: what is spare, or what is still missing.
-class _NoteRow extends StatelessWidget {
-  const _NoteRow({
-    required this.label,
-    required this.amount,
-    required this.hint,
-  });
-
-  final String label;
-  final double amount;
-  final String hint;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.primaryTint,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(fontSize: 14, color: colors.textPrimary),
-                ),
-              ),
-              MoneyText(
-                amount,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: colors.textPrimary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(hint, style: TextStyle(fontSize: 12, color: colors.textBody)),
-        ],
       ),
     );
   }

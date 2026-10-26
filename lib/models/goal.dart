@@ -584,6 +584,17 @@ double freeInWallet(Wallet wallet, Iterable<Goal> goals) =>
         .clamp(0.0, double.infinity)
         .toDouble();
 
+/// The Available Balance: what every spending wallet has free, after the
+/// money goals hold in it. Savings are not counted. The same figure Home
+/// shows.
+double availableBalance(Iterable<Wallet> wallets, Iterable<Goal> goals) =>
+    wallets
+        .where((wallet) => !wallet.archived && !wallet.isSetAside)
+        .fold<double>(
+          0,
+          (total, wallet) => total + freeInWallet(wallet, goals),
+        );
+
 /// What each wallet has free to spend, by id, for a wallet picker: its
 /// balance less what goals hold in it.
 Map<String, double> freeByWallet(

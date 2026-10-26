@@ -15,11 +15,16 @@ class ExpenseBatchEntry {
     required this.amount,
     required this.label,
     required this.note,
+    this.walletId,
   });
 
   final double amount;
   final String label;
   final String note;
+
+  /// The wallet this one was paid from, when the batch is split across
+  /// several; otherwise the batch's own.
+  final String? walletId;
 }
 
 /// Reads and writes the user's wallets and transactions.
@@ -233,35 +238,6 @@ class WalletService {
     return null;
   }
 
-  /// Adds the wallet the app keeps for [purpose] to [batch] and returns its
-  /// id, or returns the id of the one that already exists.
-  ///
-  /// Creating it inside the caller's batch means the money moved into it in
-  /// the same write can never land in a wallet that was not created.
-  static String addPurposeWalletToBatch(
-    WriteBatch batch, {
-    required WalletPurpose purpose,
-    required List<Wallet> wallets,
-  }) {
-    final existing = walletFor(wallets, purpose);
-    if (existing != null) return existing.id;
-
-    final reference = _walletsCollection.doc();
-    batch.set(reference, {
-      'name': purpose.defaultName ?? WalletType.other.label,
-      'type': WalletType.other.name,
-      'balance': 0,
-      'startingBalance': 0,
-      'receivesIncome': false,
-      'archived': false,
-      'sortOrder': nextWalletSortOrder(wallets),
-      'purpose': purpose.name,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    return reference.id;
-  }
-
   /// Renames a wallet or changes its type. The balance is never touched here;
   /// only a transaction may move money.
   static void updateWallet({
@@ -444,6 +420,38 @@ class WalletService {
     );
   }
 
+  /// Records one expense or income split across wallets: a transaction in
+  /// each, with the same category, note and date, in one batch, so it is
+  /// never half recorded.
+  static void recordSplit({
+    required TransactionType type,
+    required Map<String, double> amounts,
+    required String label,
+    String? note,
+    DateTime? date,
+  }) {
+    if (type == TransactionType.transfer) {
+      throw ArgumentError('Use recordTransfers for transfers.');
+    }
+    final batch = _firestore.batch();
+    final deltas = <String, double>{};
+    for (final entry in amounts.entries) {
+      if (entry.value <= 0) continue;
+      addTransactionToBatch(
+        batch,
+        type: type,
+        amount: entry.value,
+        label: label,
+        walletId: entry.key,
+        note: note,
+        date: date,
+        collectDeltasInto: deltas,
+      );
+    }
+    _applyDeltas(batch, deltas);
+    commitFirestoreWrite(batch.commit(), 'record ${type.name}');
+  }
+
   /// Records multiple expenses in one Firestore batch. Each entry keeps its
   /// own category and description while sharing the selected wallet.
   static void recordExpenseBatch({
@@ -456,17 +464,20 @@ class WalletService {
     }
 
     final batch = _firestore.batch();
+    final deltas = <String, double>{};
     for (final expense in expenses) {
       addTransactionToBatch(
         batch,
         type: TransactionType.expense,
         amount: expense.amount,
         label: expense.label,
-        walletId: walletId,
+        walletId: expense.walletId ?? walletId,
         note: expense.note,
         date: date,
+        collectDeltasInto: deltas,
       );
     }
+    _applyDeltas(batch, deltas);
     commitFirestoreWrite(batch.commit(), 'record expense batch');
   }
 
@@ -525,57 +536,6 @@ class WalletService {
     }
   }
 
-  /// Moves money into the wallet kept for [purpose], creating that wallet in
-  /// the same write when the user has none yet.
-  ///
-  /// Without this, nothing could be set aside for bills until a wallet for
-  /// them happened to exist, and paying a bill would have nowhere to draw on.
-  static String transferToPurpose({
-    required String fromWalletId,
-    required WalletPurpose purpose,
-    required double amount,
-    required List<Wallet> wallets,
-    String? note,
-    DateTime? date,
-    double serviceCharge = 0,
-  }) {
-    final batch = _firestore.batch();
-    final toWalletId = addPurposeWalletToBatch(
-      batch,
-      purpose: purpose,
-      wallets: wallets,
-    );
-
-    if (fromWalletId == toWalletId) {
-      throw ArgumentError('A transfer needs two different wallets.');
-    }
-
-    final deltas = <String, double>{};
-    final id = addTransactionToBatch(
-      batch,
-      type: TransactionType.transfer,
-      amount: amount,
-      label: TransactionType.transfer.label,
-      walletId: fromWalletId,
-      toWalletId: toWalletId,
-      note: note,
-      date: date,
-      collectDeltasInto: deltas,
-    );
-    addServiceChargeToBatch(
-      batch,
-      walletId: fromWalletId,
-      amount: serviceCharge,
-      note: 'For a transfer',
-      date: date,
-      collectDeltasInto: deltas,
-    );
-    _applyDeltas(batch, deltas);
-
-    commitFirestoreWrite(batch.commit(), 'set money aside');
-    return id;
-  }
-
   /// Adds what a bank or e-wallet charged, as a Service Charge expense from
   /// [walletId], to [batch]. Nothing when [amount] is zero: a charge is only
   /// recorded when the user says there was one.
@@ -625,6 +585,48 @@ class WalletService {
       }, SetOptions(merge: true)),
       'remember service charge',
     );
+  }
+
+  /// Moves money from one wallet into one or more others: a transfer for
+  /// each, and the [serviceCharge] once, all in one batch so the money is
+  /// never half moved. Each wallet's balance changes once.
+  static void recordTransfers({
+    required String fromWalletId,
+    required Map<String, double> to,
+    String? note,
+    DateTime? date,
+    double serviceCharge = 0,
+  }) {
+    if (to.containsKey(fromWalletId)) {
+      throw ArgumentError('A transfer needs two different wallets.');
+    }
+
+    final batch = _firestore.batch();
+    final deltas = <String, double>{};
+    for (final entry in to.entries) {
+      if (entry.value <= 0) continue;
+      addTransactionToBatch(
+        batch,
+        type: TransactionType.transfer,
+        amount: entry.value,
+        label: TransactionType.transfer.label,
+        walletId: fromWalletId,
+        toWalletId: entry.key,
+        note: note,
+        date: date,
+        collectDeltasInto: deltas,
+      );
+    }
+    addServiceChargeToBatch(
+      batch,
+      walletId: fromWalletId,
+      amount: serviceCharge,
+      note: 'For a transfer',
+      date: date,
+      collectDeltasInto: deltas,
+    );
+    _applyDeltas(batch, deltas);
+    commitFirestoreWrite(batch.commit(), 'record transfer');
   }
 
   /// Moves money between two wallets: one transaction, two balance changes,
@@ -755,7 +757,7 @@ class WalletService {
   static void settleMatured({
     required Wallet wallet,
     required double received,
-    required String toWalletId,
+    required Map<String, double> to,
     DateTime? date,
     List<Goal> goals = const [],
   }) {
@@ -766,8 +768,16 @@ class WalletService {
         'Must be more than zero.',
       );
     }
-    if (toWalletId == wallet.id) {
+    if (to.containsKey(wallet.id)) {
       throw ArgumentError('Choose a different wallet to move it into.');
+    }
+    final into = {
+      for (final entry in to.entries)
+        if (entry.value > 0) entry.key: (entry.value * 100).round(),
+    };
+    if (into.values.fold<int>(0, (total, cents) => total + cents) !=
+        (received * 100).round()) {
+      throw ArgumentError('Where it went must add up to what came back.');
     }
 
     final when = date ?? DateTime.now();
@@ -793,31 +803,50 @@ class WalletService {
       );
     }
 
-    addTransactionToBatch(
-      batch,
-      type: TransactionType.transfer,
-      amount: taken,
-      label: TransactionType.transfer.label,
-      walletId: wallet.id,
-      toWalletId: toWalletId,
-      note: '${wallet.name} matured',
-      date: when,
-      collectDeltasInto: deltas,
-    );
+    for (final entry in into.entries) {
+      addTransactionToBatch(
+        batch,
+        type: TransactionType.transfer,
+        amount: entry.value / 100,
+        label: TransactionType.transfer.label,
+        walletId: wallet.id,
+        toWalletId: entry.key,
+        note: '${wallet.name} matured',
+        date: when,
+        collectDeltasInto: deltas,
+      );
+    }
 
     applyDeltasToBatch(batch, deltas);
 
+    // Goal money goes with it, still set aside: into the wallets it went
+    // to, in turn, never more than went into each.
+    final room = {...into};
     goalMoneyMoving(goals, from: wallet.id, moved: taken).forEach((
       goal,
       amount,
     ) {
-      GoalService.moveMoneyInBatch(
-        batch,
-        goal,
-        from: wallet.id,
-        to: toWalletId,
-        amount: amount,
-      );
+      var left = (amount * 100).round();
+      var running = goal;
+      for (final destination in room.keys.toList()) {
+        if (left <= 0) break;
+        final space = room[destination]!;
+        if (space <= 0) continue;
+        final part = left < space ? left : space;
+        GoalService.moveMoneyInBatch(
+          batch,
+          running,
+          from: wallet.id,
+          to: destination,
+          amount: part / 100,
+        );
+        // The next move counts from where this one leaves the goal.
+        running = running
+            .withContribution(wallet.id, -part / 100)
+            .withContribution(destination, part / 100);
+        room[destination] = space - part;
+        left -= part;
+      }
     });
 
     // Whatever is left keeps its own maturity until the user says otherwise;

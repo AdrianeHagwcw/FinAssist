@@ -151,27 +151,18 @@ Wallet? _destinationWallet(String text, FinanceSnapshot? records) {
   final requestsSavings = RegExp(r'\b(savings?|ipon)\b').hasMatch(text);
   if (requestsBills && requestsSavings) return null;
 
-  if (requestsBills) {
-    return wallets.cast<Wallet?>().firstWhere(
-          (wallet) => wallet?.purpose == WalletPurpose.bills,
-          orElse: () => null,
-        ) ??
-        _placeholderWallet(
-          billsPlaceholderWalletId,
-          'Bills',
-          WalletPurpose.bills,
-        );
-  }
+  // Bills are paid straight from a wallet, so there is nothing to move
+  // money into for them: the user picks where it goes.
+  if (requestsBills) return null;
+  // Savings goes into a savings account that can take more; with none, or
+  // more than one, the user picks.
   if (requestsSavings) {
-    return wallets.cast<Wallet?>().firstWhere(
-          (wallet) => wallet?.purpose == WalletPurpose.savings,
-          orElse: () => null,
-        ) ??
-        _placeholderWallet(
-          savingsPlaceholderWalletId,
-          'Savings',
-          WalletPurpose.savings,
-        );
+    final accounts = [
+      for (final wallet in wallets)
+        if (wallet.purpose == WalletPurpose.savings && !wallet.isLockedSavings)
+          wallet,
+    ];
+    return accounts.length == 1 ? accounts.single : null;
   }
 
   final match = RegExp(r'\bto\s+([a-z0-9 _-]+)$').firstMatch(text);
@@ -209,19 +200,6 @@ String? _sourceWallet(String text, FinanceSnapshot? records) {
   }
   return null;
 }
-
-Wallet _placeholderWallet(String id, String name, WalletPurpose purpose) =>
-    Wallet(
-      id: id,
-      name: name,
-      type: WalletType.other,
-      balance: 0,
-      startingBalance: 0,
-      receivesIncome: false,
-      archived: false,
-      sortOrder: 1000,
-      purpose: purpose,
-    );
 
 String? _expenseDescription(String original, String normalized) {
   var description = original

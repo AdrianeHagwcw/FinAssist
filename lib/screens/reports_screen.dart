@@ -147,12 +147,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   ReportRange _range = ReportRange.month;
   late ReportPeriod _period = ReportPeriod.monthOf(_now);
 
-  /// The pay cycle [moment] falls in, read from the user's own pay settings.
-  /// Without them this is the monthly default the rest of the app uses.
   /// The stretch of [range] that [moment] falls in.
   ReportPeriod _periodFor(ReportRange range, DateTime moment) =>
       switch (range) {
-        ReportRange.cycle => ReportPeriod.monthOf(moment),
         ReportRange.week => ReportPeriod.weekOf(moment),
         ReportRange.month => ReportPeriod.monthOf(moment),
         ReportRange.quarter => ReportPeriod.quarterOf(moment),
@@ -310,6 +307,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       end: _period.end.isAfter(_now) ? _now : _period.end,
       from: _period,
     );
+    // The app's own plain-language lines: they need no AI and work offline.
+    final insights = insightsFor(transactions, period: _period, range: _range);
     final financialInsights = calculateFinancialInsights(
       transactions,
       now: _now,
@@ -325,9 +324,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (final range in ReportRange.values.where(
-              (range) => range != ReportRange.cycle,
-            ))
+            for (final range in ReportRange.values)
               ChoiceChip(
                 label: Text(range.label),
                 selected: _range == range,
@@ -418,10 +415,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
         const SizedBox(height: 16),
         _Section(
-          title: 'AI insights Suggestions',
+          title: 'Insights',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              for (final line in insights)
+                _Line(icon: Icons.lightbulb_outline, text: line),
+              if (insights.isNotEmpty) const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _loadingAiSuggestions
                     ? null
@@ -436,7 +436,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 label: Text(
                   _loadingAiSuggestions
                       ? 'Preparing suggestions…'
-                      : 'Get AI insights Suggestions',
+                      : 'Get AI suggestions',
                 ),
               ),
               const Padding(

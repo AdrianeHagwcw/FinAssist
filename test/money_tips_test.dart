@@ -84,7 +84,7 @@ void main() {
         ),
       ],
     );
-    expect(tips.first, startsWith('Payday tip: set aside your savings today'));
+    expect(tips.first, startsWith('Income tip: set aside your savings today'));
   });
 
   test('what to do about the biggest share, without repeating Insights', () {
@@ -138,8 +138,8 @@ void main() {
 
     // Something recorded, but no rule applies.
     expect(tipsFor(transactions: [spend('Food', 120, DateTime(2026, 9, 3))]), [
-      'Set aside savings on payday, before you spend. Saving first makes it '
-          'much easier to stick to.',
+      'Set aside savings when income arrives, before you spend. Saving first '
+          'makes it much easier to stick to.',
     ]);
   });
 }

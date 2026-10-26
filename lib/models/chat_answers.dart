@@ -759,8 +759,8 @@ ChatReply _formula(String text, FinanceSnapshot? records) {
       'A wallet balance starts with its opening amount, '
       'adds money received and transfers in, and subtracts expenses and '
       'transfers out. Balance corrections also change it. Home’s spending '
-      'balance adds active spending wallets; Bills and Savings are shown '
-      'separately. A transfer changes the two wallets, but not their combined '
+      'balance adds active spending wallets; Savings is shown separately. '
+      'A transfer changes the two wallets, but not their combined '
       'total.',
       choices: choices,
     );
@@ -795,8 +795,8 @@ ChatReply _formula(String text, FinanceSnapshot? records) {
       'Unpaid bill amount = bill amount − payments recorded for it, '
       'never below zero. Safe to Spend adds the unpaid bills due before '
       'the end of this calendar month, including overdue payments and scheduled '
-      'installments. It subtracts only what the Bills wallet does not already '
-      'cover. Paid bills are not subtracted again.',
+      'installments. Bills are paid straight from your wallets, so all of it '
+      'is held back. Paid bills are not subtracted again.',
       choices: choices,
     );
   }
@@ -836,15 +836,14 @@ ChatReply _formula(String text, FinanceSnapshot? records) {
     );
   }
   final s = records.safeToSpend;
-  final shortfall = math.max(0.0, s.billsDue - s.billsWalletBalance);
+  final shortfall = math.max(0.0, s.billsDue);
   return ChatReply(
     'Here is how Safe to Spend is worked out from your records:\n\n'
     '1. Spending wallets ${formatPeso(s.walletBalance)} + today’s spending '
-    '${formatPeso(s.spentToday)} − bills still needing money '
+    '${formatPeso(s.spentToday)} − bills still to pay this month '
     '${formatPeso(shortfall)} − goal money held in spending wallets '
     '${formatPeso(s.goalSavings)}. Negative amounts become zero. '
-    'Bills and Savings wallets are kept separate, so saved money is not '
-    'subtracted twice.\n'
+    'Savings is kept separate, so saved money is not subtracted twice.\n'
     '${s.periodBudget == null ? '' : 'Your remaining spending plan also caps this amount. '}'
     '2. Money available at the start of today '
     '${formatPeso(s.spendableThisPeriod)} ÷ ${s.daysLeft} days = '
@@ -1387,10 +1386,7 @@ ChatReply _savingsPlan(FinanceSnapshot records, String question) {
     );
   }
 
-  final billsDue = math.max(
-    0.0,
-    records.safeToSpend.billsDue - records.safeToSpend.billsWalletBalance,
-  );
+  final billsDue = math.max(0.0, records.safeToSpend.billsDue);
   final goalMoney = records.goalSavings;
   final suggested = suggestion.amount;
   final monthlySuggested = suggested;
@@ -1398,8 +1394,8 @@ ChatReply _savingsPlan(FinanceSnapshot records, String question) {
   final dailySuggested = (monthlySuggested / 30 * 100).floor() / 100;
   final questionNote =
       _has(question, ['bill', 'bills', 'bayarin', 'utang', 'debt'])
-      ? ' This includes the bills currently due that are not covered by the '
-            'Bills wallets, while money already set aside for goals is protected.'
+      ? ' This holds back the bills still due this month, and money already '
+            'set aside for goals is protected.'
       : '';
 
   if (monthlySuggested <= 0) {

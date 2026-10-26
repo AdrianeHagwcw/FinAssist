@@ -42,7 +42,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text(
-        'Total Cash-in flows',
+        'Cash Inflows',
         style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
       ),
       centerTitle: true,
@@ -51,131 +51,127 @@ class _HistoryScreenState extends State<HistoryScreen> {
       elevation: 0,
     ),
     body: StreamBuilder<List<AppTransaction>>(
-        stream: _transactions,
-        builder: (context, transactions) => StreamBuilder<List<AllocationCycle>>(
-          stream: _cycles,
-          builder: (context, cycles) {
-            if (transactions.hasError || cycles.hasError) {
-              return const EmptyStateView(
-                iconAsset: 'assets/icons/icons8-calendar-96.png',
-                title: 'History is unavailable',
-                message:
-                    'Your records have not been changed. Reopen this screen to try again.',
-              );
-            }
-            if (!cycles.hasData || !transactions.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (cycles.data!.isEmpty) {
-              return const EmptyStateView(
-                iconAsset: 'assets/icons/icons8-calendar-96.png',
-                title: 'Your story starts with income',
-                message:
-                    'Use + to add income and plan it. Every cash-in you log shows up here: what came in, where it went, and what was left.',
-              );
-            }
-            const String? frequency = null;
-            final now = widget.today ?? DateTime.now();
-            final all = newestCycles(cycles.data!);
-            final pending = all
-                .where(
-                  (c) => cycleStatus(c, frequency, now) == CycleStatus.pending,
-                )
-                .length;
-            final visible = all
-                .where(
-                  (c) =>
-                      !_pendingOnly ||
-                      cycleStatus(c, frequency, now) == CycleStatus.pending,
-                )
-                .toList();
-            return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-              itemCount: visible.length + 1,
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      InfoIntroCard(
-                        icon: Icons.history,
-                        title: 'Every cash-in, a clearer picture',
-                        message: pending == 0
-                            ? 'Every cash-in you log: what came in, where it went, and what was left.'
-                            : '$pending ${pending == 1 ? 'entry is' : 'entries are'} waiting for a leftover decision.',
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          ChoiceChip(
-                            label: Text('All entries (${all.length})'),
-                            selected: !_pendingOnly,
-                            onSelected: (_) =>
-                                setState(() => _pendingOnly = false),
-                          ),
-                          ChoiceChip(
-                            label: Text('Needs review ($pending)'),
-                            selected: _pendingOnly,
-                            onSelected: (_) =>
-                                setState(() => _pendingOnly = true),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Newest first · Amounts are from the plan you made when logging income',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: context.appColors.textBody,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      if (visible.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('All caught up. No entries need review.'),
-                        ),
-                    ],
-                  );
-                }
-                final cycle = visible[index - 1];
-                final period = periodOf(cycle, frequency);
-                final status = cycleStatus(cycle, frequency, now);
-                final left = cycle.isResolved
-                    ? cycle.savedAmount + cycle.spentAmount
-                    : leftoverOf(cycle, transactions.data!, period);
-                final spent = cycle.isResolved
-                    ? cycle.remaining - left
-                    : spentInCycle(cycle, transactions.data!, period);
-                return _CycleCard(
-                  cycle: cycle,
-                  status: status,
-                  spent: spent < 0 ? 0 : spent,
-                  periodLabel:
-                      '${formatShortDate(period.start)} – ${formatShortDate(period.end.subtract(const Duration(days: 1)))}',
-                  leftover: left,
-                  onReview: () {
-                    if (widget.onReview != null) {
-                      widget.onReview!(cycle, left, period.end);
-                    } else {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => LeftoverReviewScreen(
-                            cycle: cycle,
-                            leftover: left,
-                            periodEnd: period.end,
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                );
-              },
+      stream: _transactions,
+      builder: (context, transactions) => StreamBuilder<List<AllocationCycle>>(
+        stream: _cycles,
+        builder: (context, cycles) {
+          if (transactions.hasError || cycles.hasError) {
+            return const EmptyStateView(
+              iconAsset: 'assets/icons/icons8-calendar-96.png',
+              title: 'History is unavailable',
+              message:
+                  'Your records have not been changed. Reopen this screen to try again.',
             );
-          },
-        ),
+          }
+          if (!cycles.hasData || !transactions.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (cycles.data!.isEmpty) {
+            return const EmptyStateView(
+              iconAsset: 'assets/icons/icons8-calendar-96.png',
+              title: 'Your story starts with income',
+              message:
+                  'Use + to add income and plan it. Every cash inflow you log shows up here: what came in, where it went, and what was left.',
+            );
+          }
+          final now = widget.today ?? DateTime.now();
+          final all = newestCycles(cycles.data!);
+          final pending = all
+              .where((c) => cycleStatus(c, now) == CycleStatus.pending)
+              .length;
+          final visible = all
+              .where(
+                (c) =>
+                    !_pendingOnly || cycleStatus(c, now) == CycleStatus.pending,
+              )
+              .toList();
+          return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            itemCount: visible.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    InfoIntroCard(
+                      icon: Icons.history,
+                      title: 'Every cash inflow, a clearer picture',
+                      message: pending == 0
+                          ? 'Every cash inflow you log: what came in, where it went, and what was left.'
+                          : '$pending ${pending == 1 ? 'entry is' : 'entries are'} waiting for a leftover decision.',
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: Text('All entries (${all.length})'),
+                          selected: !_pendingOnly,
+                          onSelected: (_) =>
+                              setState(() => _pendingOnly = false),
+                        ),
+                        ChoiceChip(
+                          label: Text('Needs review ($pending)'),
+                          selected: _pendingOnly,
+                          onSelected: (_) =>
+                              setState(() => _pendingOnly = true),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Newest first · Amounts are from the plan you made when logging income',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.appColors.textBody,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    if (visible.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('All caught up. No entries need review.'),
+                      ),
+                  ],
+                );
+              }
+              final cycle = visible[index - 1];
+              final period = periodOf(cycle);
+              final status = cycleStatus(cycle, now);
+              final left = cycle.isResolved
+                  ? cycle.savedAmount + cycle.spentAmount
+                  : leftoverOf(cycle, transactions.data!, period);
+              final spent = cycle.isResolved
+                  ? cycle.remaining - left
+                  : spentInCycle(cycle, transactions.data!, period);
+              return _CycleCard(
+                cycle: cycle,
+                status: status,
+                spent: spent < 0 ? 0 : spent,
+                periodLabel:
+                    '${formatShortDate(period.start)} – ${formatShortDate(period.end.subtract(const Duration(days: 1)))}',
+                leftover: left,
+                onReview: () {
+                  if (widget.onReview != null) {
+                    widget.onReview!(cycle, left, period.end);
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => LeftoverReviewScreen(
+                          cycle: cycle,
+                          leftover: left,
+                          periodEnd: period.end,
+                        ),
+                      ),
+                    );
+                  }
+                },
+              );
+            },
+          );
+        },
+      ),
     ),
   );
 }
@@ -213,11 +209,7 @@ class _CycleCard extends StatelessWidget {
         Icons.hourglass_top,
         context.isDarkMode ? Colors.amber.shade200 : Colors.brown.shade700,
       ),
-      CycleStatus.done => (
-        'Done',
-        Icons.check_circle,
-        confirmColorOn(context),
-      ),
+      CycleStatus.done => ('Done', Icons.check_circle, confirmColorOn(context)),
       CycleStatus.declined => (
         'Declined',
         Icons.do_not_disturb_on_outlined,
@@ -289,7 +281,7 @@ class _CycleCard extends StatelessWidget {
                   cycle.income,
                   strong: true,
                 ),
-                _line(context, 'Set aside for bills', cycle.toBills),
+                _line(context, 'Paid on bills', cycle.toBills),
                 _line(
                   context,
                   cycle.goalName == null

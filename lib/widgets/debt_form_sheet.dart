@@ -733,8 +733,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                             ),
                       ),
                     ],
-                    // Payments always come out of the Bills wallet, so there
-                    // is no wallet to choose for an installment.
+                    // Each payment is paid from cash on hand, a bank or both
+                    // when it is made, so there is no wallet to choose here.
                     if (wallets.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       if (!_iOwe) ...[

@@ -13,6 +13,7 @@ import '../models/financial_ai_guardrails.dart';
 import '../models/finance_snapshot.dart';
 import '../models/financial_insights.dart';
 import '../models/goal.dart';
+import '../models/wallet.dart';
 import '../screens/add_expense_screen.dart';
 import '../screens/income_waterfall_screen.dart';
 import '../services/finance_snapshot_service.dart';
@@ -24,7 +25,7 @@ import '../theme/app_colors.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/transfer_sheet.dart';
-import '../widgets/wallet_picker.dart';
+import '../widgets/wallet_split_picker.dart';
 import '../utils/money_format.dart';
 
 /// Reports whether the phone has a network connection, now and on change.
@@ -65,6 +66,20 @@ String _localizedActionMessage(
         : 'I can prepare this in FinAssist. I-review at i-edit ang details '
               'sa existing form, then ikaw ang mag-save. Nothing is saved until '
               'you confirm.',
+};
+
+/// Said when a price could not be looked up online, before the question
+/// carries on without it.
+String _priceLookupFallback(ChatLanguage language) => switch (language) {
+  ChatLanguage.english =>
+    "I couldn't look up the price online right now, so let's work it out "
+        'here.',
+  ChatLanguage.tagalog =>
+    'Hindi ko makita ang presyo online ngayon, kaya dito na lang natin ito '
+        'alamin.',
+  ChatLanguage.taglish =>
+    "Hindi ko ma-check ang price online ngayon, so dito na lang natin "
+        'i-compute.',
 };
 
 String _localizedFailureMessage(
@@ -442,7 +457,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             'FinAssist Gemini chat failed (${error.kind.name}); '
             'showing verified local guidance.',
           );
-          answer = productPriceQuery != null
+          answer = productPriceQuery != null && localReply.pending != null
+              // No price online, so the question carries on here, the way
+              // it does offline: which one, or type the price.
+              ? '${_priceLookupFallback(responseLanguage)}\n\n'
+                    '${localReply.text}'
+              : productPriceQuery != null
               ? _localizedFailureMessage(
                   responseLanguage,
                   'I could not find a reliable current price right now. '
@@ -562,66 +582,30 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       return;
     }
 
-    var selectedWalletId = defaultWalletId(wallets);
-    final confirmedWalletId = await showDialog<String>(
+    final total = expenses.fold<double>(
+      0,
+      (sum, expense) => sum + expense.amount,
+    );
+    final paidFrom = await showModalBottomSheet<Map<String, double>>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Add all expenses?'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Confirm that these categories are correct:'),
-                const SizedBox(height: 12),
-                for (final expense in expenses)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      '${formatPeso(expense.amount)} — '
-                      '${expense.description}: ${expense.category}',
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                WalletPicker(
-                  wallets: wallets,
-                  selectedId: selectedWalletId,
-                  goals: goals,
-                  onChanged: (value) =>
-                      setDialogState(() => selectedWalletId = value),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: selectedWalletId == null
-                  ? null
-                  : () => Navigator.pop(dialogContext, selectedWalletId),
-              child: const Text('Add all expenses'),
-            ),
-          ],
-        ),
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: context.appColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _ExpenseBatchSheet(
+        expenses: expenses,
+        wallets: wallets,
+        goals: goals ?? const [],
+        total: total,
       ),
     );
-    if (confirmedWalletId == null || !mounted) return;
+    if (paidFrom == null || !mounted) return;
 
     try {
       WalletService.recordExpenseBatch(
-        walletId: confirmedWalletId,
-        expenses: [
-          for (final expense in expenses)
-            ExpenseBatchEntry(
-              amount: expense.amount,
-              label: expense.category!,
-              note: expense.description,
-            ),
-        ],
+        expenses: splitExpenseBatch(expenses, paidFrom),
       );
     } on Object catch (error, stackTrace) {
       debugPrint('FinAssist expense batch save failed: $error');
@@ -1513,3 +1497,155 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
 /// The choices behind the dots in the chat's top bar.
 enum _ChatMenuAction { clear, about }
+
+/// Each expense paid from the wallets chosen, in turn, in centavos, so every
+/// peso is recorded against the wallet it really left. An expense that
+/// spans two wallets becomes one entry in each.
+List<ExpenseBatchEntry> splitExpenseBatch(
+  List<CategorizedChatExpense> expenses,
+  Map<String, double> paidFrom,
+) {
+  final sources = [
+    for (final entry in paidFrom.entries)
+      if (entry.value > 0) (id: entry.key, cents: (entry.value * 100).round()),
+  ];
+  var index = 0;
+  var left = sources.isEmpty ? 0 : sources.first.cents;
+  final entries = <ExpenseBatchEntry>[];
+
+  for (final expense in expenses) {
+    var owed = (expense.amount * 100).round();
+    while (owed > 0 && index < sources.length) {
+      final part = owed < left ? owed : left;
+      entries.add(
+        ExpenseBatchEntry(
+          amount: part / 100,
+          label: expense.category!,
+          note: expense.description,
+          walletId: sources[index].id,
+        ),
+      );
+      owed -= part;
+      left -= part;
+      if (left <= 0) {
+        index++;
+        left = index < sources.length ? sources[index].cents : 0;
+      }
+    }
+  }
+  return entries;
+}
+
+/// Confirms a list of expenses Fin found, and where they were paid from:
+/// Cash on Hand, Cash in Bank or both, never more than each has free.
+class _ExpenseBatchSheet extends StatefulWidget {
+  const _ExpenseBatchSheet({
+    required this.expenses,
+    required this.wallets,
+    required this.goals,
+    required this.total,
+  });
+
+  final List<CategorizedChatExpense> expenses;
+  final List<Wallet> wallets;
+  final List<Goal> goals;
+  final double total;
+
+  @override
+  State<_ExpenseBatchSheet> createState() => _ExpenseBatchSheetState();
+}
+
+class _ExpenseBatchSheetState extends State<_ExpenseBatchSheet> {
+  Map<String, double> _paidFrom = const {};
+  bool _tried = false;
+
+  String? get _problem => walletSplitProblem(
+    purpose: SplitPurpose.paying,
+    amounts: _paidFrom,
+    wallets: widget.wallets,
+    goals: widget.goals,
+    target: widget.total,
+    matchTarget: true,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final error = _tried ? _problem : null;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Add all expenses?',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text('Confirm that these categories are correct:'),
+              const SizedBox(height: 12),
+              for (final expense in widget.expenses)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    '${formatPeso(expense.amount)} — '
+                    '${expense.description}: ${expense.category}',
+                  ),
+                ),
+              const SizedBox(height: 12),
+              WalletSplitPicker(
+                key: const ValueKey('expense-batch-paid-from'),
+                wallets: widget.wallets,
+                goals: widget.goals,
+                purpose: SplitPurpose.paying,
+                target: widget.total,
+                matchTarget: true,
+                onChanged: (amounts) => setState(() => _paidFrom = amounts),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  error,
+                  style: TextStyle(
+                    color: dangerColorOn(context),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () {
+                    setState(() => _tried = true);
+                    if (_problem == null) Navigator.pop(context, _paidFrom);
+                  },
+                  style: confirmButtonStyle(),
+                  child: const Text(
+                    'Add all expenses',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: cancelTextStyle(context),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

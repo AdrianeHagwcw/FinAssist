@@ -4,19 +4,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
-import '../models/wallet.dart';
+import '../utils/money_format.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
 import 'goal_service.dart';
 import 'wallet_service.dart';
-
-/// [amount] kept within zero and [ceiling], so money set aside can never be
-/// more than the pay it is taken from.
-double _within(double amount, double ceiling) {
-  if (!amount.isFinite || amount <= 0) return 0;
-  if (!ceiling.isFinite || ceiling <= 0) return 0;
-  return amount < ceiling ? amount : ceiling;
-}
 
 /// Saves what the user decided to do with new income: the income itself, the
 /// bills paid from it, the bills skipped, and a record of the whole cycle.
@@ -78,199 +70,194 @@ class AllocationService {
   /// together or not at all. Paying three bills can't leave the wallet
   /// credited but only two bills marked paid.
   ///
-  /// The income and the bill payments all touch the same wallet, so their
-  /// balance changes are added up and written to it once.
-  ///
-  /// The cycle keeps the pay period it belongs to. Pay starts a new one; other
-  /// income, like a gift, joins the period of the pay before it, found among
-  /// [recentCycles].
+  /// Money only lives where it really is. The income goes into the wallets
+  /// in [incomeByWallet]; bills are paid straight out of the wallets in
+  /// [billsPaidFrom], each with its own fee in [billFees]; money for the
+  /// goal stays in the wallets in [goalKeptIn], marked for it. Each wallet's
+  /// balance changes once.
   static String confirm({
     required AllocationPlan plan,
-    required String walletId,
+    required Map<String, double> incomeByWallet,
+    Map<String, double> billsPaidFrom = const {},
+    Map<String, double> billFees = const {},
+    Map<String, double> goalKeptIn = const {},
     required String source,
     required DateTime receivedAt,
-    String? incomeFrequency,
-    String? usualSource,
     List<AllocationCycle> recentCycles = const [],
-    List<Wallet> wallets = const [],
   }) {
     final problems = plan.problems;
-
     if (problems.isNotEmpty) {
       throw ArgumentError(problems.join(' '));
     }
+    _checkAddsUp(incomeByWallet, plan.income, 'The income');
+    _checkAddsUp(billsPaidFrom, plan.toBills, 'The bill payments');
+    _checkAddsUp(goalKeptIn, plan.toGoal, 'The goal money');
 
     final batch = _firestore.batch();
     final deltas = <String, double>{};
     // Made first, so the goal contribution can point back to this cycle.
     final cycle = _cycles.doc();
 
-    final incomeId = WalletService.addTransactionToBatch(
-      batch,
-      type: TransactionType.income,
-      amount: plan.income,
-      label: source,
-      walletId: walletId,
-      date: receivedAt,
-      collectDeltasInto: deltas,
-    );
-
-    // Only top up the bills wallet for bills the user chose to pay now.
-    final billsHeld = WalletService.walletFor(
-      wallets,
-      WalletPurpose.bills,
-    )?.balance;
-    // The Bills wallet pays the bills and any charge for paying them.
-    final needed = plan.toBills + plan.billsServiceCharge - (billsHeld ?? 0);
-    final toBillsWallet = plan.billsSetAside == null
-        ? _within(needed, plan.income)
-        : plan.toBills;
-
-    String? billsWalletId;
-    if (toBillsWallet > 0 || plan.toBills > 0) {
-      billsWalletId = WalletService.addPurposeWalletToBatch(
-        batch,
-        purpose: WalletPurpose.bills,
-        wallets: wallets,
-      );
-    }
-
-    if (billsWalletId != null && toBillsWallet > 0) {
-      WalletService.addTransactionToBatch(
-        batch,
-        type: TransactionType.transfer,
-        amount: toBillsWallet,
-        label: TransactionType.transfer.label,
-        walletId: walletId,
-        toWalletId: billsWalletId,
-        note: 'Set aside for bills',
-        date: receivedAt,
-        collectDeltasInto: deltas,
-      );
-    }
-
-    String? savingsWalletId;
-    if (plan.toGoal > 0) {
-      savingsWalletId = WalletService.addPurposeWalletToBatch(
-        batch,
-        purpose: WalletPurpose.savings,
-        wallets: wallets,
-      );
-      WalletService.addTransactionToBatch(
-        batch,
-        type: TransactionType.transfer,
-        amount: plan.toGoal,
-        label: TransactionType.transfer.label,
-        walletId: walletId,
-        toWalletId: savingsWalletId,
-        note: 'Set aside for a savings goal',
-        date: receivedAt,
-        collectDeltasInto: deltas,
-      );
-    }
+    final incomeIds = <String>[
+      for (final entry in incomeByWallet.entries)
+        if (entry.value > 0)
+          WalletService.addTransactionToBatch(
+            batch,
+            type: TransactionType.income,
+            amount: entry.value,
+            label: source,
+            walletId: entry.key,
+            date: receivedAt,
+            collectDeltasInto: deltas,
+          ),
+    ];
 
     final payments = <Map<String, dynamic>>[];
     final skipped = <String>[];
 
-    // Salary allocations only move the chosen amount into the Bills wallet;
-    // the user pays individual upcoming bills from that wallet when ready.
-    // Other income keeps the existing bill-by-bill payment flow.
-    if (plan.billsSetAside == null) {
-      // Bills are paid only from the money set aside for bills.
-      final billsPaidFrom = billsWalletId;
+    // Each bill is paid from the chosen wallets in turn, in centavos, so
+    // every peso is recorded against the wallet it really left.
+    final sources = [
+      for (final entry in billsPaidFrom.entries)
+        if (entry.value > 0) (walletId: entry.key, cents: _cents(entry.value)),
+    ];
+    var sourceIndex = 0;
+    var sourceLeft = sources.isEmpty ? 0 : sources.first.cents;
 
-      for (final bill in plan.bills) {
-        if (bill.skipped) {
-          BillService.addSkipToBatch(batch, bill.instance.id);
-          skipped.add(bill.instance.id);
-          continue;
-        }
+    for (final bill in plan.bills) {
+      if (bill.skipped) {
+        BillService.addSkipToBatch(batch, bill.instance.id);
+        skipped.add(bill.instance.id);
+        continue;
+      }
+      if (!bill.pays) continue;
 
-        if (!bill.pays) continue;
-        if (billsPaidFrom == null) {
-          throw StateError('A Bills wallet is required to pay a bill.');
+      var owed = _cents(bill.amount);
+      var paidSoFar = bill.instance.amountPaid;
+      while (owed > 0) {
+        if (sourceIndex >= sources.length) {
+          throw StateError('The bills cost more than was paid from wallets.');
         }
+        final walletId = sources[sourceIndex].walletId;
+        final part = owed < sourceLeft ? owed : sourceLeft;
+        final amount = part / 100;
 
         final paymentId = BillService.addPaymentToBatch(
           batch,
           instance: bill.instance,
-          walletId: billsPaidFrom,
-          amount: bill.amount,
+          walletId: walletId,
+          amount: amount,
           date: receivedAt,
           collectDeltasInto: deltas,
+          paidBefore: paidSoFar,
         );
-
         payments.add({
           'instanceId': bill.instance.id,
           'billId': bill.instance.billId,
           'name': bill.instance.name,
-          'amount': bill.amount,
+          'amount': amount,
+          'walletId': walletId,
           'transactionId': paymentId,
         });
-      }
 
-      // What was charged for paying them: an expense of its own, as on Pay
-      // Bill, and the amount the Bills wallet fills in next time.
-      if (billsPaidFrom != null && plan.billsServiceCharge > 0) {
+        paidSoFar += amount;
+        owed -= part;
+        sourceLeft -= part;
+        if (sourceLeft <= 0) {
+          sourceIndex++;
+          sourceLeft = sourceIndex < sources.length
+              ? sources[sourceIndex].cents
+              : 0;
+        }
+      }
+    }
+
+    // What each wallet was charged for paying them: an expense of its own,
+    // as on Pay Bill, and the amount filled in for it next time.
+    if (plan.toBills > 0) {
+      for (final entry in billFees.entries) {
+        if (entry.value <= 0) continue;
         WalletService.addServiceChargeToBatch(
           batch,
-          walletId: billsPaidFrom,
-          amount: plan.billsServiceCharge,
+          walletId: entry.key,
+          amount: entry.value,
           note: 'For paying bills',
           date: receivedAt,
           collectDeltasInto: deltas,
         );
         WalletService.rememberServiceChargeInBatch(
           batch,
-          billsPaidFrom,
-          plan.billsServiceCharge,
+          entry.key,
+          entry.value,
         );
       }
     }
 
     WalletService.applyDeltasToBatch(batch, deltas);
 
-    // Goal contributions are recorded in the Savings wallet created or found
-    // above, so they never leave income in a spending wallet by mistake.
+    // Goal money stays in its wallets, marked for the goal; nothing moves.
     final goal = plan.goal;
-    if (goal != null && plan.toGoal > 0 && savingsWalletId != null) {
-      GoalService.addContributionToBatch(
+    if (goal != null && plan.toGoal > 0) {
+      GoalService.addContributionsToBatch(
         batch,
         goal: goal,
-        amount: plan.toGoal,
-        walletId: savingsWalletId,
+        amounts: goalKeptIn,
         date: receivedAt,
         cycleId: cycle.id,
       );
     }
 
     final period = periodForIncome(
-      frequency: incomeFrequency,
+      frequency: null,
       source: source,
       receivedAt: receivedAt,
       earlier: recentCycles,
-      usualSource: usualSource,
     );
+    // The wallet most of it went into, where a leftover is taken from.
+    final mainWallet = incomeByWallet.entries
+        .reduce((a, b) => b.value > a.value ? b : a)
+        .key;
     batch.set(cycle, {
       'periodStart': Timestamp.fromDate(period.start),
       'periodEnd': Timestamp.fromDate(period.end),
-      'incomeTransactionId': incomeId,
-      'walletId': walletId,
+      'incomeTransactionId': incomeIds.first,
+      'incomeTransactionIds': incomeIds,
+      'walletId': mainWallet,
+      'incomeByWallet': incomeByWallet,
       'source': source,
       'income': plan.income,
       'receivedAt': Timestamp.fromDate(receivedAt),
       'billPayments': payments,
       'skippedInstanceIds': skipped,
       'toBills': plan.toBills,
-      'toBillsWallet': toBillsWallet,
+      'billsPaidFrom': billsPaidFrom,
       'goalId': plan.toGoal > 0 ? goal?.id : null,
       'goalName': plan.toGoal > 0 ? goal?.name : null,
       'toGoal': plan.toGoal,
+      'goalKeptIn': plan.toGoal > 0 ? goalKeptIn : const <String, double>{},
       'remaining': plan.remaining,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
     commitFirestoreWrite(batch.commit(), 'allocate income');
     return cycle.id;
+  }
+
+  /// Whole centavos, so splitting money never leaves a stray fraction.
+  static int _cents(double amount) => (amount * 100).round();
+
+  /// Refuses [byWallet] unless it adds up to [total], to the centavo.
+  static void _checkAddsUp(
+    Map<String, double> byWallet,
+    double total,
+    String what,
+  ) {
+    final sum = byWallet.values.fold<int>(
+      0,
+      (all, value) => all + _cents(value),
+    );
+    if (sum != _cents(total)) {
+      throw ArgumentError('$what must add up to ${formatPeso(total)}.');
+    }
   }
 }

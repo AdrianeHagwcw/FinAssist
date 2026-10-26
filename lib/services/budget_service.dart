@@ -3,8 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
-import '../models/wallet.dart';
+import '../models/goal.dart';
 import 'firestore_write.dart';
+import 'goal_service.dart';
 import 'wallet_service.dart';
 
 /// The daily limit, the savings set aside, and the leftover decisions that
@@ -50,23 +51,25 @@ class BudgetService {
 
   /// Records what the user decided about a cycle's leftover.
   ///
-  /// Whatever is saved is moved into the savings wallet in the same batch, so
-  /// it leaves the spending balance at the very moment the cycle is marked
-  /// saved. [wallets] is the current list, used to find that wallet or create
-  /// it; without a wallet to take the money from, the amount is only recorded
-  /// against the cycle.
+  /// What is saved goes where the user chose, in the same batch, so it stops
+  /// counting as spending money the moment the cycle is marked saved: to a
+  /// goal, whose money stays in the wallets it is in, or into a savings
+  /// account, moved out of those wallets.
   static void resolveLeftover({
     required AllocationCycle cycle,
     required LeftoverDecision decision,
     double saved = 0,
     double spent = 0,
-    List<Wallet> wallets = const [],
+    LeftoverSaving? saving,
   }) {
     if (cycle.isResolved) {
       throw StateError('This cycle has already been reviewed.');
     }
     if (!saved.isFinite || !spent.isFinite || saved < 0 || spent < 0) {
       throw ArgumentError('Enter valid leftover amounts.');
+    }
+    if (saved > 0 && saving == null) {
+      throw ArgumentError('Choose where to save it.');
     }
     final batch = FirebaseFirestore.instance.batch();
 
@@ -77,64 +80,51 @@ class BudgetService {
       'leftoverDecidedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    final from = cycle.walletId ?? _spendingWalletId(wallets);
-
-    if (saved > 0 && from != null) {
-      final savingsWalletId = WalletService.addPurposeWalletToBatch(
-        batch,
-        purpose: WalletPurpose.savings,
-        wallets: wallets,
-      );
-
-      WalletService.addTransactionToBatch(
-        batch,
-        type: TransactionType.transfer,
-        amount: saved,
-        label: TransactionType.transfer.label,
-        walletId: from,
-        toWalletId: savingsWalletId,
-        note: 'Saved from leftover',
-        date: DateTime.now(),
-      );
+    if (saved > 0 && saving != null) {
+      final now = DateTime.now();
+      final goal = saving.goal;
+      final savingsId = saving.savingsWalletId;
+      if (goal != null) {
+        GoalService.addContributionsToBatch(
+          batch,
+          goal: goal,
+          amounts: saving.from,
+          date: now,
+          cycleId: cycle.id,
+        );
+      } else if (savingsId != null) {
+        final deltas = <String, double>{};
+        for (final entry in saving.from.entries) {
+          if (entry.value <= 0) continue;
+          WalletService.addTransactionToBatch(
+            batch,
+            type: TransactionType.transfer,
+            amount: entry.value,
+            label: TransactionType.transfer.label,
+            walletId: entry.key,
+            toWalletId: savingsId,
+            note: 'Saved from leftover',
+            date: now,
+            collectDeltasInto: deltas,
+          );
+        }
+        WalletService.applyDeltasToBatch(batch, deltas);
+      }
     }
 
     commitFirestoreWrite(batch.commit(), 'resolve leftover');
   }
 }
 
-/// The wallet a leftover is saved out of when the cycle no longer names one:
-/// the wallet income is paid into, else the first wallet the user can spend
-/// from. Never the bills or savings wallet, which hold committed money.
-String? _spendingWalletId(List<Wallet> wallets) {
-  for (final wallet in wallets) {
-    if (!wallet.archived && !wallet.isSetAside && wallet.receivesIncome) {
-      return wallet.id;
-    }
-  }
-  for (final wallet in wallets) {
-    if (!wallet.archived && !wallet.isSetAside) return wallet.id;
-  }
-  return null;
-}
+/// Where a saved leftover goes: a [goal], whose money stays in the wallets
+/// it is in, or the savings account [savingsWalletId], which it moves into.
+/// [from] is how much of it is in each wallet.
+class LeftoverSaving {
+  const LeftoverSaving({this.goal, this.savingsWalletId, required this.from});
 
-/// The day the current pay period starts.
-///
-/// The payday saved on the profile.
-/// Recording income changes the available balance, but does not restart the
-/// countdown; pay periods roll forward on the saved schedule.
-DateTime? periodAnchor(
-  Iterable<AllocationCycle> cycles,
-  Map<String, dynamic>? profile,
-) {
-  return null;
-}
-
-/// The payday the user gave during setup, before any income is recorded.
-///
-/// Without it a fresh account has nothing to count a pay period from, and
-/// Home would fall back to the calendar instead of the user's own payday.
-DateTime? setupPaydayFrom(Map<String, dynamic>? profile) {
-  return null;
+  final Goal? goal;
+  final String? savingsWalletId;
+  final Map<String, double> from;
 }
 
 double? plannedAllocationFrom(Map<String, dynamic>? profile, String key) {

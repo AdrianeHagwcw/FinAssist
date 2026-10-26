@@ -162,7 +162,7 @@ void main() {
       final reply = ask('How much can I spend today?');
       expect(reply.text, contains('₱854 today'));
       expect(reply.text, contains('₱1,004 limit'));
-      expect(reply.text, contains('12 days left until payday on Oct 1'));
+      expect(reply.text, contains('12 days left in this month through Oct 1'));
     });
 
     test('spending in a category, in Taglish', () {
@@ -620,9 +620,9 @@ void main() {
       expect(second.pending?.waitingFor, PurchaseStep.price);
 
       // ₱11,900 free, less the usual ₱156 a day (food and one ride),
-      // leaves ₱10,172 by payday.
+      // leaves ₱10,172 by month end.
       final answer = ask('₱14,990', pending: second.pending);
-      expect(answer.text, contains("It doesn't fit before payday (Oct 1)"));
+      expect(answer.text, contains("It doesn't fit by month end (Oct 1)"));
       expect(answer.text, contains('₱10,172 spare, ₱4,818 short of ₱14,990'));
       // ₱200 a week is within 30% of the ₱1,095 usually spent in a week.
       expect(answer.text, contains('Saving ₱200 a week'));
@@ -663,27 +663,18 @@ void main() {
       expect(
         answer.text,
         contains(
-          'Before payday (Oct 1), the most you can spend on the laptop is '
+          'By month end (Oct 1), the most you can spend on the laptop is '
           'about ₱10,172',
         ),
       );
     });
 
-    test('a later deadline counts the income coming before it', () {
+    test('a later deadline does not count income not yet received', () {
       final reply = ask('Can I buy a ₱40,000 laptop by December?');
-      // Three more allowances; rent is also due before then.
-      expect(
-        reply.text,
-        contains(
-          'Yes, you can buy the laptop (₱40,000) by '
-          'the end of December',
-        ),
-      );
-      expect(reply.text, contains('₱60,000 of income'));
-      expect(
-        reply.text,
-        contains("Bills more than a month away aren't counted"),
-      );
+      // With no pay schedule, only what is on hand now is counted.
+      expect(reply.text, contains("It doesn't fit by the end of December yet"));
+      expect(reply.text, contains('does not include future income'));
+      expect(reply.text, isNot(contains('of income')));
     });
 
     test('something not on the brand list goes straight to the price', () {

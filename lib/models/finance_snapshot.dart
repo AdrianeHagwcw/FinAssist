@@ -75,11 +75,10 @@ class FinanceSnapshot {
     return SafeToSpend(
       walletBalance: walletBalance,
       billsDue: billsDueBefore(bills, period.end),
-        billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
       goalSavings: goalSavingsInSpendingWallets,
       spentToday: spentToday,
       daysLeft: period.daysLeft(now),
-        periodBudget: periodBudget,
+      periodBudget: periodBudget,
       periodSpent: discretionarySpending(
         transactions,
         from: period.start,

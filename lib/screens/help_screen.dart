@@ -65,7 +65,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Open Total Cash-in flows from Transactions or Settings, then Needs review. Choose Review leftover to save, keep for spending or split it. You can also decide later.',
+                'Open Cash Inflows from Transactions or Settings, then Needs review. Choose Review leftover to save, keep for spending or split it. You can also decide later.',
               ),
             ),
           ],

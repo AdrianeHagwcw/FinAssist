@@ -443,33 +443,21 @@ class BillService {
 
   // --------------------------------------------------------------- payments
 
-  /// Records a payment against a bill.
+  /// Records a payment against a bill, from one wallet or several.
   ///
-  /// The bill's status, the expense, and the wallet's balance all go in one
-  /// batch, so a paid bill always has the spending to show for it. Pass
-  /// [amount] to pay only part of what is owed.
+  /// Every part, every fee, the bill's status and each wallet's balance go
+  /// in one batch: a bill is never left half recorded, and each wallet
+  /// changes once. Parts adding up to less than is owed are a part payment.
   static void payInstance({
     required BillInstance instance,
-    required String walletId,
-    double? amount,
-    double serviceCharge = 0,
+    required List<BillPaymentPart> parts,
   }) {
     final batch = _firestore.batch();
-    // The payment and any service charge on it: both or neither, and one
-    // balance change for the wallet.
     final deltas = <String, double>{};
-    addPaymentToBatch(
+    addPaymentPartsToBatch(
       batch,
       instance: instance,
-      walletId: walletId,
-      amount: amount ?? instance.remaining,
-      collectDeltasInto: deltas,
-    );
-    WalletService.addServiceChargeToBatch(
-      batch,
-      walletId: walletId,
-      amount: serviceCharge,
-      note: 'For paying ${instance.name}',
+      parts: parts,
       collectDeltasInto: deltas,
     );
     WalletService.applyDeltasToBatch(batch, deltas);
@@ -477,11 +465,60 @@ class BillService {
     commitFirestoreWrite(batch.commit(), 'pay bill');
   }
 
+  /// Adds a payment from one or more wallets to [batch]: each wallet's part
+  /// as an expense from that wallet, and its fee as a Service Charge expense
+  /// of its own, remembered for that wallet next time. Returns the payments'
+  /// ids.
+  static List<String> addPaymentPartsToBatch(
+    WriteBatch batch, {
+    required BillInstance instance,
+    required List<BillPaymentPart> parts,
+    required Map<String, double> collectDeltasInto,
+    DateTime? date,
+  }) {
+    var paid = instance.amountPaid;
+    final ids = <String>[];
+
+    for (final part in parts) {
+      if (part.amount <= 0) continue;
+      ids.add(
+        addPaymentToBatch(
+          batch,
+          instance: instance,
+          walletId: part.walletId,
+          amount: part.amount,
+          date: date,
+          collectDeltasInto: collectDeltasInto,
+          paidBefore: paid,
+        ),
+      );
+      paid += part.amount;
+
+      if (part.serviceCharge > 0) {
+        WalletService.addServiceChargeToBatch(
+          batch,
+          walletId: part.walletId,
+          amount: part.serviceCharge,
+          note: 'For paying ${instance.name}',
+          date: date,
+          collectDeltasInto: collectDeltasInto,
+        );
+        WalletService.rememberServiceChargeInBatch(
+          batch,
+          part.walletId,
+          part.serviceCharge,
+        );
+      }
+    }
+    return ids;
+  }
+
   /// Adds a payment against [instance] to [batch]: the expense, the wallet's
   /// balance change, and the bill's new status. Returns the expense's id.
   ///
   /// Pass [collectDeltasInto] when the same batch moves that wallet more than
-  /// once; see [WalletService.addTransactionToBatch].
+  /// once; see [WalletService.addTransactionToBatch]. Pass [paidBefore] when
+  /// an earlier part of the same payment is already in the batch.
   static String addPaymentToBatch(
     WriteBatch batch, {
     required BillInstance instance,
@@ -489,6 +526,7 @@ class BillService {
     required double amount,
     DateTime? date,
     Map<String, double>? collectDeltasInto,
+    double? paidBefore,
   }) {
     if (!amount.isFinite || amount <= 0) {
       throw ArgumentError.value(amount, 'amount', 'Must be greater than zero.');
@@ -509,7 +547,7 @@ class BillService {
       interest: instance.interestIn(amount),
     );
 
-    final paid = instance.amountPaid + amount;
+    final paid = (paidBefore ?? instance.amountPaid) + amount;
 
     batch.set(_instances.doc(instance.id), {
       'status': BillInstance.statusForPayment(paid, instance.amount).name,
@@ -614,4 +652,19 @@ class BillService {
       'unskip bill',
     );
   }
+}
+
+/// One wallet's share of a bill payment, and what that wallet was charged
+/// for paying it: a bank, an e-wallet and a payment center each charge their
+/// own.
+class BillPaymentPart {
+  const BillPaymentPart({
+    required this.walletId,
+    required this.amount,
+    this.serviceCharge = 0,
+  });
+
+  final String walletId;
+  final double amount;
+  final double serviceCharge;
 }

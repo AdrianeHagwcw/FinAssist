@@ -154,7 +154,6 @@ void main() {
         summary['planningEndExclusive'],
         DateTime(2026, 11, 1).toIso8601String(),
       );
-      expect(summary['planningEndIsGuaranteedPayday'], false);
       expect(
         summary['recordCompleteness'],
         contains('completeness is not verified'),

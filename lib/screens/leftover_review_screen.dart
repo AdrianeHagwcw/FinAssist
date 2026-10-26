@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../utils/amount_input_formatter.dart';
 
 import '../models/allocation.dart';
+import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/budget_service.dart';
+import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -13,6 +15,7 @@ import '../utils/money_format.dart';
 import '../widgets/check_after_save.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/money_text.dart';
+import '../widgets/wallet_split_picker.dart';
 
 /// A pending leftover on Home: "⏳ ₱850 left from your Allowance period".
 class LeftoverNotice extends StatelessWidget {
@@ -126,17 +129,28 @@ class LeftoverReviewScreen extends StatefulWidget {
     required this.leftover,
     required this.periodEnd,
     this.onResolve,
+    this.onSaving,
+    this.wallets,
+    this.goals,
     super.key,
   });
 
   final AllocationCycle cycle;
   final double leftover;
+
   /// The day after the period's last day.
   final DateTime periodEnd;
 
   /// Replaces saving the decision. Used by tests.
   final void Function(LeftoverDecision decision, double saved, double spent)?
   onResolve;
+
+  /// Told where saved money goes, alongside [onResolve]. Used by tests.
+  final void Function(LeftoverSaving saving)? onSaving;
+
+  /// Replace the live wallets and goals. Used by tests.
+  final Stream<List<Wallet>>? wallets;
+  final Stream<List<Goal>>? goals;
 
   @override
   State<LeftoverReviewScreen> createState() => _LeftoverReviewScreenState();
@@ -153,20 +167,35 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
   String? _alreadyDecided;
   bool _resolved = false;
 
-  /// Read once, so saving a leftover can move it into the savings wallet in
-  /// the same write. Empty while it loads, or when there are no wallets.
+  // A test that replaces saving has no Firebase behind it.
+  bool get _live => widget.onResolve == null;
+
+  late final Stream<List<Wallet>> _walletStream =
+      widget.wallets ??
+      (_live ? WalletService.watchWallets() : Stream.value(const []));
+  late final Stream<List<Goal>> _goalStream =
+      widget.goals ??
+      (_live ? GoalService.watchGoals() : Stream.value(const []));
+
   List<Wallet> _wallets = const [];
+  List<Goal> _goals = const [];
+
+  /// Where saved money goes, as `goal:` or `savings:` and an id, and how much
+  /// of it is in each wallet now.
+  String? _saveTo;
+  Map<String, double> _from = const {};
 
   @override
   void initState() {
     super.initState();
     recheckWhenChanged(_saveController);
     recheckWhenChanged(_spendController);
-    WalletService.loadWallets()
-        .then((wallets) {
-          if (mounted) _wallets = wallets;
-        })
-        .catchError((Object _) {});
+    _walletStream.listen((wallets) {
+      if (mounted) setState(() => _wallets = wallets);
+    }, onError: (Object _) {});
+    _goalStream.listen((goals) {
+      if (mounted) setState(() => _goals = goals);
+    }, onError: (Object _) {});
     // Start the split down the middle, so the two boxes already add up.
     final half = (widget.leftover * 50).round() / 100;
     _saveController.text = formatAmountInput(half);
@@ -180,11 +209,63 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
     super.dispose();
   }
 
+  /// Goals still being saved for, and savings accounts that can take more.
+  List<Goal> get _openGoals => [
+    for (final goal in _goals)
+      if (goal.status == GoalStatus.active) goal,
+  ];
+  List<Wallet> get _savingsAccounts => [
+    for (final wallet in _wallets)
+      if (!wallet.archived &&
+          wallet.purpose == WalletPurpose.savings &&
+          !wallet.isLockedSavings)
+        wallet,
+  ];
+
+  /// The choice made, or the first one there is.
+  String? get _destination {
+    final options = [
+      for (final goal in _openGoals) 'goal:${goal.id}',
+      for (final wallet in _savingsAccounts) 'savings:${wallet.id}',
+    ];
+    if (options.contains(_saveTo)) return _saveTo;
+    return options.firstOrNull;
+  }
+
+  Goal? get _goalChosen {
+    final destination = _destination;
+    if (destination == null || !destination.startsWith('goal:')) return null;
+    return _openGoals.where((goal) => 'goal:${goal.id}' == destination).first;
+  }
+
+  String? get _savingsChosen {
+    final destination = _destination;
+    if (destination == null || !destination.startsWith('savings:')) {
+      return null;
+    }
+    return destination.substring('savings:'.length);
+  }
+
+  /// What is being saved, for the choice made.
+  double get _savedAmount => switch (_choice) {
+    _Choice.save => widget.leftover,
+    _Choice.split => _parse(_saveController) ?? 0,
+    _ => 0,
+  };
+
   void _resolve(LeftoverDecision decision, double saved, double spent) {
     if (_resolved || widget.cycle.isResolved) return;
     _resolved = true;
+    final saving = saved > 0
+        ? LeftoverSaving(
+            goal: _goalChosen,
+            savingsWalletId: _savingsChosen,
+            from: _from,
+          )
+        : null;
     if (widget.onResolve != null) {
       widget.onResolve!(decision, saved, spent);
+      if (saving != null) widget.onSaving?.call(saving);
     } else {
       try {
         BudgetService.resolveLeftover(
@@ -192,7 +273,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
           decision: decision,
           saved: saved,
           spent: spent,
-          wallets: _wallets,
+          saving: saving,
         );
       } catch (_) {
         // Already settled somewhere else, or the amounts no longer add up.
@@ -214,23 +295,49 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
   /// once Confirm has been tapped, and gone as soon as it is fixed.
   String? get _problem {
     if (_choice == null) return 'Choose what to do with it first.';
-    if (_choice != _Choice.split) return null;
+    if (_choice == _Choice.spend) return null;
 
-    final saved = _parse(_saveController);
-    final spent = _parse(_spendController);
-    if (saved == null ||
-        spent == null ||
-        !saved.isFinite ||
-        !spent.isFinite ||
-        saved < 0 ||
-        spent < 0) {
-      return 'Enter both amounts.';
+    if (_choice == _Choice.split) {
+      final saved = _parse(_saveController);
+      final spent = _parse(_spendController);
+      if (saved == null ||
+          spent == null ||
+          !saved.isFinite ||
+          !spent.isFinite ||
+          saved < 0 ||
+          spent < 0) {
+        return 'Enter both amounts.';
+      }
+      if ((saved + spent - widget.leftover).abs() > 0.005) {
+        return 'The two amounts must add up to '
+            '${formatPeso(widget.leftover)}. Right now they make '
+            '${formatPeso(saved + spent)}.';
+      }
     }
-    if ((saved + spent - widget.leftover).abs() > 0.005) {
-      return 'The two amounts must add up to ${formatPeso(widget.leftover)}. '
-          'Right now they make ${formatPeso(saved + spent)}.';
+    return _savingProblem;
+  }
+
+  /// Saved money needs somewhere to go, and must be in the wallets it is
+  /// said to be in.
+  String? get _savingProblem {
+    final saved = _savedAmount;
+    if (saved <= 0) return null;
+    if (_destination == null) {
+      return 'To save it, first add a goal in Goals or a savings account in '
+          'Savings.';
     }
-    return null;
+    final goal = _goalChosen;
+    if (goal != null && saved > goal.remaining + 0.005) {
+      return '${goal.name} only needs ${formatPeso(goal.remaining)} more.';
+    }
+    return walletSplitProblem(
+      purpose: SplitPurpose.giving,
+      amounts: _from,
+      wallets: _wallets,
+      goals: _goals,
+      target: saved,
+      matchTarget: true,
+    );
   }
 
   void _confirm() {
@@ -371,6 +478,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
               ],
             ),
           ],
+          if (_savedAmount > 0) ..._savingFields(),
           if (error != null) ...[
             const SizedBox(height: 12),
             Text(
@@ -404,6 +512,55 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
         ],
       ),
     );
+  }
+
+  /// Where the saved money goes, and which wallets it is in now.
+  List<Widget> _savingFields() {
+    final goals = _openGoals;
+    final accounts = _savingsAccounts;
+    if (goals.isEmpty && accounts.isEmpty) return const [];
+
+    return [
+      const SizedBox(height: 16),
+      DropdownButtonFormField<String>(
+        key: const Key('leftover-save-to'),
+        initialValue: _destination,
+        isExpanded: true,
+        decoration: dialogFieldDecoration(context, 'Save it to'),
+        items: [
+          for (final goal in goals)
+            DropdownMenuItem(
+              value: 'goal:${goal.id}',
+              child: Text(
+                'Goal: ${goal.name}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          for (final wallet in accounts)
+            DropdownMenuItem(
+              value: 'savings:${wallet.id}',
+              child: Text(
+                'Savings: ${wallet.name}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: (value) => setState(() => _saveTo = value),
+      ),
+      const SizedBox(height: 16),
+      WalletSplitPicker(
+        key: const ValueKey('leftover-from'),
+        wallets: _wallets,
+        goals: _goals,
+        purpose: SplitPurpose.giving,
+        question: 'Which wallets is it in now?',
+        target: _savedAmount,
+        matchTarget: true,
+        initialAmounts: _from,
+        totalLabel: 'Saving',
+        onChanged: (amounts) => setState(() => _from = amounts),
+      ),
+    ];
   }
 }
 

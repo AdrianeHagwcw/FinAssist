@@ -14,7 +14,6 @@ import '../utils/text_limits.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
 import 'goal_funding_picker.dart';
-import 'wallet_picker.dart';
 
 Future<T?> _showSheet<T>(BuildContext context, Widget child) {
   return showModalBottomSheet<T>(
@@ -499,11 +498,11 @@ class _GoalFormSheetState extends State<GoalFormSheet> with CheckAfterSave {
                   ),
                   if (_editsFunding) ...[
                     sectionTitle('Already saved some? (optional)'),
-                    GoalFundingPicker(
+                    WalletSplitPicker(
                       // Keyed, so a line appearing above never resets the choice.
                       key: const ValueKey('goal-funding-picker'),
                       wallets: wallets,
-                      otherGoals: _goals,
+                      goals: _goals,
                       target: _number(_targetController),
                       initialAmounts: widget.initialFunding,
                       onChanged: (amounts) =>
@@ -614,55 +613,9 @@ class _ContributionSheetState extends State<ContributionSheet>
   late final Stream<List<Goal>> _goals =
       widget.goals ?? GoalService.watchGoals();
 
-  late final _amountController = TextEditingController(
-    // Suggests finishing the goal, which is the most common thing to do.
-    text: widget.takeOut || widget.goal.remaining <= 0
-        ? ''
-        : formatAmountInput(widget.goal.remaining),
-  );
-
-  /// Which account the money is taken from or put back into.
-  String? _recordId;
-
-  /// Saving: how much comes from each account, by wallet id. Several
-  /// accounts can share one contribution, as when a goal is made.
+  /// How much comes from each account, or is taken out of each, by wallet
+  /// id. Several accounts can share one, as when a goal is made.
   Map<String, double> _funding = const {};
-
-  /// The account being saved into, or null when there is none to save into.
-  Wallet? _recordFor(List<Wallet> wallets) {
-    var records = goalFundingWallets(wallets);
-    if (widget.takeOut) {
-      records = records
-          .where((wallet) => goalMoneyInWallet([widget.goal], wallet.id) > 0)
-          .toList(growable: false);
-    }
-    if (records.isEmpty) return null;
-    for (final wallet in records) {
-      if (wallet.id == _recordId) return wallet;
-    }
-    for (final wallet in records) {
-      if (wallet.id == widget.goal.walletId) return wallet;
-    }
-    for (final wallet in records) {
-      if ((widget.goal.savedByWallet[wallet.id] ?? 0) > 0) return wallet;
-    }
-    for (final wallet in records) {
-      if (wallet.purpose == WalletPurpose.savings) return wallet;
-    }
-    return records.first;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    recheckWhenChanged(_amountController);
-  }
-
-  @override
-  void dispose() {
-    _amountController.dispose();
-    super.dispose();
-  }
 
   /// Saving toward the goal, laid out like the goal sheet: where the money
   /// is now (cash on hand, cash in bank or both), an amount for each
@@ -689,11 +642,11 @@ class _ContributionSheetState extends State<ContributionSheet>
               'Nothing moves.',
         ),
         const SizedBox(height: 16),
-        GoalFundingPicker(
+        WalletSplitPicker(
           // Keyed, so a line appearing above never resets the choice.
           key: const ValueKey('contribution-funding'),
           wallets: wallets,
-          otherGoals: goals,
+          goals: goals,
           target: goal.remaining,
           onChanged: (amounts) => setState(() => _funding = amounts),
         ),
@@ -754,57 +707,99 @@ class _ContributionSheetState extends State<ContributionSheet>
     Navigator.pop(context, true);
   }
 
-  double? get _amount =>
-      double.tryParse(_amountController.text.trim().replaceAll(',', ''));
+  /// What this goal holds in each account: the most each can give back.
+  Map<String, double> _heldByWallet(List<Wallet> wallets) => {
+    for (final wallet in goalFundingWallets(wallets))
+      if (goalMoneyInWallet([widget.goal], wallet.id) > 0.005)
+        wallet.id: goalMoneyInWallet([widget.goal], wallet.id),
+  };
 
-  /// What stops the amount being taken out or set aside, or null.
-  String? _problem(List<Wallet> wallets, List<Goal> goals) {
-    final amount = _amount;
-    final goal = widget.goal;
-    // Per record, not across all of them: money is promised out of one
-    // place, and the user said which.
-    final record = _recordFor(wallets);
-    final heldHere = record == null
-        ? 0.0
-        : goalMoneyInWallet([goal], record.id);
-    final available = record == null ? 0.0 : freeInWallet(record, goals);
-    final availableForGoal = available + heldHere;
+  /// What stops the money being taken out, or null.
+  String? _takeOutProblem(List<Wallet> wallets, List<Goal> goals) =>
+      _funding.isEmpty
+      ? 'Choose where the money is and enter an amount.'
+      : walletSplitProblem(
+          purpose: SplitPurpose.giving,
+          amounts: _funding,
+          wallets: wallets,
+          goals: goals,
+          limits: _heldByWallet(wallets),
+          tooMuchMessage: _takeOutTooMuch,
+        );
 
-    return amount == null || !isRecordableAmount(amount)
-        ? minimumAmountError
-        : record == null
-        ? 'Add a cash, bank, or e-wallet account first.'
-        : widget.takeOut && amount > heldHere + 0.005
-        ? 'Only ${formatPeso(heldHere)} of this goal is in ${record.name}.'
-        : !widget.takeOut && amount > goal.remaining + 0.005
-        ? 'This goal needs only ${formatPeso(goal.remaining)} more.'
-        : !widget.takeOut && amount > availableForGoal + 0.005
-        ? '${record.name} has ${formatPeso(availableForGoal)} left to promise.'
-        : null;
-  }
+  String _takeOutTooMuch(Wallet wallet, double room) =>
+      'Only ${formatPeso(room)} of this goal is in ${wallet.name}.';
 
-  void _save(List<Wallet> wallets, List<Goal> goals) {
+  void _takeOut(List<Wallet> wallets, List<Goal> goals) {
     markTriedToSave();
-    if (_problem(wallets, goals) != null) return;
-
-    final goal = widget.goal;
-    final amount = _amount!;
-    final walletId = _recordFor(wallets)!.id;
-    final signed = widget.takeOut ? -amount : amount;
+    if (_takeOutProblem(wallets, goals) != null) return;
 
     if (widget.onSave != null) {
-      widget.onSave!(signed, walletId);
+      for (final entry in _funding.entries) {
+        widget.onSave!(-entry.value, entry.key);
+      }
     } else {
-      GoalService.contribute(goal, amount: signed, walletId: walletId);
+      GoalService.takeOutFromWallets(widget.goal, _funding);
     }
-
     Navigator.pop(context, true);
+  }
+
+  /// Taking money out of the goal: from which accounts, each only up to
+  /// what this goal holds there. The money stays where it is.
+  Widget _takeOutLayout(List<Wallet> wallets, List<Goal> goals) {
+    final goal = widget.goal;
+    final error = triedToSave ? _takeOutProblem(wallets, goals) : null;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SheetHeader('Take money out of ${goal.name}'),
+        const DialogNote(
+          text:
+              'It is no longer reserved for this goal. The money stays in '
+              'its current account.',
+        ),
+        const SizedBox(height: 16),
+        WalletSplitPicker(
+          key: const ValueKey('take-out-from'),
+          wallets: wallets,
+          goals: goals,
+          purpose: SplitPurpose.giving,
+          question: 'Which accounts is it in?',
+          limits: _heldByWallet(wallets),
+          tooMuchMessage: _takeOutTooMuch,
+          totalLabel: 'Taking out',
+          onChanged: (amounts) => setState(() => _funding = amounts),
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            error,
+            style: TextStyle(
+              color: dangerColorOn(context),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => _takeOut(wallets, goals),
+            style: dangerButtonStyle(),
+            child: const Text(
+              'Take It Out',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final goal = widget.goal;
-
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
@@ -818,121 +813,9 @@ class _ContributionSheetState extends State<ContributionSheet>
                 stream: _goals,
                 builder: (context, goalsSnapshot) {
                   final goals = goalsSnapshot.data ?? [widget.goal];
-                  final records = goalFundingWallets(wallets)
-                      .where(
-                        (wallet) =>
-                            !widget.takeOut ||
-                            goalMoneyInWallet([goal], wallet.id) > 0,
-                      )
-                      .toList(growable: false);
-                  final record = _recordFor(wallets);
-
-                  if (!widget.takeOut) {
-                    return _saveLayout(wallets, goals);
-                  }
-                  final error = triedToSave ? _problem(wallets, goals) : null;
-
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _SheetHeader(
-                        widget.takeOut
-                            ? 'Take money out of ${goal.name}'
-                            : 'Save toward ${goal.name}',
-                      ),
-                      DialogNote(
-                        text: widget.takeOut
-                            ? 'It is no longer reserved for this goal. The money '
-                                  'stays in its current account.'
-                            : 'The money stays in its current account and is '
-                                  'marked for this goal.',
-                      ),
-                      const SizedBox(height: 16),
-                      AmountField(
-                        controller: _amountController,
-                        label: widget.takeOut ? 'Amount to take out' : 'Amount',
-                      ),
-                      const SizedBox(height: 16),
-                      // Which record, now that there can be several. Goal
-                      // money is tracked per record, so the one chosen here
-                      // is the one it is counted against.
-                      if (record != null)
-                        WalletPicker(
-                          wallets: records,
-                          selectedId: record.id,
-                          allowed: const {
-                            WalletPurpose.spending,
-                            WalletPurpose.savings,
-                          },
-                          displayBalances: {
-                            for (final wallet in records)
-                              wallet.id: widget.takeOut
-                                  ? goalMoneyInWallet([goal], wallet.id)
-                                  : freeInWallet(wallet, goals) +
-                                        goalMoneyInWallet([goal], wallet.id),
-                          },
-                          label: widget.takeOut
-                              ? 'Take it out of'
-                              : 'Save it in',
-                          onChanged: (id) => setState(() => _recordId = id),
-                        ),
-                      if (record != null) ...[
-                        const SizedBox(height: 6),
-                        // What the account has free, and what this goal
-                        // holds in it, never only what it holds in all.
-                        Text(
-                          '${formatPeso(freeInWallet(record, goals))} free in '
-                          '${record.name}, '
-                          '${formatPeso(goalMoneyInWallet([goal], record.id))} '
-                          'for this goal.'
-                          '${record.type == WalletType.cash
-                              ? ''
-                              : record.annualInterestRatePercent == null
-                              ? ' Interest rate not recorded.'
-                              : ' Earns ${record.annualInterestRatePercent}% a year on the whole account, not just this goal.'}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: context.appColors.textBody,
-                          ),
-                        ),
-                      ],
-                      if (record == null) ...[
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Add a cash, bank, or e-wallet account before '
-                          'contributing to this goal.',
-                        ),
-                      ],
-                      if (error != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          error,
-                          style: TextStyle(
-                            color: dangerColorOn(context),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () => _save(wallets, goals),
-                          style: widget.takeOut
-                              ? dangerButtonStyle()
-                              : confirmButtonStyle(),
-                          child: Text(
-                            widget.takeOut ? 'Take It Out' : 'Set Aside',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
+                  return widget.takeOut
+                      ? _takeOutLayout(wallets, goals)
+                      : _saveLayout(wallets, goals);
                 },
               );
             },

@@ -51,7 +51,7 @@ class DashboardTipCard extends StatelessWidget {
                         foregroundColor: colors.primaryText,
                         padding: EdgeInsets.zero,
                       ),
-                      child: const Text('View Total Cash-in flows'),
+                      child: const Text('View Cash Inflows'),
                     ),
                 ],
               ),

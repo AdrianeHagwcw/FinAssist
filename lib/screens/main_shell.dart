@@ -162,11 +162,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     } else if (payload == 'installments') {
       // The year's interest: each installment shows what it has cost.
       _openDebts();
-    } else if (payload == 'income') {
-      // Payday: the user confirms the amount; nothing is added by itself.
-      _selectTab(_homeIndex);
-      final saved = await showIncomeWaterfall(context);
-      if (saved && mounted) setState(() => _homeRefreshKey++);
     } else {
       // The leftover notice waits on Home.
       _selectTab(_homeIndex);
@@ -216,10 +211,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         _selectTab(_homeIndex);
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) =>
-                const SetAsideScreen(initialPart: SetAsidePart.savings),
-          ),
+          MaterialPageRoute(builder: (_) => const SetAsideScreen()),
         );
         return;
       case VoiceDestination.debts:

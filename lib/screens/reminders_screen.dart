@@ -146,9 +146,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
               ),
               const SizedBox(height: 24),
               const _Heading('Reminders', null),
-              for (final kind in ReminderKind.values.where(
-                (kind) => kind != ReminderKind.payday,
-              )) ...[
+              for (final kind in ReminderKind.values) ...[
                 _KindCard(
                   kind: kind,
                   settings: settings,
@@ -317,23 +315,20 @@ class _KindCard extends StatelessWidget {
 
   static String titleOf(ReminderKind kind) => switch (kind) {
     ReminderKind.bills => 'Bills due',
-    ReminderKind.payday => 'Payday',
     ReminderKind.goals => 'Saving plans',
     ReminderKind.leftover => 'Leftover money',
     ReminderKind.dailyLog => 'Log your spending',
     ReminderKind.interest => 'Interest paid',
   };
 
-  /// Why it gets what it gets: its place in the ranking, or for payday, why
-  /// it always comes.
+  /// Why it gets what it gets: its place in the ranking, or for interest,
+  /// why it always comes.
   String get _why {
     if (!settings.isOn(kind)) return "Turned off. You won't get these.";
     final priority = ReminderSettings.priorityFor(kind);
     if (priority == null) {
-      return kind == ReminderKind.interest
-          ? 'Not ranked: when an account pays interest, and each '
-                'January for your installments.'
-          : 'Not ranked: logged pay keeps Safe to Spend right.';
+      return 'Not ranked: when an account pays interest, and each January '
+          'for your installments.';
     }
     final rank = settings.rankOf(priority) + 1;
     return '"${priority.label}" is #$rank for you: '

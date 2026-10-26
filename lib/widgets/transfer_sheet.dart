@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../utils/amount_input_formatter.dart';
 import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../services/wallet_service.dart';
@@ -10,8 +9,10 @@ import '../utils/money_format.dart';
 import 'check_after_save.dart';
 import 'service_charge_field.dart';
 import 'wallet_picker.dart';
+import 'wallet_split_picker.dart';
 
-/// Moves money between two wallets. Returns true when a transfer was saved.
+/// Moves money from one wallet into one or more others. Returns true when a
+/// transfer was saved.
 Future<bool> showTransferSheet(
   BuildContext context, {
   Stream<List<Wallet>>? wallets,
@@ -39,9 +40,6 @@ Future<bool> showTransferSheet(
 }
 
 class TransferSheet extends StatefulWidget {
-  static const newBillsWalletId = billsPlaceholderWalletId;
-  static const newSavingsWalletId = savingsPlaceholderWalletId;
-
   const TransferSheet({
     this.wallets,
     this.goals,
@@ -62,8 +60,7 @@ class TransferSheet extends StatefulWidget {
   /// Replaces saving. Used by tests.
   final void Function({
     required String fromWalletId,
-    required String toWalletId,
-    required double amount,
+    required Map<String, double> to,
     required double serviceCharge,
   })?
   onSave;
@@ -72,8 +69,8 @@ class TransferSheet extends StatefulWidget {
   /// particular wallet, so the user doesn't have to pick it again.
   final String? initialFromWalletId;
 
-  /// The wallet the money is headed for, set when the sheet is opened to top
-  /// one up, such as the bills wallet before paying a bill.
+  /// Where the money is headed and how much, when the sheet is opened for
+  /// one, such as a savings suggestion.
   final String? initialToWalletId;
   final double? initialAmount;
 
@@ -87,11 +84,6 @@ class _TransferSheetState extends State<TransferSheet>
       widget.wallets ?? WalletService.watchWallets();
 
   final _formKey = GlobalKey<FormState>();
-  late final _amountController = TextEditingController(
-    text: widget.initialAmount == null
-        ? ''
-        : formatAmountInput(widget.initialAmount!),
-  );
   final _noteController = TextEditingController();
 
   /// Whether the bank or e-wallet charged for this transfer, and how much.
@@ -102,102 +94,88 @@ class _TransferSheetState extends State<TransferSheet>
       ServiceChargeField.amountOf(on: _charged, controller: _chargeController);
 
   late String? _fromId = widget.initialFromWalletId;
-  late String? _toId = widget.initialToWalletId;
+
+  /// How much goes into each wallet, by id.
+  late Map<String, double> _to = {
+    if (widget.initialToWalletId != null && (widget.initialAmount ?? 0) > 0)
+      widget.initialToWalletId!: widget.initialAmount!,
+  };
+
+  double get _total =>
+      _to.values.fold<double>(0, (sum, amount) => sum + amount);
 
   @override
   void initState() {
     super.initState();
+    _chargeController.addListener(() => setState(() {}));
     watchGoals(given: widget.goals, walletsGiven: widget.wallets != null);
   }
 
   @override
   void dispose() {
-    _amountController.dispose();
     _noteController.dispose();
     _chargeController.dispose();
     super.dispose();
   }
 
-  double? get _amount =>
-      double.tryParse(_amountController.text.trim().replaceAll(',', ''));
+  /// What stops the transfer, or null. A transfer only moves money that is
+  /// there and free: goal money stays put until it is taken out of the goal.
+  String? _problem(Wallet? source, List<Wallet> wallets) {
+    if (source == null) return 'Choose the wallet it comes from.';
+    final into = walletSplitProblem(
+      purpose: SplitPurpose.receiving,
+      amounts: _to,
+      wallets: wallets,
+      goals: heldGoals,
+    );
+    if (into != null) return into;
+    if (_total <= 0) return 'Choose where it goes, then enter how much.';
+    if (_charged && _charge <= 0) {
+      return 'Enter the service charge, or turn it off.';
+    }
 
-  /// Placeholder ids for a bills or savings wallet the user has not made yet.
-  /// Choosing one creates it as the money moves in.
-  static const _newBills = TransferSheet.newBillsWalletId;
-  static const _newSavings = TransferSheet.newSavingsWalletId;
+    // The service charge comes out of the same wallet, so it counts too.
+    final charge = _charge;
+    final total = _total + charge;
+    final withCharge = charge > 0
+        ? 'With the ${formatPeso(charge)} service charge, that is '
+              '${formatPeso(total)}. '
+        : '';
+    if (total > source.balance + 0.005) {
+      return '$withCharge${source.name} only holds '
+          '${formatPeso(source.balance)}.';
+    }
+    final free = freeInWallet(source, heldGoals);
+    if (total > free + 0.005) {
+      return '$withCharge${source.name} has ${formatPeso(free)} free to move. '
+          'The other ${formatPeso(source.balance - free)} is set aside for '
+          'goals.';
+    }
+    return null;
+  }
 
-  void _save(String? fromId, List<Wallet> wallets) {
-    if (!checkForm(_formKey) || fromId == null) return;
-
-    final purpose = switch (_toId) {
-      _newBills => WalletPurpose.bills,
-      _newSavings => WalletPurpose.savings,
-      _ => null,
-    };
+  void _save(Wallet? source, List<Wallet> wallets) {
+    markTriedToSave();
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_problem(source, wallets) != null || source == null) return;
 
     final charge = _charge;
     if (widget.onSave != null) {
-      widget.onSave!(
-        fromWalletId: fromId,
-        toWalletId: _toId!,
-        amount: _amount!,
-        serviceCharge: charge,
-      );
-    } else if (purpose == null) {
-      WalletService.recordTransfer(
-        fromWalletId: fromId,
-        toWalletId: _toId!,
-        amount: _amount!,
-        note: _noteController.text,
-        serviceCharge: charge,
-      );
+      widget.onSave!(fromWalletId: source.id, to: _to, serviceCharge: charge);
     } else {
-      WalletService.transferToPurpose(
-        fromWalletId: fromId,
-        purpose: purpose,
-        amount: _amount!,
-        wallets: wallets,
+      WalletService.recordTransfers(
+        fromWalletId: source.id,
+        to: _to,
         note: _noteController.text,
         serviceCharge: charge,
       );
-    }
-
-    // The bank charges the same next time, so it is filled in then.
-    final source = _walletById(wallets, fromId);
-    if (widget.onSave == null &&
-        charge > 0 &&
-        source != null &&
-        source.serviceCharge != charge) {
-      WalletService.rememberServiceCharge(fromId, charge);
+      // The bank charges the same next time, so it is filled in then.
+      if (charge > 0 && source.serviceCharge != charge) {
+        WalletService.rememberServiceCharge(source.id, charge);
+      }
     }
 
     Navigator.pop(context, true);
-  }
-
-  /// The wallets the money can go to: the real ones, plus a bills or savings
-  /// wallet the user can start here rather than having to make first.
-  List<Wallet> _destinations(List<Wallet> wallets) {
-    Wallet placeholder(String id, WalletPurpose purpose) => Wallet(
-      id: id,
-      name: purpose.defaultName ?? 'Set aside',
-      type: WalletType.other,
-      balance: 0,
-      startingBalance: 0,
-      receivesIncome: false,
-      archived: false,
-      sortOrder: 1000,
-      purpose: purpose,
-    );
-
-    return [
-      // Nothing can be added to a time deposit once it is placed; more money
-      // goes into a new one, made in Add Savings.
-      ...wallets.where((wallet) => !wallet.isLockedSavings),
-      if (WalletService.walletFor(wallets, WalletPurpose.bills) == null)
-        placeholder(_newBills, WalletPurpose.bills),
-      if (WalletService.walletFor(wallets, WalletPurpose.savings) == null)
-        placeholder(_newSavings, WalletPurpose.savings),
-    ];
   }
 
   @override
@@ -224,6 +202,10 @@ class _TransferSheetState extends State<TransferSheet>
 
               final from = _fromId ?? defaultWalletId(wallets);
               final source = _walletById(wallets, from);
+              final free = source == null
+                  ? null
+                  : freeInWallet(source, heldGoals);
+              final error = triedToSave ? _problem(source, wallets) : null;
 
               return Form(
                 key: _formKey,
@@ -253,68 +235,46 @@ class _TransferSheetState extends State<TransferSheet>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Move money you already have from one wallet to another. '
+                      'Move money you already have from one wallet to others. '
                       'Your total stays the same.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: context.appColors.textMuted,
-                      ),
+                      style: TextStyle(fontSize: 13, color: colors.textMuted),
                     ),
                     const SizedBox(height: 20),
-                    if (wallets.isEmpty)
+                    if (wallets.length < 2)
                       _NeedsTwoWallets(walletCount: wallets.length)
                     else ...[
                       WalletPicker(
                         wallets: wallets,
                         selectedId: from,
                         label: 'From',
-                        // Moving money on purpose is the one place every
-                        // wallet may be picked, in either direction.
+                        // Moving money on purpose is the one place savings
+                        // can be picked as the source.
                         allowed: WalletPurpose.values.toSet(),
                         goals: heldGoals,
+                        helper: source == null || free == null
+                            ? null
+                            : free < source.balance - 0.005
+                            ? '${source.name} has ${formatPeso(free)} free '
+                                  'to move'
+                            : '${source.name} holds '
+                                  '${formatPeso(source.balance)}',
                         onChanged: (value) => setState(() {
                           _fromId = value;
-                          if (_toId == value) _toId = null;
+                          _to = {..._to}..remove(value);
                         }),
                       ),
                       const SizedBox(height: 16),
-                      WalletPicker(
-                        wallets: _destinations(wallets),
-                        selectedId: _toId,
-                        label: 'To',
-                        excludeId: from,
-                        allowed: WalletPurpose.values.toSet(),
+                      WalletSplitPicker(
+                        key: const ValueKey('transfer-to'),
+                        wallets: wallets,
                         goals: heldGoals,
-                        onChanged: (value) => setState(() => _toId = value),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _amountController,
-                        autofocus: true,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: const [ThousandsSeparatorFormatter()],
-                        decoration: InputDecoration(
-                          labelText: 'Amount',
-                          prefixText: '₱ ',
-                          hintText: '0.00',
-                          // What can be moved: goal money stays put.
-                          helperText: source == null
-                              ? null
-                              : freeInWallet(source, heldGoals) <
-                                    source.balance - 0.005
-                              ? '${source.name} has '
-                                    '${formatPeso(freeInWallet(source, heldGoals))} '
-                                    'free to move'
-                              : '${source.name} holds '
-                                    '${formatPeso(source.balance)}',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        validator: (value) =>
-                            _validateAmount(value, source: source),
+                        purpose: SplitPurpose.receiving,
+                        question: 'Where is it going?',
+                        includeSavings: true,
+                        excludeWalletId: from,
+                        initialAmounts: _to,
+                        totalLabel: 'Moving',
+                        onChanged: (amounts) => setState(() => _to = amounts),
                       ),
                       const SizedBox(height: 8),
                       ServiceChargeField(
@@ -344,12 +304,23 @@ class _TransferSheetState extends State<TransferSheet>
                           ),
                         ),
                       ),
+                      if (error != null) ...[
+                        Text(
+                          error,
+                          key: const Key('transfer-error'),
+                          style: TextStyle(
+                            color: dangerColorOn(context),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         height: 52,
                         child: ElevatedButton(
-                          onPressed: () => _save(from, wallets),
+                          onPressed: () => _save(source, wallets),
                           style: confirmButtonStyle(),
                           child: const Text(
                             'Transfer',
@@ -369,40 +340,6 @@ class _TransferSheetState extends State<TransferSheet>
         ),
       ),
     );
-  }
-
-  /// A transfer only moves money that is already there, so it is capped at
-  /// the source wallet's balance rather than pushing it negative.
-  String? _validateAmount(String? value, {required Wallet? source}) {
-    final amount = double.tryParse((value ?? '').trim().replaceAll(',', ''));
-
-    if (amount == null || !isRecordableAmount(amount)) {
-      return minimumAmountError;
-    }
-
-    // The service charge comes out of the same wallet, so it counts too.
-    final charge = _charge;
-    final total = amount + charge;
-    final withCharge = charge > 0
-        ? 'With the ${formatPeso(charge)} service charge, that is '
-              '${formatPeso(total)}. '
-        : '';
-
-    if (source != null && total > source.balance + 0.005) {
-      return '$withCharge${source.name} only holds '
-          '${formatPeso(source.balance)}.';
-    }
-
-    // Money set aside for a goal stays where it is until it is taken out of
-    // the goal.
-    final free = source == null ? null : freeInWallet(source, heldGoals);
-    if (source != null && free != null && total > free + 0.005) {
-      return '$withCharge${source.name} has ${formatPeso(free)} free to move. '
-          'The other ${formatPeso(source.balance - free)} is set aside for '
-          'goals.';
-    }
-
-    return null;
   }
 
   static Wallet? _walletById(List<Wallet> wallets, String? id) {

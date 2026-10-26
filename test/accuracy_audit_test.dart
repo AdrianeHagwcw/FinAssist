@@ -196,11 +196,7 @@ void main() {
   testWidgets('Wallets says the same, as a sum', (tester) async {
     await pump(
       tester,
-      WalletsScreen(
-        wallets: Stream.value(wallets),
-        incomeSource: Stream.value(null),
-        goals: Stream.value(goals),
-      ),
+      WalletsScreen(wallets: Stream.value(wallets), goals: Stream.value(goals)),
     );
 
     expect(find.text('₱19,000'), findsOneWidget);
@@ -231,11 +227,11 @@ void main() {
           goals: Stream.value(goals),
           initialFromWalletId: 'cash',
           initialToWalletId: 'gotyme',
+          initialAmount: 3000,
           onSave:
               ({
                 required String fromWalletId,
-                required String toWalletId,
-                required double amount,
+                required Map<String, double> to,
                 required double serviceCharge,
               }) {},
         ),
@@ -244,10 +240,7 @@ void main() {
 
     // Cash holds ₱10,000, but ₱8,000 of it is Graduation's.
     expect(find.text('Cash has ₱2,000 free to move'), findsOneWidget);
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Amount'),
-      '3000',
-    );
+    await tester.ensureVisible(find.text('Transfer').last);
     await tester.tap(find.text('Transfer').last);
     await tester.pump();
     expect(

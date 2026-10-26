@@ -153,14 +153,14 @@ class _HomeScreenState extends State<HomeScreen> {
         (widget.onOpenWallets ?? () => _push(const WalletsScreen()))();
         return;
       case VoiceDestination.savings:
-        (widget.onOpenSavings ?? () => _openSetAside(SetAsidePart.savings))();
+        (widget.onOpenSavings ?? _openSavings)();
         return;
       case VoiceDestination.debts:
         (widget.onOpenDebts ??
             () => _push(const BillCalendarScreen(initialShowDebts: true)))();
         return;
       case VoiceDestination.goals:
-        (widget.onOpenSavings ?? () => _openSetAside(SetAsidePart.savings))();
+        (widget.onOpenSavings ?? _openSavings)();
         return;
       case VoiceDestination.reports:
         _push(const ReportsScreen());
@@ -343,9 +343,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Opens the balance the user tapped: the bills wallet or the savings one.
-  void _openSetAside(SetAsidePart part) =>
-      _push(SetAsideScreen(initialPart: part));
+  /// Opens the user's savings.
+  void _openSavings() => _push(const SetAsideScreen());
 
   Widget _quickActions() {
     Widget tile(String asset, String title, VoidCallback onTap) {
@@ -401,8 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
       (
         asset: 'assets/icons/icons8-money-box-96.png',
         title: 'Savings',
-        onTap:
-            widget.onOpenSavings ?? () => _openSetAside(SetAsidePart.savings),
+        onTap: widget.onOpenSavings ?? _openSavings,
       ),
       (
         asset: 'assets/icons/icons8-goal-96.png',
@@ -483,14 +481,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _leftoverNotice(BuildContext context, SafeToSpendInputs inputs) {
-    final cycle = cycleAwaitingReview(
-      inputs.cycles,
-      null,
-      now: DateTime.now(),
-    );
+    final cycle = cycleAwaitingReview(inputs.cycles, now: DateTime.now());
     if (cycle == null) return const SizedBox.shrink();
 
-    final period = periodOf(cycle, null);
+    final period = periodOf(cycle);
     final leftover = leftoverOf(cycle, inputs.transactions, period);
     if (leftover <= 0) return const SizedBox.shrink();
 
@@ -1019,8 +1013,8 @@ class _TotalBalanceCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Not included: money set aside for bills, '
-                          'installments, or savings.',
+                          'Money in Savings is not included.\n'
+                          'Bills are taken out when you pay them.',
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.4,

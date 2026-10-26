@@ -80,11 +80,9 @@ void main() {
       expect(suggestion.dailyCosts, 1700);
       expect(suggestion.amount, 730);
     });
-    test('bill money is not deducted twice or added as spendable money', () {
-      expect(
-        SavingsSuggestion.from(records(billsMoney: 3000)).available,
-        10000,
-      );
+    test('bills still due this month are held back in full', () {
+      // ₱10,000 in the wallets, ₱1,500 of bills not paid yet.
+      expect(SavingsSuggestion.from(records(billsMoney: 0)).available, 8500);
     });
     test('cannot suggest saving when obligations exceed the balance', () {
       expect(SavingsSuggestion.from(records(balance: 100)).amount, 0);
@@ -240,10 +238,10 @@ void main() {
         'Anong formula ang ginamit?',
         records: records(),
       );
-      expect(reply.text, contains('₱1,000'));
+      expect(reply.text, contains('bills still to pay this month ₱1,500'));
       expect(reply.text, contains('₱505.56'));
       expect(reply.text, contains('₱405.56'));
-      expect(reply.text, contains('does not restart'));
+      expect(reply.text, contains('through the end of this calendar month'));
     });
     test('specific savings formula agrees with the savings suggestion', () {
       final reply = answerChat(
@@ -293,7 +291,7 @@ void main() {
           'Anong formula?',
           records: records(frequency: 'Irregular'),
         ).text,
-        contains('through the end of this month'),
+        contains('through the end of this calendar month'),
       );
     });
     test('no records means no invented personal figures', () {
@@ -355,18 +353,33 @@ void main() {
         theme: AppTheme.light,
         home: Scaffold(
           body: TransferSheet(
-            wallets: Stream.value([wallet('Cash', 1000)]),
-            initialToWalletId: TransferSheet.newSavingsWalletId,
+            wallets: Stream.value([
+              wallet('Cash', 1000),
+              Wallet(
+                id: 'savings',
+                name: 'BPI Savings',
+                type: WalletType.bank,
+                balance: 0,
+                startingBalance: 0,
+                receivesIncome: false,
+                archived: false,
+                sortOrder: 1,
+                purpose: WalletPurpose.savings,
+              ),
+            ]),
+            initialToWalletId: 'savings',
             initialAmount: 730,
           ),
         ),
       ),
     );
     await tester.pump();
-    expect(find.text('730'), findsOneWidget);
-    await tester.enterText(find.byType(TextFormField).first, '500');
+    // The suggested amount is filled in on the savings account, and stays
+    // editable.
+    final field = find.byKey(const Key('goes-to-savings'));
+    expect(find.descendant(of: field, matching: find.text('730')), findsOne);
+    await tester.enterText(field, '500');
     expect(find.text('500'), findsOneWidget);
-    expect(find.text('Savings'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -158,7 +158,6 @@ void main() {
       bills: const [],
       goals: const [],
       cycles: const [],
-      incomeFrequency: 'Monthly',
       transactions: transactions,
       now: DateTime(2026, 10, 26, 10),
     ).where((r) => r.key.startsWith('installment-interest')).toList();

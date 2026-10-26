@@ -491,7 +491,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         _buildActionTile(
                           iconAsset: 'assets/icons/icons8-calendar-96.png',
-                          title: 'Total Cash-in flows',
+                          title: 'Cash Inflows',
                           onTap: () => _open(const HistoryScreen()),
                         ),
                         const Divider(height: 1, indent: 65),

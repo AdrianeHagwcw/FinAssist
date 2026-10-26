@@ -49,9 +49,7 @@ class SavingsSuggestion {
     // limit calculation, no amount is added back here.
     final available = math.max(
       0.0,
-      records.walletBalance -
-          math.max(0.0, s.billsDue - s.billsWalletBalance) -
-          s.goalSavings,
+      records.walletBalance - math.max(0.0, s.billsDue) - s.goalSavings,
     );
     if (!hasHistory) {
       return SavingsSuggestion(
@@ -66,7 +64,8 @@ class SavingsSuggestion {
         discretionarySpending(records.transactions, from: first, until: end) /
         (records.today.difference(first).inDays + 1);
     // Overspending today must not consume the allowance for future days.
-    final dailyCosts = average * math.max(0, s.daysLeft - 1) +
+    final dailyCosts =
+        average * math.max(0, s.daysLeft - 1) +
         math.max(0.0, average - s.spentToday);
     final remaining = math.max(0.0, available - dailyCosts);
     // Leave 90% of the remainder as a buffer. Round down to a centavo so

@@ -1231,7 +1231,6 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) => BillFormSheet(
-        wallets: Stream.value(const <Wallet>[]),
         onSave:
             ({
               required name,
@@ -1277,7 +1276,6 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
           firstDueDate: existing.firstDueDate,
           recurrence: existing.recurrence,
         ),
-        wallets: Stream.value(const <Wallet>[]),
         onSave:
             ({
               required name,

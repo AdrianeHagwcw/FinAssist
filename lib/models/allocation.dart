@@ -47,7 +47,6 @@ class AllocationPlan {
   const AllocationPlan({
     required this.income,
     this.bills = const [],
-    this.billsSetAside,
     this.goal,
     this.goalAmount = 0,
     this.serviceCharge = 0,
@@ -56,25 +55,17 @@ class AllocationPlan {
   final double income;
   final List<BillAllocation> bills;
 
-  /// Money to transfer into the Bills wallet without paying bill instances.
-  /// Used by salary income, where the user chooses one amount for upcoming
-  /// bills instead of making a payment decision for every bill.
-  final double? billsSetAside;
-
   /// The goal some of this income is set aside for, if any.
   final Goal? goal;
   final double goalAmount;
 
-  /// What the bank, e-wallet or biller charged for paying these bills, as
-  /// on Pay Bill. Optional, and only counted while a bill is being paid.
+  /// What the wallets paying these bills were charged for it, all together,
+  /// as on Pay Bill. Optional, and only counted while a bill is being paid.
   final double serviceCharge;
 
-  /// [serviceCharge] while bills are paid one by one here; nothing when they
-  /// are only set aside, since nothing is paid yet.
+  /// [serviceCharge], while a bill is being paid.
   double get billsServiceCharge =>
-      billsSetAside == null && toBills > 0 && serviceCharge > 0
-      ? serviceCharge
-      : 0;
+      toBills > 0 && serviceCharge > 0 ? serviceCharge : 0;
 
   /// Set aside for the goal this cycle.
   double get toGoal => goal == null || goalAmount <= 0 ? 0 : goalAmount;
@@ -85,11 +76,9 @@ class AllocationPlan {
   double get afterBills => income - toBills - billsServiceCharge;
 
   /// Total going to bills this cycle.
-  double get toBills =>
-      billsSetAside ??
-      bills
-          .where((bill) => bill.pays)
-          .fold<double>(0, (total, bill) => total + bill.amount);
+  double get toBills => bills
+      .where((bill) => bill.pays)
+      .fold<double>(0, (total, bill) => total + bill.amount);
 
   /// What is left of the income after bills. Negative means the bills chosen
   /// cost more than came in, and the difference comes out of money already in
@@ -123,15 +112,6 @@ class AllocationPlan {
       problems.add('Enter the service charge, or turn it off.');
     }
 
-    final setAside = billsSetAside;
-    if (setAside != null) {
-      if (!setAside.isFinite || setAside < 0) {
-        problems.add('Enter a valid amount to put into the Bills wallet.');
-      } else if (setAside > income + 0.005) {
-        problems.add('You cannot set aside more than this income.');
-      }
-    }
-
     final goal = this.goal;
     if (goal != null) {
       if (!goalAmount.isFinite || goalAmount < 0) {
@@ -150,7 +130,6 @@ class AllocationPlan {
     return AllocationPlan(
       income: income ?? this.income,
       bills: bills ?? this.bills,
-      billsSetAside: billsSetAside,
       goal: goal,
       goalAmount: goalAmount,
       serviceCharge: serviceCharge,
@@ -280,7 +259,7 @@ class AllocationCycle {
 
 /// The calendar month an income entry belongs to. Legacy saved pay-period
 /// bounds and profile schedules are intentionally ignored.
-PayPeriod periodOf(AllocationCycle cycle, String? frequency) =>
+PayPeriod periodOf(AllocationCycle cycle) =>
     payPeriodFor(null, now: cycle.receivedAt);
 
 /// What is left of a cycle's income: what was left after bills, less what was
@@ -318,8 +297,7 @@ double spentInCycle(
 /// The newest cycle whose period is on its last day or already over and whose
 /// leftover hasn't been decided, or null when nothing is waiting.
 AllocationCycle? cycleAwaitingReview(
-  Iterable<AllocationCycle> cycles,
-  String? frequency, {
+  Iterable<AllocationCycle> cycles, {
   required DateTime now,
 }) {
   final newestFirst = cycles.toList()
@@ -328,7 +306,7 @@ AllocationCycle? cycleAwaitingReview(
   for (final cycle in newestFirst) {
     if (cycle.isResolved) continue;
 
-    final period = periodOf(cycle, frequency);
+    final period = periodOf(cycle);
     if (period.isLastDay(now) || !now.isBefore(period.end)) return cycle;
   }
 

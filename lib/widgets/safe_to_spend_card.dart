@@ -251,7 +251,6 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       safeToSpend: SafeToSpend(
         walletBalance: totalWalletBalance(wallets),
         billsDue: billsDueBefore(_bills, period.end),
-        billsWalletBalance: walletBalanceFor(wallets, WalletPurpose.bills),
         goalSavings: totalSetAsideInSpendingWallets(_goalsData, wallets),
         spentToday: discretionarySpending(
           transactions,
@@ -303,14 +302,7 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
                   if (s.spentToday > 0)
                     _Working('What you spent today', s.spentToday, add: true),
                   if (s.billsDue > 0)
-                    _Working(
-                      'Bills not yet covered',
-                      (s.billsDue - s.billsWalletBalance).clamp(
-                        0.0,
-                        double.infinity,
-                      ),
-                      take: true,
-                    ),
+                    _Working('Bills still to pay', s.billsDue, take: true),
                   if (s.goalSavings > 0)
                     _Working('Saved for your goals', s.goalSavings, take: true),
                   if (takesSomeOff) ...[
@@ -541,7 +533,7 @@ class _HeroCard extends StatelessWidget {
                     ),
                     Text(
                       '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'} left '
-                      'this period',
+                      'this month',
                       style: TextStyle(
                         fontSize: 12,
                         color: context.appColors.textMuted,

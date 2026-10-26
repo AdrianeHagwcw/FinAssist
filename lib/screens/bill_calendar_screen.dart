@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/bill.dart';
+import '../models/goal.dart';
+import '../providers/app_settings_provider.dart';
+import '../models/wallet.dart';
 import '../services/bill_service.dart';
+import '../services/goal_service.dart';
+import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../widgets/back_to_home.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
+import '../utils/money_format.dart';
 import 'bill_detail_screen.dart';
 import '../widgets/bill_form_sheet.dart';
 import '../widgets/bill_status_badge.dart';
@@ -39,6 +46,8 @@ class BillCalendarScreen extends StatefulWidget {
     this.ensureInstances,
     this.today,
     this.initialShowDebts = false,
+    this.wallets,
+    this.goals,
     super.key,
   });
 
@@ -58,6 +67,11 @@ class BillCalendarScreen extends StatefulWidget {
   /// Opens the combined Bills and Debts page on the debt list.
   final bool initialShowDebts;
 
+  /// Replace the live wallets and goals, for whether this month's bills are
+  /// covered. Used by tests.
+  final Stream<List<Wallet>>? wallets;
+  final Stream<List<Goal>>? goals;
+
   @override
   State<BillCalendarScreen> createState() => _BillCalendarScreenState();
 }
@@ -66,6 +80,18 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
   late final DateTime _today = _dateOnly(widget.today ?? DateTime.now());
   late final Stream<List<Bill>> _bills =
       widget.bills ?? BillService.watchBills();
+
+  // A test that hands in its bills has no Firebase behind the rest.
+  late final Stream<List<Wallet>> _wallets =
+      widget.wallets ??
+      (widget.bills == null
+          ? WalletService.watchWallets()
+          : const Stream<List<Wallet>>.empty());
+  late final Stream<List<Goal>> _goals =
+      widget.goals ??
+      (widget.bills == null
+          ? GoalService.watchGoals()
+          : const Stream<List<Goal>>.empty());
 
   late DateTime _month = DateTime(_today.year, _today.month);
   late DateTime? _selectedDay = _today;
@@ -202,7 +228,30 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
                 onPrevious: () => _changeMonth(-1),
                 onNext: () => _changeMonth(1),
               ),
-              _MonthSummary(instances: instances, today: _today),
+              // Whether what is free to spend covers what this month still
+              // owes. Only for the month being lived in.
+              StreamBuilder<List<Wallet>>(
+                stream: _wallets,
+                builder: (context, walletSnapshot) => StreamBuilder<List<Goal>>(
+                  stream: _goals,
+                  builder: (context, goalSnapshot) {
+                    final wallets = walletSnapshot.data;
+                    final isThisMonth =
+                        _month.year == _today.year &&
+                        _month.month == _today.month;
+                    return _MonthSummary(
+                      instances: instances,
+                      today: _today,
+                      available: wallets == null || !isThisMonth
+                          ? null
+                          : availableBalance(
+                              wallets,
+                              goalSnapshot.data ?? const [],
+                            ),
+                    );
+                  },
+                ),
+              ),
               Expanded(
                 child: _showAsList
                     ? _BillList(instances: instances, today: _today)
@@ -265,12 +314,21 @@ class _MonthHeader extends StatelessWidget {
   }
 }
 
-/// What this month costs, and how much of it is still hanging over the user.
+/// What this month costs, how much of it is still hanging over the user,
+/// and whether the money free to spend covers it.
 class _MonthSummary extends StatelessWidget {
-  const _MonthSummary({required this.instances, required this.today});
+  const _MonthSummary({
+    required this.instances,
+    required this.today,
+    this.available,
+  });
 
   final List<BillInstance> instances;
   final DateTime today;
+
+  /// The Available Balance, or null when it is not compared, as for a month
+  /// other than this one.
+  final double? available;
 
   @override
   Widget build(BuildContext context) {
@@ -297,24 +355,78 @@ class _MonthSummary extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: context.appColors.border),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SummaryFigure(label: 'Due this month', amount: total),
-          Container(
-            width: 1,
-            height: 34,
-            color: context.appColors.border,
-            margin: const EdgeInsets.symmetric(horizontal: 12),
+          Row(
+            children: [
+              _SummaryFigure(label: 'Due this month', amount: total),
+              Container(
+                width: 1,
+                height: 34,
+                color: context.appColors.border,
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              _SummaryFigure(
+                label: overdue > 0
+                    ? 'Still owing ($overdue overdue)'
+                    : 'Still owing',
+                amount: unpaid,
+                color: overdue > 0 ? Colors.red : null,
+              ),
+            ],
           ),
-          _SummaryFigure(
-            label: overdue > 0
-                ? 'Still owing ($overdue overdue)'
-                : 'Still owing',
-            amount: unpaid,
-            color: overdue > 0 ? Colors.red : null,
-          ),
+          if (available != null && unpaid > 0.005) ...[
+            Divider(height: 20, color: context.appColors.border),
+            _Coverage(owing: unpaid, available: available!),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// "Covered" or "Short by", against the money free to spend, so the user
+/// sees whether this month's bills can be paid without checking each wallet.
+class _Coverage extends StatelessWidget {
+  const _Coverage({required this.owing, required this.available});
+
+  final double owing;
+  final double available;
+
+  @override
+  Widget build(BuildContext context) {
+    final short = owing - available;
+    final covered = short <= 0.005;
+    // Hidden amounts stay hidden here too.
+    final masked = context.select<AppSettingsProvider, bool>(
+      (settings) => settings.amountsMasked,
+    );
+    String peso(double amount) => formatPeso(amount, masked: masked);
+    final color = covered ? confirmColorOn(context) : dangerColorOn(context);
+
+    return Row(
+      key: const Key('bills-coverage'),
+      children: [
+        Icon(
+          covered ? Icons.check_circle_outline : Icons.error_outline,
+          size: 18,
+          color: color,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            covered
+                ? 'Covered · ${peso(available)} available'
+                : 'Short by ${peso(short)} · ${peso(available)} available',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

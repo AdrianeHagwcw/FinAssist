@@ -2,9 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'app_transaction.dart';
 
-const billsPlaceholderWalletId = 'new:bills';
-const savingsPlaceholderWalletId = 'new:savings';
-
 /// Kind of money holder. Decides the wallet's icon and default name.
 enum WalletType {
   cash('Cash', 'assets/icons/icons8-banknotes-96.png'),
@@ -116,9 +113,10 @@ const String interestIncomeLabel = 'Interest';
 
 /// What a wallet is for.
 ///
-/// Money kept for bills and for savings sits in its own wallet, so the balance
-/// the user sees is only what is theirs to spend. Those two are left out of
-/// the total balance and out of Safe to Spend.
+/// Savings sit in their own records, so the balance the user sees is only
+/// what is theirs to spend: savings are left out of the Available Balance
+/// and out of Safe to Spend. [bills] is only read from wallets made before
+/// bills were paid straight from cash and banks; it is spent like any other.
 enum WalletPurpose {
   spending,
   bills('Bills', 'assets/icons/icons8-receipt-96.png'),
@@ -150,16 +148,10 @@ enum SavingsKind {
     "Earns interest. Taking money out follows your bank's rules.",
   ),
   demandDeposit('Demand Deposit', 'No interest. You can withdraw anytime.'),
-  general('General savings', 'Cash, an envelope, money kept by hand'),
-  account('Savings account', 'Money you keep in a bank or e-wallet account'),
   timeDeposit(
     'Time Deposit',
     'Earns interest, but stays locked until an end date. Taking it out '
         'early may cost you.',
-  ),
-  government(
-    'Government savings',
-    'SSS, Pag-IBIG MP2 or GSIS. You cannot take it out anytime.',
   );
 
   const SavingsKind(this.label, this.hint);
@@ -171,29 +163,23 @@ enum SavingsKind {
 
   /// Money that cannot simply be withdrawn today. It is still savings, but
   /// it should never read as cash the user could spend this week.
-  bool get isLockedAway =>
-      this == SavingsKind.timeDeposit || this == SavingsKind.government;
+  bool get isLockedAway => this == SavingsKind.timeDeposit;
 
   bool get isInterestBearing =>
       this == SavingsKind.timeDeposit || this == SavingsKind.savingsDeposit;
 
-  /// Reads a stored name, including the kinds used before these three:
-  /// an emergency fund is a goal now, so its money is general savings.
+  /// Reads a stored name. Kinds from before these three are read as the
+  /// closest one: government savings is locked like a time deposit, and
+  /// anything else is a savings deposit.
   static SavingsKind fromName(String? name) {
     switch (name) {
-      case 'savingsDeposit':
-        return SavingsKind.savingsDeposit;
       case 'demandDeposit':
         return SavingsKind.demandDeposit;
-      case 'account':
-      case 'savingsAccount':
-        return SavingsKind.account;
       case 'timeDeposit':
-        return SavingsKind.timeDeposit;
       case 'government':
-        return SavingsKind.government;
+        return SavingsKind.timeDeposit;
       default:
-        return SavingsKind.general;
+        return SavingsKind.savingsDeposit;
     }
   }
 }
@@ -442,9 +428,8 @@ class Wallet {
     return day.isAfter(DateTime(now.year, now.month, now.day)) ? day : null;
   }
 
-  /// True for the bills and savings wallets, whose money is no longer the
-  /// user's to spend.
-  bool get isSetAside => purpose != WalletPurpose.spending;
+  /// True for savings, whose money is kept rather than spent.
+  bool get isSetAside => purpose == WalletPurpose.savings;
 
   /// Savings the user cannot simply take out: a time deposit before its date,
   /// or money with SSS, GSIS or Pag-IBIG. Counting it with ordinary savings
@@ -639,16 +624,15 @@ void sortWallets(List<Wallet> wallets) {
 }
 
 /// The money the user still has to spend: every wallet that isn't archived,
-/// leaving out the bills and savings wallets, whose money is already
-/// committed. This is the figure shown as the total balance.
+/// leaving out savings, which is kept rather than spent.
 double totalWalletBalance(Iterable<Wallet> wallets) {
   return wallets
       .where((wallet) => !wallet.archived && !wallet.isSetAside)
       .fold<double>(0, (total, wallet) => total + wallet.balance);
 }
 
-/// What is held in the bills and savings wallets, shown beside the total
-/// balance so the user can still see it is there.
+/// What is held in savings, shown apart from the total balance so the user
+/// can still see it is there.
 double setAsideWalletBalance(Iterable<Wallet> wallets) {
   return wallets
       .where((wallet) => !wallet.archived && wallet.isSetAside)

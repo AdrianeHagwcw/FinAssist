@@ -201,18 +201,14 @@ class SafeToSpend {
     this.periodBudget,
     this.periodSpent = 0,
     this.periodLengthDays,
-    this.billsWalletBalance = 0,
   });
 
   /// Everything in the user's wallets right now.
   final double walletBalance;
 
-  /// Owed on bills before the period ends.
+  /// Owed on bills before the period ends. Bills are paid straight from
+  /// the wallets, so all of it is held back from spending.
   final double billsDue;
-
-  /// What is already waiting in the bills wallet. Bills covered by it are not
-  /// taken out of spending money a second time.
-  final double billsWalletBalance;
 
   /// Money set aside for goals, which stays in the wallets but isn't
   /// spendable.
@@ -239,14 +235,10 @@ class SafeToSpend {
   /// of today. Today's own spending is added back, because the balance has
   /// already dropped by it and it is counted separately below.
   double get spendableThisPeriod {
-    // Bills already funded from the bills wallet are not taken out of
-    // spending money again; only what that wallet cannot cover is.
-    final billsShortfall = billsDue - billsWalletBalance;
-
     final walletAmount =
         walletBalance +
         spentToday -
-        (billsShortfall > 0 ? billsShortfall : 0) -
+        (billsDue > 0 ? billsDue : 0) -
         goalSavings;
     final availableFromWallet = walletAmount > 0 ? walletAmount : 0.0;
     final budget = periodBudget;

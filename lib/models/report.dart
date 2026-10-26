@@ -10,7 +10,6 @@ import '../utils/money_format.dart';
 /// paid: someone paid on the 15th and the 30th lives in two stretches a
 /// month, and a report cut to the calendar splits their money in half.
 enum ReportRange {
-  cycle('Between payments'),
   week('This week'),
   month('This month'),
   quarter('Quarter'),
@@ -23,7 +22,6 @@ enum ReportRange {
 
   /// The word for one of these in a sentence.
   String get unit => switch (this) {
-    ReportRange.cycle => 'cycle',
     ReportRange.week => 'week',
     ReportRange.month => 'month',
     ReportRange.quarter => 'quarter',
@@ -88,10 +86,7 @@ class ReportPeriod {
   /// The period of the same kind just before this one: the week before, the
   /// month before, and so on.
   ///
-  /// A pay cycle steps back by its own length rather than by asking the
-  /// profile again. Every cycle but a monthly one is a fixed number of days,
-  /// so this lands on the right stretch without dragging pay settings into
-  /// the model.
+  /// A custom stretch steps back by its own length.
   ReportPeriod previous(ReportRange range) {
     switch (range) {
       case ReportRange.week:
@@ -102,7 +97,6 @@ class ReportPeriod {
         return ReportPeriod.quarterOf(DateTime(start.year, start.month - 3));
       case ReportRange.year:
         return ReportPeriod.yearOf(DateTime(start.year - 1));
-      case ReportRange.cycle:
       case ReportRange.custom:
         final days = end.difference(start).inDays + 1;
         return ReportPeriod(

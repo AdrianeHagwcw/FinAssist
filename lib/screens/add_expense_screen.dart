@@ -16,7 +16,7 @@ import '../theme/app_colors.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/check_after_save.dart';
 import '../widgets/dialog_kit.dart';
-import '../widgets/wallet_picker.dart';
+import '../widgets/wallet_split_picker.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 
@@ -74,7 +74,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
 
   final TextEditingController _descriptionController = TextEditingController();
 
-
   // =========================================================
   // SELECTED VALUES
   // =========================================================
@@ -85,9 +84,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
   /// better suggestion may replace it as the description changes.
   bool _categoryIsSuggestion = false;
 
-  /// Which wallet this expense is paid from. Null only while the wallets are
-  /// still loading, or for a user who has none yet.
-  String? _walletId;
+  /// What each wallet paid of this expense, by id: never more than it has
+  /// free, and together exactly the amount.
+  Map<String, double> _paidFrom = const {};
   List<Wallet> _wallets = const [];
   StreamSubscription<List<Wallet>>? _walletsSubscription;
 
@@ -154,12 +153,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
         .listen((wallets) {
           if (!mounted) return;
 
-          setState(() {
-            _wallets = wallets;
-            if (!widget.requireWalletSelection) {
-              _walletId ??= defaultWalletId(wallets);
-            }
-          });
+          setState(() => _wallets = wallets);
         });
     // Tests that hand in wallets have no goals behind them.
     _goalsSubscription =
@@ -206,24 +200,26 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
       ? 'Please enter a description.'
       : null;
 
-  // Users who have not added a wallet yet can still record the expense; it
-  // is kept as history and no balance moves.
-  String? get _walletProblem {
-    if ((_wallets.isEmpty && !widget.requireWalletSelection) ||
-        _walletId != null) {
-      return null;
-    }
-    return _wallets.isEmpty
-        ? 'Add a wallet before recording this expense.'
-        : 'Please choose which wallet this was paid from.';
-  }
+  double get _amount =>
+      double.tryParse(_amountController.text.trim().replaceAll(',', '')) ?? 0;
 
-  /// The wallet this expense is paid from, or null when there is none.
-  Wallet? get _selectedWallet {
-    for (final wallet in _wallets) {
-      if (wallet.id == _walletId) return wallet;
+  // Users who have not added a wallet yet can still record the expense; it
+  // is kept as history and no balance moves. Otherwise it comes out of the
+  // wallets it was paid from, each only up to what it has free.
+  String? get _walletProblem {
+    if (_wallets.isEmpty) {
+      return widget.requireWalletSelection
+          ? 'Add a wallet before recording this expense.'
+          : null;
     }
-    return null;
+    return walletSplitProblem(
+      purpose: SplitPurpose.paying,
+      amounts: _paidFrom,
+      wallets: _wallets,
+      goals: _goals,
+      target: _amount,
+      matchTarget: true,
+    );
   }
 
   // =========================================================
@@ -288,22 +284,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
         _walletProblem != null) {
       return;
     }
-    final amount = double.parse(
-      _amountController.text.trim().replaceAll(',', ''),
-    );
-
-    // More than the wallet has free is allowed, since money may have come
-    // in that isn't logged yet, or goal money may really be needed, but it
-    // is checked first so a typo such as 65000 for 6500 doesn't go through
-    // unnoticed.
-    final paidFrom = _selectedWallet;
-    if (!_isEditMode &&
-        paidFrom != null &&
-        amount > freeInWallet(paidFrom, _goals) + 0.005) {
-      final saveAnyway = await _confirmOverBalance(paidFrom, amount);
-      if (!mounted) return;
-      if (!saveAnyway) return;
-    }
+    final amount = _amount;
 
     // ---------------------------------------------------------
     // USER
@@ -332,7 +313,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
     // COMMON DATA
     // =======================================================
 
-    final wallet = _selectedWallet;
     final description = _descriptionController.text.trim();
     final note = description;
 
@@ -343,30 +323,21 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
     // EDIT EXISTING EXPENSE
     // =======================================================
 
-    if (_isEditMode) {
-      // Rewrites the matching wallet entry, putting back what the old version
-      // took out before applying the new amount.
-      WalletService.replaceTransaction(
-        id: widget.documentId!,
-        type: TransactionType.expense,
-        amount: amount,
-        label: _selectedCategory!,
-        walletId: wallet?.id,
-        note: note,
-        date: _selectedDate,
-      );
-    }
-    // =======================================================
-    // ADD NEW EXPENSE
-    // =======================================================
-    else {
-      // The wallet ledger is the only source for new records. Older records
-      // remain available through the one-time legacy import.
+    if (_paidFrom.isEmpty) {
+      // No wallets yet: kept as history, and no balance moves.
       WalletService.recordTransaction(
         type: TransactionType.expense,
         amount: amount,
         label: _selectedCategory!,
-        walletId: wallet?.id,
+        note: note,
+        date: _selectedDate,
+      );
+    } else {
+      // One expense from each wallet that paid part of it, saved together.
+      WalletService.recordSplit(
+        type: TransactionType.expense,
+        amounts: _paidFrom,
+        label: _selectedCategory!,
         note: note,
         date: _selectedDate,
       );
@@ -388,49 +359,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
     );
 
     Navigator.pop(context, true);
-  }
-
-  /// Asks before saving an expense larger than what [wallet] has free:
-  /// more than it holds, or reaching into money set aside for goals.
-  Future<bool> _confirmOverBalance(Wallet wallet, double amount) async {
-    final free = freeInWallet(wallet, _goals);
-    final forGoals = wallet.balance - free;
-    final overBalance = amount > wallet.balance + 0.005;
-
-    final save = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          overBalance
-              ? "More than what's in ${wallet.name}"
-              : 'This uses money set aside for goals',
-        ),
-        content: Text(
-          overBalance
-              ? 'This expense is ${formatPeso(amount)}, but ${wallet.name} '
-                    'has ${formatPeso(wallet.balance)}, so it would show '
-                    '${formatPeso(wallet.balance - amount)}. If money came in '
-                    "that isn't logged yet, add it as income too."
-              : 'Only ${formatPeso(free)} in ${wallet.name} is free to '
-                    'spend. The other ${formatPeso(forGoals)} is set aside '
-                    'for your goals, so ${formatPeso(amount - free)} of this '
-                    'would come out of it.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: cancelTextStyle(context),
-            child: const Text('Fix Amount'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: confirmTextStyle(context),
-            child: const Text('Save Anyway'),
-          ),
-        ],
-      ),
-    );
-    return save == true;
   }
 
   // =========================================================
@@ -653,16 +581,30 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
                         ),
                       ),
                     ],
-                  ] else
-                    WalletPicker(
+                  ] else ...[
+                    WalletSplitPicker(
+                      key: const ValueKey('expense-paid-from'),
                       wallets: _wallets,
-                      selectedId: _walletId,
-                      label: 'Paid from',
                       // What can be spent, not what goals hold.
                       goals: _goals,
-                      onChanged: (value) => setState(() => _walletId = value),
-                      errorText: triedToSave ? _walletProblem : null,
+                      purpose: SplitPurpose.paying,
+                      target: _amount,
+                      matchTarget: true,
+                      onChanged: (amounts) =>
+                          setState(() => _paidFrom = amounts),
                     ),
+                    if (triedToSave && _walletProblem != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _walletProblem!,
+                        key: const Key('expense-paid-from-error'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: dangerColorOn(context),
+                        ),
+                      ),
+                    ],
+                  ],
 
                   const SizedBox(height: 16),
 

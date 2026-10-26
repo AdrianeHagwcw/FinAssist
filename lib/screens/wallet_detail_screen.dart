@@ -26,7 +26,6 @@ class WalletDetailScreen extends StatefulWidget {
     required this.wallet,
     this.wallets,
     this.transactions,
-    this.incomeSource,
     this.goals,
     super.key,
   });
@@ -40,9 +39,6 @@ class WalletDetailScreen extends StatefulWidget {
 
   /// Replaces this wallet's live transactions. Used by tests.
   final Stream<List<AppTransaction>>? transactions;
-
-  /// Replaces the income source saved during onboarding, e.g. "Allowance".
-  final Stream<String?>? incomeSource;
 
   /// Replaces the live goals, for what they hold in this wallet. Used by
   /// tests.
@@ -157,11 +153,11 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
           body: Column(
             children: [
               StreamBuilder<List<Goal>>(
-                  stream: _goals,
-                  builder: (context, goalsSnapshot) => _WalletHeader(
-                    wallet: wallet,
-                    goals: goalsSnapshot.data ?? const [],
-                  ),
+                stream: _goals,
+                builder: (context, goalsSnapshot) => _WalletHeader(
+                  wallet: wallet,
+                  goals: goalsSnapshot.data ?? const [],
+                ),
               ),
               Expanded(
                 child: StreamBuilder<List<AppTransaction>>(
@@ -313,10 +309,7 @@ class _SavingsInterestSummary extends StatelessWidget {
 }
 
 class _WalletHeader extends StatelessWidget {
-  const _WalletHeader({
-    required this.wallet,
-    required this.goals,
-  });
+  const _WalletHeader({required this.wallet, required this.goals});
 
   final Wallet wallet;
   final List<Goal> goals;

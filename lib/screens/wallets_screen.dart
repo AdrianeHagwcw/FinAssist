@@ -19,7 +19,7 @@ import 'wallet_detail_screen.dart';
 
 /// The Wallet tab: the combined balance, then one card per wallet.
 class WalletsScreen extends StatefulWidget {
-  const WalletsScreen({this.wallets, this.incomeSource, this.goals, super.key});
+  const WalletsScreen({this.wallets, this.goals, super.key});
 
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
@@ -27,9 +27,6 @@ class WalletsScreen extends StatefulWidget {
   /// Replaces the live goals, for what they hold in each wallet. Used by
   /// tests.
   final Stream<List<Goal>>? goals;
-
-  /// Replaces the income source saved during onboarding, e.g. "Allowance".
-  final Stream<String?>? incomeSource;
 
   @override
   State<WalletsScreen> createState() => _WalletsScreenState();
@@ -127,50 +124,50 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
           final spending = wallets.where((w) => !w.isSetAside).toList();
 
           return ListView(
-                // Room for the bottom bar and the docked "+" button.
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
-                children: [
-                  const LegacyImportCard(),
-                  _TotalBalanceCard(
-                    total: spending.fold<double>(
-                      0,
-                      (sum, wallet) => sum + freeInWallet(wallet, heldGoals),
-                    ),
-                    inWallets: totalWalletBalance(wallets),
-                    walletCount: spending.length,
+            // Room for the bottom bar and the docked "+" button.
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
+            children: [
+              const LegacyImportCard(),
+              _TotalBalanceCard(
+                total: spending.fold<double>(
+                  0,
+                  (sum, wallet) => sum + freeInWallet(wallet, heldGoals),
+                ),
+                inWallets: totalWalletBalance(wallets),
+                walletCount: spending.length,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'My Wallets',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final wallet in spending) ...[
+                _WalletCard(
+                  wallet: wallet,
+                  forGoals: goalMoneyInWallet(heldGoals, wallet.id),
+                  onTap: () => _openWallet(wallet),
+                  onTransfer: () =>
+                      showTransferSheet(context, fromWalletId: wallet.id),
+                  onAddIncome: () =>
+                      showIncomeWaterfall(context, walletId: wallet.id),
+                  onEdit: () => editWallet(context, wallet),
+                  onSetIncomeWallet: () => WalletService.setIncomeWallet(
+                    wallet.id,
+                    currentWallets: wallets,
                   ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'My Wallets',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  for (final wallet in spending) ...[
-                    _WalletCard(
-                      wallet: wallet,
-                      forGoals: goalMoneyInWallet(heldGoals, wallet.id),
-                      onTap: () => _openWallet(wallet),
-                      onTransfer: () =>
-                          showTransferSheet(context, fromWalletId: wallet.id),
-                      onAddIncome: () =>
-                          showIncomeWaterfall(context, walletId: wallet.id),
-                      onEdit: () => editWallet(context, wallet),
-                      onSetIncomeWallet: () => WalletService.setIncomeWallet(
-                        wallet.id,
-                        currentWallets: wallets,
-                      ),
-                      onRemove: () => removeWallet(context, wallet),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  const SizedBox(height: 4),
-                  _AddWalletButton(onPressed: () => _addWallet(wallets)),
-                ],
-              );
+                  onRemove: () => removeWallet(context, wallet),
+                ),
+                const SizedBox(height: 12),
+              ],
+              const SizedBox(height: 4),
+              _AddWalletButton(onPressed: () => _addWallet(wallets)),
+            ],
+          );
         },
       ),
     );

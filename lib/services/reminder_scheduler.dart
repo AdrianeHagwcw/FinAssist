@@ -139,9 +139,6 @@ class ReminderScheduler {
         goals: _goals,
         wallets: _wallets,
         cycles: _cycles,
-        incomeFrequency: null,
-        incomeSource: null,
-        setupLastPayday: null,
         transactions: _transactions,
         now: now,
       );

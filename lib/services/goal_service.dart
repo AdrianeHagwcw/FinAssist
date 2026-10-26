@@ -364,6 +364,42 @@ class GoalService {
     DateTime? date,
   }) {
     final batch = _firestore.batch();
+    addContributionsToBatch(batch, goal: goal, amounts: amounts, date: date);
+    commitFirestoreWrite(batch.commit(), 'contribute to goal');
+  }
+
+  /// Takes money back out of a goal from several wallets at once. Nothing
+  /// moves: the money in each wallet is simply no longer marked for it.
+  static void takeOutFromWallets(
+    Goal goal,
+    Map<String, double> amounts, {
+    DateTime? date,
+  }) {
+    final batch = _firestore.batch();
+    var running = goal;
+    for (final entry in amounts.entries) {
+      if (entry.value <= 0) continue;
+      addContributionToBatch(
+        batch,
+        goal: running,
+        amount: -entry.value,
+        walletId: entry.key,
+        date: date,
+      );
+      running = running.withContribution(entry.key, -entry.value);
+    }
+    commitFirestoreWrite(batch.commit(), 'take money out of goal');
+  }
+
+  /// The batch counterpart of [contributeFromWallets], for income being
+  /// recorded: the money stays in each wallet, marked for the goal.
+  static void addContributionsToBatch(
+    WriteBatch batch, {
+    required Goal goal,
+    required Map<String, double> amounts,
+    DateTime? date,
+    String? cycleId,
+  }) {
     var running = goal;
     for (final entry in amounts.entries) {
       if (entry.value <= 0) continue;
@@ -373,10 +409,10 @@ class GoalService {
         amount: entry.value,
         walletId: entry.key,
         date: date,
+        cycleId: cycleId,
       );
       running = running.withContribution(entry.key, entry.value);
     }
-    commitFirestoreWrite(batch.commit(), 'contribute to goal');
   }
 
   /// The batch counterpart of [contribute], for the income waterfall.

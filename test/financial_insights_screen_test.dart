@@ -105,24 +105,19 @@ Future<void> _pumpReports(
 }
 
 void main() {
-  testWidgets('shows verified metrics and unavailable budget/forecast states', (
-    tester,
-  ) async {
+  testWidgets('shows plain insights, with no finance jargon', (tester) async {
     await _pumpReports(tester, assistant: _FakeFinancialAssistant());
 
-    expect(find.textContaining('Net cash flow this month'), findsOneWidget);
     expect(
-      find.textContaining('Net cash-flow savings rate: 80.0%'),
+      find.text('Food spending is 33% lower than your recent average.'),
       findsOneWidget,
     );
     expect(
-      find.textContaining('Budget utilization: unavailable'),
+      find.text('You kept 80% of what came in this month.'),
       findsOneWidget,
     );
-    expect(
-      find.textContaining('Spending forecast unavailable'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Net cash flow'), findsNothing);
+    expect(find.textContaining('Budget utilization'), findsNothing);
   });
 
   testWidgets('requests personalized suggestions only when tapped', (
@@ -132,7 +127,7 @@ void main() {
     await _pumpReports(tester, assistant: assistant);
 
     expect(assistant.insightRequests, 0);
-    await tester.tap(find.text('Get AI saving suggestions'));
+    await tester.tap(find.text('Get AI suggestions'));
     await tester.pump();
     await tester.pump();
 
@@ -143,13 +138,13 @@ void main() {
     );
   });
 
-  testWidgets('surfaces suggestion failures without hiding verified metrics', (
+  testWidgets('surfaces suggestion failures without hiding the insights', (
     tester,
   ) async {
     final assistant = _FakeFinancialAssistant()..fail = true;
     await _pumpReports(tester, assistant: assistant);
 
-    await tester.tap(find.text('Get AI saving suggestions'));
+    await tester.tap(find.text('Get AI suggestions'));
     await tester.pump();
     await tester.pump();
 
@@ -157,6 +152,9 @@ void main() {
       find.textContaining('Gemini suggestions are unavailable right now'),
       findsOneWidget,
     );
-    expect(find.textContaining('Net cash flow this month'), findsOneWidget);
+    expect(
+      find.text('You kept 80% of what came in this month.'),
+      findsOneWidget,
+    );
   });
 }

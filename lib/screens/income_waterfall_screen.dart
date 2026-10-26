@@ -20,9 +20,8 @@ import '../utils/money_format.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/dialog_kit.dart';
-import '../widgets/service_charge_field.dart';
-import '../widgets/wallet_picker.dart';
 import '../widgets/wallet_form_sheet.dart';
+import '../widgets/wallet_split_picker.dart';
 
 /// Walks the user through new income: what came in, which bills to pay from
 /// it, and what is left. Returns true when the income was saved.
@@ -81,7 +80,10 @@ class IncomeWaterfallScreen extends StatefulWidget {
   /// Replaces saving to Firestore. Used by tests.
   final void Function({
     required AllocationPlan plan,
-    required String walletId,
+    required Map<String, double> incomeByWallet,
+    required Map<String, double> billsPaidFrom,
+    required Map<String, double> billFees,
+    required Map<String, double> goalKeptIn,
     required String source,
     required DateTime receivedAt,
   })?
@@ -127,8 +129,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   bool _useWhatsLeft = true;
   final _goalAmountController = TextEditingController();
   String? _source;
-  String? _walletId;
-  bool _walletSelectionCleared = false;
   late DateTime _receivedAt = _today;
   List<Wallet> _walletList = const [];
 
@@ -138,13 +138,35 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// Bills the user chose to leave alone this time, neither paid nor skipped.
   final Set<String> _leftAlone = {};
 
-  /// Whether the bank, e-wallet or biller charged for paying the bills on
-  /// this step, and how much, as on Pay Bill.
-  bool _charged = false;
-  final _chargeController = TextEditingController();
+  /// Where the income went, by wallet: as much as came in, no more.
+  late Map<String, double> _incomeSplit = {
+    if (widget.initialWalletId != null && (widget.initialAmount ?? 0) > 0)
+      widget.initialWalletId!: widget.initialAmount!,
+  };
 
-  double get _charge =>
-      ServiceChargeField.amountOf(on: _charged, controller: _chargeController);
+  /// The wallets the bills were paid from, and what each was charged.
+  Map<String, double> _billsFrom = const {};
+  Map<String, double> _billFees = const {};
+
+  /// The wallets the goal's money stays in.
+  Map<String, double> _goalFrom = const {};
+
+  double get _feesTotal =>
+      _billFees.values.fold<double>(0, (sum, fee) => sum + fee);
+
+  /// What each wallet has left of this income once its bills and fees are
+  /// paid. Negative when a wallet pays more than it received, from money
+  /// already in it.
+  Map<String, double> get _afterBills {
+    final left = <String, double>{..._incomeSplit};
+    for (final entry in _billsFrom.entries) {
+      left[entry.key] = (left[entry.key] ?? 0) - entry.value;
+    }
+    for (final entry in _billFees.entries) {
+      left[entry.key] = (left[entry.key] ?? 0) - entry.value;
+    }
+    return left;
+  }
 
   /// The step whose Next was last tapped. Its problem shows under it and
   /// is worked out again as the user types, so it goes as soon as it is
@@ -165,10 +187,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     if (widget.initialAmount != null) {
       _amountController.text = formatAmountInput(widget.initialAmount!);
     }
-    _walletId = widget.initialWalletId;
     _amountController.addListener(_refresh);
     _otherSourceController.addListener(_refresh);
-    _chargeController.addListener(_refresh);
     // Start looking up bills straight away, so they're ready by step 2.
     _loadBills();
     _goalSubscription = (widget.goals ?? GoalService.watchGoals()).listen(
@@ -202,9 +222,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       ..removeListener(_refresh)
       ..dispose();
     _otherSourceController
-      ..removeListener(_refresh)
-      ..dispose();
-    _chargeController
       ..removeListener(_refresh)
       ..dispose();
     _goalSubscription?.cancel();
@@ -263,42 +280,29 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     return typed.isEmpty ? otherIncomeSource : typed;
   }
 
-  String? get _selectedWalletId {
-    if (_walletSelectionCleared) return null;
-    if (_walletId != null) return _walletId;
-    for (final wallet in _walletList) {
-      if (!wallet.archived && !wallet.isSetAside) return wallet.id;
-    }
-    return defaultWalletId(_walletList);
+  /// The wallets named in [amounts], in a short list for the summary.
+  String _walletNames(Map<String, double> amounts) {
+    final names = [
+      for (final wallet in _walletList)
+        if ((amounts[wallet.id] ?? 0) > 0) wallet.name,
+    ];
+    if (names.isEmpty) return 'your wallets';
+    if (names.length == 1) return names.single;
+    return '${names.sublist(0, names.length - 1).join(', ')} and '
+        '${names.last}';
   }
 
-  Wallet? get _selectedWallet {
-    for (final wallet in _walletList) {
-      if (wallet.id == _selectedWalletId) return wallet;
-    }
-    return null;
-  }
-
+  /// Opened when there is no wallet at all, so the money has somewhere to go.
   Future<void> _addWallet() async {
-    setState(() {
-      _walletSelectionCleared = true;
-      _walletId = null;
-    });
-
     final draft = await showWalletFormSheet(context);
     if (draft == null) return;
 
-    final walletId = await WalletService.addWallet(
+    await WalletService.addWallet(
       type: draft.type,
       name: draft.name,
       startingBalance: draft.startingBalance,
       currentWallets: _walletList,
     );
-    if (!mounted) return;
-    setState(() {
-      _walletSelectionCleared = false;
-      _walletId = walletId;
-    });
   }
 
   /// The plan as it stands, read from what is typed on screen.
@@ -320,7 +324,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     final withBills = AllocationPlan(
       income: _income,
       bills: bills,
-      serviceCharge: _charge,
+      serviceCharge: _feesTotal,
     );
 
     final goal = _toGoal ? _selectedGoal : null;
@@ -385,24 +389,65 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
   /// What stops the step on screen going on, or null.
   String? get _problem => switch (_step) {
-    _Step.income =>
-      !isRecordableAmount(_income)
-          ? minimumAmountError
-          : _source == null
-          ? 'Choose where the money came from.'
-          : _source == otherIncomeSource &&
-                _otherSourceController.text.trim().isEmpty
-          ? 'Tell us where the money came from.'
-          : _selectedWalletId == null
-          ? 'Add a wallet first, so the money has somewhere to go.'
-          : null,
-    _Step.bills when _charged && _plan.toBills > 0 && _charge <= 0 =>
-      'Enter the service charge, or turn it off.',
-    _Step.bills || _Step.goal => _plan.problems.firstOrNull,
+    _Step.income => _incomeProblem,
+    _Step.bills => _plan.problems.firstOrNull ?? _billsProblem,
+    _Step.goal => _plan.problems.firstOrNull ?? _goalProblem,
     _Step.summary =>
-      _plan.problems.firstOrNull ??
-          (_selectedWalletId == null ? 'Choose a wallet.' : null),
+      _incomeProblem ??
+          _plan.problems.firstOrNull ??
+          _billsProblem ??
+          _goalProblem,
   };
+
+  /// The income, where it came from, and where it went: as much as came
+  /// in, no more and no less.
+  String? get _incomeProblem {
+    if (!isRecordableAmount(_income)) return minimumAmountError;
+    if (_source == null) return 'Choose where the money came from.';
+    if (_source == otherIncomeSource &&
+        _otherSourceController.text.trim().isEmpty) {
+      return 'Tell us where the money came from.';
+    }
+    if (_walletList.isEmpty) {
+      return 'Add a wallet first, so the money has somewhere to go.';
+    }
+    return walletSplitProblem(
+      purpose: SplitPurpose.receiving,
+      amounts: _incomeSplit,
+      wallets: _walletList,
+      goals: _allGoals,
+      target: _income,
+      matchTarget: true,
+    );
+  }
+
+  /// The bills paid must come out of wallets that have the money, this
+  /// income included.
+  String? get _billsProblem => _plan.toBills <= 0
+      ? null
+      : walletSplitProblem(
+          purpose: SplitPurpose.paying,
+          amounts: _billsFrom,
+          fees: _billFees,
+          wallets: _walletList,
+          goals: _allGoals,
+          target: _plan.toBills,
+          matchTarget: true,
+          adding: _incomeSplit,
+        );
+
+  /// Goal money must stay in wallets that still have it after the bills.
+  String? get _goalProblem => _plan.toGoal <= 0
+      ? null
+      : walletSplitProblem(
+          purpose: SplitPurpose.giving,
+          amounts: _goalFrom,
+          wallets: _walletList,
+          goals: _allGoals,
+          target: _plan.toGoal,
+          matchTarget: true,
+          adding: _afterBills,
+        );
 
   /// Notes that Next was tapped on this step, so its problem shows, and
   /// says whether it can be left.
@@ -426,29 +471,40 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   void _confirm() {
     if (!_checkStep()) return;
     final plan = _plan;
-    final walletId = _selectedWalletId!;
+    // A step the user stepped back out of leaves nothing behind.
+    final billsFrom = plan.toBills > 0 ? _billsFrom : const <String, double>{};
+    final billFees = plan.toBills > 0 ? _billFees : const <String, double>{};
+    final goalFrom = plan.toGoal > 0 ? _goalFrom : const <String, double>{};
 
     final save =
         widget.onConfirm ??
         ({
           required AllocationPlan plan,
-          required String walletId,
+          required Map<String, double> incomeByWallet,
+          required Map<String, double> billsPaidFrom,
+          required Map<String, double> billFees,
+          required Map<String, double> goalKeptIn,
           required String source,
           required DateTime receivedAt,
         }) {
           AllocationService.confirm(
             recentCycles: _recentCycles,
             plan: plan,
-            walletId: walletId,
+            incomeByWallet: incomeByWallet,
+            billsPaidFrom: billsPaidFrom,
+            billFees: billFees,
+            goalKeptIn: goalKeptIn,
             source: source,
             receivedAt: receivedAt,
-            wallets: _walletList,
           );
         };
 
     save(
       plan: plan,
-      walletId: walletId,
+      incomeByWallet: _incomeSplit,
+      billsPaidFrom: billsFrom,
+      billFees: billFees,
+      goalKeptIn: goalFrom,
       source: _resolvedSource,
       receivedAt: _receivedAt,
     );
@@ -538,7 +594,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       case _Step.income:
         return 'What came in?';
       case _Step.bills:
-        return 'Pay any bills from it?';
+        return 'Did you pay any bills from it?';
       case _Step.goal:
         return 'Save some toward a goal?';
       case _Step.summary:
@@ -582,23 +638,28 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           ),
         ],
         const SizedBox(height: 16),
-        if (_walletList.isEmpty)
+        if (_walletList.isEmpty) ...[
           Text(
             'You have no wallets yet. Add one to receive this income.',
             style: TextStyle(color: context.appColors.textMuted),
-          )
-        else
-          WalletPicker(
+          ),
+          TextButton.icon(
+            onPressed: _addWallet,
+            icon: const Icon(Icons.add),
+            label: const Text('Add wallet'),
+          ),
+        ] else
+          WalletSplitPicker(
+            key: const ValueKey('income-goes-to'),
             wallets: _walletList,
-            selectedId: _selectedWalletId,
-            label: 'Into which wallet?',
-            // What can be spent, as on Home: goal money is left out.
             goals: _allGoals,
-            onChanged: (value) => setState(() {
-              _walletSelectionCleared = false;
-              _walletId = value;
-            }),
-            onAddWallet: _addWallet,
+            purpose: SplitPurpose.receiving,
+            question: 'Where did it go?',
+            target: _income,
+            matchTarget: true,
+            initialAmounts: _incomeSplit,
+            totalLabel: 'Received',
+            onChanged: (amounts) => setState(() => _incomeSplit = amounts),
           ),
         const SizedBox(height: 16),
         InkWell(
@@ -641,8 +702,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Bills stay unpaid unless you choose to pay them. Tap a bill to '
-          'include it, or lower its amount to pay part.',
+          'Tick only the bills you paid, and lower the amount if you paid '
+          'part. The rest stay in Bill Planner.',
           style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
         ),
         if (allocations.length > 1) ...[
@@ -692,24 +753,26 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           ),
           const SizedBox(height: 10),
         ],
-        // Only while a bill is being paid: that is what a fee is for.
+        // Only while a bill is being paid: where the money came from, this
+        // income included, and what each wallet was charged.
         if (plan.toBills > 0) ...[
-          ServiceChargeField(
-            on: _charged,
-            controller: _chargeController,
-            onChanged: (on) => setState(() {
-              _charged = on;
-              // What the Bills wallet, which pays these, was charged last.
-              final last = WalletService.walletFor(
-                _walletList,
-                WalletPurpose.bills,
-              )?.serviceCharge;
-              if (on && last != null && _chargeController.text.trim().isEmpty) {
-                _chargeController.text = formatAmountInput(last);
-              }
-            }),
-          ),
           const SizedBox(height: 6),
+          WalletSplitPicker(
+            key: const ValueKey('bills-paid-from'),
+            wallets: _walletList,
+            goals: _allGoals,
+            purpose: SplitPurpose.paying,
+            question: 'Where did you pay them from?',
+            target: plan.toBills,
+            matchTarget: true,
+            withFees: true,
+            adding: _incomeSplit,
+            initialAmounts: _billsFrom,
+            totalLabel: 'Paying bills',
+            onChanged: (amounts) => setState(() => _billsFrom = amounts),
+            onFeesChanged: (fees) => setState(() => _billFees = fees),
+          ),
+          const SizedBox(height: 12),
         ],
         const SizedBox(height: 6),
         _RunningTotal(plan: plan),
@@ -843,6 +906,22 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 helper: '${goal.name} needs ${formatPeso(goal.remaining)} more',
               ).copyWith(prefixText: '₱ ', hintText: '0.00'),
             ),
+          if (plan.toGoal > 0) ...[
+            const SizedBox(height: 16),
+            WalletSplitPicker(
+              key: const ValueKey('goal-kept-in'),
+              wallets: _walletList,
+              goals: _allGoals,
+              purpose: SplitPurpose.giving,
+              question: 'Which wallets keep it?',
+              target: plan.toGoal,
+              matchTarget: true,
+              adding: _afterBills,
+              initialAmounts: _goalFrom,
+              totalLabel: 'Toward ${goal.name}',
+              onChanged: (amounts) => setState(() => _goalFrom = amounts),
+            ),
+          ],
         ],
         const SizedBox(height: 16),
         _RunningTotal(plan: plan, label: 'Left after bills and goal'),
@@ -855,7 +934,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   Widget _buildSummaryStep(BuildContext context) {
     final plan = _plan;
     final colors = context.appColors;
-    final wallet = _selectedWallet;
     final paying = plan.bills.where((bill) => bill.pays).toList();
     final skipped = plan.bills.where((bill) => bill.skipped).toList();
 
@@ -865,7 +943,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         _SummaryCard(
           children: [
             _SummaryLine(
-              label: '$_resolvedSource into ${wallet?.name ?? 'your wallet'}',
+              label: '$_resolvedSource into ${_walletNames(_incomeSplit)}',
               detail: formatShortDate(_receivedAt),
               amount: formatPeso(plan.income, sign: '+'),
               color: confirmColorOn(context),
@@ -939,8 +1017,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 const SizedBox(height: 6),
                 Text(
                   'The bills and goals you chose cost more than this income. '
-                  'The difference will come out of what was already in '
-                  '${wallet?.name ?? 'the wallet'}.',
+                  'The difference comes out of what was already in your '
+                  'wallets.',
                   style: TextStyle(
                     fontSize: 12,
                     color: colors.textBody,

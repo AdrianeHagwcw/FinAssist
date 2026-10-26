@@ -34,15 +34,7 @@ String savingsKindIcon(SavingsKind kind) => switch (kind) {
         interest: 'Earns interest',
         access: 'Locked until the end date. Taking it out early may cost you.',
       ),
-      SavingsKind.government => (
-        interest: 'Earns yearly',
-        access: 'Only under the agency rules',
-      ),
-      SavingsKind.account => (
-        interest: 'Depends on the account',
-        access: "Follows your bank's rules",
-      ),
-      _ => (interest: 'None', access: 'Anytime'),
+      SavingsKind.demandDeposit => (interest: 'None', access: 'Anytime'),
     };
 
 /// One labeled fact with its icon. Two side by side, as a [FactPair], say

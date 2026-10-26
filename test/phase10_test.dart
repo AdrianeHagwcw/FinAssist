@@ -150,27 +150,26 @@ void main() {
     });
     expect(record.toBills, 6000);
     expect(record.toGoal, 2000);
-    expect(periodOf(record, 'Weekly').end, DateTime(2026, 9, 1));
+    expect(periodOf(record).end, DateTime(2026, 9, 1));
   });
 
   test('cycle statuses distinguish open, reviewable and resolved periods', () {
     final now = DateTime(2026, 9, 18);
     expect(
-      cycleStatus(cycle('new', DateTime(2026, 9, 17)), 'Monthly', now),
+      cycleStatus(cycle('new', DateTime(2026, 9, 17)), now),
       CycleStatus.active,
     );
     expect(
-      cycleStatus(cycle('last', DateTime(2026, 8, 19)), 'Monthly', now),
+      cycleStatus(cycle('last', DateTime(2026, 8, 19)), now),
       CycleStatus.pending,
     );
     expect(
-      cycleStatus(cycle('old', DateTime(2026, 7, 1)), 'Monthly', now),
+      cycleStatus(cycle('old', DateTime(2026, 7, 1)), now),
       CycleStatus.pending,
     );
     expect(
       cycleStatus(
         cycle('saved', DateTime(2026, 7, 1), decision: LeftoverDecision.saved),
-        'Monthly',
         now,
       ),
       CycleStatus.done,
@@ -178,7 +177,6 @@ void main() {
     expect(
       cycleStatus(
         cycle('spend', DateTime(2026, 7, 1), decision: LeftoverDecision.spent),
-        'Monthly',
         now,
       ),
       CycleStatus.declined,
@@ -215,22 +213,16 @@ void main() {
     expect((await AppSettingsProvider.load()).amountsMasked, isTrue);
   });
 
-  test(
-    'category preferences reset when the account changes',
-    () {
-      final settings = AppSettingsProvider();
-      settings.updateCategoryPreferences({
-        // Added on an older build, before the list was fixed.
-        'customCategories': ['Hobbies'],
-      });
-      expect(settings.categories.availableCategories, contains('Hobbies'));
-      settings.updateCategoryPreferences(null);
-      expect(
-        settings.categories.availableCategories,
-        isNot(contains('Hobbies')),
-      );
-    },
-  );
+  test('category preferences reset when the account changes', () {
+    final settings = AppSettingsProvider();
+    settings.updateCategoryPreferences({
+      // Added on an older build, before the list was fixed.
+      'customCategories': ['Hobbies'],
+    });
+    expect(settings.categories.availableCategories, contains('Hobbies'));
+    settings.updateCategoryPreferences(null);
+    expect(settings.categories.availableCategories, isNot(contains('Hobbies')));
+  });
 
   for (final dark in [false, true]) {
     testWidgets(
@@ -410,7 +402,7 @@ void main() {
     );
   });
 
-  testWidgets('an expense over the wallet balance is asked about first', (
+  testWidgets('an expense can only come out of what a wallet has', (
     tester,
   ) async {
     const cash = Wallet(
@@ -431,29 +423,24 @@ void main() {
     await tester.enterText(field('0.00'), '7000');
     await tester.enterText(field('What did you spend money on?'), 'Groceries');
     await tester.pump();
+    // Paid from Cash on Hand: it fills in all it can, ₱6,528, and no more.
+    await tester.ensureVisible(find.text('Cash on Hand'));
+    await tester.tap(find.text('Cash on Hand'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('pay-from-cash')), '7000');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Only ₱6,528 in Cash is free'), findsWidgets);
+
     await tester.ensureVisible(find.text('Save Expense'));
     await tester.tap(find.text('Save Expense'));
     await tester.pumpAndSettle();
-
-    expect(find.text("More than what's in Cash"), findsOneWidget);
-    expect(
-      find.text(
-        'This expense is ₱7,000, but Cash has ₱6,528, so it would show '
-        "-₱472. If money came in that isn't logged yet, add it as income "
-        'too.',
-      ),
-      findsOneWidget,
-    );
-
-    // Fixing the amount goes back to the form with nothing saved.
-    await tester.tap(find.text('Fix Amount'));
-    await tester.pumpAndSettle();
-    expect(find.text("More than what's in Cash"), findsNothing);
+    // Nothing is saved; the form stays, as typed.
     expect(find.byType(AddExpenseScreen), findsOneWidget);
-    expect(find.text('7,000'), findsOneWidget, reason: 'grouped as typed');
+    // The amount, grouped as typed, and the wallet's own box.
+    expect(find.text('7,000'), findsWidgets);
   });
 
-  testWidgets('spending goal money is asked about, and amounts are free', (
+  testWidgets('goal money is not spent, and amounts are what is free', (
     tester,
   ) async {
     const cash = Wallet(
@@ -486,41 +473,32 @@ void main() {
     );
     await tester.pump();
 
-    // The picker shows what can be spent, and says why it is less.
-    expect(find.text('₱8,000'), findsOneWidget);
-    expect(
-      find.text(
-        'Amounts are what is free to spend, after money set aside for goals.',
-      ),
-      findsOneWidget,
-    );
-
     Finder field(String hint) =>
         find.ancestor(of: find.text(hint), matching: find.byType(TextField));
     await tester.enterText(field('0.00'), '9000');
     await tester.enterText(field('What did you spend money on?'), 'Groceries');
     await tester.pump();
+
+    // The wallet shows what can be spent, not all it holds.
+    await tester.ensureVisible(find.text('Cash on Hand'));
+    await tester.tap(find.text('Cash on Hand'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('₱8,000 available'), findsOneWidget);
+
+    // Less than Cash holds, but more than it has free: refused.
+    await tester.enterText(find.byKey(const Key('pay-from-cash')), '9000');
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Only ₱8,000 in Cash is free; goals hold the rest.'),
+      findsWidgets,
+    );
     await tester.ensureVisible(find.text('Save Expense'));
     await tester.tap(find.text('Save Expense'));
-    await tester.pumpAndSettle();
-
-    // Less than Cash holds, but more than it has free.
-    expect(find.text('This uses money set aside for goals'), findsOneWidget);
-    expect(
-      find.text(
-        'Only ₱8,000 in Cash is free to spend. The other ₱2,000 is set '
-        'aside for your goals, so ₱1,000 of this would come out of it.',
-      ),
-      findsOneWidget,
-    );
-    await tester.tap(find.text('Fix Amount'));
     await tester.pumpAndSettle();
     expect(find.byType(AddExpenseScreen), findsOneWidget);
   });
 
-  testWidgets('Add Income asks for the source each time', (
-    tester,
-  ) async {
+  testWidgets('Add Income asks for the source each time', (tester) async {
     await pumpScreen(
       tester,
       IncomeWaterfallScreen(
@@ -539,32 +517,64 @@ void main() {
     );
   });
 
-  testWidgets(
-    'leftover review requires a choice and confirmation',
-    (tester) async {
-      var writes = 0;
-      await pumpScreen(
-        tester,
-        LeftoverReviewScreen(
-          cycle: cycle('Salary', DateTime(2026, 8, 1)),
-          leftover: 1000,
-          periodEnd: DateTime(2026, 9, 1),
-          onResolve: (decision, saved, spent) {
-            writes++;
-            expect(decision, LeftoverDecision.saved);
-            expect(saved, 1000);
-            expect(spent, 0);
-          },
-        ),
-      );
-      expect(writes, 0);
-      await tester.ensureVisible(find.text('Save it'));
-      await tester.tap(find.text('Save it'));
-      await tester.ensureVisible(find.text('Confirm'));
-      await tester.tap(find.text('Confirm'));
-      expect(writes, 1);
-    },
-  );
+  testWidgets('leftover review requires a choice and confirmation', (
+    tester,
+  ) async {
+    var writes = 0;
+    await pumpScreen(
+      tester,
+      LeftoverReviewScreen(
+        cycle: cycle('Salary', DateTime(2026, 8, 1)),
+        leftover: 1000,
+        periodEnd: DateTime(2026, 9, 1),
+        // A goal to save it toward, and the cash it is in.
+        wallets: Stream.value(const [
+          Wallet(
+            id: 'cash',
+            name: 'Cash',
+            type: WalletType.cash,
+            balance: 5000,
+            startingBalance: 5000,
+            receivesIncome: true,
+            archived: false,
+            sortOrder: 0,
+          ),
+        ]),
+        goals: Stream.value(const [
+          Goal(
+            id: 'trip',
+            name: 'Trip',
+            targetAmount: 10000,
+            savedAmount: 0,
+            priority: 0,
+            status: GoalStatus.active,
+          ),
+        ]),
+        onResolve: (decision, saved, spent) {
+          writes++;
+          expect(decision, LeftoverDecision.saved);
+          expect(saved, 1000);
+          expect(spent, 0);
+        },
+      ),
+    );
+    await tester.pump();
+    expect(writes, 0);
+    await tester.ensureVisible(find.text('Save it'));
+    await tester.tap(find.text('Save it'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Cash on Hand'));
+    await tester.tap(find.text('Cash on Hand'));
+    await tester.pumpAndSettle();
+    // The wallet's card pushes Confirm further down the list.
+    await tester.scrollUntilVisible(
+      find.text('Confirm'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Confirm'));
+    expect(writes, 1);
+  });
 
   testWidgets('history handles small screens and large text in dark mode', (
     tester,

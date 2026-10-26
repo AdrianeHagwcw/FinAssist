@@ -58,71 +58,6 @@ class SavingsOption {
 
 const List<SavingsOption> savingsOptions = [
   SavingsOption(
-    icon: Icons.payments_outlined,
-    summary: 'Money you keep yourself',
-    risk: 'Can be lost or spent',
-    access: 'Take out anytime',
-    whatItIs:
-        'Money you hold yourself, such as cash at home, in an envelope or in '
-        'a jar. It earns nothing, but it is there the moment you need it.',
-    howItWorks: [
-      'You set money aside and keep it yourself.',
-      'Nothing is added over time, so what you put in is what you get.',
-    ],
-    bestFor: [
-      'Small amounts you may need any day',
-      'Saving without a bank account',
-    ],
-    watchOutFor: [
-      'It is the easiest money to spend without noticing.',
-      'Cash at home can be lost or taken, and no one replaces it.',
-    ],
-    savingsKind: SavingsKind.general,
-  ),
-  SavingsOption(
-    ownName: 'Emergency Fund',
-    icon: Icons.health_and_safety_outlined,
-    summary: 'A cash cushion for surprises',
-    risk: 'Very low risk',
-    access: 'Take out anytime',
-    whatItIs:
-        'Money kept aside only for the unexpected, like a medical cost, a '
-        'broken phone, or a month with no income.',
-    howItWorks: [
-      'Set aside a little every time money comes in.',
-      'A common target is 3 to 6 months of your essential expenses.',
-    ],
-    bestFor: ['Anyone starting to save', 'Your very first goal'],
-    watchOutFor: [
-      "Keep it where you can reach it quickly, not locked away.",
-      'Only use it for real emergencies, not wants.',
-    ],
-    goalName: 'Emergency Fund',
-    goalKind: GoalKind.emergencyFund,
-  ),
-  SavingsOption(
-    icon: Icons.account_balance_outlined,
-    summary: 'Flexible savings that earn a little',
-    risk: 'Very low risk',
-    access: 'Take out anytime',
-    whatItIs:
-        'A bank or digital bank account that pays some interest on what you '
-        'keep in it.',
-    howItWorks: [
-      'Deposit and withdraw whenever you need.',
-      'Interest is usually small, and the rate can change.',
-    ],
-    bestFor: [
-      'Money you may need within a few months',
-      'Money you want kept safely, not as cash at home',
-    ],
-    watchOutFor: [
-      'Check for minimum balances and fees.',
-      'Make sure the bank is covered by PDIC deposit insurance.',
-    ],
-    savingsKind: SavingsKind.account,
-  ),
-  SavingsOption(
     icon: Icons.savings_outlined,
     summary: 'Earn interest while keeping the deposit accessible',
     risk: 'Low risk; terms vary by provider',
@@ -178,32 +113,6 @@ const List<SavingsOption> savingsOptions = [
       'There is often a minimum amount to start.',
     ],
     savingsKind: SavingsKind.timeDeposit,
-  ),
-  SavingsOption(
-    icon: Icons.savings_outlined,
-    summary: 'Save through SSS, Pag-IBIG or GSIS',
-    risk: 'Very low risk',
-    access: 'Only under the agency rules',
-    whatItIs:
-        'Savings programs run by government agencies, such as Pag-IBIG MP2, '
-        'SSS or GSIS. You put money in over time and take it out only when '
-        'their rules allow.',
-    howItWorks: [
-      'Pag-IBIG MP2 runs for five years, then pays what you saved plus its '
-          'dividend.',
-      'SSS and GSIS savings follow each agency\'s own rules for when you can '
-          'claim.',
-    ],
-    bestFor: [
-      'Long-term money you will not touch',
-      'Members already paying contributions',
-    ],
-    watchOutFor: [
-      'Earnings are declared afterwards, so the rate is not fixed in '
-          'advance.',
-      'Taking money out early may not be allowed at all.',
-    ],
-    savingsKind: SavingsKind.government,
   ),
 ];
 
