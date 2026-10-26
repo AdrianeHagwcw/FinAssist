@@ -2,18 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../services/account_session.dart';
+import '../services/saved_accounts.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../utils/auth_errors.dart';
 import '../utils/text_limits.dart';
 import '../widgets/check_after_save.dart';
 import '../widgets/export_transactions_tile.dart';
 import '../widgets/light_dark_toggle.dart';
+import '../widgets/switch_account_sheet.dart';
 import 'login_screen.dart';
 import 'reminders_screen.dart';
 import 'categories_screen.dart';
 import 'forgot_password_screen.dart';
 import 'help_screen.dart';
 import 'history_screen.dart';
+import 'splash_screen.dart';
 import 'wallets_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -25,6 +30,9 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  /// Waiting on Google during Switch account.
+  bool _switching = false;
 
   // =========================================================
   // GET CURRENT FIREBASE USER
@@ -71,8 +79,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // =========================================================
 
   /// Asks before signing out, since unsent changes need a connection.
-  /// [isDestructive] paints the confirm button red. Logging out ends the
-  /// session; switching accounts only swaps it, so that one stays neutral.
+  /// [isDestructive] paints the confirm button red.
   Future<bool> _confirmSignOut({
     required String title,
     required String message,
@@ -104,18 +111,100 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return confirmed ?? false;
   }
 
-  Future<void> _confirmSwitchAccount() async {
-    final email = _getUserEmail();
-    final confirmed = await _confirmSignOut(
-      title: 'Switch account?',
-      message:
-          "You'll be signed out of $email and taken to the login screen, "
-          'where you can sign in with another account. Connect to the '
-          'internet first so your latest changes are saved.',
-      confirmLabel: 'Switch',
-    );
+  /// Lists the accounts used on this phone and asks only what the one picked
+  /// needs: its password, or Google. This account stays signed in until the
+  /// other one logs in, so backing out at any step changes nothing.
+  Future<void> _switchAccount() async {
+    final current = SavedAccount.of(currentUser);
+    if (current == null || _switching) return;
 
-    if (confirmed) await _logout();
+    final saved = await SavedAccounts.load();
+    if (!mounted) return;
+    final choice = await showSwitchAccountSheet(
+      context,
+      current: current,
+      saved: saved,
+    );
+    if (choice == null || !mounted) return;
+
+    final account = choice.account;
+    if (account == null) {
+      _open(const LoginScreen(addingAccount: true));
+      return;
+    }
+
+    var useGoogle = !account.usesPassword;
+    if (account.usesPassword) {
+      final step = await showAccountPasswordDialog(
+        context,
+        account: account,
+        logIn: (password) => _logInWithPassword(account, password),
+      );
+      if (step == null) return;
+      useGoogle = step == PasswordStep.useGoogle;
+    }
+    if (useGoogle && !await _logInWithGoogle(account)) return;
+
+    if (!mounted) return;
+    // Starts again as the other account: its email check, setup or home.
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const SplashScreen()),
+      (route) => false,
+    );
+  }
+
+  Future<String?> _logInWithPassword(
+    SavedAccount account,
+    String password,
+  ) async {
+    try {
+      await saveChangesBeforeSwitching();
+      await _auth.signInWithEmailAndPassword(
+        email: account.email,
+        password: password,
+      );
+      return null;
+    } on FirebaseAuthException catch (error) {
+      return signInProblem(error.code);
+    } catch (_) {
+      return 'Something went wrong. Please try again.';
+    }
+  }
+
+  /// Signs straight into [account]'s Google account, or asks Google which
+  /// one if it is no longer on this phone. False when it didn't happen.
+  Future<bool> _logInWithGoogle(SavedAccount account) async {
+    setState(() => _switching = true);
+    var problem = 'Google sign-in could not be completed.';
+    try {
+      final credential = await googleCredential(email: account.email);
+      await saveChangesBeforeSwitching();
+      await _auth.signInWithCredential(credential);
+      return true;
+    } on GoogleSignInCancelled {
+      return false;
+    } on GoogleSignInFailed catch (error) {
+      problem = error.message;
+    } on PlatformException catch (error) {
+      problem = googleSignInMessage(
+        error.code,
+        '${error.message} ${error.details}',
+      );
+    } on FirebaseAuthException catch (error) {
+      problem = signInProblem(error.code, google: true);
+    } catch (_) {
+      // The message above.
+    } finally {
+      if (mounted) setState(() => _switching = false);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(problem)));
+    }
+    return false;
   }
 
   Future<void> _confirmLogOut() async {
@@ -133,7 +222,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _logout() async {
     try {
-      await _auth.signOut();
+      await signOutOfApp();
 
       if (!mounted) return;
 
@@ -569,15 +658,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     height: 52,
 
                     child: ElevatedButton(
-                      onPressed: _confirmSwitchAccount,
+                      onPressed: _switching ? null : _switchAccount,
                       style: openButtonStyle(),
-                      child: const Text(
-                        'Switch Account',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
-                      ),
+                      child: _switching
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'Switch Account',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
                     ),
                   ),
 

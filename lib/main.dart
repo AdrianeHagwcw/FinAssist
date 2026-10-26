@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
 import 'providers/app_settings_provider.dart';
+import 'services/account_session.dart';
 import 'services/firebase_app_check_setup.dart';
 import 'services/launch_screen.dart';
 import 'services/reminder_service.dart';
@@ -21,6 +22,7 @@ Future<void> main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await activateFirebaseAppCheck();
+  clearRemindersOnAccountChange();
 
   final (settings, _) = await (
     AppSettingsProvider.load(),

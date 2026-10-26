@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 
+import '../services/account_session.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -15,20 +15,14 @@ import 'forgot_password_screen.dart';
 import 'main_shell.dart';
 import 'register_screen.dart';
 
-class _SocialSignInCancelled implements Exception {
-  const _SocialSignInCancelled();
-}
-
-class _SocialSignInException implements Exception {
-  const _SocialSignInException(this.message);
-
-  final String message;
-}
-
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, this.initialEmail});
+  const LoginScreen({super.key, this.initialEmail, this.addingAccount = false});
 
   final String? initialEmail;
+
+  /// Opened from Switch account while another account is still signed in.
+  /// Back returns to it; logging in here replaces it.
+  final bool addingAccount;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -104,6 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // FIREBASE LOGIN
       // -------------------------------------------------------
 
+      await saveChangesBeforeSwitching();
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -236,39 +231,16 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        scopes: ['email'],
-        signInOption: SignInOption.standard,
-      );
+      // Google's picker asks every time, so any Google account can be used.
+      final credential = await googleCredential();
 
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
-
-      // User cancelled Google login
-      if (googleUser == null) {
-        throw const _SocialSignInCancelled();
-      }
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      if (googleAuth.idToken == null) {
-        throw const _SocialSignInException(
-          'Google did not return an ID token. Please check the Android OAuth configuration.',
-        );
-      }
-
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      // Sign in to Firebase
+      await saveChangesBeforeSwitching();
       await FirebaseAuth.instance.signInWithCredential(credential);
 
       await _navigateAfterAuthentication();
-    } on _SocialSignInCancelled {
+    } on GoogleSignInCancelled {
       _showMessage('Google sign-in was cancelled.');
-    } on _SocialSignInException catch (e) {
+    } on GoogleSignInFailed catch (e) {
       _showMessage(e.message);
     } on PlatformException catch (e) {
       _showMessage(googleSignInMessage(e.code, '${e.message} ${e.details}'));
@@ -297,7 +269,7 @@ class _LoginScreenState extends State<LoginScreen> {
         final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
         if (!refreshedUser.emailVerified) {
           if (!mounted) return;
-          Navigator.pushReplacement(
+          Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
               builder: (context) => EmailVerificationScreen(
@@ -305,6 +277,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 user: refreshedUser,
               ),
             ),
+            (route) => false,
           );
           return;
         }
@@ -314,12 +287,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      Navigator.pushReplacement(
+      // Clears everything below, which after Add another account is the
+      // account signed in before.
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
           builder: (context) =>
               setupCompleted ? const MainShell() : const FinancialSetupScreen(),
         ),
+        (route) => false,
       );
     } catch (_) {
       if (mounted) {
@@ -361,6 +337,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       backgroundColor: colors.card,
+
+      appBar: widget.addingAccount
+          ? AppBar(
+              backgroundColor: colors.card,
+              foregroundColor: colors.textPrimary,
+              elevation: 0,
+              leading: const BackButton(),
+            )
+          : null,
 
       body: SafeArea(
         child: Center(
@@ -409,7 +394,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 // WELCOME
                 // =================================================
                 Text(
-                  'Welcome Back!',
+                  widget.addingAccount ? 'Add an account' : 'Welcome Back!',
 
                   style: TextStyle(
                     fontSize: 28,
@@ -421,7 +406,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
 
                 Text(
-                  'Log in to continue to FinAssist',
+                  widget.addingAccount
+                      ? 'Log in with another account'
+                      : 'Log in to continue to FinAssist',
 
                   style: TextStyle(
                     fontSize: 15,
@@ -513,6 +500,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _passwordController,
 
                   obscureText: _obscurePassword,
+
+                  // With the email filled in, only the password is left.
+                  autofocus: widget.initialEmail?.isNotEmpty ?? false,
 
                   enabled: !_isLoading,
 

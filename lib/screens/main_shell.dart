@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/voice_command.dart';
@@ -15,6 +16,7 @@ import '../services/debt_service.dart';
 import '../services/goal_service.dart';
 import '../services/reminder_scheduler.dart';
 import '../services/reminder_service.dart';
+import '../services/saved_accounts.dart';
 import '../services/wallet_service.dart';
 import '../widgets/interest_sheet.dart';
 import 'add_expense_screen.dart';
@@ -72,6 +74,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     if (!_live) return;
+
+    // Listed in Switch account from now on.
+    SavedAccounts.remember(SavedAccount.of(FirebaseAuth.instance.currentUser));
 
     final settings = context.read<AppSettingsProvider>();
     // Subscribe per signed-in shell so another account never inherits categories.

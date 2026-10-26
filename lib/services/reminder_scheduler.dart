@@ -81,6 +81,9 @@ class ReminderScheduler {
   Timer? _debounce;
   bool _running = false;
 
+  /// The account these reminders are for.
+  String? _uid;
+
   Map<String, dynamic>? _profile;
   List<Goal> _goals = const [];
   List<Wallet> _wallets = const [];
@@ -90,6 +93,7 @@ class ReminderScheduler {
   void start() {
     if (_running) return;
     _running = true;
+    _uid = FirebaseAuth.instance.currentUser?.uid;
 
     void listen<T>(Stream<T> stream, void Function(T value) onData) {
       _subscriptions.add(
@@ -124,6 +128,8 @@ class ReminderScheduler {
   Future<void> _plan() async {
     final profile = _profile;
     if (profile == null) return;
+    // Another account signed in before this screen closed: it plans its own.
+    if (FirebaseAuth.instance.currentUser?.uid != _uid) return;
 
     final now = DateTime.now();
     final settings = ReminderSettings.fromProfile(profile);

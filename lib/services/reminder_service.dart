@@ -94,6 +94,20 @@ class ReminderService {
     }
   }
 
+  /// Clears every reminder, on screen and still to come. Used when the
+  /// signed-in account changes, so one account's reminders never show while
+  /// another is signed in.
+  static Future<void> cancelAll() async {
+    await init();
+    if (!_ready) return;
+
+    try {
+      await _plugin.cancelAll();
+    } catch (error) {
+      debugPrint('Could not clear reminders: $error');
+    }
+  }
+
   /// Replaces whatever was scheduled with [reminders].
   ///
   /// Reminders no longer in the plan are cancelled one by one, rather than
