@@ -34,9 +34,10 @@ class FieldIcon extends StatelessWidget {
   );
 }
 
-/// The eye on a password field. It shows what a tap will do: an open eye
-/// while the password is hidden ("show it"), a crossed-out one while it can
-/// be read ("hide it"), matching what it says to a screen reader.
+/// The eye on a password field. It shows how the password is now, like the
+/// eye that hides amounts: crossed out while it is hidden, which is how
+/// every password starts, and open only once the user taps to see what
+/// they typed. A screen reader hears what a tap does: "Show password".
 class PasswordEye extends StatelessWidget {
   const PasswordEye({
     required this.hidden,
@@ -54,7 +55,7 @@ class PasswordEye extends StatelessWidget {
     tooltip: hidden ? 'Show $what' : 'Hide $what',
     onPressed: onPressed,
     icon: Image.asset(
-      hidden ? AppIcons.shown : AppIcons.hidden,
+      hidden ? AppIcons.hidden : AppIcons.shown,
       width: 24,
       height: 24,
     ),

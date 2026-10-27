@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:testapp/screens/login_screen.dart';
 import 'package:testapp/services/saved_accounts.dart';
+import 'package:testapp/theme/app_icons.dart';
 import 'package:testapp/theme/app_theme.dart';
 import 'package:testapp/utils/auth_errors.dart';
 import 'package:testapp/widgets/switch_account_sheet.dart';
@@ -320,6 +321,33 @@ void main() {
       expect(fields.first.controller?.text, 'ada@example.com');
       // Only the password is left, and the keyboard is already there.
       expect(fields.last.focusNode?.hasFocus, isTrue);
+    });
+
+    testWidgets('the password starts hidden, with the eye crossed out', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await pumpLogIn(tester);
+
+      Finder eye(String asset) => find.byWidgetPredicate(
+        (widget) =>
+            widget is Image &&
+            widget.image is AssetImage &&
+            (widget.image as AssetImage).assetName == asset,
+      );
+      TextField password() =>
+          tester.widgetList<TextField>(find.byType(TextField)).last;
+
+      expect(password().obscureText, isTrue);
+      expect(eye(AppIcons.hidden), findsOneWidget);
+      expect(eye(AppIcons.shown), findsNothing);
+
+      // Only when the user asks to see it.
+      await tester.tap(find.byType(PasswordEye));
+      await tester.pump();
+      expect(password().obscureText, isFalse);
+      expect(eye(AppIcons.shown), findsOneWidget);
+      expect(eye(AppIcons.hidden), findsNothing);
     });
 
     testWidgets('adding another account lists none of them', (tester) async {
