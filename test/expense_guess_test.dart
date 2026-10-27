@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/models/expense_guess.dart';
-import 'package:testapp/utils/categories.dart';
+import 'package:testapp/backend/models/expense_guess.dart';
+import 'package:testapp/backend/utils/categories.dart';
 
 void main() {
   const all = expenseCategories;

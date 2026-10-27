@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/models/financial_ai_guardrails.dart';
-import 'package:testapp/models/financial_topic_validator.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/models/bill.dart';
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/services/financial_ai_service.dart';
+import 'package:testapp/backend/models/financial_ai_guardrails.dart';
+import 'package:testapp/backend/models/financial_topic_validator.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/backend/services/financial_ai_service.dart';
 
 void main() {
   test('generated explanations cannot supply financial numbers or guarantees', () {

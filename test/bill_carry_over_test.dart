@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/models/allocation.dart';
-import 'package:testapp/models/bill.dart';
-import 'package:testapp/models/debt.dart';
-import 'package:testapp/models/safe_to_spend.dart';
+import 'package:testapp/backend/models/allocation.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/models/debt.dart';
+import 'package:testapp/backend/models/safe_to_spend.dart';
 
 void main() {
   final now = DateTime(2026, 9, 5, 10);

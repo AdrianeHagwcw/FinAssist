@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/utils/transaction_csv.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/utils/transaction_csv.dart';
 
 AppTransaction entry({
   String id = 't1',

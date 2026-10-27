@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:testapp/screens/login_screen.dart';
-import 'package:testapp/services/saved_accounts.dart';
-import 'package:testapp/theme/app_icons.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/utils/auth_errors.dart';
-import 'package:testapp/widgets/switch_account_sheet.dart';
+import 'package:testapp/frontend/screens/login_screen.dart';
+import 'package:testapp/backend/services/saved_accounts.dart';
+import 'package:testapp/frontend/theme/app_icons.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/frontend/utils/auth_errors.dart';
+import 'package:testapp/frontend/widgets/switch_account_sheet.dart';
 
 /// Switch account lists the accounts used on this phone, so the user picks
 /// one instead of only being logged out. The account signed in stays signed

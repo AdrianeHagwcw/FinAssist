@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:testapp/models/chat_answers.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/goal.dart';
-import 'package:testapp/models/onboarding_data.dart';
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/providers/app_settings_provider.dart';
-import 'package:testapp/screens/home_screen.dart';
-import 'package:testapp/screens/wallets_screen.dart';
-import 'package:testapp/services/user_profile_service.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/widgets/transfer_sheet.dart';
+import 'package:testapp/backend/models/chat_answers.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/goal.dart';
+import 'package:testapp/backend/models/onboarding_data.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/frontend/providers/app_settings_provider.dart';
+import 'package:testapp/frontend/screens/home_screen.dart';
+import 'package:testapp/frontend/screens/wallets_screen.dart';
+import 'package:testapp/backend/services/user_profile_service.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/frontend/widgets/transfer_sheet.dart';
 
 /// One household's money, read on every screen that shows it: each must say
 /// the same thing. The figures are the ones from the emulator: ₱19,000 in

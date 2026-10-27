@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/widgets/wallets_added_sheet.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/frontend/widgets/wallets_added_sheet.dart';
 
 Wallet wallet(String id, String name, WalletType type, double balance) =>
     Wallet(

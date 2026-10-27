@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/models/debt.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/goal.dart';
-import 'package:testapp/models/money_tips.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/debt.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/goal.dart';
+import 'package:testapp/backend/models/money_tips.dart';
 
 /// Thursday, Sep 17, 2026: this week began Monday the 14th.
 final now = DateTime(2026, 9, 17, 18);

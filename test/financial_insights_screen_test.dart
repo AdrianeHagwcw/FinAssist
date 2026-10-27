@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/models/chat_language.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/financial_insights.dart';
-import 'package:testapp/providers/app_settings_provider.dart';
-import 'package:testapp/screens/reports_screen.dart';
-import 'package:testapp/services/financial_ai_service.dart';
-import 'package:testapp/theme/app_theme.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/chat_language.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/financial_insights.dart';
+import 'package:testapp/frontend/providers/app_settings_provider.dart';
+import 'package:testapp/frontend/screens/reports_screen.dart';
+import 'package:testapp/backend/services/financial_ai_service.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
 
 class _FakeFinancialAssistant implements FinancialAssistant {
   int insightRequests = 0;

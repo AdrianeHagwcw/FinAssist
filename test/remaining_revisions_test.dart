@@ -2,19 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/models/allocation.dart';
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/models/bill.dart';
-import 'package:testapp/models/chat_answers.dart';
-import 'package:testapp/models/debt.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/goal.dart';
-import 'package:testapp/models/savings_suggestion.dart';
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/services/finance_snapshot_service.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/widgets/savings_suggestion_card.dart';
-import 'package:testapp/widgets/transfer_sheet.dart';
+import 'package:testapp/backend/models/allocation.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/models/chat_answers.dart';
+import 'package:testapp/backend/models/debt.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/goal.dart';
+import 'package:testapp/backend/models/savings_suggestion.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/backend/services/finance_snapshot_service.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/frontend/widgets/savings_suggestion_card.dart';
+import 'package:testapp/frontend/widgets/transfer_sheet.dart';
 
 final now = DateTime(2026, 10, 14, 12);
 Wallet wallet(

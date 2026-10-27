@@ -1,5 +1,35 @@
 # FinAssist
 
+## Project layout
+
+The code is split into what the user sees (frontend) and the data, rules
+and math behind it (backend). Frontend code may use the backend; the backend
+never uses frontend code.
+
+```
+lib/
+  main.dart              Starts the app
+  frontend/              What the user sees
+    screens/             Full pages
+    widgets/             Parts shared by the pages
+    theme/               Colors, buttons, icons
+    providers/           Display settings (dark mode, hidden amounts, voice language)
+    utils/               Display helpers (amount fields, sign-in messages)
+  backend/               Data, rules and math
+    models/              Money math, bills, debts, goals, voice and chat reading
+    services/            Firebase, sign-in, speech, reminders, export
+    utils/               Shared helpers (money and date formats, categories, CSV)
+    firebase_options.dart
+backend/                 Runs outside the phone
+  scraper/               Daily price scraper (GitHub Actions)
+  firestore.rules        Firestore security rules
+test/                    Automated tests
+```
+
+`android/`, `ios/`, `web/`, `windows/`, `linux/`, `macos/`, `pubspec.yaml`
+and `firebase.json` stay at the top level, where Flutter and the Firebase
+tools expect them. `firebase.json` points to `backend/firestore.rules`.
+
 ## Social sign-in setup
 
 The login screen uses `google_sign_in`. The Google button will open the

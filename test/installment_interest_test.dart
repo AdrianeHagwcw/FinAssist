@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/models/bill.dart';
-import 'package:testapp/models/debt.dart';
-import 'package:testapp/models/reminder.dart';
-import 'package:testapp/models/transaction_filter.dart';
-import 'package:testapp/providers/app_settings_provider.dart';
-import 'package:testapp/screens/debt_detail_screen.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/utils/categories.dart';
-import 'package:testapp/widgets/debt_form_sheet.dart';
-import 'package:testapp/widgets/transaction_row.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/models/debt.dart';
+import 'package:testapp/backend/models/reminder.dart';
+import 'package:testapp/backend/models/transaction_filter.dart';
+import 'package:testapp/frontend/providers/app_settings_provider.dart';
+import 'package:testapp/frontend/screens/debt_detail_screen.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/backend/utils/categories.dart';
+import 'package:testapp/frontend/widgets/debt_form_sheet.dart';
+import 'package:testapp/frontend/widgets/transaction_row.dart';
 
 /// Interest on an installment is what the user pays to borrow: spending, in
 /// its own category, never income. A ₱24,000 phone paid as 12 × ₱2,400 costs

@@ -1,15 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/models/bill.dart';
-import 'package:testapp/models/chat_answers.dart';
-import 'package:testapp/models/chat_language.dart';
-import 'package:testapp/models/debt.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/financial_ai_guardrails.dart';
-import 'package:testapp/models/financial_topic_validator.dart';
-import 'package:testapp/models/goal.dart';
-import 'package:testapp/models/wallet.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/models/chat_answers.dart';
+import 'package:testapp/backend/models/chat_language.dart';
+import 'package:testapp/backend/models/debt.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/financial_ai_guardrails.dart';
+import 'package:testapp/backend/models/financial_topic_validator.dart';
+import 'package:testapp/backend/models/goal.dart';
+import 'package:testapp/backend/models/wallet.dart';
 
 /// Saturday, Sep 19, 2026. A monthly allowance came on Sep 1, so payday is
 /// Oct 1, twelve days away.

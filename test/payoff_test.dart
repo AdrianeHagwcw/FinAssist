@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:testapp/models/bill.dart';
-import 'package:testapp/models/debt.dart';
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/providers/app_settings_provider.dart';
-import 'package:testapp/screens/debt_detail_screen.dart';
-import 'package:testapp/services/bill_service.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/widgets/payoff_sheet.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/models/debt.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/frontend/providers/app_settings_provider.dart';
+import 'package:testapp/frontend/screens/debt_detail_screen.dart';
+import 'package:testapp/backend/services/bill_service.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/frontend/widgets/payoff_sheet.dart';
 
 /// Juan borrowed ₱20,000 to pay back as 12 payments of ₱2,000: ₱24,000 in
 /// all, ₱4,000 of it interest. 5 are paid.

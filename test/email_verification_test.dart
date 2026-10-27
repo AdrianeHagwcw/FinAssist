@@ -1,8 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/screens/email_verification_screen.dart';
-import 'package:testapp/theme/app_theme.dart';
+import 'package:testapp/frontend/screens/email_verification_screen.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
 
 /// Only the email is read on screen; anything else would need Firebase.
 class _FakeUser implements User {

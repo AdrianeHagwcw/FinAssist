@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:testapp/models/bill.dart';
-import 'package:testapp/models/chat_answers.dart';
-import 'package:testapp/models/goal.dart';
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/providers/app_settings_provider.dart';
-import 'package:testapp/screens/bill_calendar_screen.dart';
-import 'package:testapp/screens/chatbot_screen.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/widgets/wallet_split_picker.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/models/chat_answers.dart';
+import 'package:testapp/backend/models/goal.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/frontend/providers/app_settings_provider.dart';
+import 'package:testapp/frontend/screens/bill_calendar_screen.dart';
+import 'package:testapp/frontend/screens/chatbot_screen.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/frontend/widgets/wallet_split_picker.dart';
 
 /// Money only lives where it really is: Cash on Hand or Cash in Bank. Every
 /// place money comes out of or goes into wallets asks the same way, and

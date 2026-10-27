@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/utils/auth_errors.dart';
+import 'package:testapp/frontend/utils/auth_errors.dart';
 
 void main() {
   group('googleSignInMessage', () {

@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/models/big_purchase.dart';
-import 'package:testapp/models/chat_answers.dart';
-import 'package:testapp/models/chat_language.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/price_references.dart';
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/screens/chatbot_screen.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/utils/money_format.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/big_purchase.dart';
+import 'package:testapp/backend/models/chat_answers.dart';
+import 'package:testapp/backend/models/chat_language.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/price_references.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/frontend/screens/chatbot_screen.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/backend/utils/money_format.dart';
 
 /// Thursday, Oct 15, 2026.
 final now = DateTime(2026, 10, 15, 10);

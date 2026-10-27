@@ -4,21 +4,21 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/widgets/transfer_sheet.dart';
-import 'package:testapp/models/wallet.dart';
+import 'package:testapp/frontend/widgets/transfer_sheet.dart';
+import 'package:testapp/backend/models/wallet.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as speech;
 
 import 'package:testapp/main.dart';
-import 'package:testapp/models/voice_command.dart';
-import 'package:testapp/providers/app_settings_provider.dart';
-import 'package:testapp/screens/add_expense_screen.dart';
-import 'package:testapp/screens/income_waterfall_screen.dart';
-import 'package:testapp/screens/ocr_screen.dart';
-import 'package:testapp/screens/voice_recognition_screen.dart';
-import 'package:testapp/services/receipt_reader.dart';
-import 'package:testapp/services/speech_input.dart';
+import 'package:testapp/backend/models/voice_command.dart';
+import 'package:testapp/frontend/providers/app_settings_provider.dart';
+import 'package:testapp/frontend/screens/add_expense_screen.dart';
+import 'package:testapp/frontend/screens/income_waterfall_screen.dart';
+import 'package:testapp/frontend/screens/ocr_screen.dart';
+import 'package:testapp/frontend/screens/voice_recognition_screen.dart';
+import 'package:testapp/backend/services/receipt_reader.dart';
+import 'package:testapp/backend/services/speech_input.dart';
 
 /// Stands in for the camera and the text reading.
 class FakeReader extends ReceiptReader {

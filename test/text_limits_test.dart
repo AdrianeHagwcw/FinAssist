@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/utils/text_limits.dart';
-import 'package:testapp/utils/unique_name.dart';
+import 'package:testapp/backend/utils/text_limits.dart';
+import 'package:testapp/backend/utils/unique_name.dart';
 
 void main() {
   TextEditingValue run(TextInputFormatter formatter, String text) =>

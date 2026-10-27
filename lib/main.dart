@@ -5,15 +5,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 
-import 'firebase_options.dart';
-import 'providers/app_settings_provider.dart';
-import 'services/account_session.dart';
-import 'services/firebase_app_check_setup.dart';
-import 'services/launch_screen.dart';
-import 'services/reminder_service.dart';
-import 'screens/splash_screen.dart';
-import 'theme/app_theme.dart';
-import 'widgets/app_logo.dart';
+import 'backend/firebase_options.dart';
+import 'frontend/providers/app_settings_provider.dart';
+import 'backend/services/account_session.dart';
+import 'backend/services/firebase_app_check_setup.dart';
+import 'backend/services/launch_screen.dart';
+import 'backend/services/reminder_service.dart';
+import 'frontend/screens/splash_screen.dart';
+import 'frontend/theme/app_theme.dart';
+import 'frontend/widgets/app_logo.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

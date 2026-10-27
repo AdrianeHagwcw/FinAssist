@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/utils/amount_input_formatter.dart';
-import 'package:testapp/utils/money_format.dart';
+import 'package:testapp/frontend/utils/amount_input_formatter.dart';
+import 'package:testapp/backend/utils/money_format.dart';
 
 void main() {
   const formatter = ThousandsSeparatorFormatter();

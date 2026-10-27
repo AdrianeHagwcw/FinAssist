@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/models/app_transaction.dart';
-import 'package:testapp/models/financial_insights.dart';
-import 'package:testapp/models/financial_topic_validator.dart';
+import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/financial_insights.dart';
+import 'package:testapp/backend/models/financial_topic_validator.dart';
 
 AppTransaction transaction(
   String id,

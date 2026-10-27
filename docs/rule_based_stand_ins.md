@@ -4,11 +4,11 @@ These features work today with plain rules, so they can be demonstrated before t
 
 | Feature | Where the rules live | What a model replaces later |
 | --- | --- | --- |
-| Category suggestion (typing an expense, Voice Entry, Scan Receipt) | `suggestCategory` in `lib/models/expense_guess.dart`, words in `lib/utils/category_keywords.dart` | The category guess. The keyword version stays as the fallback and as the baseline to compare the model against. |
-| Amount, description and date from speech or a receipt | `guessFromSpeech` and `guessFromReceipt` in `lib/models/expense_guess.dart` | Nothing needed for amounts and dates; rules find them reliably. A model may improve the store name. |
-| Assistant answers (spending, Safe to Spend, bills, balance, savings, debts, income, tips) | `answerChat` in `lib/models/chat_answers.dart`, reading `FinanceSnapshot` | The wording and understanding of free-form questions. The numbers keep coming from the app's own calculations. |
-| "Can I buy it?" | `answerChat` in `lib/models/chat_answers.dart` | The price lookup (web scraping) and more natural questions. The affordability math stays. |
-| Financial tips in Reports | `moneyTipsFor` in `lib/models/money_tips.dart` | Tips gathered by web scraping or a trained model, instead of or beside these. The rules stay useful offline. |
+| Category suggestion (typing an expense, Voice Entry, Scan Receipt) | `suggestCategory` in `lib/backend/models/expense_guess.dart`, words in `lib/backend/utils/category_keywords.dart` | The category guess. The keyword version stays as the fallback and as the baseline to compare the model against. |
+| Amount, description and date from speech or a receipt | `guessFromSpeech` and `guessFromReceipt` in `lib/backend/models/expense_guess.dart` | Nothing needed for amounts and dates; rules find them reliably. A model may improve the store name. |
+| Assistant answers (spending, Safe to Spend, bills, balance, savings, debts, income, tips) | `answerChat` in `lib/backend/models/chat_answers.dart`, reading `FinanceSnapshot` | The wording and understanding of free-form questions. The numbers keep coming from the app's own calculations. |
+| "Can I buy it?" | `answerChat` in `lib/backend/models/chat_answers.dart` | The price lookup (web scraping) and more natural questions. The affordability math stays. |
+| Financial tips in Reports | `moneyTipsFor` in `lib/backend/models/money_tips.dart` | Tips gathered by web scraping or a trained model, instead of or beside these. The rules stay useful offline. |
 
 ## How the rules behave
 
@@ -22,4 +22,4 @@ These features work today with plain rules, so they can be demonstrated before t
 
 ## Adding words
 
-Add store names or Taglish words to `lib/utils/category_keywords.dart`, one per line, lowercase, with punctuation written as a space (`7-eleven` becomes `7 eleven`). Tests for the rules are in `test/expense_guess_test.dart`, `test/chat_answers_test.dart` and `test/money_tips_test.dart`.
+Add store names or Taglish words to `lib/backend/utils/category_keywords.dart`, one per line, lowercase, with punctuation written as a space (`7-eleven` becomes `7 eleven`). Tests for the rules are in `test/expense_guess_test.dart`, `test/chat_answers_test.dart` and `test/money_tips_test.dart`.

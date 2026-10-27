@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:testapp/models/bill.dart';
-import 'package:testapp/providers/app_settings_provider.dart';
-import 'package:testapp/models/debt.dart';
-import 'package:testapp/screens/debts_screen.dart';
-import 'package:testapp/theme/app_theme.dart';
-import 'package:testapp/widgets/debt_form_sheet.dart';
-import 'package:testapp/widgets/loan_form_sheet.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/frontend/providers/app_settings_provider.dart';
+import 'package:testapp/backend/models/debt.dart';
+import 'package:testapp/frontend/screens/debts_screen.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/frontend/widgets/debt_form_sheet.dart';
+import 'package:testapp/frontend/widgets/loan_form_sheet.dart';
 
 Debt loan({
   double principal = 5000,

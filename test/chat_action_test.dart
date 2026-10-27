@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/models/chat_action.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/wallet.dart';
+import 'package:testapp/backend/models/chat_action.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/wallet.dart';
 
 Wallet _wallet({
   required String id,

@@ -1,4 +1,4 @@
-# The price scraper (scraper/README.md).
+# The price scraper (backend/scraper/README.md).
 #
 # - Every day at about 12:17 PM Philippine time it collects the prices and
 #   saves them in Firestore. Noon, so a new inflation rate the PSA released
@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'scraper/**'
+      - 'backend/scraper/**'
       - '.github/workflows/price-scraper.yml'
 
 permissions:
@@ -33,7 +33,7 @@ concurrency:
 
 defaults:
   run:
-    working-directory: scraper
+    working-directory: backend/scraper
 
 jobs:
   test:
@@ -58,7 +58,7 @@ jobs:
         with:
           python-version: '3.13'
           cache: pip
-          cache-dependency-path: scraper/requirements.txt
+          cache-dependency-path: backend/scraper/requirements.txt
       - name: Install
         run: pip install -r requirements.txt
       - name: Collect, check, analyze and save the prices

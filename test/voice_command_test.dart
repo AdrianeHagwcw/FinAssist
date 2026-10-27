@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:testapp/models/voice_command.dart';
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/utils/categories.dart';
+import 'package:testapp/backend/models/voice_command.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/backend/utils/categories.dart';
 
 VoiceCommand heard(String words) =>
     interpretVoiceCommand(words, categories: expenseCategories);

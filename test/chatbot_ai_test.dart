@@ -2,15 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/models/chat_action.dart';
-import 'package:testapp/models/chat_answers.dart';
-import 'package:testapp/models/chat_language.dart';
-import 'package:testapp/models/finance_snapshot.dart';
-import 'package:testapp/models/financial_topic_validator.dart';
-import 'package:testapp/models/wallet.dart';
-import 'package:testapp/screens/chatbot_screen.dart';
-import 'package:testapp/services/financial_ai_service.dart';
-import 'package:testapp/theme/app_theme.dart';
+import 'package:testapp/backend/models/chat_action.dart';
+import 'package:testapp/backend/models/chat_answers.dart';
+import 'package:testapp/backend/models/chat_language.dart';
+import 'package:testapp/backend/models/finance_snapshot.dart';
+import 'package:testapp/backend/models/financial_topic_validator.dart';
+import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/frontend/screens/chatbot_screen.dart';
+import 'package:testapp/backend/services/financial_ai_service.dart';
+import 'package:testapp/frontend/theme/app_theme.dart';
 
 class _FakeFinancialAssistant implements FinancialAssistant {
   int questionsAsked = 0;

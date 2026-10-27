@@ -1,6 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:testapp/screens/splash_screen.dart';
+import 'package:testapp/frontend/screens/splash_screen.dart';
 
 class _Session extends Fake implements FirebaseAuth {
   User? user;
