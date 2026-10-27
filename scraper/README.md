@@ -1,6 +1,6 @@
 # Price scraper
 
-Collects public financial data from the web once a week, checks it,
+Collects public financial data from the web every day, checks it,
 analyzes it, and saves it in Firestore (`priceReferences`) for the app.
 It runs on GitHub Actions (`.github/workflows/price-scraper.yml`), free
 for a public repository.
@@ -33,7 +33,7 @@ for a public repository.
 
 - Reads each site's robots.txt first and never opens what it forbids.
 - Names itself in every request (`FinAssist-price-scraper/1.0`).
-- Waits a second between requests to the same site; runs once a week.
+- Waits a second between requests to the same site; runs once a day.
 - Never gets around a captcha or a block. That is why the Bangko Sentral
   (robots.txt allows search engines only) and Pag-IBIG (captcha) are not
   scraped.

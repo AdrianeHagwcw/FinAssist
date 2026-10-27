@@ -14,7 +14,7 @@ set gets them under 'analysis'.
 
 from collections import Counter
 
-GOLD_HISTORY_LENGTH = 26  # About half a year of weekly checks.
+GOLD_HISTORY_LENGTH = 180  # About half a year of daily checks.
 ZONAL_UPDATE_EVERY_YEARS = 3
 
 

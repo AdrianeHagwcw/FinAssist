@@ -38,7 +38,7 @@ def same_data(saved, new):
 
 
 def save(db, name, data, now):
-    """Writes [data] only when it changed, so a quiet week costs nothing."""
+    """Writes [data] only when it changed, so a quiet day costs nothing."""
     ref = db.collection(COLLECTION).document(name)
     saved = ref.get()
     if saved.exists and same_data(saved.to_dict(), data):

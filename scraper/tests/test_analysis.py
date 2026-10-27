@@ -1,4 +1,5 @@
 import unittest
+from datetime import date, timedelta
 
 from price_scraper import analysis
 
@@ -69,10 +70,11 @@ class GoldTest(unittest.TestCase):
         self.assertEqual(history, [{'date': '2026-10-27', 'pesoPerGram': 8100}])
 
     def test_keeps_about_half_a_year(self):
+        first = date(2026, 1, 1)
         saved = {
             'history': [
-                {'date': f'2026-{1 + i // 4:02d}-{1 + i % 4 * 7:02d}', 'pesoPerGram': 7000 + i}
-                for i in range(30)
+                {'date': (first + timedelta(days=i)).isoformat(), 'pesoPerGram': 7000 + i}
+                for i in range(200)
             ]
         }
 

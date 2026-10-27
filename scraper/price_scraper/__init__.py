@@ -1,6 +1,6 @@
 """FinAssist's price scraper.
 
-Once a week, on GitHub Actions, it collects public price data from the web,
+Every day, on GitHub Actions, it collects public price data from the web,
 checks it, analyzes it, and saves it in Firestore for the app's assistant
 to use:
 
