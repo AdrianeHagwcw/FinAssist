@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 import 'app_transaction.dart';
+import 'big_purchase.dart';
 import 'bill.dart';
 import 'debt.dart';
 import 'expense_guess.dart';
@@ -10,6 +11,7 @@ import 'finance_snapshot.dart';
 import 'goal.dart';
 import 'financial_insights.dart';
 import 'money_tips.dart';
+import 'price_references.dart';
 import 'report.dart';
 import 'safe_to_spend.dart';
 import 'savings_suggestion.dart';
@@ -17,6 +19,8 @@ import 'transaction_filter.dart';
 import 'wallet.dart';
 import 'chat_language.dart';
 import '../utils/categories.dart';
+
+part 'big_purchase_answers.dart';
 
 /// The assistant's answers, worked out by rules from the user's own records.
 ///
@@ -145,6 +149,7 @@ class PurchaseQuestion {
     this.price,
     this.waitingFor,
     this.asked = 0,
+    this.details = '',
   });
 
   /// The day it has to be bought before.
@@ -167,6 +172,10 @@ class PurchaseQuestion {
   /// Follow-up questions asked so far, so the assistant never keeps asking.
   final int asked;
 
+  /// Everything the user has said about it so far, for details such as a
+  /// house's size or place, or gold's weight, that aren't the item's name.
+  final String details;
+
   /// What is being bought, as it reads in a sentence.
   String get thing {
     if (brand == null || brand == anyBrand) return item;
@@ -181,6 +190,7 @@ class PurchaseQuestion {
     PurchaseStep? waitingFor,
     bool clearWaiting = false,
     int? asked,
+    String? details,
   }) {
     return PurchaseQuestion(
       deadline: deadline,
@@ -191,6 +201,7 @@ class PurchaseQuestion {
       price: price ?? this.price,
       waitingFor: clearWaiting ? null : waitingFor ?? this.waitingFor,
       asked: asked ?? this.asked,
+      details: details ?? this.details,
     );
   }
 }
@@ -206,6 +217,7 @@ class ChatReply {
     this.useLocalAnswer = false,
     this.keepUnderAi = false,
     this.filipino = false,
+    this.sources = const [],
   });
 
   final String text;
@@ -234,6 +246,9 @@ class ChatReply {
   /// Taglish. Other replies to such a question are translated when online.
   final bool filipino;
 
+  /// Where the public prices in [text] are from, shown as links under it.
+  final List<ReferenceLink> sources;
+
   ChatReply protected() => ChatReply(
     text,
     choices: choices,
@@ -243,6 +258,7 @@ class ChatReply {
     useLocalAnswer: true,
     keepUnderAi: keepUnderAi,
     filipino: filipino,
+    sources: sources,
   );
 }
 
@@ -266,13 +282,15 @@ const suggestedQuestionsFilipino = [
 
 /// Answers [message] from [records], the user's own data, which is null
 /// while it is still loading. [pending] is a "Can I buy it?" question still
-/// being worked out.
+/// being worked out. [prices] are the public prices the web scraper saved,
+/// for houses, lots and gold; null when they couldn't be read.
 ChatReply answerChat(
   String message, {
   required FinanceSnapshot? records,
   PurchaseQuestion? pending,
   String? contextMessage,
   ChatLanguage? language,
+  PriceReferences? prices,
 }) {
   final text = ' ${_plain(message)} ';
   // Tagalog and Taglish get everyday Filipino, with the money words people
@@ -308,12 +326,23 @@ ChatReply answerChat(
   if (_asksForFormula(text)) return _formula(text, records, fil).protected();
 
   if (pending != null) {
-    final followUp = _continuePurchase(message, text, pending, records, fil);
+    final followUp = _continuePurchase(
+      message,
+      text,
+      pending,
+      records,
+      prices,
+      fil,
+    );
     if (followUp != null) return followUp;
   }
 
-  final buy = _buyTrigger.firstMatch(message.toLowerCase());
-  if (buy != null) return _startPurchase(message, buy.end, records, fil);
+  final buy =
+      _buyTrigger.firstMatch(message.toLowerCase()) ??
+      _otherBuyTrigger.firstMatch(message.toLowerCase());
+  if (buy != null) {
+    return _startPurchase(message, buy.end, records, prices, fil);
+  }
 
   final projection = _savingsProjection(message, records, fil);
   if (projection != null) return projection;
@@ -2888,6 +2917,7 @@ ChatReply _startPurchase(
   String message,
   int triggerEnd,
   FinanceSnapshot? records,
+  PriceReferences? prices,
   bool fil,
 ) {
   if (records == null) {
@@ -2902,7 +2932,10 @@ ChatReply _startPurchase(
     message.toLowerCase(),
     records,
   );
-  final words = message.substring(triggerEnd);
+  // A house's size or gold's weight isn't its price: "120 sqm", "18k".
+  final words = _withoutMeasures(
+    _withoutAskingWords(message.substring(triggerEnd)),
+  );
   final price = _priceIn(words);
   final question = PurchaseQuestion(
     deadline: deadline,
@@ -2910,8 +2943,9 @@ ChatReply _startPurchase(
     deadlineLabelFilipino: labelFilipino,
     item: _itemIn(words, price),
     price: price?.value,
+    details: message,
   );
-  return _nextPurchaseStep(question, records, fil);
+  return _nextPurchaseStep(question, records, prices, fil);
 }
 
 /// Handles a reply to a follow-up question, or null when the message is a
@@ -2921,11 +2955,16 @@ ChatReply? _continuePurchase(
   String text,
   PurchaseQuestion pending,
   FinanceSnapshot? records,
+  PriceReferences? prices,
   bool fil,
 ) {
   if (records == null) return null;
   // A new "Can I buy…" or another kind of question starts over.
-  if (_buyTrigger.hasMatch(message.toLowerCase())) return null;
+  if (_buyTrigger.hasMatch(message.toLowerCase()) ||
+      _otherBuyTrigger.hasMatch(message.toLowerCase())) {
+    return null;
+  }
+  pending = pending.copyWith(details: '${pending.details}\n$message');
   final amount = findAmount(message)?.value;
   final tapped = message.trim();
 
@@ -2938,6 +2977,7 @@ ChatReply? _continuePurchase(
       return _nextPurchaseStep(
         pending.copyWith(item: item, price: price?.value, clearWaiting: true),
         records,
+        prices,
         fil,
       );
 
@@ -2952,6 +2992,7 @@ ChatReply? _continuePurchase(
             clearWaiting: true,
           ),
           records,
+          prices,
           fil,
         );
       }
@@ -2961,6 +3002,7 @@ ChatReply? _continuePurchase(
         return _nextPurchaseStep(
           pending.copyWith(brand: anyBrand, clearWaiting: true),
           records,
+          prices,
           fil,
         );
       }
@@ -2968,20 +3010,31 @@ ChatReply? _continuePurchase(
       return _nextPurchaseStep(
         pending.copyWith(brand: tapped, clearWaiting: true),
         records,
+        prices,
         fil,
       );
 
     case PurchaseStep.price:
+      // A house's size or gold's weight, given instead of a price.
+      final measured = _measuredPrice(message, pending, records, prices, fil);
+      if (measured != null) return measured;
       if (amount != null) {
-        return _purchaseAnswer(pending.copyWith(price: amount), records, fil);
+        return _purchaseAnswer(
+          pending.copyWith(price: amount),
+          records,
+          prices,
+          fil,
+        );
       }
       if (_has(text, _unsure) ||
           tapped == notSure ||
           tapped == notSureFilipino) {
-        return _purchaseAnswer(pending, records, fil);
+        return _purchaseAnswer(pending, records, prices, fil);
       }
       if (_intentOf(text) != null) return null;
-      if (pending.asked >= 2) return _purchaseAnswer(pending, records, fil);
+      if (pending.asked >= 2) {
+        return _purchaseAnswer(pending, records, prices, fil);
+      }
       return ChatReply(
         fil
             ? 'I-type lang ang presyo, halimbawa ₱8,990, o pindutin ang '
@@ -3023,6 +3076,7 @@ const _unsure = [
 ChatReply _nextPurchaseStep(
   PurchaseQuestion q,
   FinanceSnapshot records,
+  PriceReferences? prices,
   bool fil,
 ) {
   if (q.item.isEmpty) {
@@ -3032,7 +3086,12 @@ ChatReply _nextPurchaseStep(
       filipino: fil,
     );
   }
-  if (q.price != null) return _purchaseAnswer(q, records, fil);
+  if (q.price != null) return _purchaseAnswer(q, records, prices, fil);
+
+  // Houses, lots and gold have their own questions: a size or a weight
+  // can stand in for the price.
+  final big = _askBigPrice(q, records, prices, fil);
+  if (big != null) return big;
 
   final brands = _brandsFor(q.item);
   if (q.brand == null && brands != null) {
@@ -3054,7 +3113,7 @@ ChatReply _nextPurchaseStep(
       filipino: fil,
     );
   }
-  if (q.brand == anyBrand) return _purchaseAnswer(q, records, fil);
+  if (q.brand == anyBrand) return _purchaseAnswer(q, records, prices, fil);
 
   return ChatReply(
     fil
@@ -3108,6 +3167,8 @@ String? productPriceLookupQuery(String message) {
       return null;
     }
     product = _itemIn(itemText, null);
+    // Houses, lots and gold are worked out from the prices the app keeps.
+    if (_bigKindOf(product) != null) return null;
   }
 
   if (product == null) return null;
@@ -3160,44 +3221,57 @@ List<String>? _brandsFor(String item) {
 ChatReply _purchaseAnswer(
   PurchaseQuestion q,
   FinanceSnapshot records,
+  PriceReferences? prices,
   bool fil,
 ) {
   if (records.wallets.isEmpty) return _noWallets(fil);
 
+  final kind = _bigKindOf(q.item);
+  if (q.price != null && (kind == _BigKind.home || kind == _BigKind.land)) {
+    return _homeAnswer(q, records, prices, fil);
+  }
+
   final today = records.today;
-  final days = math.max(1, q.deadline.difference(today).inDays);
-  final bills = billsDueBefore(records.bills, q.deadline);
-  final available =
-      records.walletBalance - bills - records.goalSavingsInSpendingWallets;
-
-  final daily = records.usualDailySpending;
-  // Today's spending is already out of the wallets; only the rest of today
-  // is still to come.
-  final restOfToday = math.max(0.0, daily - records.spentToday);
-  final usual = daily * (days - 1) + restOfToday;
-
-  final spare = _down(available - usual);
+  final monthEnd = records.period.end;
+  final pace = savingPaceOf(records);
+  // Past this month, what is usually left of the user's income each month
+  // counts too, from their own records. Without enough records, only what
+  // is on hand now is counted.
+  final paced = pace != null && q.deadline.isAfter(monthEnd);
+  final until = paced ? monthEnd : q.deadline;
+  final days = math.max(1, until.difference(today).inDays);
+  final (spare: spareThen, :bills, :daily) = _spareBy(until, records);
+  final monthsAfter = paced ? _monthsBetween(monthEnd, q.deadline) : 0;
+  final spare = paced
+      ? _down(spareThen + pace.perMonth * monthsAfter)
+      : spareThen;
   final label = fil && q.deadlineLabelFilipino.isNotEmpty
       ? q.deadlineLabelFilipino
       : q.deadlineLabel;
 
   final notes = fil
       ? [
-          'Ang tantiyang ito ay base sa kasalukuyang balance at naitalang '
-              'gastos; hindi kasama ang darating na kita.',
+          paced
+              ? _paceNote(pace, fil, forDeadline: true)
+              : 'Ang tantiyang ito ay base sa kasalukuyang balance at naitalang '
+                    'gastos; hindi kasama ang darating na kita.',
           if (daily <= 0)
             'Wala ka pang naitalang araw-araw na gastos, kaya hindi ko pa '
                 'ito naisama.',
-          if (q.deadline.isAfter(DateTime(today.year, today.month + 2)))
+          if (!paced &&
+              q.deadline.isAfter(DateTime(today.year, today.month + 2)))
             'Hindi pa kasama ang bills na lampas isang buwan pa.',
         ]
       : [
-          'This estimate uses current balances and recorded spending; it '
-              'does not include future income.',
+          paced
+              ? _paceNote(pace, fil, forDeadline: true)
+              : 'This estimate uses current balances and recorded spending; it '
+                    'does not include future income.',
           if (daily <= 0)
             "You haven't recorded day-to-day spending yet, so I couldn't "
                 'allow for it.',
-          if (q.deadline.isAfter(DateTime(today.year, today.month + 2)))
+          if (!paced &&
+              q.deadline.isAfter(DateTime(today.year, today.month + 2)))
             "Bills more than a month away aren't counted yet.",
         ];
   // What the spare money is worked out after, naming only what there is:
@@ -3261,45 +3335,114 @@ ChatReply _purchaseAnswer(
     );
   }
 
+  // Gold: how the price compares with what its gold is worth today.
+  final gold = kind == _BigKind.gold ? _goldNote(q, price, prices, fil) : null;
+  ChatReply reply(
+    List<String> parts, {
+    GoalOffer? goal,
+    List<ReferenceLink> sources = const [],
+  }) {
+    final answer = ChatReply(
+      [parts.first, ?gold?.text, ...parts.skip(1)].join('\n\n'),
+      goal: goal,
+      filipino: fil,
+      sources: [...?gold?.links, ...sources],
+    );
+    // Figures from public prices are worked out here, not by Gemini.
+    return gold == null ? answer : answer.protected();
+  }
+
   final cost = formatPeso(price);
   if (spare >= price) {
     final left = formatPeso(spare - price);
-    return ChatReply(
-      [
-        fil
-            ? '${q.thing.isEmpty ? 'Oo, kaya mo itong bilhin' : 'Oo, kaya mong bilhin ang ${q.thing}'} '
-                  '($cost) $label. $afterFil matitira ka pang mga $left.'
-            : 'Yes, you can buy ${q.thing.isEmpty ? 'it' : 'the ${q.thing}'} '
-                  '($cost) $label. $after would still have about $left '
-                  'spare.',
-        ...notes,
-      ].join('\n\n'),
-      filipino: fil,
-    );
+    return reply([
+      fil
+          ? '${q.thing.isEmpty ? 'Oo, kaya mo itong bilhin' : 'Oo, kaya mong bilhin ang ${q.thing}'} '
+                '($cost) $label. $afterFil matitira ka pang mga $left.'
+          : 'Yes, you can buy ${q.thing.isEmpty ? 'it' : 'the ${q.thing}'} '
+                '($cost) $label. $after would still have about $left '
+                'spare.',
+      ...notes,
+    ]);
   }
 
   final short = price - spare;
   final cutPerDay = _up(short / days);
-  if (daily > 0 && days >= 3 && cutPerDay <= daily * 0.5) {
+  if (!paced && daily > 0 && days >= 3 && cutPerDay <= daily * 0.5) {
     final aim = formatPeso(_down(daily - cutPerDay));
     final usualDay = formatPeso(_down(daily));
-    return ChatReply(
+    return reply([
+      fil
+          ? 'Oo, kung babawasan mo nang kaunti ang gastos. Kulang ka ng mga '
+                '${formatPeso(short)} $label, kaya subukang gumastos lang ng '
+                'mga $aim kada araw sa halip na ang karaniwang $usualDay mo.'
+          : "Yes, if you spend a little less. You're about "
+                '${formatPeso(short)} short $label, so aim for about $aim a '
+                'day instead of your usual $usualDay.',
+      ?_habit(records, fil),
+      ...notes,
+    ]);
+  }
+
+  // With nothing spare, "₱12,000 short of ₱10,000" would read wrong.
+  final notYet = fil
+      ? spare > 0
+            ? 'Hindi pa ito kasya $label. $afterFil matitira kang mga '
+                  '${formatPeso(spare)}, kulang pa ng ${formatPeso(short)} '
+                  'para sa $cost.'
+            : 'Hindi pa ito kasya $label. '
+                  '${covers == null ? 'Walang' : 'Pagkatapos ng $covers, walang'} '
+                  'matitira, kaya kailangan pang ipunin ang buong $cost.'
+      : spare > 0
+      ? "It doesn't fit $label yet. $after would have about "
+            '${formatPeso(spare)} spare, ${formatPeso(short)} short of '
+            '$cost.'
+      : "It doesn't fit $label yet. "
+            '${covers == null ? 'Nothing' : 'After $covers, nothing'} would '
+            'be spare, so all $cost still needs saving.';
+  final name = q.thing.isEmpty
+      ? (fil ? 'Gustong bilhin' : 'Something I want')
+      : _goalName(q.thing);
+
+  // How long, at the pace the user's own records show.
+  if (pace != null) {
+    final saved = math.max(0.0, _spareBy(monthEnd, records).spare);
+    final plan = _savingPlan(
+      price: price,
+      saved: saved,
+      pace: pace,
+      records: records,
+      prices: prices,
+      fil: fil,
+    );
+    return reply(
       [
-        fil
-            ? 'Oo, kung babawasan mo nang kaunti ang gastos. Kulang ka ng mga '
-                  '${formatPeso(short)} $label, kaya subukang gumastos lang ng '
-                  'mga $aim kada araw sa halip na ang karaniwang $usualDay mo.'
-            : "Yes, if you spend a little less. You're about "
-                  '${formatPeso(short)} short $label, so aim for about $aim a '
-                  'day instead of your usual $usualDay.',
-        ?_habit(records, fil),
-        ...notes,
-      ].join('\n\n'),
-      filipino: fil,
+        notYet,
+        ...plan.lines,
+        ..._waysToGetThere(
+          price: price,
+          saved: saved,
+          pace: pace,
+          months: plan.months,
+          records: records,
+          prices: prices,
+          fil: fil,
+        ),
+        // The first note says future income isn't counted, true of the
+        // month-end figure but not of the months after; the pace note says
+        // what those count instead.
+        ...paced ? notes : notes.skip(1),
+        if (!paced) _paceNote(pace, fil),
+      ],
+      goal: plan.ready == null
+          ? null
+          : GoalOffer(name: name, target: price, date: plan.ready!),
+      sources: plan.sources,
     );
   }
 
-  // Not in time: a weekly amount the user's own spending can support.
+  // No saving habit to go on yet: a weekly amount the user's own spending
+  // can support.
   final toSave = price - math.max(0, spare);
   final weeklySpending = daily * 7;
   var weeks = 52;
@@ -3312,39 +3455,34 @@ ChatReply _purchaseAnswer(
   }
   final perWeek = formatPeso(_upTo50(toSave / weeks));
   final ready = today.add(Duration(days: weeks * 7));
-  final name = q.thing.isEmpty
-      ? (fil ? 'Gustong bilhin' : 'Something I want')
-      : _goalName(q.thing);
   final readyOn = formatShortDate(ready);
 
-  return ChatReply(
-    [
-      // With nothing spare, "₱12,000 short of ₱10,000" would read wrong.
-      if (fil)
-        spare > 0
-            ? 'Hindi pa ito kasya $label. $afterFil matitira kang mga '
-                  '${formatPeso(spare)}, kulang pa ng ${formatPeso(short)} '
-                  'para sa $cost.'
-            : 'Hindi pa ito kasya $label. '
-                  '${covers == null ? 'Walang' : 'Pagkatapos ng $covers, walang'} '
-                  'matitira, kaya kailangan pang ipunin ang buong $cost.'
-      else if (spare > 0)
-        "It doesn't fit $label yet. $after would have about "
-            '${formatPeso(spare)} spare, ${formatPeso(short)} short of '
-            '$cost.'
-      else
-        "It doesn't fit $label yet. "
-            '${covers == null ? 'Nothing' : 'After $covers, nothing'} would '
-            'be spare, so all $cost still needs saving.',
-      fil
-          ? 'Kung mag-iipon ka ng $perWeek kada linggo, aabot ka rito sa '
-                '$readyOn.'
-          : 'Saving $perWeek a week gets you there by $readyOn.',
-      ...notes,
-    ].join('\n\n'),
-    goal: GoalOffer(name: name, target: price, date: ready),
-    filipino: fil,
-  );
+  return reply([
+    notYet,
+    fil
+        ? 'Kung mag-iipon ka ng $perWeek kada linggo, aabot ka rito sa '
+              '$readyOn.'
+        : 'Saving $perWeek a week gets you there by $readyOn.',
+    ...notes,
+  ], goal: GoalOffer(name: name, target: price, date: ready));
+}
+
+/// What would be left by [until]: the wallets, less the bills due before
+/// then, money set aside for goals, and the usual day-to-day spending until
+/// then. Today's spending is already out of the wallets; only the rest of
+/// today is still to come.
+({double spare, double bills, double daily}) _spareBy(
+  DateTime until,
+  FinanceSnapshot records,
+) {
+  final days = math.max(1, until.difference(records.today).inDays);
+  final bills = billsDueBefore(records.bills, until);
+  final available =
+      records.walletBalance - bills - records.goalSavingsInSpendingWallets;
+  final daily = records.usualDailySpending;
+  final restOfToday = math.max(0.0, daily - records.spentToday);
+  final usual = daily * (days - 1) + restOfToday;
+  return (spare: _down(available - usual), bills: bills, daily: daily);
 }
 
 /// Where most day-to-day money goes, from the last 30 days.
@@ -3405,6 +3543,24 @@ const _monthNames = [
       'ngayong buwan',
     );
   }
+  final span = RegExp(
+    r'\b(?:in|within|after|sa loob ng) (?:the next )?(\d{1,2}|a|isang) '
+    r'(?:na )?(months?|years?|buwan|taon)\b',
+  ).firstMatch(text);
+  if (span != null) {
+    final count = int.tryParse(span[1]!) ?? 1;
+    final years = span[2]!.startsWith('year') || span[2] == 'taon';
+    if (count > 0) {
+      final unit = years
+          ? (count == 1 ? 'year' : 'years')
+          : (count == 1 ? 'month' : 'months');
+      return (
+        DateTime(today.year, today.month + count * (years ? 12 : 1), today.day),
+        'within $count $unit',
+        'sa loob ng $count ${years ? 'taon' : 'buwan'}',
+      );
+    }
+  }
   for (final (i, name) in _monthNames.indexed) {
     if (_has(text, [
       'by $name',
@@ -3434,7 +3590,8 @@ final _timeWords = RegExp(
   r'\b(this|next) (month|week)\b|\bngayong (buwan|linggo)\b|'
   r'\bsa susunod na (buwan|linggo)\b|\b(before|bago) (my next )?'
   r'(payday|sahod|sweldo)\b|\bby (the end of )?[a-z]+\b|\btoday\b|'
-  r'\bngayon\b',
+  r'\bngayon\b|\b(in|within|after|sa loob ng) (the next )?(\d{1,2}|a|isang) '
+  r'(na )?(months?|years?|buwan|taon)\b',
   caseSensitive: false,
 );
 
@@ -3464,10 +3621,27 @@ const _itemFillers = {
   'iyan',
 };
 
+final _millions = RegExp(
+  r'(?:₱\s?)?(?<![a-z\d.,])(\d+(?:\.\d+)?)(?:m|\s?(?:mil|million|milyon))'
+  r'(?![a-z\d])',
+  caseSensitive: false,
+);
+
 /// The price in "Can I buy…" words. A plain number under ₱100 is more
 /// likely part of a name, as in "iPhone 16", so it only counts when said as
 /// money, as in "₱50" or "50 pesos".
 ({double value, int start, int end, bool isMoney})? _priceIn(String words) {
+  // "2M" or "2.5 million" for a house. Only prices asked about here are
+  // read this way: in an expense, "5m" is more likely a length.
+  final millions = _millions.firstMatch(words);
+  if (millions != null) {
+    return (
+      value: double.parse(millions[1]!) * 1000000,
+      start: millions.start,
+      end: millions.end,
+      isMoney: true,
+    );
+  }
   final amount = findAmount(words);
   if (amount == null) return null;
   if (!amount.isMoney && amount.value < 100) return null;

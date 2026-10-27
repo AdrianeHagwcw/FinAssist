@@ -13,12 +13,14 @@ import '../models/financial_ai_guardrails.dart';
 import '../models/finance_snapshot.dart';
 import '../models/financial_insights.dart';
 import '../models/goal.dart';
+import '../models/price_references.dart';
 import '../models/wallet.dart';
 import '../screens/add_expense_screen.dart';
 import '../screens/income_waterfall_screen.dart';
 import '../services/finance_snapshot_service.dart';
 import '../services/financial_ai_service.dart';
 import '../services/goal_service.dart';
+import '../services/price_references_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -137,6 +139,7 @@ class ChatbotScreen extends StatefulWidget {
     this.records,
     this.assistant,
     this.onAction,
+    this.loadPrices,
     super.key,
   });
 
@@ -151,6 +154,10 @@ class ChatbotScreen extends StatefulWidget {
 
   /// Replaces form navigation in tests; production always opens existing forms.
   final Future<bool> Function(ChatAction action)? onAction;
+
+  /// The public prices the web scraper saved, for houses, lots and gold.
+  /// Tests pass their own.
+  final Future<PriceReferences?> Function()? loadPrices;
 
   @override
   State<ChatbotScreen> createState() => _ChatbotScreenState();
@@ -214,6 +221,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   FinanceSnapshot? _records;
   StreamSubscription<FinanceSnapshot>? _recordsSubscription;
 
+  /// Public prices for big purchases; null until read, or when they can't be.
+  PriceReferences? _prices;
+
   /// A "Can I buy it?" question still being worked out.
   PurchaseQuestion? _pending;
 
@@ -241,6 +251,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       onError: (Object _) {
         if (mounted) setState(() => _records = null);
       },
+    );
+    unawaited(
+      (widget.loadPrices ?? loadPriceReferences)().then((prices) {
+        if (mounted) setState(() => _prices = prices);
+      }),
     );
   }
 
@@ -354,6 +369,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         pending: _pending,
         contextMessage: contextMessage,
         language: shownLanguage,
+        prices: _prices,
       );
       // Fin's own Tagalog, for the button on a Taglish answer.
       final tagalogReply = taglish
@@ -363,6 +379,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               pending: _pending,
               contextMessage: contextMessage,
               language: ChatLanguage.tagalog,
+              prices: _prices,
             )
           : null;
       if (tagalogReply != null && tagalogReply.filipino) {
@@ -401,7 +418,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       final isPurchaseFollowUp =
           _pending != null &&
           localReply.text !=
-              answerChat(text, records: records, language: shownLanguage).text;
+              answerChat(
+                text,
+                records: records,
+                language: shownLanguage,
+                prices: _prices,
+              ).text;
       final usesReportSavingsSuggestions =
           records != null && isSavingsSuggestionsQuestion(text);
       final needsRuleBasedFlow =
@@ -564,6 +586,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           'action': action,
           ...expenseBatchMessage,
           'priceSources': groundedPriceAnswer?.sources,
+          // Where Fin's own figures came from, while its answer is shown.
+          if (localReply.sources.isNotEmpty && answer.contains(localReply.text))
+            'referenceLinks': localReply.sources,
           'searchSuggestionsHtml': groundedPriceAnswer?.searchSuggestionsHtml,
           'financialContext':
               financialTopic || action != null || localReply.useLocalAnswer,
@@ -1041,6 +1066,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     const [];
                 final searchSuggestionsHtml =
                     message['searchSuggestionsHtml'] as String?;
+                final referenceLinks =
+                    message['referenceLinks'] as List<ReferenceLink>? ??
+                    const [];
                 // Only the latest answer's quick replies still apply.
                 final isLatest = index == _messages.length - 1;
 
@@ -1057,6 +1085,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                         priceSources,
                         searchSuggestionsHtml,
                       ),
+                    if (!isUser && referenceLinks.isNotEmpty)
+                      _referenceLinks(referenceLinks),
                     if (goal != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -1126,22 +1156,41 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             'Prices checked today. Seller prices and stock can change.',
             style: TextStyle(fontSize: 11, color: context.appColors.textBody),
           ),
-          for (final source in sources)
-            TextButton.icon(
-              onPressed: () => _openPriceSource(source.url),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                visualDensity: VisualDensity.compact,
-              ),
-              icon: const Icon(Icons.open_in_new, size: 14),
-              label: Text(source.title, textAlign: TextAlign.left),
-            ),
+          for (final source in sources) _sourceLink(source.title, source.url),
           if (searchSuggestionsHtml != null && searchSuggestionsHtml.isNotEmpty)
             _GoogleSearchSuggestions(html: searchSuggestionsHtml),
         ],
       ),
     );
   }
+
+  /// Where the public prices in Fin's own answer came from: the PSA, BIR,
+  /// Pag-IBIG and the gold price, as the web scraper last saved them.
+  Widget _referenceLinks(List<ReferenceLink> links) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Sources',
+            style: TextStyle(fontSize: 11, color: context.appColors.textBody),
+          ),
+          for (final link in links) _sourceLink(link.title, link.url),
+        ],
+      ),
+    );
+  }
+
+  Widget _sourceLink(String title, String url) => TextButton.icon(
+    onPressed: () => _openPriceSource(url),
+    style: TextButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      visualDensity: VisualDensity.compact,
+    ),
+    icon: const Icon(Icons.open_in_new, size: 14),
+    label: Text(title, textAlign: TextAlign.left),
+  );
 
   Future<void> _openPriceSource(String value) async {
     final uri = Uri.tryParse(value);

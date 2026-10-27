@@ -639,11 +639,19 @@ void main() {
       final answer = ask('₱14,990', pending: second.pending);
       expect(answer.text, contains("It doesn't fit by month end (Sep 30)"));
       expect(answer.text, contains('₱10,172 spare, ₱4,818 short of ₱14,990'));
-      // ₱200 a week is within 30% of the ₱1,095 usually spent in a week.
-      expect(answer.text, contains('Saving ₱200 a week'));
+      // The month's ₱20,000 allowance less ₱6,850 spent, over the last 31
+      // days, leaves about ₱12,726 a month: one more month covers it.
+      expect(
+        answer.text,
+        contains('At your usual pace, about ₱12,726 is left each month'),
+      );
+      expect(
+        answer.text,
+        contains("Saving that, you'd have enough by about October 2026"),
+      );
       expect(answer.goal?.name, 'AirPods Pro');
       expect(answer.goal?.target, 14990);
-      expect(answer.goal?.date, DateTime(2027, 3, 20));
+      expect(answer.goal?.date, DateTime(2026, 10, 31));
       expect(answer.pending, isNull);
     });
 
@@ -684,12 +692,17 @@ void main() {
       );
     });
 
-    test('a later deadline does not count income not yet received', () {
+    test('a later deadline counts what is usually left each month', () {
       final reply = ask('Can I buy a ₱40,000 laptop by December?');
-      // With no pay schedule, only what is on hand now is counted.
-      expect(reply.text, contains("It doesn't fit by the end of December yet"));
-      expect(reply.text, contains('does not include future income'));
-      expect(reply.text, isNot(contains('of income')));
+      // ₱10,172 by month end, then about ₱12,726 in each of Oct, Nov and Dec.
+      expect(
+        reply.text,
+        contains(
+          'Yes, you can buy the laptop (₱40,000) by the end of December',
+        ),
+      );
+      expect(reply.text, contains("what's usually left of your income"));
+      expect(reply.text, isNot(contains('does not include future income')));
     });
 
     test('something not on the brand list goes straight to the price', () {
