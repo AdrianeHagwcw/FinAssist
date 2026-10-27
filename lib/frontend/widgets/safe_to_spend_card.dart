@@ -483,65 +483,7 @@ void showSafeToSpendWorking(BuildContext context, SafeToSpend s) {
     builder: (context) => AlertDialog(
       shape: dialogShape,
       title: const Text('How this is worked out'),
-      // Laid out like a receipt rather than written as a paragraph: the
-      // reader follows one line at a time and arrives at the figure on the
-      // card, instead of parsing a sentence full of amounts.
-      content: SingleChildScrollView(
-        child: Builder(
-          builder: (context) {
-            final days =
-                '${s.daysLeft} '
-                '${s.daysLeft == 1 ? 'day' : 'days'}';
-            // With nothing taken off, a total line would repeat the line
-            // above it and read like a mistake.
-            final takesSomeOff =
-                s.billsDue > 0 || s.goalSavings > 0 || s.spentToday > 0;
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _Working('Money in your wallets', s.walletBalance),
-                if (s.spentToday > 0)
-                  _Working('What you spent today', s.spentToday, add: true),
-                if (s.billsDue > 0)
-                  _Working('Bills still to pay', s.billsDue, take: true),
-                if (s.goalSavings > 0)
-                  _Working('Saved for your goals', s.goalSavings, take: true),
-                if (takesSomeOff) ...[
-                  const Divider(height: 22),
-                  // Named for the stretch it covers, so it is not read as
-                  // what can be spent today.
-                  _Working(
-                    'Left through the end of this month',
-                    s.spendableThisPeriod,
-                    strong: true,
-                  ),
-                ] else if (s.walletBalance > 0) ...[
-                  const SizedBox(height: 10),
-                  const Text(
-                    'You have no bills due and nothing saved for goals out '
-                    'of this money, so all of it is yours to spend.',
-                    style: TextStyle(height: 1.45),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                // A brand new account has nothing to share out yet, so it
-                // is told what to do rather than shown ₱0 a day.
-                Text(
-                  s.walletBalance <= 0
-                      ? 'Once you add income or a wallet balance, this '
-                            'shows how much of it you can spend each day '
-                            'through the end of this month.'
-                      : 'That is ${formatPeso(s.recommendedDailyLimit)} a '
-                            'day for the $days left this month.',
-                  style: const TextStyle(height: 1.45),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+      content: SingleChildScrollView(child: SafeToSpendWorking(s)),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
@@ -550,4 +492,76 @@ void showSafeToSpendWorking(BuildContext context, SafeToSpend s) {
       ],
     ),
   );
+}
+
+/// The working behind Safe to Spend, laid out like a receipt rather than
+/// written as a paragraph: the reader follows one line at a time and
+/// arrives at today's figure, instead of parsing a sentence full of amounts.
+class SafeToSpendWorking extends StatelessWidget {
+  const SafeToSpendWorking(this.s, {super.key});
+
+  final SafeToSpend s;
+
+  /// What today's spending leaves, said after the day's share.
+  String get _today {
+    if (s.spentToday <= 0) return '';
+    final spent = formatPeso(s.spentToday);
+    return s.isOverLimit
+        ? " You've spent $spent today, ${formatPeso(-s.leftToday)} more than "
+              'that.'
+        : " You've spent $spent today, so ${formatPeso(s.leftToday)} is left."
+              '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final days = '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'}';
+    // With nothing taken off, a total line would repeat the line above it
+    // and read like a mistake.
+    final takesSomeOff =
+        s.billsDue > 0 || s.goalSavings > 0 || s.spentToday > 0;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Working('Money in your wallets', s.walletBalance),
+        if (s.spentToday > 0)
+          _Working('What you spent today', s.spentToday, add: true),
+        if (s.billsDue > 0)
+          _Working('Bills still to pay', s.billsDue, take: true),
+        if (s.goalSavings > 0)
+          _Working('Saved for your goals', s.goalSavings, take: true),
+        if (takesSomeOff) ...[
+          const Divider(height: 22),
+          // Named for the stretch it covers, so it is not read as what can
+          // be spent today.
+          _Working(
+            'Left through the end of this month',
+            s.spendableThisPeriod,
+            strong: true,
+          ),
+        ] else if (s.walletBalance > 0) ...[
+          const SizedBox(height: 10),
+          const Text(
+            'You have no bills due and nothing saved for goals out of this '
+            'money, so all of it is yours to spend.',
+            style: TextStyle(height: 1.45),
+          ),
+        ],
+        const SizedBox(height: 10),
+        // A brand new account has nothing to share out yet, so it is told
+        // what to do rather than shown ₱0 a day.
+        Text(
+          s.walletBalance <= 0
+              ? 'Once you add income or a wallet balance, this shows how '
+                    'much of it you can spend each day through the end of '
+                    'this month.'
+              : 'That is ${formatPeso(s.recommendedDailyLimit)} a day for '
+                    'the $days left this month.$_today',
+          style: const TextStyle(height: 1.45),
+        ),
+      ],
+    );
+  }
 }

@@ -23,6 +23,7 @@ import '../widgets/app_icon_button.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/money_text.dart';
 import '../widgets/quick_action_tile.dart';
+import '../widgets/safe_to_spend_bar.dart';
 import '../widgets/safe_to_spend_card.dart';
 import '../widgets/spending_chart.dart';
 import '../widgets/transaction_row.dart';
@@ -136,8 +137,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// doesn't read them twice.
   List<BillInstance> _bills = const [];
 
-  /// Today's Safe to Spend, worked out by the card above and shown in the
-  /// light bulb further down.
+  /// Today's Safe to Spend, worked out by the card below the balance and
+  /// shown along the bottom of the balance card.
   SafeToSpend? _safeToSpend;
 
   static bool _sameFigure(SafeToSpend? a, SafeToSpend b) =>
@@ -303,7 +304,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // The money the user has right now comes first: cash on hand plus
         // cash in bank.
-        _TotalBalanceCard(wallets: wallets, goals: goals ?? const []),
+        _TotalBalanceCard(
+          wallets: wallets,
+          goals: goals ?? const [],
+          safeToSpend: _safeToSpend,
+        ),
         // Bills due soon, matured savings and the leftover question, worked
         // out from the same inputs as Safe to Spend, whose figure Home no
         // longer shows.
@@ -363,10 +368,6 @@ class _HomeScreenState extends State<HomeScreen> {
         now: now,
       ),
       onOpenHistory: () => _push(const HistoryScreen()),
-      safeToSpend: _safeToSpend,
-      onExplain: _safeToSpend == null
-          ? null
-          : () => showSafeToSpendWorking(context, _safeToSpend!),
     );
   }
 
@@ -613,13 +614,21 @@ class _Card extends StatelessWidget {
 /// The accounts' real total is said under it, so it still matches what the
 /// bank shows.
 class _TotalBalanceCard extends StatelessWidget {
-  const _TotalBalanceCard({required this.wallets, this.goals = const []});
+  const _TotalBalanceCard({
+    required this.wallets,
+    this.goals = const [],
+    this.safeToSpend,
+  });
 
   /// Null while the wallets are still loading.
   final List<Wallet>? wallets;
 
   /// The goals, for what they hold inside each account.
   final List<Goal> goals;
+
+  /// Today's Safe to Spend, as a bar along the bottom. Null while it is
+  /// worked out; left out while the wallets hold nothing.
+  final SafeToSpend? safeToSpend;
 
   /// What can be spent from [wallet]: its balance less what goals hold in it.
   double _free(Wallet wallet) => freeInWallet(wallet, goals);
@@ -932,6 +941,7 @@ class _TotalBalanceCard extends StatelessWidget {
     required double inBank,
     required double forGoals,
     required List<Wallet> bankWallets,
+    SafeToSpend? safeToSpend,
   }) {
     final available = cashOnHand + inBank;
     // What the accounts with a rate earn in a year, after the bank's tax.
@@ -1101,6 +1111,31 @@ class _TotalBalanceCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                // The bar along the bottom of the card, worked out.
+                if (safeToSpend != null && safeToSpend.walletBalance > 0) ...[
+                  const Divider(height: 28),
+                  Text(
+                    'Safe to spend today',
+                    key: const Key('safe-to-spend-explained'),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'What you can spend today and still have enough for '
+                    'bills due this month and your goals.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: colors.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SafeToSpendWorking(safeToSpend),
+                ],
               ],
             ),
           ),
@@ -1149,6 +1184,14 @@ class _TotalBalanceCard extends StatelessWidget {
       (sum, wallet) => sum + _free(wallet),
     );
     final available = cashOnHand + inBank;
+    void explain() => _explain(
+      context,
+      cashOnHand: cashOnHand,
+      inBank: inBank,
+      forGoals: totalWalletBalance(list) - available,
+      bankWallets: bankWallets,
+      safeToSpend: safeToSpend,
+    );
 
     // Each box opens the wallets it adds up.
     Widget part(
@@ -1241,13 +1284,7 @@ class _TotalBalanceCard extends StatelessWidget {
                 key: const Key('total-balance-info'),
                 iconAsset: infoIcon,
                 tooltip: 'What this includes',
-                onPressed: () => _explain(
-                  context,
-                  cashOnHand: cashOnHand,
-                  inBank: inBank,
-                  forGoals: totalWalletBalance(list) - available,
-                  bankWallets: bankWallets,
-                ),
+                onPressed: explain,
               ),
             ],
           ),
@@ -1321,6 +1358,15 @@ class _TotalBalanceCard extends StatelessWidget {
               ],
             ),
           ),
+          // How much of today's safe amount is spent; the bulb above
+          // explains it.
+          if (safeToSpend case final figure? when figure.walletBalance > 0) ...[
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: SafeToSpendBar(safeToSpend: figure, onTap: explain),
+            ),
+          ],
         ],
       ),
     );

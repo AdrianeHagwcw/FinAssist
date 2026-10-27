@@ -56,7 +56,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Safe to Spend allows for upcoming bills, savings and goal money. Tap it in the light bulb on Home to see the calculation. Money set aside stays in your wallet.',
+                'Safe to Spend allows for upcoming bills, savings and goal money. Tap the light bulb on the Available Balance card to see the calculation. Money set aside stays in your wallet.',
               ),
             ),
           ],
