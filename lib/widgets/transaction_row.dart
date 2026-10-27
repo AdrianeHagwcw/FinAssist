@@ -21,7 +21,7 @@ String loanIconAsset(AppTransaction transaction) =>
 /// Which way the money went, in one word, so a row says it outright
 /// instead of leaving a plus or minus sign to carry the meaning alone.
 ///
-/// Inward and outward change what you have. A deposit or a withdrawal only
+/// Inflow and outflow change what you have. A deposit or a withdrawal only
 /// moves money between your own pockets, so neither carries a sign.
 ({String label, String sign}) transactionDirection(
   AppTransaction transaction,
@@ -30,9 +30,9 @@ String loanIconAsset(AppTransaction transaction) =>
 }) {
   switch (transaction.type) {
     case TransactionType.income:
-      return (label: 'Inward', sign: '+');
+      return (label: 'Inflow', sign: '+');
     case TransactionType.expense:
-      return (label: 'Outward', sign: '-');
+      return (label: 'Outflow', sign: '-');
     case TransactionType.transfer:
       // Read from the wallet being looked at when there is one, otherwise
       // from where the money ended up.

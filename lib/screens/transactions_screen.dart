@@ -204,16 +204,19 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
-          child: OutlinedButton.icon(
+          child: ElevatedButton.icon(
             key: const Key('transaction-search-filters'),
             onPressed: () => _editFilter(wallets, all),
-            style: openOutlineStyle(context),
+            style: openButtonStyle(),
             icon: Badge(
               isLabelVisible: !_filter.isEmpty,
               label: Text('${_filter.activeCount}'),
               child: const Icon(Icons.search),
             ),
-            label: const Text('Search transactions & filters'),
+            label: const Text(
+              'Search transactions & filters',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ),
         ),
         const SizedBox(height: 16),
@@ -381,14 +384,14 @@ class _InOutStrip extends StatelessWidget {
         children: [
           Row(
             children: [
-              figure('Inward', moneyIn, confirmColorOn(context)),
+              figure('Inflow', moneyIn, confirmColorOn(context)),
               Container(
                 width: 1,
                 height: 34,
                 color: colors.border,
                 margin: const EdgeInsets.symmetric(horizontal: 12),
               ),
-              figure('Outward', moneyOut, dangerColorOn(context)),
+              figure('Outflow', moneyOut, dangerColorOn(context)),
             ],
           ),
           if (loans.moneyIn > 0.005 || loans.moneyOut > 0.005) ...[
@@ -410,7 +413,7 @@ class _InOutStrip extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Lent, borrowed or paid back. Not counted as inward or outward.',
+              'Lent, borrowed or paid back. Not counted as inflow or outflow.',
               style: TextStyle(fontSize: 11, color: context.appColors.textMuted),
             ),
           ],

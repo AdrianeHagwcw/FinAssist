@@ -5667,19 +5667,19 @@ void main() {
       toWalletId: toWalletId,
     );
 
-    test('earning and spending are inward and outward, and carry a sign', () {
+    test('earning and spending are inflow and outflow, and carry a sign', () {
       final inward = transactionDirection(
         entry(TransactionType.income),
         wallets,
       );
-      expect(inward.label, 'Inward');
+      expect(inward.label, 'Inflow');
       expect(inward.sign, '+');
 
       final outward = transactionDirection(
         entry(TransactionType.expense),
         wallets,
       );
-      expect(outward.label, 'Outward');
+      expect(outward.label, 'Outflow');
       expect(outward.sign, '-');
     });
 
@@ -12503,7 +12503,7 @@ void main() {
     await tester.pump();
 
     // The block above the list has scrolled away, which is how far we are.
-    expect(find.text('Inward'), findsNothing);
+    expect(find.text('Inflow'), findsNothing);
 
     expect(
       find.text('Today'),
