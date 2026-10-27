@@ -356,21 +356,6 @@ class WalletService {
     );
   }
 
-  /// Marks [walletId] as the wallet the user's income is paid into, clearing
-  /// the flag everywhere else in the same batch so exactly one wallet holds
-  /// it.
-  static Future<void> setIncomeWallet(
-    String walletId, {
-    List<Wallet>? currentWallets,
-  }) async {
-    final wallets = currentWallets ?? await loadWallets();
-    final batch = _firestore.batch();
-
-    if (!_addIncomeWalletUpdates(batch, wallets, walletId)) return;
-
-    commitFirestoreWrite(batch.commit(), 'set income wallet');
-  }
-
   /// Adds the flag changes to [batch]. Returns whether anything changed.
   static bool _addIncomeWalletUpdates(
     WriteBatch batch,

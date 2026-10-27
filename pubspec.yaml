@@ -138,6 +138,11 @@ flutter:
     - assets/icons/bank-96.png
     - assets/icons/lend-96.png
     - assets/icons/loan-in-96.png
+    - assets/icons/installment-96.png
+    - assets/icons/scan-receipt-96.png
+    - assets/icons/icons8-money-out-96.png
+    - assets/icons/icons8-exchange-96.png
+    - assets/icons/icons8-loan-96.png
     - assets/icons/icons8-calendar-96.png
     - assets/icons/icons8-mobile-payment-96.png
     - assets/icons/icons8-shield-96.png

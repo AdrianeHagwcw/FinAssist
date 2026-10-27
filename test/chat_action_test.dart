@@ -37,7 +37,8 @@ void main() {
 
     expect(action?.type, ChatActionType.transfer);
     expect(action?.amount, 500);
-    expect(action?.sourceWalletId, 'salary');
+    // "Salary" names no wallet, so the user picks where it comes from.
+    expect(action?.sourceWalletId, isNull);
     expect(action?.destinationWalletId, 'eastwest');
   });
 
@@ -48,7 +49,7 @@ void main() {
     );
 
     expect(action?.type, ChatActionType.transfer);
-    expect(action?.sourceWalletId, 'salary');
+    expect(action?.sourceWalletId, isNull);
     expect(action?.destinationWalletId, isNull);
   });
 
@@ -84,7 +85,7 @@ void main() {
     );
 
     expect(action?.type, ChatActionType.transfer);
-    expect(action?.sourceWalletId, 'salary');
+    expect(action?.sourceWalletId, isNull);
     expect(action?.destinationWalletId, isNull);
   });
 

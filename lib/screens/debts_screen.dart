@@ -10,37 +10,45 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../widgets/add_button.dart';
 import '../widgets/debt_form_sheet.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/loan_form_sheet.dart';
 import '../widgets/money_text.dart';
 import 'debt_detail_screen.dart';
 
-/// Debts as its own screen, for the Home shortcut.
+/// Installments, or with [loans] Debts, as its own screen, for the Home
+/// shortcuts.
 class DebtsScreen extends StatelessWidget {
-  const DebtsScreen({super.key});
+  const DebtsScreen({this.loans = false, super.key});
+
+  final bool loans;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: context.appColors.pageBackground,
       appBar: AppBar(
-        title: const Text(
-          'Installments',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        title: Text(
+          loans ? 'Debts' : 'Installments',
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         backgroundColor: appPrimaryBlue,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      body: const DebtsView(bottomPadding: 40),
+      body: DebtsView(loans: loans, bottomPadding: 40),
     );
   }
 }
 
-/// Installments and loans the user pays, and money others owe the user.
+/// What the user pays off: things bought on installment, or with [loans]
+/// money they borrowed. Two lists with their own forms, since they are
+/// worked out differently; both pay through the Bill Planner.
 class DebtsView extends StatefulWidget {
   const DebtsView({
+    this.loans = false,
     this.showing,
     this.debts,
     this.paymentsFor,
@@ -48,6 +56,9 @@ class DebtsView extends StatefulWidget {
     this.bottomPadding = 100,
     super.key,
   });
+
+  /// Borrowed money (Debts) instead of things bought on installment.
+  final bool loans;
 
   /// Switches the list to a direction from outside, like after adding an
   /// installment from the + button.
@@ -90,6 +101,10 @@ class _DebtsViewState extends State<DebtsView> {
 
   /// Opens the form, then shows the list the new entry went to.
   Future<void> _add() async {
+    if (widget.loans) {
+      await showLoanFormSheet(context);
+      return;
+    }
     final saved = await showDebtFormSheet(context, direction: _direction);
     if (saved != null && mounted) setState(() => _direction = saved);
   }
@@ -122,22 +137,43 @@ class _DebtsViewState extends State<DebtsView> {
         // Only what the user owes. Money they lent out is no longer part of
         // the app; records made before it was dropped stay in the database
         // untouched but are not listed.
-        final shown = all
-            .where((d) => d.direction == DebtDirection.iOwe)
+        final owed = all.where((d) => d.direction == DebtDirection.iOwe);
+        final shown = owed
+            .where((d) => d.category.isLoan == widget.loans)
             .toList();
+        // Loans saved before the two were split now live under Debts; say
+        // so, rather than have them seem to vanish.
+        final loansElsewhere =
+            !widget.loans && owed.any((d) => d.category.isLoan);
 
         return ListView(
           padding: EdgeInsets.fromLTRB(20, 16, 20, widget.bottomPadding),
           children: [
+            if (loansElsewhere) ...[
+              _MovedNote(
+                onOpen: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const DebtsScreen(loans: true),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (shown.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 30, bottom: 10),
                 child: EmptyStateView(
-                  iconAsset: 'assets/icons/lend-96.png',
-                  title: 'No installments yet',
-                  message:
-                      'Add an installment and its payments show up '
-                      'in your Bill Planner so you never miss one.',
+                  iconAsset: widget.loans
+                      ? 'assets/icons/icons8-loan-96.png'
+                      : 'assets/icons/installment-96.png',
+                  title: widget.loans ? 'No debts yet' : 'No installments yet',
+                  message: widget.loans
+                      ? 'Add money you borrowed. The app works out each '
+                            'payment from the interest, and they show up in '
+                            'your Bill Planner so you never miss one.'
+                      : 'Add an installment and its payments show up '
+                            'in your Bill Planner so you never miss one.',
                 ),
               )
             else
@@ -155,22 +191,55 @@ class _DebtsViewState extends State<DebtsView> {
                 const SizedBox(height: 12),
               ],
             const SizedBox(height: 4),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _add,
-                // Green, like every Add button in the app.
-                style: confirmButtonStyle(),
-                icon: const Icon(Icons.add),
-                label: const Text(
-                  'Add Installment',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
+            AddButton(
+              label: widget.loans ? 'Add Debt' : 'Add Installment',
+              onPressed: _add,
             ),
           ],
         );
       },
+    );
+  }
+}
+
+/// Points to Debts from Installments, for loans saved here before.
+class _MovedNote extends StatelessWidget {
+  const _MovedNote({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Material(
+      color: colors.primaryTint,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Money you borrowed is now under Debts.',
+                  style: TextStyle(fontSize: 13, color: colors.textBody),
+                ),
+              ),
+              Text(
+                'Open Debts',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: colors.primaryText,
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 18, color: colors.primaryText),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

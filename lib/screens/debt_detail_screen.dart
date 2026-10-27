@@ -443,9 +443,14 @@ class _CostOfBorrowing extends StatelessWidget {
             )
           else ...[
             Text(
-              '${formatPeso(debt.extraCost)} more than you borrowed, '
-              '${roundedPercent(debt.extraCostPercent)} of '
-              '${formatPeso(debt.principal)}.',
+              debt.fees > 0
+                  ? '${formatPeso(debt.extraCost)} more than the '
+                        '${formatPeso(debt.amountReceived)} you got: '
+                        '${formatPeso(debt.fees)} in fees taken out, and the '
+                        'rest interest.'
+                  : '${formatPeso(debt.extraCost)} more than you borrowed, '
+                        '${roundedPercent(debt.extraCostPercent)} of '
+                        '${formatPeso(debt.principal)}.',
               style: body,
             ),
             const SizedBox(height: 4),
@@ -465,7 +470,9 @@ class _CostOfBorrowing extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               'Interest they told you: ${percentText(quoted)} '
-              '${debt.quotedRatePer.label}.',
+              '${debt.quotedRatePer.label}'
+              // How a loan's interest is charged changes what the rate means.
+              '${debt.category.isLoan ? ', ${debt.rateBasis.inSentence}' : ''}.',
               style: body,
             ),
             if (debt.costsMoreThanQuoted) ...[
@@ -479,9 +486,9 @@ class _CostOfBorrowing extends StatelessWidget {
             ] else if (debt.extraCost > 0) ...[
               const SizedBox(height: 4),
               Text(
-                'A quoted rate is often worked out on the whole amount for '
-                'the whole time, even as you pay it down, so the real yearly '
-                'cost is higher than it sounds.',
+                'Interest that stays the same every payment costs more than '
+                'it sounds, because you keep paying it on money you have '
+                'already paid back.',
                 style: TextStyle(fontSize: 12, color: colors.textMuted),
               ),
             ],

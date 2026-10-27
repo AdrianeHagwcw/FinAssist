@@ -70,6 +70,8 @@ class DebtService {
     int paidBefore = 0,
     double? quotedRate,
     RatePeriod quotedRatePer = RatePeriod.year,
+    InterestBasis rateBasis = InterestBasis.wholeAmount,
+    double fees = 0,
     String? otherKind,
   }) {
     final batch = _firestore.batch();
@@ -89,6 +91,9 @@ class DebtService {
       firstDueDate: firstDueDate,
       status: DebtStatus.active,
       paidBefore: paidBefore,
+      // Fees count toward what borrowing costs, so toward the interest
+      // recorded in each payment.
+      fees: fees,
     );
     final lastDue = terms.lastDueDate!;
 
@@ -106,12 +111,16 @@ class DebtService {
       'note': _noteOrNull(note),
       'status': DebtStatus.active.name,
       if (paidBefore > 0) 'paidBefore': paidBefore,
-      if (category == DebtCategory.other && (otherKind ?? '').trim().isNotEmpty)
+      if ((category == DebtCategory.other ||
+              category == DebtCategory.otherLoan) &&
+          (otherKind ?? '').trim().isNotEmpty)
         'otherKind': otherKind!.trim(),
       if (quotedRate != null) ...{
         'quotedRate': quotedRate,
         'quotedRatePer': quotedRatePer.name,
+        'rateBasis': rateBasis.name,
       },
+      if (fees > 0) 'fees': fees,
       'createdAt': FieldValue.serverTimestamp(),
     });
 

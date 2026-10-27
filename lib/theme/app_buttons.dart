@@ -75,7 +75,7 @@ ButtonStyle cancelTextStyle(BuildContext context) =>
 ButtonStyle dangerOutlineStyle(BuildContext context, {double height = 46}) {
   return OutlinedButton.styleFrom(
     foregroundColor: dangerColorOn(context),
-    side: BorderSide(color: dangerColorOn(context).withValues(alpha: 0.5)),
+    side: BorderSide(color: dangerColorOn(context), width: 1.2),
     minimumSize: Size(0, height),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   );
@@ -86,7 +86,7 @@ ButtonStyle dangerOutlineStyle(BuildContext context, {double height = 46}) {
 ButtonStyle confirmOutlineStyle(BuildContext context, {double height = 46}) {
   return OutlinedButton.styleFrom(
     foregroundColor: confirmColorOn(context),
-    side: BorderSide(color: confirmColorOn(context).withValues(alpha: 0.6)),
+    side: BorderSide(color: confirmColorOn(context), width: 1.2),
     minimumSize: Size(0, height),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   );
@@ -94,9 +94,12 @@ ButtonStyle confirmOutlineStyle(BuildContext context, {double height = 46}) {
 
 /// A blue outlined button, for a secondary action that only opens something.
 ButtonStyle openOutlineStyle(BuildContext context, {double height = 46}) {
+  // The app's blue for text: the brand blue in light mode, a lighter one in
+  // dark mode, where the brand blue is too dark to read on the background.
+  final blue = context.appColors.primaryText;
   return OutlinedButton.styleFrom(
-    foregroundColor: appPrimaryBlue,
-    side: BorderSide(color: appPrimaryBlue.withValues(alpha: 0.5)),
+    foregroundColor: blue,
+    side: BorderSide(color: blue, width: 1.2),
     minimumSize: Size(0, height),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   );

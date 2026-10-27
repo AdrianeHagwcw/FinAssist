@@ -275,28 +275,19 @@ void main() {
     await tester.tap(find.text('More options (optional)'));
     await tester.pumpAndSettle();
     expect(find.text('Usually paid from'), findsNothing);
-    // Interest is there if it was told, counted a year unless changed.
-    expect(find.text('Interest (optional)'), findsOneWidget);
-    expect(find.text('a year'), findsOneWidget);
-    // The kind was picked from the name.
+    // Interest is a loan's question, asked on the Debts form; here the
+    // cash price already shows what paying over time costs.
+    expect(find.text('Interest (optional)'), findsNothing);
+    // The kind was picked from the name, among things bought on
+    // installment.
     expect(find.text('Gadget or appliance'), findsOneWidget);
 
-    await tester.enterText(fields.at(0), 'SSS loan');
-    await tester.pump();
-    expect(find.text('Government loan'), findsOneWidget);
-
-    await tester.enterText(
-      find.byKey(const Key('installment-quoted-rate')),
-      '36',
-    );
-    await tester.pump();
     await tester.ensureVisible(find.text('Save Installment'));
     await tester.tap(find.text('Save Installment'));
     await tester.pumpAndSettle();
 
-    expect(saved?.category, DebtCategory.governmentLoan);
-    expect(saved?.quotedRate, 36);
-    expect(saved?.quotedRatePer, RatePeriod.year);
+    expect(saved?.category, DebtCategory.gadget);
+    expect(saved?.quotedRate, isNull);
   });
 
   testWidgets('the installment says how much interest is paid so far', (

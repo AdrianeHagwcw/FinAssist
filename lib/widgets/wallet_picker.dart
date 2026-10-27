@@ -9,8 +9,8 @@ import '../services/goal_service.dart';
 import '../utils/money_format.dart';
 import 'dialog_kit.dart';
 
-/// The wallet a new entry should start on: the one that receives income,
-/// otherwise the first in the list. Null when there are no wallets yet.
+/// The wallet a new entry should start on: the first spending wallet in
+/// the list. Null when there are no wallets yet.
 String? defaultWalletId(List<Wallet> wallets) {
   if (wallets.isEmpty) return null;
 
@@ -19,7 +19,7 @@ String? defaultWalletId(List<Wallet> wallets) {
   final spending = wallets.where((wallet) => !wallet.isSetAside).toList();
   if (spending.isEmpty) return wallets.first.id;
 
-  return incomeWallet(spending)?.id ?? spending.first.id;
+  return spending.first.id;
 }
 
 /// Dropdown for choosing which wallet money moves in or out of.

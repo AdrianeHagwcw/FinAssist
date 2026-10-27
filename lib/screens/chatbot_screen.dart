@@ -24,6 +24,7 @@ import '../services/price_references_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/transfer_sheet.dart';
@@ -1264,20 +1265,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // SUGGESTED QUESTIONS
   // =========================================================
 
-  /// The picture each suggested question gets: the same colored icon the
-  /// app uses for that thing elsewhere, so a question about bills looks
-  /// like the Bills card on Home.
-  static String _suggestionIcon(String question) {
-    final q = question.toLowerCase();
-    if (q.contains('spend today')) {
-      return 'assets/icons/icons8-banknotes-96.png';
-    }
-    if (q.contains('spending')) return 'assets/icons/icons8-pie-chart-96.png';
-    if (q.contains('bill')) return 'assets/icons/icons8-receipt-96.png';
-    if (q.contains('buy')) return 'assets/icons/icons8-cat-shopping-96.png';
-    if (q.contains('formula')) return 'assets/icons/icons8-idea-96.png';
-    return 'assets/icons/assistant-robot-192.png';
-  }
 
   Widget _suggestedQuestions() {
     const questions = suggestedQuestions;
@@ -1319,17 +1306,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       ),
                       child: Row(
                         children: [
-                          Container(
-                            width: 34,
-                            height: 34,
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: colors.primaryTint,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Image.asset(_suggestionIcon(question)),
-                          ),
-                          const SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               question,
@@ -1490,37 +1466,39 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   Widget _inputNotice() {
     final offline = !_isOnline;
     final status = offline
-        ? "You're offline. Answers use the records saved on this phone."
-        : 'Finance questions only. Gemini receives your question and a '
-              'small summary of verified financial totals.';
+        ? "You're offline. Fin answers from the records saved on this phone."
+        : 'Money questions only. Fin sends your question and a short summary '
+              "of your totals to Google's Gemini AI.";
 
+    // The same tip bubble as the rest of the app: tinted, rounded, with the
+    // bulb. Offline keeps its cloud, since it says something has changed.
     return Container(
+      key: const Key('chat-notice'),
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: context.appColors.primaryTint,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Icon(
-              offline ? Icons.cloud_off_outlined : Icons.info_outline,
-              size: 15,
+          if (offline)
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 20,
               color: context.appColors.primaryText,
-            ),
-          ),
-          const SizedBox(width: 8),
+            )
+          else
+            Image.asset(AppIcons.idea, width: 20, height: 20),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '$status Answers depend on your inputs being accurate and '
-              'complete.',
+              '$status Answers are only as good as what you have recorded.',
               style: TextStyle(
                 fontSize: 12,
-                height: 1.35,
-                color: context.appColors.textMuted,
+                height: 1.4,
+                color: context.appColors.textBody,
               ),
             ),
           ),

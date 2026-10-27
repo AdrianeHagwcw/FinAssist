@@ -57,7 +57,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static const _homeIndex = 0;
   static const _transactionsIndex = 1;
-  static const _billsIndex = 2;
+  static const _reportsIndex = 2;
   static const _walletIndex = 3;
 
   /// Preserves the legacy controller for saved Goals screen routes.
@@ -188,14 +188,22 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _openGoals();
   }
 
+  /// Bill Planner and Installments open over the tabs, with a back arrow:
+  /// Reports took the Bills place in the bottom bar.
   void _openBills() {
-    setState(() => _billsShowDebts = false);
-    _selectTab(_billsIndex);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const BillCalendarScreen()),
+    );
   }
 
   void _openDebts() {
-    setState(() => _billsShowDebts = true);
-    _selectTab(_billsIndex);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const BillCalendarScreen(initialShowDebts: true),
+      ),
+    );
   }
 
   void _navigateFromVoice(VoiceDestination destination) {
@@ -226,10 +234,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         _openSavings();
         return;
       case VoiceDestination.reports:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ReportsScreen()),
-        );
+        _selectTab(_reportsIndex);
         return;
       case VoiceDestination.settings:
         Navigator.push(
@@ -277,7 +282,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   int _currentIndex = _homeIndex;
-  bool _billsShowDebts = false;
 
   // Changing this key rebuilds Home so its balance cards reload after income
   // is added from the "+" sheet.
@@ -303,10 +307,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             onVoiceNavigate: _navigateFromVoice,
           ),
           const TransactionsScreen(),
-          BillCalendarScreen(
-            key: ValueKey(_billsShowDebts),
-            initialShowDebts: _billsShowDebts,
-          ),
+          const ReportsScreen(),
           const WalletsScreen(),
         ];
   }
@@ -319,7 +320,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         [
           QuickAddAction(
             icon: Icons.arrow_upward,
-            iconAsset: 'assets/icons/icons8-expenses-64.png',
+            iconAsset: 'assets/icons/icons8-money-out-96.png',
             label: 'Expense',
             color: Colors.red,
             onSelected: () => Navigator.push(
@@ -339,7 +340,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           ),
           QuickAddAction(
             icon: Icons.swap_horiz,
-            iconAsset: 'assets/icons/icons8-transactions-96.png',
+            iconAsset: 'assets/icons/icons8-exchange-96.png',
             label: 'Transfer',
             color: appPrimaryBlue,
             onSelected: () async {
@@ -353,7 +354,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           // lives with the debts instead.
           QuickAddAction(
             icon: Icons.photo_camera_outlined,
-            iconAsset: 'assets/icons/icons8-camera-96.png',
+            iconAsset: 'assets/icons/scan-receipt-96.png',
             label: 'Scan Receipt',
             color: appPrimaryBlue,
             onSelected: () => Navigator.push(
@@ -439,12 +440,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               // Space for the "+" button docked in the middle.
               const SizedBox(width: 72),
               _NavItem(
-                iconAsset: 'assets/icons/icons8-calendar-96.png',
-                label: 'Bills',
-                selected: _currentIndex == _billsIndex,
-                // Resets the side as well: without the old toggle, someone
-                // left on Debts would have no way back to the bills.
-                onTap: _openBills,
+                iconAsset: 'assets/icons/icons8-combo-chart-100.png',
+                label: 'Reports',
+                selected: _currentIndex == _reportsIndex,
+                onTap: () => _selectTab(_reportsIndex),
               ),
               _NavItem(
                 iconAsset: 'assets/icons/icons8-wallet-96.png',

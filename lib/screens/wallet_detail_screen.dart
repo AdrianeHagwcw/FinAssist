@@ -105,11 +105,6 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                       showTransferSheet(context, fromWalletId: wallet.id);
                     case 'edit':
                       editWallet(context, wallet);
-                    case 'income':
-                      WalletService.setIncomeWallet(
-                        wallet.id,
-                        currentWallets: wallets,
-                      );
                     case 'remove':
                       _remove(wallet);
                   }
@@ -133,13 +128,6 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                     icon: Icons.edit_outlined,
                     color: appPrimaryBlue,
                   ),
-                  if (!wallet.receivesIncome)
-                    menuItem(
-                      value: 'income',
-                      label: 'Set as my income wallet',
-                      icon: Icons.account_balance_wallet,
-                      color: confirmColorOn(context),
-                    ),
                   menuItem(
                     value: 'remove',
                     label: 'Remove wallet',
@@ -316,8 +304,6 @@ class _WalletHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const incomeLabel = 'Your income is paid into this wallet';
-
     return Container(
       width: double.infinity,
       color: appPrimaryBlue,
@@ -356,24 +342,6 @@ class _WalletHeader extends StatelessWidget {
               goalMoneyInWallet(goals, wallet.id) > 0.005) ...[
             const SizedBox(height: 10),
             _SavingsWalletBreakdown(wallet: wallet, goals: goals),
-          ],
-          if (wallet.receivesIncome) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                incomeLabel,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
           ],
         ],
       ),

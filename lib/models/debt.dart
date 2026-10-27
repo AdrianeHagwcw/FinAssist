@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'bill.dart';
@@ -14,18 +16,44 @@ enum DebtDirection {
       .firstWhere((d) => d.name == name, orElse: () => DebtDirection.iOwe);
 }
 
+/// What is being paid off. Things bought on installment are listed under
+/// Installments; borrowed money ([isLoan]) under Debts. Both are paid the
+/// same way, through the Bill Planner.
 enum DebtCategory {
   gadget('Gadget or appliance'),
-  personalLoan('Personal loan'),
-  governmentLoan('Government loan'),
-  creditCard('Credit card'),
+  personalLoan('Bank or lending company'),
+  governmentLoan('SSS, Pag-IBIG or GSIS'),
+  creditCard('Credit card installment'),
+  cardCashLoan('Cash from a credit card'),
   buyNowPayLater('Buy now, pay later'),
   familyFriend('Family or friend'),
+  otherLoan('Other'),
   other('Other');
 
   const DebtCategory(this.label);
 
   final String label;
+
+  /// Borrowed money, as opposed to something bought on installment.
+  bool get isLoan => switch (this) {
+    personalLoan || governmentLoan || cardCashLoan || familyFriend => true,
+    otherLoan => true,
+    _ => false,
+  };
+
+  /// A bank, lending company, card issuer or government fund, which must
+  /// tell the borrower the interest before the loan is signed (Truth in
+  /// Lending Act, RA 3765). Their rate is asked for, not optional.
+  bool get mustDiscloseRate =>
+      this == personalLoan || this == governmentLoan || this == cardCashLoan;
+
+  /// The kinds of thing bought on installment, for the Installments form.
+  static List<DebtCategory> get installmentKinds =>
+      values.where((kind) => !kind.isLoan).toList();
+
+  /// The kinds of loan, for the Debts form.
+  static List<DebtCategory> get loanKinds =>
+      values.where((kind) => kind.isLoan).toList();
 
   static DebtCategory fromName(String? name) => DebtCategory.values.firstWhere(
     (c) => c.name == name,
@@ -42,9 +70,13 @@ DebtCategory? guessDebtCategory(String name) {
     (word) => RegExp('\\b${RegExp.escape(word)}\\b').hasMatch(text),
   );
 
-  // Checked in this order, so "SSS loan" is the government's, not any loan.
+  // Checked in this order, so "SSS loan" is the government's, not any loan,
+  // and "Cash2Go" is cash taken from a card, not a card installment.
   if (has(['sss', 'pag-ibig', 'pagibig', 'hdmf', 'gsis', 'philhealth'])) {
     return DebtCategory.governmentLoan;
+  }
+  if (has(['cash2go', 'cash 2 go', 'cash advance', 'card cash'])) {
+    return DebtCategory.cardCashLoan;
   }
   if (has(['credit card', 'card'])) return DebtCategory.creditCard;
   if (has([
@@ -115,7 +147,6 @@ DebtCategory? guessDebtCategory(String name) {
     'cashalo',
     'digido',
     'juanhand',
-    'cash2go',
   ])) {
     return DebtCategory.personalLoan;
   }
@@ -160,16 +191,63 @@ enum PaymentFrequency {
 /// What a rate the lender quoted is counted per.
 enum RatePeriod {
   month('a month'),
-  year('a year');
+  year('a year'),
+
+  /// One rate for the whole loan, such as 20% on ₱5,600.
+  wholeLoan('for the whole loan');
 
   const RatePeriod(this.label);
 
+  /// As it reads in a sentence: "1% a month".
   final String label;
+
+  /// As a choice on its own, under "Charged".
+  String get choiceLabel => switch (this) {
+    RatePeriod.month => 'Every month',
+    RatePeriod.year => 'Every year',
+    RatePeriod.wholeLoan => 'Once (whole loan)',
+  };
 
   static RatePeriod fromName(String? name) => RatePeriod.values.firstWhere(
     (period) => period.name == name,
     orElse: () => RatePeriod.month,
   );
+}
+
+/// How a lender works out interest.
+enum InterestBasis {
+  /// On the whole amount borrowed, for the whole time, even as it is paid
+  /// down: how most cash loans and card installments are quoted (an
+  /// "add-on" rate).
+  wholeAmount(
+    'Same every payment',
+    'Like Cash2Go and most cash loans',
+    'the same every payment',
+  ),
+
+  /// Only on what is still owed, so each payment carries less interest than
+  /// the one before (a "diminishing balance"): most home and car loans.
+  remainingBalance(
+    'Less as you pay',
+    'Like SSS, Pag-IBIG, home and car loans',
+    'less as you pay',
+  );
+
+  const InterestBasis(this.label, this.example, this.inSentence);
+
+  /// Described by what the user sees on their payments, not the lender's
+  /// words for it ("add-on", "diminishing balance").
+  final String label;
+  final String example;
+
+  /// As it reads after the rate: "1% a month, the same every payment".
+  final String inSentence;
+
+  static InterestBasis fromName(String? name) =>
+      InterestBasis.values.firstWhere(
+        (b) => b.name == name,
+        orElse: () => InterestBasis.wholeAmount,
+      );
 }
 
 enum DebtStatus { active, settled }
@@ -200,6 +278,8 @@ class Debt {
     this.paidBefore = 0,
     this.quotedRate,
     this.quotedRatePer = RatePeriod.month,
+    this.rateBasis = InterestBasis.wholeAmount,
+    this.fees = 0,
     this.otherKind,
   });
 
@@ -230,6 +310,8 @@ class Debt {
           ? (map['quotedRate'] as num).toDouble().abs()
           : null,
       quotedRatePer: RatePeriod.fromName(_asString(map['quotedRatePer'])),
+      rateBasis: InterestBasis.fromName(_asString(map['rateBasis'])),
+      fees: _asDouble(map['fees']).abs(),
       otherKind: _asString(map['otherKind']),
     );
   }
@@ -268,15 +350,28 @@ class Debt {
   final double? quotedRate;
   final RatePeriod quotedRatePer;
 
+  /// How the quoted rate is charged.
+  final InterestBasis rateBasis;
+
+  /// Processing or service fees taken out of the loan, so less than
+  /// [principal] reached the user. A cost of borrowing like interest.
+  final double fees;
+
+  /// What the user actually got: the amount borrowed less [fees].
+  double get amountReceived {
+    final received = principal - fees;
+    return received > 0 ? received : 0;
+  }
+
   /// What the user called the kind when they chose Other.
   final String? otherKind;
 
-  /// The kind as shown: the user's own word for Other.
+  /// The kind as shown: the user's own word for Other or Other loan.
   String get kindLabel {
     final own = otherKind?.trim();
-    return category == DebtCategory.other && own != null && own.isNotEmpty
-        ? own
-        : category.label;
+    final ownWord =
+        category == DebtCategory.other || category == DebtCategory.otherLoan;
+    return ownWord && own != null && own.isNotEmpty ? own : category.label;
   }
 
   // ------------------------------------------ money owed to the user
@@ -302,11 +397,12 @@ class Debt {
   double get totalPayable =>
       paymentCount < 1 ? 0 : perPayment * (paymentCount - 1) + finalPayment;
 
-  /// What borrowing costs on top of the amount borrowed. This is shown
-  /// instead of an interest rate: most students don't know their rate, but
-  /// "₱4,800 more than you borrowed" needs no explaining.
+  /// What borrowing costs on top of what the user got: interest, and any
+  /// [fees] taken out. This is shown instead of an interest rate: most
+  /// students don't know their rate, but "₱4,800 more than you borrowed"
+  /// needs no explaining.
   double get extraCost {
-    final extra = totalPayable - principal;
+    final extra = totalPayable - amountReceived;
     return extra > 0.005 ? extra : 0;
   }
 
@@ -351,8 +447,12 @@ class Debt {
   /// the payments are worth exactly what was borrowed, the first one a
   /// period after borrowing (an internal rate of return), times the
   /// payments in a year. Null when nothing is paid on top.
+  ///
+  /// It is worked out from what the user actually got, so fees taken out
+  /// count too, as the Truth in Lending Act counts them.
   double? get yearlyCostPercent {
-    if (extraCost <= 0 || principal <= 0 || paymentCount < 1) return null;
+    final received = amountReceived;
+    if (extraCost <= 0 || received <= 0 || paymentCount < 1) return null;
 
     // What the payments are worth today at [rate] a period.
     double worth(double rate) {
@@ -369,12 +469,12 @@ class Debt {
     // range it lies in.
     var low = 0.0;
     var high = 1.0;
-    while (worth(high) > principal && high < 1000) {
+    while (worth(high) > received && high < 1000) {
       high *= 2;
     }
     for (var step = 0; step < 100; step++) {
       final middle = (low + high) / 2;
-      if (worth(middle) > principal) {
+      if (worth(middle) > received) {
         low = middle;
       } else {
         high = middle;
@@ -393,12 +493,16 @@ class Debt {
   /// the most generous way: as an add-on rate on the whole amount for the
   /// whole time. Then the difference can only be fees or charges the
   /// quoted rate left out. A peso a payment is allowed for rounding.
+  /// Fees the user told us about are not counted as a surprise.
   bool get costsMoreThanQuoted {
     final quoted = quotedRate;
     if (quoted == null || paymentCount < 1) return false;
-    final perMonth = quotedRatePer == RatePeriod.month ? quoted : quoted / 12;
-    final allowed = principal * perMonth / 100 * termMonths;
-    return extraCost > allowed + paymentCount * 1.0 + 0.005;
+    final allowed = switch (quotedRatePer) {
+      RatePeriod.month => principal * quoted / 100 * termMonths,
+      RatePeriod.year => principal * quoted / 12 / 100 * termMonths,
+      RatePeriod.wholeLoan => principal * quoted / 100,
+    };
+    return extraCost - fees > allowed + paymentCount * 1.0 + 0.005;
   }
 
   /// Still to come back, for money owed to the user.
@@ -414,6 +518,81 @@ class Debt {
 
   static DateTime? _asDate(Object? value) =>
       value is Timestamp ? value.toDate() : null;
+}
+
+/// A loan's payments worked out from the rate the lender quoted, the way
+/// lenders work them out. Each payment is rounded to the centavo and the
+/// last one takes up what rounding left over, as on a loan statement.
+class LoanPayments {
+  const LoanPayments({
+    required this.perPayment,
+    required this.lastPayment,
+    required this.interest,
+  });
+
+  final double perPayment;
+
+  /// The last payment when rounding makes it differ; zero when it doesn't.
+  final double lastPayment;
+
+  /// All the interest, on top of the amount borrowed.
+  final double interest;
+}
+
+double _centavos(double amount) => (amount * 100).round() / 100;
+
+/// The payments on [principal] at [rate] percent [per] month, year or for
+/// the whole loan, charged on [basis], in [count] payments [frequency].
+/// Null when there is nothing to work out yet.
+///
+/// On the whole amount (add-on): ₱5,000 at 1% a month for 3 months is
+/// ₱150 of interest, so ₱5,150 in 3 payments of ₱1,716.67, the last
+/// ₱1,716.66. On what's left to pay, each payment is the same and carries
+/// interest only on what is still owed.
+LoanPayments? loanPayments({
+  required double principal,
+  required double rate,
+  required RatePeriod per,
+  required InterestBasis basis,
+  required int count,
+  required PaymentFrequency frequency,
+}) {
+  if (principal <= 0 || count < 1 || rate < 0) return null;
+  final months = count * 12 / frequency.perYear;
+
+  if (basis == InterestBasis.wholeAmount || per == RatePeriod.wholeLoan) {
+    final interest = switch (per) {
+      RatePeriod.month => principal * rate / 100 * months,
+      RatePeriod.year => principal * rate / 12 / 100 * months,
+      RatePeriod.wholeLoan => principal * rate / 100,
+    };
+    final total = _centavos(principal + interest);
+    final each = _centavos(total / count);
+    final last = _centavos(total - each * (count - 1));
+    return LoanPayments(
+      perPayment: each,
+      lastPayment: (last - each).abs() > 0.005 ? last : 0,
+      interest: total - principal,
+    );
+  }
+
+  // On what's left to pay: the rate for one payment's stretch of time.
+  final yearly = per == RatePeriod.month ? rate * 12 : rate;
+  final periodic = yearly / 100 / frequency.perYear;
+  final exact = periodic == 0
+      ? principal / count
+      : principal * periodic / (1 - math.pow(1 + periodic, -count));
+  final each = _centavos(exact);
+  var owed = principal;
+  for (var number = 1; number < count; number++) {
+    owed = owed * (1 + periodic) - each;
+  }
+  final last = _centavos(owed * (1 + periodic));
+  return LoanPayments(
+    perPayment: each,
+    lastPayment: (last - each).abs() > 0.005 ? last : 0,
+    interest: each * (count - 1) + last - principal,
+  );
 }
 
 /// How many payments it takes to cover [total] at [perPayment] each, for

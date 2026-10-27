@@ -11,6 +11,8 @@ import '../utils/category_options.dart';
 import 'history_screen.dart';
 import '../utils/date_format.dart';
 import '../widgets/back_to_home.dart';
+import '../widgets/choice_grid.dart';
+import '../widgets/dialog_kit.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/legacy_import_card.dart';
 import '../widgets/money_text.dart';
@@ -68,6 +70,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       builder: (context) => _FilterSheet(
         initial: _filter,
         wallets: wallets,
+        transactions: transactions,
         historicalCategories: transactions
             .where((t) => t.type == TransactionType.expense)
             .map((t) => t.label)
@@ -356,7 +359,10 @@ class _InOutStrip extends StatelessWidget {
           children: [
             Text(
               label,
-              style: TextStyle(fontSize: 11, color: context.appColors.textMuted),
+              style: TextStyle(
+                fontSize: 11,
+                color: context.appColors.textMuted,
+              ),
             ),
             const SizedBox(height: 4),
             MoneyText(
@@ -414,7 +420,10 @@ class _InOutStrip extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Lent, borrowed or paid back. Not counted as inflow or outflow.',
-              style: TextStyle(fontSize: 11, color: context.appColors.textMuted),
+              style: TextStyle(
+                fontSize: 11,
+                color: context.appColors.textMuted,
+              ),
             ),
           ],
         ],
@@ -476,6 +485,7 @@ class _FilterSheet extends StatefulWidget {
   const _FilterSheet({
     required this.initial,
     required this.wallets,
+    required this.transactions,
     required this.historicalCategories,
   });
   final List<String> historicalCategories;
@@ -483,8 +493,24 @@ class _FilterSheet extends StatefulWidget {
   final TransactionFilter initial;
   final List<Wallet> wallets;
 
+  /// Everything there is to search, so the button can say how many match
+  /// before the sheet is closed.
+  final List<AppTransaction> transactions;
+
   @override
   State<_FilterSheet> createState() => _FilterSheetState();
+}
+
+/// The dates a search can cover: a quick choice, or dates picked.
+enum _DateChoice {
+  any('Any time'),
+  thisMonth('This month'),
+  lastMonth('Last month'),
+  custom('Pick dates');
+
+  const _DateChoice(this.label);
+
+  final String label;
 }
 
 class _FilterSheetState extends State<_FilterSheet> {
@@ -492,6 +518,7 @@ class _FilterSheetState extends State<_FilterSheet> {
   late final TextEditingController _searchController = TextEditingController(
     text: widget.initial.query ?? '',
   );
+  final DateTime _today = DateTime.now();
 
   @override
   void dispose() {
@@ -499,167 +526,289 @@ class _FilterSheetState extends State<_FilterSheet> {
     super.dispose();
   }
 
+  ({DateTime from, DateTime to}) get _thisMonth => (
+    from: DateTime(_today.year, _today.month),
+    to: DateTime(_today.year, _today.month + 1, 0),
+  );
+
+  ({DateTime from, DateTime to}) get _lastMonth => (
+    from: DateTime(_today.year, _today.month - 1),
+    to: DateTime(_today.year, _today.month, 0),
+  );
+
+  static bool _sameDay(DateTime? a, DateTime b) =>
+      a != null && a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// Which choice the dates in the filter are.
+  _DateChoice get _dateChoice {
+    final from = _filter.from;
+    if (from == null && _filter.to == null) return _DateChoice.any;
+    for (final (choice, range) in [
+      (_DateChoice.thisMonth, _thisMonth),
+      (_DateChoice.lastMonth, _lastMonth),
+    ]) {
+      if (_sameDay(from, range.from) && _sameDay(_filter.to, range.to)) {
+        return choice;
+      }
+    }
+    return _DateChoice.custom;
+  }
+
+  void _setDates(DateTime? from, DateTime? to) => setState(
+    () => _filter = _filter.copyWith(from: () => from, to: () => to),
+  );
+
+  Future<void> _pickDate(_DateChoice choice) async {
+    switch (choice) {
+      case _DateChoice.any:
+        _setDates(null, null);
+      case _DateChoice.thisMonth:
+        _setDates(_thisMonth.from, _thisMonth.to);
+      case _DateChoice.lastMonth:
+        _setDates(_lastMonth.from, _lastMonth.to);
+      case _DateChoice.custom:
+        await _pickRange();
+    }
+  }
+
   Future<void> _pickRange() async {
-    final now = DateTime.now();
     final range = await showDateRangePicker(
       context: context,
-      firstDate: DateTime(now.year - 5),
-      lastDate: now,
+      firstDate: DateTime(_today.year - 5),
+      lastDate: _today,
       initialDateRange: _filter.from == null || _filter.to == null
           ? null
-          : DateTimeRange(start: _filter.from!, end: _filter.to!),
+          : DateTimeRange(
+              start: _filter.from!,
+              end: _filter.to!.isAfter(_today) ? _today : _filter.to!,
+            ),
     );
+    if (range != null) _setDates(range.start, range.end);
+  }
 
-    if (range != null) {
-      setState(
-        () => _filter = _filter.copyWith(
-          from: () => range.start,
-          to: () => range.end,
-        ),
-      );
-    }
+  /// Back to everything, here in the sheet, so the user sees it before
+  /// choosing again.
+  void _clear() {
+    _searchController.clear();
+    setState(() => _filter = const TransactionFilter());
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final matching = widget.transactions.where(_filter.matches).length;
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colors.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Search & filters',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: colors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              key: const Key('transaction-search-input'),
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              decoration: const InputDecoration(
-                labelText: 'Search transactions',
-                hintText: 'Category, source, note or type',
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (value) => setState(
-                () => _filter = _filter.copyWith(query: () => value),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('All'),
-                  selected: _filter.type == null,
-                  onSelected: (_) => setState(
-                    () => _filter = _filter.copyWith(type: () => null),
+    Widget section(String title) => Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: colors.textBody,
+        ),
+      ),
+    );
+
+    return Padding(
+      // Keeps the search above the on-screen keyboard.
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.border,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                for (final type in TransactionType.values)
-                  ChoiceChip(
-                    label: Text(type.label),
-                    selected: _filter.type == type,
-                    onSelected: (_) => setState(
-                      () => _filter = _filter.copyWith(type: () => type),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Search & filters',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: colors.textPrimary,
+                      ),
                     ),
                   ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String?>(
-              initialValue: _filter.walletId,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Wallet'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('All wallets')),
-                for (final wallet in widget.wallets)
-                  DropdownMenuItem(value: wallet.id, child: Text(wallet.name)),
-              ],
-              onChanged: (value) => setState(
-                () => _filter = _filter.copyWith(walletId: () => value),
-              ),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String?>(
-              initialValue: _filter.category,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Category'),
-              items: [
-                const DropdownMenuItem(
-                  value: null,
-                  child: Text('All categories'),
-                ),
-                for (final category in {
-                  ...categoryOptions(
-                    context,
-                    selected: _filter.category,
-                    includeHidden: true,
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.maybePop(context),
+                    icon: const Icon(Icons.close),
                   ),
-                  ...widget.historicalCategories,
-                })
-                  DropdownMenuItem(value: category, child: Text(category)),
-              ],
-              onChanged: (value) => setState(
-                () => _filter = _filter.copyWith(category: () => value),
+                ],
               ),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: _pickRange,
-              style: openOutlineStyle(context),
-              icon: const Icon(Icons.date_range, size: 18),
-              label: Text(
-                _filter.from == null
-                    ? 'Any date'
-                    : '${formatShortDate(_filter.from!)} – '
-                          '${formatShortDate(_filter.to!)}',
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () =>
-                        Navigator.pop(context, const TransactionFilter()),
-                    style: cancelTextStyle(context),
-                    child: const Text('Clear all'),
-                  ),
+              const SizedBox(height: 8),
+              TextField(
+                key: const Key('transaction-search-input'),
+                controller: _searchController,
+                textInputAction: TextInputAction.search,
+                decoration:
+                    dialogFieldDecoration(
+                      context,
+                      'Search',
+                      hint: 'Category, note or type',
+                    ).copyWith(
+                      prefixIcon: const Icon(Icons.search),
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      suffixIcon: _searchController.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              icon: const Icon(Icons.close, size: 18),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(
+                                  () => _filter = _filter.copyWith(
+                                    query: () => null,
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                onChanged: (value) => setState(
+                  () => _filter = _filter.copyWith(query: () => value),
                 ),
-                Expanded(
-                  flex: 2,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(context, _filter),
-                    style: confirmButtonStyle(),
-                    child: const Text(
-                      'Show results',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+              section('Type'),
+              ChoiceGrid<TransactionType?>(
+                options: const [null, ...TransactionType.values],
+                selected: _filter.type,
+                label: (type) => type?.label ?? 'All',
+                keyOf: (type) => 'filter-type-${type?.name ?? 'all'}',
+                columns: 4,
+                onPick: (type) => setState(
+                  () => _filter = _filter.copyWith(type: () => type),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String?>(
+                initialValue: _filter.walletId,
+                isExpanded: true,
+                decoration: dialogFieldDecoration(context, 'Wallet'),
+                items: [
+                  const DropdownMenuItem(
+                    value: null,
+                    child: Text('All wallets'),
+                  ),
+                  for (final wallet in widget.wallets)
+                    DropdownMenuItem(
+                      value: wallet.id,
+                      child: Text(wallet.name),
+                    ),
+                ],
+                onChanged: (value) => setState(
+                  () => _filter = _filter.copyWith(walletId: () => value),
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String?>(
+                initialValue: _filter.category,
+                isExpanded: true,
+                decoration: dialogFieldDecoration(context, 'Category'),
+                items: [
+                  const DropdownMenuItem(
+                    value: null,
+                    child: Text('All categories'),
+                  ),
+                  for (final category in {
+                    ...categoryOptions(
+                      context,
+                      selected: _filter.category,
+                      includeHidden: true,
+                    ),
+                    ...widget.historicalCategories,
+                  })
+                    DropdownMenuItem(value: category, child: Text(category)),
+                ],
+                onChanged: (value) => setState(
+                  () => _filter = _filter.copyWith(category: () => value),
+                ),
+              ),
+              const SizedBox(height: 20),
+              section('Date'),
+              ChoiceGrid<_DateChoice>(
+                options: _DateChoice.values,
+                selected: _dateChoice,
+                label: (choice) => choice.label,
+                keyOf: (choice) => 'filter-date-${choice.name}',
+                onPick: _pickDate,
+              ),
+              if (_dateChoice == _DateChoice.custom)
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${formatShortDate(_filter.from!)} – '
+                        '${formatShortDate(_filter.to!)}',
+                        key: const Key('filter-date-range'),
+                        style: TextStyle(fontSize: 13, color: colors.textBody),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _pickRange,
+                      style: TextButton.styleFrom(
+                        foregroundColor: colors.primaryText,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: const Text('Change'),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      key: const Key('filter-clear'),
+                      // Nothing to clear: nothing to press.
+                      onPressed: _filter.isEmpty ? null : _clear,
+                      style: dangerOutlineStyle(context, height: 52),
+                      child: const Text(
+                        'Clear all',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      key: const Key('filter-apply'),
+                      onPressed: () => Navigator.pop(context, _filter),
+                      style: confirmButtonStyle(),
+                      // How many match, before the sheet is closed.
+                      child: Text(
+                        matching == 0
+                            ? 'No matches'
+                            : 'Show $matching '
+                                  '${matching == 1 ? 'result' : 'results'}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

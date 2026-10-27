@@ -933,7 +933,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
   Widget _buildSummaryStep(BuildContext context) {
     final plan = _plan;
-    final colors = context.appColors;
     final paying = plan.bills.where((bill) => bill.pays).toList();
     final skipped = plan.bills.where((bill) => bill.skipped).toList();
 
@@ -981,54 +980,26 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: plan.dipsIntoSavings
-                ? dangerColorOn(context).withValues(alpha: 0.1)
-                : appPrimaryBlue,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                plan.dipsIntoSavings ? 'More than came in' : 'Left to spend',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: plan.dipsIntoSavings
-                      ? dangerColorOn(context)
-                      : Colors.white70,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                formatPeso(plan.remaining.abs()),
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
-                  color: plan.dipsIntoSavings
-                      ? dangerColorOn(context)
-                      : Colors.white,
-                ),
-              ),
-              if (plan.dipsIntoSavings) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'The bills and goals you chose cost more than this income. '
-                  'The difference comes out of what was already in your '
-                  'wallets.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colors.textBody,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ],
-          ),
+        _BalanceAfter(
+          tally: _tally(plan),
+          // What this income leaves, only when bills or a goal took some of
+          // it: otherwise it is simply the income.
+          left: plan.toBills > 0 || plan.toGoal > 0 || plan.dipsIntoSavings
+              ? plan.remaining
+              : null,
         ),
+        if (plan.dipsIntoSavings) ...[
+          const SizedBox(height: 10),
+          Text(
+            'The bills and goals you chose cost more than this income. The '
+            'difference comes out of what was already in your wallets.',
+            style: TextStyle(
+              fontSize: 12,
+              color: dangerColorOn(context),
+              height: 1.4,
+            ),
+          ),
+        ],
         if (_allocations?.isEmpty ?? false) ...[
           const SizedBox(height: 12),
           Text(
@@ -1037,6 +1008,46 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  /// What is free to spend now and once this is confirmed, added up the
+  /// way Home does: cash wallets on hand, the rest in bank, each less what
+  /// goals hold in it. Bills paid and fees come out of the wallets they are
+  /// paid from; goal money stays in its wallet, marked for the goal.
+  ({double cashBefore, double cashAfter, double bankBefore, double bankAfter})
+  _tally(AllocationPlan plan) {
+    final goals = _goals ?? const <Goal>[];
+    final billsFrom = plan.toBills > 0 ? _billsFrom : const <String, double>{};
+    final fees = plan.toBills > 0 ? _billFees : const <String, double>{};
+    final goalFrom = plan.toGoal > 0 ? _goalFrom : const <String, double>{};
+    final income = _incomeSplit;
+    var cashBefore = 0.0;
+    var cashAfter = 0.0;
+    var bankBefore = 0.0;
+    var bankAfter = 0.0;
+    for (final wallet in _walletList) {
+      if (wallet.archived || wallet.isSetAside) continue;
+      final before = freeInWallet(wallet, goals);
+      final after =
+          before +
+          (income[wallet.id] ?? 0) -
+          (billsFrom[wallet.id] ?? 0) -
+          (fees[wallet.id] ?? 0) -
+          (goalFrom[wallet.id] ?? 0);
+      if (wallet.type == WalletType.cash) {
+        cashBefore += before;
+        cashAfter += after;
+      } else {
+        bankBefore += before;
+        bankAfter += after;
+      }
+    }
+    return (
+      cashBefore: cashBefore,
+      cashAfter: cashAfter,
+      bankBefore: bankBefore,
+      bankAfter: bankAfter,
     );
   }
 
@@ -1065,7 +1076,10 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 child: OutlinedButton(
                   onPressed: back,
                   style: openOutlineStyle(context, height: 52),
-                  child: const Text('Back'),
+                  child: const Text(
+                    'Back',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1087,6 +1101,156 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The user's money once this income is confirmed, as Home will show it:
+/// the Available Balance, then cash on hand and cash in bank, each with what
+/// it was, so the change can be checked before confirming.
+class _BalanceAfter extends StatelessWidget {
+  const _BalanceAfter({required this.tally, this.left});
+
+  final ({
+    double cashBefore,
+    double cashAfter,
+    double bankBefore,
+    double bankAfter,
+  })
+  tally;
+
+  /// What this income leaves after the bills and goal it paid; negative
+  /// when they took more than came in. Null to leave the line out.
+  final double? left;
+
+  static String _change(double after, double before) {
+    final change = after - before;
+    if (change.abs() < 0.005) return 'No change';
+    return formatPeso(change, sign: change > 0 ? '+' : '-');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final before = tally.cashBefore + tally.bankBefore;
+    final after = tally.cashAfter + tally.bankAfter;
+
+    Widget part(String label, String iconAsset, double now, double was) =>
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Image.asset(iconAsset, width: 18, height: 18),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  formatPeso(now),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  _change(now, was),
+                  style: const TextStyle(fontSize: 11, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        );
+
+    return Container(
+      key: const Key('income-balance-after'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: appPrimaryBlue,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Available Balance after this',
+            style: TextStyle(fontSize: 13, color: Colors.white70),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            formatPeso(after),
+            key: const Key('income-available-after'),
+            style: const TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          Text(
+            'Was ${formatPeso(before)} · ${_change(after, before)}',
+            style: const TextStyle(fontSize: 12, color: Colors.white70),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              part(
+                'Cash on Hand',
+                WalletType.cash.iconAsset,
+                tally.cashAfter,
+                tally.cashBefore,
+              ),
+              const SizedBox(width: 8),
+              part(
+                'Cash in Bank',
+                WalletType.bank.iconAsset,
+                tally.bankAfter,
+                tally.bankBefore,
+              ),
+            ],
+          ),
+          if (left != null) ...[
+            const Divider(height: 24, color: Colors.white24),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    left! < 0
+                        ? 'More than came in'
+                        : 'Left to spend from this '
+                              'income',
+                    style: const TextStyle(fontSize: 13, color: Colors.white),
+                  ),
+                ),
+                Text(
+                  formatPeso(left!.abs()),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

@@ -554,6 +554,8 @@ void main() {
     expect(assistant.questionsAsked, 0);
     expect(find.text('Review income'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Review income'));
+    await tester.pump();
     await tester.tap(find.text('Review income'));
     await tester.pump();
 

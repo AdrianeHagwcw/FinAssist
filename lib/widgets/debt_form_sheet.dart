@@ -13,10 +13,13 @@ import '../utils/money_format.dart';
 import '../utils/text_limits.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
-import 'item_card.dart';
+import 'loan_form_sheet.dart';
 import 'wallet_picker.dart';
 
-/// Adds an installment the user pays, or money someone owes the user.
+/// Adds something bought on installment: a phone, an appliance, a credit
+/// card installment, Buy now, pay later. Borrowed money has its own form
+/// under Debts ([showLoanFormSheet]), which this one hands over to when the
+/// name sounds like a loan.
 ///
 /// Returns which list the new entry went to, or null if nothing was saved,
 /// and confirms the save so the user knows it worked.
@@ -24,6 +27,7 @@ Future<DebtDirection?> showDebtFormSheet(
   BuildContext context, {
   DebtDirection direction = DebtDirection.iOwe,
 }) async {
+  String? asDebt;
   final saved = await showModalBottomSheet<DebtDirection>(
     context: context,
     isScrollControlled: true,
@@ -32,8 +36,19 @@ Future<DebtDirection?> showDebtFormSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) => DebtFormSheet(initialDirection: direction),
+    builder: (sheetContext) => DebtFormSheet(
+      initialDirection: direction,
+      onAddAsDebt: (name) {
+        asDebt = name;
+        Navigator.pop(sheetContext);
+      },
+    ),
   );
+
+  if (asDebt != null && context.mounted) {
+    await showLoanFormSheet(context, name: asDebt);
+    return null;
+  }
 
   if (saved != null && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -67,6 +82,8 @@ class DebtDraft {
     this.paidBefore = 0,
     this.quotedRate,
     this.quotedRatePer = RatePeriod.year,
+    this.rateBasis = InterestBasis.wholeAmount,
+    this.fees = 0,
     this.otherKind,
   });
 
@@ -95,6 +112,12 @@ class DebtDraft {
   final double? quotedRate;
   final RatePeriod quotedRatePer;
 
+  /// How a loan's interest is charged.
+  final InterestBasis rateBasis;
+
+  /// Fees taken out of a loan.
+  final double fees;
+
   /// The user's own kind, when they chose Other.
   final String? otherKind;
 }
@@ -105,10 +128,15 @@ class DebtFormSheet extends StatefulWidget {
     this.wallets,
     this.today,
     this.onSave,
+    this.onAddAsDebt,
     super.key,
   });
 
   final DebtDirection initialDirection;
+
+  /// Closes this form and opens the Debts one with the name typed so far,
+  /// for borrowed money started here by mistake.
+  final void Function(String name)? onAddAsDebt;
 
   /// Replaces the live wallet list. Used by tests.
   final Stream<List<Wallet>>? wallets;
@@ -129,14 +157,22 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
   // out of the app.
   final DebtDirection _direction = DebtDirection.iOwe;
 
-  /// Chosen by hand under More options; until then the name decides it.
+  /// Chosen by hand under More options; until then the name decides it,
+  /// among the kinds bought on installment. Loans belong under Debts.
   DebtCategory? _pickedCategory;
-  DebtCategory get _category =>
-      _pickedCategory ??
-      guessDebtCategory(_nameController.text) ??
-      (_nameController.text.trim().isEmpty
-          ? DebtCategory.gadget
-          : DebtCategory.other);
+  DebtCategory get _category {
+    final guess = guessDebtCategory(_nameController.text);
+    return _pickedCategory ??
+        (guess != null && !guess.isLoan ? guess : null) ??
+        (_nameController.text.trim().isEmpty
+            ? DebtCategory.gadget
+            : DebtCategory.other);
+  }
+
+  /// The name sounds like borrowed money, such as "SSS loan" or "Cash2Go".
+  bool get _soundsLikeLoan =>
+      _pickedCategory == null &&
+      (guessDebtCategory(_nameController.text)?.isLoan ?? false);
   PaymentFrequency _frequency = PaymentFrequency.monthly;
   late final DateTime _today = widget.today ?? DateTime.now();
   late DateTime? _date = DateTime(_today.year, _today.month + 1, _today.day);
@@ -146,13 +182,10 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
   final _perPaymentController = TextEditingController();
   final _countController = TextEditingController();
   final _lastController = TextEditingController();
+  final _downController = TextEditingController();
   final _noteController = TextEditingController();
   final _paidBeforeController = TextEditingController();
-  final _rateController = TextEditingController();
   final _otherKindController = TextEditingController();
-
-  /// A year by default: rates are usually told as so much a year.
-  RatePeriod _ratePer = RatePeriod.year;
 
   // Lent money almost always leaves a wallet, so that starts on. An
   // installment is often a gadget bought on credit, where no cash arrives.
@@ -175,8 +208,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
       _perPaymentController,
       _countController,
       _lastController,
+      _downController,
       _paidBeforeController,
-      _rateController,
     ]) {
       controller.addListener(_refresh);
     }
@@ -193,9 +226,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
       _perPaymentController,
       _countController,
       _lastController,
+      _downController,
       _noteController,
       _paidBeforeController,
-      _rateController,
       _otherKindController,
     ]) {
       controller
@@ -213,19 +246,25 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
     return typed != null && typed > 0;
   }
 
+  /// What the payments are for: the cash price less any down payment
+  /// made when it was bought. Zero when no price was typed.
+  double get _financed {
+    final price = _number(_principalController);
+    if (price <= 0) return 0;
+    final left = price - _number(_downController);
+    return left > 0 ? left : 0;
+  }
+
   /// Payments typed, or worked out from the amounts when left blank.
   int get _paymentCount {
     if (_countTyped) return int.parse(_countController.text.trim());
-    return paymentsToCover(
-      _number(_principalController),
-      _number(_perPaymentController),
-    );
+    return paymentsToCover(_financed, _number(_perPaymentController));
   }
 
-  /// The price or amount borrowed. Optional: left blank, it is taken as
+  /// What the payments are for. Optional: left blank, it is taken as
   /// everything paid, so no interest is assumed.
   double get _principal {
-    final typed = _number(_principalController);
+    final typed = _financed;
     if (typed > 0 || _paymentCount < 1) return typed;
     final each = _number(_perPaymentController);
     final last = _number(_lastController);
@@ -241,7 +280,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
     if (typed > 0) return typed;
     if (_countTyped) return 0;
     return coveringLastPayment(
-      _number(_principalController),
+      _financed,
       _number(_perPaymentController),
       _paymentCount,
     );
@@ -263,8 +302,6 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
   int get _paidBefore =>
       _startedBefore ? int.tryParse(_paidBeforeController.text.trim()) ?? 0 : 0;
 
-  double? get _quotedRate => double.tryParse(_rateController.text.trim());
-
   Debt get _preview => Debt(
     id: '',
     direction: _direction,
@@ -278,8 +315,6 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
     firstDueDate: _date,
     status: DebtStatus.active,
     paidBefore: _paidBefore,
-    quotedRate: _quotedRate,
-    quotedRatePer: _ratePer,
   );
 
   Future<void> _pickDate() async {
@@ -321,7 +356,6 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
       maxLength: maxItemNameLength,
       empty: _iOwe ? 'Give it a name.' : 'Who owes you?',
     );
-    final rate = _quotedRate;
 
     if (nameProblem != null) {
       return nameProblem;
@@ -336,13 +370,18 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
           'contract.';
     } else if (_iOwe && _paidBefore >= _paymentCount) {
       return 'That is every payment, so nothing is left to pay.';
-    } else if (_iOwe && rate != null && rate > 100) {
-      return 'Enter a rate up to 100%.';
     } else if (_iOwe && _date == null) {
       return 'Choose when the first payment is due.';
+    } else if (_iOwe &&
+        _number(_downController) > 0 &&
+        _number(_downController) >= _number(_principalController)) {
+      return 'The down payment must be less than the cash price.';
     } else if (_iOwe && _preview.totalPayable + 0.005 < principal) {
+      // Most often a down payment left out: say where it goes.
       return 'Those payments add up to ${formatPeso(_preview.totalPayable)}, '
-          'less than the ${formatPeso(principal)} borrowed.';
+          'less than the ${formatPeso(principal)} '
+          '${_number(_downController) > 0 ? 'left after the down payment' : 'cash price'}. '
+          '${_number(_downController) > 0 ? 'Check the amounts.' : 'If you paid part upfront, add it as the down payment under More options.'}';
     } else if (_movedMoney && movedWallet == null) {
       return 'Add a wallet first.';
     } else if (!_iOwe &&
@@ -380,8 +419,6 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
       movedWalletId: movedWallet,
       note: _noteController.text,
       paidBefore: _paidBefore,
-      quotedRate: _quotedRate,
-      quotedRatePer: _ratePer,
       otherKind: _category == DebtCategory.other
           ? cleanText(_otherKindController.text)
           : null,
@@ -509,18 +546,35 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                         dialogFieldDecoration(
                           context,
                           _iOwe ? 'Name' : 'Who owes you?',
-                          hint: _iOwe ? 'e.g. Phone, SSS loan' : 'e.g. Ana',
+                          hint: _iOwe ? 'e.g. Phone, Aircon' : 'e.g. Ana',
                         ).copyWith(
                           floatingLabelBehavior: FloatingLabelBehavior.always,
                         ),
                   ),
+                  if (_soundsLikeLoan && widget.onAddAsDebt != null) ...[
+                    DialogNote(
+                      text:
+                          'This sounds like borrowed money. Add it under '
+                          'Debts, where the payments are worked out from the '
+                          'interest.',
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => widget.onAddAsDebt!(
+                          cleanText(_nameController.text),
+                        ),
+                        child: const Text('Add it as a debt'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   AmountField(
                     controller: _principalController,
-                    label: _iOwe ? 'Price or amount borrowed' : 'Amount',
+                    label: _iOwe ? 'Cash price (optional)' : 'Amount',
                     hint: _iOwe ? 'e.g. 12,000' : 'e.g. 500',
                     helper: _iOwe
-                        ? 'Optional. Shows how much interest you pay.'
+                        ? 'Shows how much more you pay than paying in full.'
                         : null,
                     alwaysShowHint: true,
                     autofocus: false,
@@ -661,24 +715,19 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                   if (_showMore) ...[
                     if (_iOwe) ...[
                       const SizedBox(height: 8),
-                      _QuotedRateRow(
-                        controller: _rateController,
-                        period: _ratePer,
-                        fromFamily: _category == DebtCategory.familyFriend,
-                        onPeriodChanged: (period) =>
-                            setState(() => _ratePer = period),
-                      ),
-                      if (_preview.costsMoreThanQuoted) ...[
-                        const SizedBox(height: 10),
-                        DialogNote(
-                          text:
-                              'These payments cost more than '
-                              '${percentText(_quotedRate!)} ${_ratePer.label}. '
-                              'Ask the store or lender what else is added, '
-                              'such as fees.',
+                      // Only matters with a cash price, so it waits for one.
+                      if (_number(_principalController) > 0) ...[
+                        AmountField(
+                          key: const Key('installment-down-payment'),
+                          controller: _downController,
+                          label: 'Down payment (optional)',
+                          hint: 'e.g. 2,000',
+                          helper: 'If you paid part of the price upfront.',
+                          alwaysShowHint: true,
+                          autofocus: false,
                         ),
+                        const SizedBox(height: 16),
                       ],
-                      const SizedBox(height: 16),
                       DropdownButtonFormField<DebtCategory>(
                         // Rebuilt as the name changes the guess.
                         key: ValueKey(_category),
@@ -686,7 +735,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                         isExpanded: true,
                         decoration: dialogFieldDecoration(context, 'Kind'),
                         items: [
-                          for (final category in DebtCategory.values)
+                          for (final category in DebtCategory.installmentKinds)
                             DropdownMenuItem(
                               value: category,
                               child: Text(category.label),
@@ -892,73 +941,6 @@ class _SummaryCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// The interest the lender or store quoted, and what it is counted per.
-/// Optional: the amounts already show what it costs. Lenders must tell it
-/// before a loan is signed; between family and friends there is only
-/// interest if both agreed to it in writing.
-class _QuotedRateRow extends StatelessWidget {
-  const _QuotedRateRow({
-    required this.controller,
-    required this.period,
-    required this.fromFamily,
-    required this.onPeriodChanged,
-  });
-
-  final TextEditingController controller;
-  final RatePeriod period;
-  final bool fromFamily;
-  final ValueChanged<RatePeriod> onPeriodChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          flex: 3,
-          child: TextField(
-            key: const Key('installment-quoted-rate'),
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: const [RateInputFormatter()],
-            decoration:
-                dialogFieldDecoration(
-                  context,
-                  'Interest (optional)',
-                  hint: period == RatePeriod.year ? 'e.g. 36' : 'e.g. 3',
-                  helper: fromFamily
-                      ? 'Only if you both agreed to one in writing.'
-                      : 'Lenders and stores must tell you this before you '
-                            'sign.',
-                ).copyWith(
-                  suffixText: '%',
-                  helperMaxLines: 3,
-                  floatingLabelBehavior: FloatingLabelBehavior.always,
-                ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          flex: 2,
-          child: DropdownButtonFormField<RatePeriod>(
-            key: const Key('installment-quoted-rate-per'),
-            initialValue: period,
-            isExpanded: true,
-            decoration: dialogFieldDecoration(context, 'Per'),
-            items: [
-              for (final option in RatePeriod.values)
-                DropdownMenuItem(value: option, child: Text(option.label)),
-            ],
-            onChanged: (value) {
-              if (value != null) onPeriodChanged(value);
-            },
-          ),
-        ),
-      ],
     );
   }
 }

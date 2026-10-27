@@ -6,6 +6,7 @@ import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/add_button.dart';
 import '../widgets/back_to_home.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/legacy_import_card.dart';
@@ -13,6 +14,7 @@ import '../widgets/money_text.dart';
 import '../widgets/transfer_sheet.dart';
 import '../widgets/wallet_actions.dart';
 import '../widgets/wallet_form_sheet.dart';
+import '../widgets/wallets_added_sheet.dart';
 import '../widgets/wallet_picker.dart';
 import 'income_waterfall_screen.dart';
 import 'wallet_detail_screen.dart';
@@ -43,21 +45,38 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
     watchGoals(given: widget.goals, walletsGiven: widget.wallets != null);
   }
 
+  /// Adds wallets one after another, as setup does: after each, what was
+  /// added and the Cash Summary they make, with Add Another right there, so
+  /// several wallets never mean going back to the Add Wallet button.
   Future<void> _addWallet(List<Wallet> currentWallets) async {
-    final draft = await showWalletFormSheet(context);
+    final addedIds = <String>{};
+    while (true) {
+      if (!mounted) return;
+      final draft = await showWalletFormSheet(context);
+      if (draft == null) return;
 
-    if (draft == null) return;
+      final id = await WalletService.addWallet(
+        type: draft.type,
+        name: draft.name,
+        startingBalance: draft.startingBalance,
+        balanceRecorded: draft.balanceRecorded,
+        annualInterestRatePercent: draft.annualInterestRatePercent,
+        // The very first wallet receives income until the user picks another.
+        receivesIncome: currentWallets.isEmpty && addedIds.isEmpty,
+        // After the first, the list is read again, so a second "Cash" is
+        // numbered "Cash 2" and each goes at the end.
+        currentWallets: addedIds.isEmpty ? currentWallets : null,
+      );
+      addedIds.add(id);
+      if (!mounted) return;
 
-    await WalletService.addWallet(
-      type: draft.type,
-      name: draft.name,
-      startingBalance: draft.startingBalance,
-      balanceRecorded: draft.balanceRecorded,
-      annualInterestRatePercent: draft.annualInterestRatePercent,
-      // The very first wallet receives income until the user picks another.
-      receivesIncome: currentWallets.isEmpty,
-      currentWallets: currentWallets,
-    );
+      final another = await showWalletsAddedSheet(
+        context,
+        addedIds: addedIds,
+        goals: heldGoals,
+      );
+      if (!another) return;
+    }
   }
 
   void _openWallet(Wallet wallet) {
@@ -156,10 +175,6 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
                   onAddIncome: () =>
                       showIncomeWaterfall(context, walletId: wallet.id),
                   onEdit: () => editWallet(context, wallet),
-                  onSetIncomeWallet: () => WalletService.setIncomeWallet(
-                    wallet.id,
-                    currentWallets: wallets,
-                  ),
                   onRemove: () => removeWallet(context, wallet),
                 ),
                 const SizedBox(height: 12),
@@ -286,7 +301,6 @@ class _WalletCard extends StatelessWidget {
     required this.onTransfer,
     required this.onAddIncome,
     required this.onEdit,
-    required this.onSetIncomeWallet,
     required this.onRemove,
   });
 
@@ -299,13 +313,11 @@ class _WalletCard extends StatelessWidget {
   final VoidCallback onTransfer;
   final VoidCallback onAddIncome;
   final VoidCallback onEdit;
-  final VoidCallback onSetIncomeWallet;
   final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    const incomeLabel = 'Receives my income';
 
     return Material(
       color: colors.card,
@@ -373,27 +385,6 @@ class _WalletCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                    if (wallet.receivesIncome) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colors.primaryTint,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          incomeLabel,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: colors.primaryText,
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -428,8 +419,6 @@ class _WalletCard extends StatelessWidget {
                           onTransfer();
                         case 'edit':
                           onEdit();
-                        case 'income':
-                          onSetIncomeWallet();
                         case 'archive':
                           onRemove();
                       }
@@ -453,13 +442,6 @@ class _WalletCard extends StatelessWidget {
                         icon: Icons.edit_outlined,
                         color: appPrimaryBlue,
                       ),
-                      if (!wallet.receivesIncome)
-                        menuItem(
-                          value: 'income',
-                          label: incomeLabel.replaceFirst('Receives', 'Set as'),
-                          icon: Icons.account_balance_wallet,
-                          color: confirmColorOn(context),
-                        ),
                       menuItem(
                         value: 'archive',
                         label: 'Remove wallet',
@@ -485,20 +467,7 @@ class _AddWalletButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.add),
-        label: const Text(
-          'Add Wallet',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        // Green, like every Add button in the app.
-        style: confirmButtonStyle(),
-      ),
-    );
+    return AddButton(label: 'Add Wallet', onPressed: onPressed);
   }
 }
 

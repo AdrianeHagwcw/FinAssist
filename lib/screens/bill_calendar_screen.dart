@@ -10,6 +10,7 @@ import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../widgets/add_button.dart';
 import '../widgets/back_to_home.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
@@ -180,19 +181,6 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
       // No toggle: Quick Actions already opens Bill Planner and Debts
       // separately, and the title says which one you are on.
       body: _showDebts ? const DebtsView() : _buildBills(),
-      floatingActionButton: _showDebts
-          ? null
-          : FloatingActionButton.extended(
-              // Its own tag: as a tab, this sits under the shell's "+",
-              // and two buttons sharing the default tag break page changes.
-              heroTag: 'add-bill',
-              onPressed: _addBill,
-              // Green, like every Add button in the app.
-              backgroundColor: appConfirmGreen,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add),
-              label: const Text('Add Bill'),
-            ),
     );
   }
 
@@ -212,12 +200,23 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
           final instances = snapshot.data ?? const <BillInstance>[];
 
           if (bills.isEmpty && instances.isEmpty) {
-            return const EmptyStateView(
-              iconAsset: 'assets/icons/icons8-calendar-96.png',
-              title: 'No bills yet',
-              message:
-                  'Add the things you pay on a schedule — rent, tuition, '
-                  'load — and they will show up here on their due dates.',
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 30, bottom: 10),
+                  child: EmptyStateView(
+                    iconAsset: 'assets/icons/icons8-calendar-96.png',
+                    title: 'No bills yet',
+                    message:
+                        'Add the things you pay on a schedule — rent, '
+                        'tuition, load — and they will show up here on their '
+                        'due dates.',
+                  ),
+                ),
+                const SizedBox(height: 4),
+                AddButton(label: 'Add Bill', onPressed: _addBill),
+              ],
             );
           }
 
@@ -254,7 +253,11 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
               ),
               Expanded(
                 child: _showAsList
-                    ? _BillList(instances: instances, today: _today)
+                    ? _BillList(
+                        instances: instances,
+                        today: _today,
+                        onAdd: _addBill,
+                      )
                     : _CalendarAndDay(
                         month: _month,
                         today: _today,
@@ -262,6 +265,7 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
                         instances: instances,
                         onSelectDay: (day) =>
                             setState(() => _selectedDay = day),
+                        onAdd: _addBill,
                       ),
               ),
             ],
@@ -472,6 +476,7 @@ class _CalendarAndDay extends StatelessWidget {
     required this.selectedDay,
     required this.instances,
     required this.onSelectDay,
+    required this.onAdd,
   });
 
   final DateTime month;
@@ -479,6 +484,7 @@ class _CalendarAndDay extends StatelessWidget {
   final DateTime? selectedDay;
   final List<BillInstance> instances;
   final ValueChanged<DateTime?> onSelectDay;
+  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -537,6 +543,8 @@ class _CalendarAndDay extends StatelessWidget {
             _BillRow(instance: instance, today: today),
             const SizedBox(height: 10),
           ],
+        const SizedBox(height: 4),
+        AddButton(label: 'Add Bill', onPressed: onAdd),
       ],
     );
   }
@@ -734,31 +742,43 @@ class _DayCell extends StatelessWidget {
 }
 
 class _BillList extends StatelessWidget {
-  const _BillList({required this.instances, required this.today});
+  const _BillList({
+    required this.instances,
+    required this.today,
+    required this.onAdd,
+  });
 
   final List<BillInstance> instances;
   final DateTime today;
+  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
     if (instances.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text(
-            'Nothing due this month.',
-            style: TextStyle(color: context.appColors.textMuted),
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(32),
+            child: Text(
+              'Nothing due this month.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.appColors.textMuted),
+            ),
           ),
-        ),
+          AddButton(label: 'Add Bill', onPressed: onAdd),
+        ],
       );
     }
 
+    // The Add button comes after the last bill, as under every list.
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
-      itemCount: instances.length,
+      itemCount: instances.length + 1,
       separatorBuilder: (context, index) => const SizedBox(height: 10),
-      itemBuilder: (context, index) =>
-          _BillRow(instance: instances[index], today: today),
+      itemBuilder: (context, index) => index == instances.length
+          ? AddButton(label: 'Add Bill', onPressed: onAdd)
+          : _BillRow(instance: instances[index], today: today),
     );
   }
 }

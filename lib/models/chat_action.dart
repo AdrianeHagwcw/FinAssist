@@ -180,21 +180,9 @@ String? _sourceWallet(String text, FinanceSnapshot? records) {
     r'\bfrom\s+([a-z0-9 _-]+?)(?=\s+to\b|$)',
   ).firstMatch(text);
   final requestedName = match?.group(1)?.trim();
-  if (requestedName == null &&
-      RegExp(r'\b(salary|paycheck|income|sweldo|sahod)\b').hasMatch(text)) {
-    for (final wallet in wallets) {
-      if (wallet.receivesIncome) return wallet.id;
-    }
-  }
+  // "From my salary" names no wallet: income goes into whichever wallets
+  // the user chose each time, so they pick the one to move it from.
   if (requestedName == null || requestedName.isEmpty) return null;
-
-  if (RegExp(
-    r'\b(salary|paycheck|income|sweldo|sahod)\b',
-  ).hasMatch(requestedName)) {
-    for (final wallet in wallets) {
-      if (wallet.receivesIncome) return wallet.id;
-    }
-  }
   for (final wallet in wallets) {
     if (wallet.name.toLowerCase() == requestedName) return wallet.id;
   }

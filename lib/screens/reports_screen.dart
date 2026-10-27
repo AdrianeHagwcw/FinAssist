@@ -22,6 +22,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/money_format.dart';
+import '../widgets/back_to_home.dart';
 import '../widgets/money_text.dart';
 import '../widgets/spending_chart.dart';
 import 'transactions_screen.dart';
@@ -241,6 +242,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
           'Reports',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
+        // As a tab it goes back to Home; opened from Home's Quick Actions it
+        // keeps the usual back arrow.
+        leading: backToHomeButton(context),
         centerTitle: true,
         backgroundColor: appPrimaryBlue,
         foregroundColor: Colors.white,

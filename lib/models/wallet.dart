@@ -677,14 +677,6 @@ int nextWalletSortOrder(Iterable<Wallet> wallets) {
   return highest + 1;
 }
 
-/// The wallet that receives the user's income, or null if none is marked.
-Wallet? incomeWallet(Iterable<Wallet> wallets) {
-  for (final wallet in wallets) {
-    if (wallet.receivesIncome && !wallet.archived) return wallet;
-  }
-  return null;
-}
-
 /// Which wallets need their `receivesIncome` flag changed so that only
 /// [selectedId] receives income. Wallets already correct are left out, so the
 /// resulting write touches as few documents as possible.

@@ -32,6 +32,7 @@ import '../widgets/transfer_sheet.dart';
 import 'add_expense_screen.dart';
 import 'history_screen.dart';
 import 'bill_calendar_screen.dart';
+import 'debts_screen.dart';
 import 'bill_detail_screen.dart';
 import 'chatbot_screen.dart';
 import 'categories_screen.dart';
@@ -359,7 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final actions = <({String asset, String title, VoidCallback onTap})>[
       (
-        asset: 'assets/icons/icons8-expenses-64.png',
+        asset: 'assets/icons/icons8-money-out-96.png',
         title: 'Expense',
         onTap: () => _push(AddExpenseScreen(wallets: widget.wallets)),
       ),
@@ -372,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
       (
-        asset: 'assets/icons/icons8-transactions-96.png',
+        asset: 'assets/icons/icons8-exchange-96.png',
         title: 'Transfer',
         onTap: () async {
           final saved = await showTransferSheet(
@@ -383,7 +384,7 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
       (
-        asset: 'assets/icons/icons8-camera-96.png',
+        asset: 'assets/icons/scan-receipt-96.png',
         title: 'Scan Receipt',
         onTap: () => _push(const OcrScreen()),
       ),
@@ -408,16 +409,23 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: widget.onOpenGoals ?? () => _push(const GoalsScreen()),
       ),
       (
-        asset: 'assets/icons/lend-96.png',
+        asset: 'assets/icons/icons8-combo-chart-100.png',
+        title: 'Reports',
+        onTap: () => _push(const ReportsScreen()),
+      ),
+      // Last, side by side: what the user pays off, as two kinds. Money
+      // with an hourglass for installments, a money bag for money borrowed.
+      (
+        asset: 'assets/icons/installment-96.png',
         title: 'Installments',
         onTap:
             widget.onOpenDebts ??
             () => _push(const BillCalendarScreen(initialShowDebts: true)),
       ),
       (
-        asset: 'assets/icons/icons8-combo-chart-100.png',
-        title: 'Reports',
-        onTap: () => _push(const ReportsScreen()),
+        asset: 'assets/icons/icons8-loan-96.png',
+        title: 'Debts',
+        onTap: () => _push(const DebtsScreen(loans: true)),
       ),
     ];
     final visibleActions = _showAllQuickActions
@@ -885,14 +893,22 @@ class _TotalBalanceCard extends StatelessWidget {
   }
 
   /// What the figure is, shown as the sum it comes from with the user's
-  /// own amounts, then what it leaves out. Easier to follow than the same
-  /// thing in sentences.
+  /// own amounts, laid out like setup's Cash Summary: cash on hand, cash in
+  /// bank, and the two together. Then what bank accounts earn in a year,
+  /// when they have a rate, and what the figure leaves out.
   void _explain(
     BuildContext context, {
-    required double inAccounts,
-    required double available,
+    required double cashOnHand,
+    required double inBank,
+    required double forGoals,
+    required List<Wallet> bankWallets,
   }) {
-    final forGoals = inAccounts - available;
+    final available = cashOnHand + inBank;
+    // What the accounts with a rate earn in a year, after the bank's tax.
+    final interest = bankWallets
+        .map((wallet) => wallet.estimatedAnnualInterestIncome)
+        .whereType<double>()
+        .fold<double>(0, (total, gross) => total + afterTax(gross));
     showDialog<void>(
       context: context,
       builder: (context) {
@@ -958,6 +974,18 @@ class _TotalBalanceCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 line(
+                  Image.asset(WalletType.cash.iconAsset, width: 22, height: 22),
+                  'Cash on Hand',
+                  cashOnHand,
+                ),
+                line(
+                  Image.asset(WalletType.bank.iconAsset, width: 22, height: 22),
+                  'Cash in Bank',
+                  inBank,
+                ),
+                Divider(height: 14, color: colors.border),
+                line(
+                  // Cash on hand plus cash in bank, so both their icons.
                   Row(
                     children: [
                       Image.asset(
@@ -972,27 +1000,45 @@ class _TotalBalanceCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  'Cash, bank and e-wallets',
-                  inAccounts,
-                ),
-                if (forGoals > 0.005)
-                  line(
-                    Image.asset(
-                      'assets/icons/icons8-goal-96.png',
-                      width: 22,
-                      height: 22,
-                    ),
-                    'Set aside for goals',
-                    forGoals,
-                    sign: '-',
-                  ),
-                Divider(height: 14, color: colors.border),
-                line(
-                  const SizedBox.shrink(),
                   'Available Balance',
                   available,
                   result: true,
                 ),
+                if (forGoals > 0.005)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 44, bottom: 4),
+                    child: Text(
+                      'Both are after the ${formatPeso(forGoals)} set aside '
+                      'for your goals.',
+                      key: const Key('available-balance-goals'),
+                      style: TextStyle(fontSize: 12, color: colors.textMuted),
+                    ),
+                  ),
+                if (interest > 0.005) ...[
+                  const SizedBox(height: 4),
+                  line(
+                    Image.asset(
+                      'assets/icons/icons8-combo-chart-100.png',
+                      width: 22,
+                      height: 22,
+                    ),
+                    'Interest in a Year (after tax)',
+                    interest,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 44),
+                    child: Text(
+                      'An estimate after the ${(interestTaxRate * 100).round()}% '
+                      'tax banks keep. It is not in Cash in Bank until it is '
+                      'paid; FinAssist reminds you to add it as income.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: colors.textMuted,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 // What is left out, in one short note.
                 Container(
@@ -1167,8 +1213,10 @@ class _TotalBalanceCard extends StatelessWidget {
                 tooltip: 'What this includes',
                 onPressed: () => _explain(
                   context,
-                  inAccounts: totalWalletBalance(list),
-                  available: available,
+                  cashOnHand: cashOnHand,
+                  inBank: inBank,
+                  forGoals: totalWalletBalance(list) - available,
+                  bankWallets: bankWallets,
                 ),
               ),
             ],

@@ -625,7 +625,7 @@ void main() {
             pages: const [
               Text('Home page'),
               Text('Transactions page'),
-              Text('Bills page'),
+              Text('Reports page'),
               Text('Wallet page'),
             ],
             quickAddActions: actions,
@@ -637,7 +637,7 @@ void main() {
     testWidgets('has four tabs that switch in place', (tester) async {
       await pumpShell(tester, actions: const []);
 
-      for (final label in ['Home', 'Transactions', 'Bills', 'Wallets']) {
+      for (final label in ['Home', 'Transactions', 'Reports', 'Wallets']) {
         expect(find.text(label), findsOneWidget);
       }
       // Savings and debts are opened from Home, not from the bar.
@@ -674,7 +674,7 @@ void main() {
             pages: [
               const Text('Home page'),
               tab('Transactions page'),
-              tab('Bills page'),
+              tab('Reports page'),
               tab('Wallet page'),
             ],
             quickAddActions: const [],
@@ -733,6 +733,7 @@ void main() {
           'Savings',
           'Goals',
           'Installments',
+          'Debts',
           'Reports',
         ]) {
           expect(find.text(label), findsNothing);
@@ -750,6 +751,7 @@ void main() {
           'Savings',
           'Goals',
           'Installments',
+          'Debts',
           'Reports',
         ]) {
           expect(find.text(label), findsOneWidget);
@@ -794,7 +796,7 @@ void main() {
             pages: const [
               Text('Home page'),
               Text('Transactions page'),
-              Text('Bills page'),
+              Text('Reports page'),
               Text('Wallet page'),
             ],
           ),
@@ -3927,20 +3929,29 @@ void main() {
       await pumpChat(tester, Stream.value(true));
 
       expect(find.text('Online'), findsOneWidget);
-      expect(find.textContaining('Finance questions only'), findsOneWidget);
+      expect(find.textContaining('Money questions only'), findsOneWidget);
+      // The notice is a tip bubble with the app's bulb, like Home's tips.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chat-notice')),
+          matching: find.image(
+            const AssetImage('assets/icons/icons8-idea-96.png'),
+          ),
+        ),
+        findsOneWidget,
+      );
 
-      // Each suggestion carries the app's own icon for what it asks about.
+      // The suggestions are just the questions: no pictures to decode.
       expect(find.text('Try asking'), findsOneWidget);
       for (final asset in [
         'icons8-banknotes-96.png',
         'icons8-pie-chart-96.png',
         'icons8-receipt-96.png',
         'icons8-cat-shopping-96.png',
-        'icons8-idea-96.png',
       ]) {
         expect(
           find.image(AssetImage('assets/icons/$asset')),
-          findsOneWidget,
+          findsNothing,
           reason: asset,
         );
       }
@@ -3959,7 +3970,7 @@ void main() {
 
       expect(find.text('Offline'), findsOneWidget);
       expect(
-        find.textContaining('Answers use the records saved on this phone'),
+        find.textContaining('answers from the records saved on this phone'),
         findsOneWidget,
       );
 
@@ -3999,7 +4010,10 @@ void main() {
       expect(find.textContaining('Which AirPods'), findsOneWidget);
       expect(find.widgetWithText(ActionChip, 'AirPods Pro'), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(ActionChip, 'Any brand'));
+      final anyBrand = find.widgetWithText(ActionChip, 'Any brand');
+      await tester.ensureVisible(anyBrand);
+      await tester.pump();
+      await tester.tap(anyBrand);
       await tester.pump(const Duration(milliseconds: 800));
       // Nothing is due and nothing is usually spent yet, so all ₱3,000 is
       // spare before payday (Oct 1, the calendar month's end).
@@ -4143,8 +4157,9 @@ void main() {
           wallet(id: 'gcash', balance: 900, receivesIncome: true),
         ];
 
-        expect(defaultWalletId(wallets), 'gcash');
-        expect(defaultWalletId([wallets.first, wallets[1]]), 'cash');
+        // The first spending wallet: income no longer has one of its own.
+        expect(defaultWalletId(wallets), 'cash');
+        expect(defaultWalletId([wallets.first, wallets[2]]), 'gcash');
       },
     );
 
@@ -4288,19 +4303,12 @@ void main() {
         'b': true,
         'c': false,
       });
-      expect(incomeWallet(wallets)?.id, 'a');
     });
 
     test('choosing the wallet that already receives income writes nothing', () {
       final wallets = [wallet(id: 'a', receivesIncome: true), wallet(id: 'b')];
 
       expect(incomeWalletUpdates(wallets, 'a'), isEmpty);
-    });
-
-    test('an archived wallet is not treated as the income wallet', () {
-      final wallets = [wallet(id: 'a', receivesIncome: true, archived: true)];
-
-      expect(incomeWallet(wallets), isNull);
     });
   });
 
@@ -4557,7 +4565,9 @@ void main() {
       expect(find.textContaining('bills and savings'), findsNothing);
     });
 
-    testWidgets('marks the wallet that receives income', (tester) async {
+    testWidgets('no wallet is marked as where income goes', (tester) async {
+      // Income goes into the wallets chosen each time it is added, so even
+      // a wallet marked before that has no badge, and none can be marked.
       await pumpWallets(
         tester,
         wallets: [
@@ -4566,18 +4576,11 @@ void main() {
         ],
       );
 
-      expect(find.text('Receives my income'), findsOneWidget);
-    });
-
-    testWidgets('falls back to a plain badge with no saved income source', (
-      tester,
-    ) async {
-      await pumpWallets(
-        tester,
-        wallets: [wallet(id: 'a', name: 'Cash', receivesIncome: true)],
-      );
-
-      expect(find.text('Receives my income'), findsOneWidget);
+      expect(find.text('Receives my income'), findsNothing);
+      await tester.tap(find.byTooltip('Wallet options').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Set as my income'), findsNothing);
+      expect(find.text('Add income'), findsOneWidget);
     });
 
     testWidgets('asks before removing a wallet and says history is kept', (
@@ -4660,14 +4663,14 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('shows the balance and who pays into this wallet', (
+    testWidgets('shows the balance, with no income wallet badge', (
       tester,
     ) async {
       await pumpDetail(tester, wallet: cash);
 
       expect(find.text('Cash'), findsWidgets);
       expect(find.text('₱1,200'), findsOneWidget);
-      expect(find.text('Your income is paid into this wallet'), findsOneWidget);
+      expect(find.text('Your income is paid into this wallet'), findsNothing);
     });
 
     testWidgets('says there is nothing in a wallet with no transactions', (
@@ -4828,14 +4831,12 @@ void main() {
       );
     }
 
-    test('a new entry starts on the wallet that receives income', () {
+    test('a new entry starts on the first wallet', () {
+      // Even one marked as receiving income before that was dropped.
       expect(
         defaultWalletId([wallet('a'), wallet('b', receivesIncome: true)]),
-        'b',
+        'a',
       );
-    });
-
-    test('with no income wallet it starts on the first one', () {
       expect(defaultWalletId([wallet('a'), wallet('b')]), 'a');
       expect(defaultWalletId(const []), isNull);
     });
@@ -5376,7 +5377,17 @@ void main() {
 
       // Only two steps: nothing to pay and no goals to save for.
       expect(find.text('Step 2 of 2'), findsOneWidget);
-      expect(find.text('₱2,000'), findsOneWidget);
+      // The review shows the wallets after it: ₱500 cash, plus ₱2,000.
+      expect(find.text('Available Balance after this'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('income-available-after')))
+            .data,
+        '₱2,500',
+      );
+      expect(find.text('Was ₱500 · +₱2,000'), findsOneWidget);
+      // Nothing was taken from it, so no separate "left" line.
+      expect(find.text('Left to spend from this income'), findsNothing);
       expect(find.textContaining('No unpaid bills right now'), findsOneWidget);
       expect(find.text('Confirm'), findsOneWidget);
     });
@@ -5581,8 +5592,11 @@ void main() {
       await tester.pumpAndSettle();
       await next(tester);
 
-      expect(find.text('Left to spend'), findsOneWidget);
+      // What this income leaves after the rent, and what all the wallets
+      // will hold once it is confirmed.
+      expect(find.text('Left to spend from this income'), findsOneWidget);
       expect(find.text('₱3,500'), findsOneWidget);
+      expect(find.text('Available Balance after this'), findsOneWidget);
 
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
@@ -7488,12 +7502,71 @@ void main() {
         find.byKey(const Key('transaction-search-input')),
         'rent',
       );
-      await tester.tap(find.text('Show results'));
+      await tester.pump();
+      // How many match shows before the sheet closes.
+      await tester.tap(find.text('Show 1 result'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Showing:'), findsOneWidget);
       expect(find.textContaining('Monthly rent'), findsOneWidget);
       expect(find.text('Food'), findsNothing);
+    });
+
+    testWidgets('the filters count matches and clear in place', (tester) async {
+      await pumpList(tester, [
+        AppTransaction(
+          id: 'a',
+          type: TransactionType.expense,
+          amount: 120,
+          label: 'Bills',
+          date: now,
+          walletId: 'cash',
+        ),
+        AppTransaction(
+          id: 'b',
+          type: TransactionType.income,
+          amount: 500,
+          label: 'Allowance',
+          date: now,
+          walletId: 'cash',
+        ),
+      ]);
+      await tester.tap(find.byKey(const Key('transaction-search-filters')));
+      await tester.pumpAndSettle();
+
+      // Nothing chosen yet: everything shows, and nothing to clear.
+      expect(find.text('Show 2 results'), findsOneWidget);
+      expect(
+        tester
+            .widget<OutlinedButton>(find.byKey(const Key('filter-clear')))
+            .onPressed,
+        isNull,
+      );
+
+      // Tiles that keep their place when chosen.
+      final before = tester.getRect(
+        find.byKey(const Key('filter-type-income')),
+      );
+      await tester.tap(find.byKey(const Key('filter-type-expense')));
+      await tester.pump();
+      expect(
+        tester.getRect(find.byKey(const Key('filter-type-income'))),
+        before,
+      );
+      expect(find.text('Show 1 result'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('filter-date-thisMonth')));
+      await tester.pump();
+      expect(find.text('Show 1 result'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('filter-date-lastMonth')));
+      await tester.pump();
+      expect(find.text('No matches'), findsOneWidget);
+
+      // Clear all starts over here, without closing.
+      await tester.tap(find.byKey(const Key('filter-clear')));
+      await tester.pump();
+      expect(find.text('Search & filters'), findsOneWidget);
+      expect(find.text('Show 2 results'), findsOneWidget);
     });
   });
 
@@ -9347,7 +9420,13 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('or 35% a year'), findsOneWidget);
-      expect(find.text('Interest they told you: 1% a month.'), findsOneWidget);
+      // A loan says how its interest is charged.
+      expect(
+        find.text(
+          'Interest they told you: 1% a month, the same every payment.',
+        ),
+        findsOneWidget,
+      );
       expect(find.textContaining('cost more than 1% a month'), findsOneWidget);
       // 4% a year, less the 20% tax banks keep.
       expect(
@@ -9760,12 +9839,13 @@ void main() {
         expect(find.text('Notes (optional)'), findsNothing);
         expect(find.text('More options (optional)'), findsOneWidget);
         // Grey examples inside the empty fields.
-        expect(find.text('e.g. Phone, SSS loan'), findsOneWidget);
+        // Things bought on installment: loans have their own form.
+        expect(find.text('e.g. Phone, Aircon'), findsOneWidget);
         expect(find.text('e.g. 12,000'), findsOneWidget);
         expect(find.text('e.g. 1,500'), findsOneWidget);
         expect(find.text('e.g. 12'), findsOneWidget);
         expect(
-          find.text('Optional. Shows how much interest you pay.'),
+          find.text('Shows how much more you pay than paying in full.'),
           findsOneWidget,
         );
         // No peso sign until an amount is typed, so no example looks filled in.
@@ -12048,35 +12128,25 @@ void main() {
 
       await tester.tap(find.byKey(const Key('total-balance-info')));
       await tester.pumpAndSettle();
-      // The sum with the user's own figures, not paragraphs: ₱15,000 in
-      // cash and GCash, nothing for goals, so ₱15,000 to spend.
+      // The sum with the user's own figures, like setup's Cash Summary:
+      // ₱5,000 cash on hand, ₱10,000 in GCash, so ₱15,000 to spend.
       final explained = find.byKey(const Key('available-balance-explained'));
+      Finder inSheet(String text) =>
+          find.descendant(of: explained, matching: find.text(text));
+      expect(inSheet('The money you can spend right now.'), findsOneWidget);
+      expect(inSheet('Cash on Hand'), findsOneWidget);
+      expect(inSheet('₱5,000'), findsOneWidget);
+      expect(inSheet('Cash in Bank'), findsOneWidget);
+      expect(inSheet('₱10,000'), findsOneWidget);
+      expect(inSheet('Available Balance'), findsWidgets);
+      expect(inSheet('₱15,000'), findsOneWidget);
       expect(
-        find.descendant(
-          of: explained,
-          matching: find.text('The money you can spend right now.'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: explained,
-          matching: find.text('Cash, bank and e-wallets'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: explained, matching: find.text('₱15,000')),
-        findsNWidgets(2),
-      );
-      expect(
-        find.descendant(
-          of: explained,
-          matching: find.text('Set aside for goals'),
-        ),
+        find.byKey(const Key('available-balance-goals')),
         findsNothing,
         reason: 'no goal money to take off',
       );
+      // GCash has no rate here, so no interest line.
+      expect(inSheet('Interest in a Year (after tax)'), findsNothing);
       expect(
         find.textContaining('Money in Savings is not included.'),
         findsOneWidget,
@@ -12183,6 +12253,7 @@ void main() {
         'Bill Planner',
         'Savings',
         'Installments',
+        'Debts',
         'Reports',
         'Scan Receipt',
         'Voice Entry',
