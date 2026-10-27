@@ -647,19 +647,6 @@ double walletBalanceFor(Iterable<Wallet> wallets, WalletPurpose purpose) {
       .fold<double>(0, (total, wallet) => total + wallet.balance);
 }
 
-/// Savings the user could reach today, which is what the savings balance on
-/// Home means. A time deposit or government savings is left out.
-double reachableSavingsBalance(Iterable<Wallet> wallets) {
-  return wallets
-      .where(
-        (wallet) =>
-            !wallet.archived &&
-            wallet.purpose == WalletPurpose.savings &&
-            !wallet.isLockedSavings,
-      )
-      .fold<double>(0, (total, wallet) => total + wallet.balance);
-}
-
 /// Savings held somewhere the user cannot draw on yet, shown on its own so
 /// the figure above it stays true.
 double lockedSavingsBalance(Iterable<Wallet> wallets) {

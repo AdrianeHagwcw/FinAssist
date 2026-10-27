@@ -3,6 +3,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/expense_category_preferences.dart';
 import '../services/launch_screen.dart';
 
+/// The language Voice Entry listens for. Filipino also understands English
+/// words mixed in, the way most people here talk.
+enum VoiceLanguage {
+  english('English', 'en-PH'),
+  filipino('Tagalog / Taglish', 'fil-PH');
+
+  const VoiceLanguage(this.label, this.localeId);
+
+  final String label;
+  final String localeId;
+}
+
 /// The signed-in account's display choices, kept on this phone, and its
 /// category choices.
 ///
@@ -22,6 +34,7 @@ class AppSettingsProvider extends ChangeNotifier {
   /// eye, so a value here is always a choice that account made.
   static const _darkModeKey = 'darkMode';
   static const _hideAmountsKey = 'hideAmounts';
+  static const _voiceLanguageKey = 'voiceLanguage';
 
   /// Kept by older builds: for the whole phone, then copied into accounts
   /// that never chose them, which opened new accounts in dark mode. Cleared
@@ -32,6 +45,7 @@ class AppSettingsProvider extends ChangeNotifier {
   final SharedPreferences? _preferences;
   ThemeMode _themeMode;
   bool _amountsMasked;
+  VoiceLanguage _voiceLanguage = VoiceLanguage.filipino;
   ExpenseCategoryPreferences _categories = const ExpenseCategoryPreferences();
 
   /// The signed-in account's id, or null signed out.
@@ -39,6 +53,7 @@ class AppSettingsProvider extends ChangeNotifier {
 
   ThemeMode get themeMode => _themeMode;
   bool get amountsMasked => _amountsMasked;
+  VoiceLanguage get voiceLanguage => _voiceLanguage;
   ExpenseCategoryPreferences get categories => _categories;
 
   void updateCategoryPreferences(Map<String, dynamic>? profile) {
@@ -89,6 +104,13 @@ class AppSettingsProvider extends ChangeNotifier {
         : ThemeMode.light;
     _amountsMasked =
         chosen && (preferences.getBool(_key(_hideAmountsKey)) ?? false);
+    final language = chosen
+        ? preferences.getString(_key(_voiceLanguageKey))
+        : null;
+    _voiceLanguage = VoiceLanguage.values.firstWhere(
+      (value) => value.name == language,
+      orElse: () => VoiceLanguage.filipino,
+    );
   }
 
   void setThemeMode(ThemeMode mode) {
@@ -100,6 +122,16 @@ class AppSettingsProvider extends ChangeNotifier {
       _preferences?.setBool(_key(_darkModeKey), mode == ThemeMode.dark);
     }
     LaunchScreen.follow(dark: mode == ThemeMode.dark);
+  }
+
+  /// Remembered for the next time Voice Entry opens.
+  void setVoiceLanguage(VoiceLanguage language) {
+    if (language == _voiceLanguage) return;
+    _voiceLanguage = language;
+    notifyListeners();
+    if (_account != null) {
+      _preferences?.setString(_key(_voiceLanguageKey), language.name);
+    }
   }
 
   /// The eye on the Safe to Spend card. Remembered, so amounts stay hidden

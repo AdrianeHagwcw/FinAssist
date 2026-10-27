@@ -316,6 +316,130 @@ class BillService {
     commitFirestoreWrite(batch.commit(), 'split installment interest');
   }
 
+  /// The date that records paying [billId]'s schedule off early.
+  static String payoffInstanceId(String billId) => '${billId}_payoff';
+
+  /// Every date made so far for [billId].
+  static Future<List<BillInstance>> loadInstancesForBill(String billId) async {
+    final snapshot = await _instances.where('billId', isEqualTo: billId).get();
+    return [
+      for (final doc in snapshot.docs) BillInstance.fromMap(doc.id, doc.data()),
+    ];
+  }
+
+  /// Ends [billId]'s schedule with one payment that pays it off early.
+  ///
+  /// The payment is a date of its own, paid on [date] from the wallets in
+  /// [parts], [interest] of it kept apart for Reports as with any payment.
+  /// Dates still unpaid are taken off; one part-paid is closed into the
+  /// payoff, as a carried-over date is. The schedule makes no more dates.
+  /// [addUndoPayoffToBatch] puts it all back.
+  static void addPayoffToBatch(
+    WriteBatch batch, {
+    required String billId,
+    required String name,
+    required List<BillPaymentPart> parts,
+    required double interest,
+    required DateTime date,
+    required List<BillInstance> instances,
+    required Map<String, double> collectDeltasInto,
+  }) {
+    final payoffId = payoffInstanceId(billId);
+    final paying = [
+      for (final part in parts)
+        if (part.amount > 0) part,
+    ];
+    final amount = paying.fold<double>(0, (total, part) => total + part.amount);
+    final category = instances.firstOrNull?.category ?? 'Bills';
+    final day = DateTime(date.year, date.month, date.day);
+
+    // The interest shared out by what each wallet paid, the last taking
+    // what rounding leaves, so the parts add up to it exactly.
+    final ids = <String>[];
+    var interestLeft = interest;
+    for (final (index, part) in paying.indexed) {
+      final share = index == paying.length - 1
+          ? interestLeft
+          : (interest * part.amount / amount * 100).round() / 100;
+      interestLeft -= share;
+      ids.add(
+        WalletService.addTransactionToBatch(
+          batch,
+          type: TransactionType.expense,
+          amount: part.amount,
+          label: category,
+          walletId: part.walletId,
+          note: '$name (paid off early)',
+          date: date,
+          collectDeltasInto: collectDeltasInto,
+          billInstanceId: payoffId,
+          interest: share > 0 ? share : 0,
+        ),
+      );
+    }
+
+    batch.set(_instances.doc(payoffId), {
+      'billId': billId,
+      'name': '$name (paid off early)',
+      'amount': amount,
+      'category': category,
+      'dueDate': Timestamp.fromDate(day),
+      'status': BillStatus.paid.name,
+      'amountPaid': amount,
+      'carriedOver': 0,
+      'paymentIds': ids,
+      'walletId': paying.firstOrNull?.walletId,
+      'paidAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    for (final instance in instances) {
+      if (instance.id == payoffId || instance.isSettled) continue;
+      if (instance.amountPaid > 0.005) {
+        batch.update(_instances.doc(instance.id), {'carriedInto': payoffId});
+      } else {
+        batch.delete(_instances.doc(instance.id));
+      }
+    }
+
+    // No more dates: the schedule is set aside, as an ended bill is.
+    batch.set(_bills.doc(billId), {
+      'archived': true,
+      'paidOffAt': Timestamp.fromDate(day),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Undoes [addPayoffToBatch]: the payoff's money goes back to its wallets,
+  /// the closed date opens again, and the schedule resumes. The unpaid
+  /// dates taken off come back as their months are opened.
+  static Future<void> addUndoPayoffToBatch(
+    WriteBatch batch,
+    String billId,
+  ) async {
+    final payoffId = payoffInstanceId(billId);
+    for (final instance in await loadInstancesForBill(billId)) {
+      if (instance.id == payoffId) {
+        for (final paymentId in instance.paymentIds) {
+          final payment = await WalletService.loadTransaction(paymentId);
+          if (payment != null) {
+            WalletService.removeTransactionFromBatch(batch, payment);
+          }
+        }
+        batch.delete(_instances.doc(payoffId));
+      } else if (instance.carriedInto == payoffId) {
+        batch.update(_instances.doc(instance.id), {
+          'carriedInto': FieldValue.delete(),
+        });
+      }
+    }
+    batch.set(_bills.doc(billId), {
+      'archived': false,
+      'paidOffAt': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   /// Stops a bill from producing any more occurrences, and clears the ones
   /// still outstanding.
   ///

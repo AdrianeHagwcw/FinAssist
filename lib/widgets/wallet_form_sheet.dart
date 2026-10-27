@@ -67,6 +67,38 @@ String? _listedName(String name, List<String> options) {
   return stem != null && options.contains(stem) ? stem : null;
 }
 
+/// The wallet a name said out loud stands for: a listed e-wallet or bank,
+/// or else cash, as "GCash", "BDO" or "Alkansya".
+({WalletType type, String name}) _spokenWallet(String said) {
+  String key(String text) =>
+      text.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+  final heard = key(said);
+  String? listed(List<String> options) {
+    for (final option in options) {
+      if (option.startsWith('Other')) continue;
+      final name = key(option);
+      final short = RegExp(r'\(([^)]+)\)').firstMatch(option)?.group(1);
+      if (name == heard ||
+          (short != null && key(short) == heard) ||
+          (heard.length >= 3 && name.startsWith(heard))) {
+        return option;
+      }
+    }
+    return null;
+  }
+
+  if (listed(_philippineEWallets) case final name?) {
+    return (type: WalletType.ewallet, name: name);
+  }
+  if (listed(_philippineBanks) case final name?) {
+    return (type: WalletType.bank, name: name);
+  }
+  if (RegExp('bank|bangko').hasMatch(heard)) {
+    return (type: WalletType.bank, name: said);
+  }
+  return (type: WalletType.cash, name: said);
+}
+
 /// Asks for a wallet's type, name and starting balance.
 ///
 /// Returns the wallet the user described, or null if they backed out. Used
@@ -77,10 +109,14 @@ String? _listedName(String name, List<String> options) {
 /// is then left out: money only moves through a transaction, so a balance is
 /// never typed over by hand.
 /// Pass [initialDraft] to edit an unsaved setup wallet, including its balance.
+/// [suggestedName] and [suggestedBalance] start a new wallet filled in, as
+/// from Voice Entry.
 Future<WalletDraft?> showWalletFormSheet(
   BuildContext context, {
   Wallet? existing,
   WalletDraft? initialDraft,
+  String? suggestedName,
+  double? suggestedBalance,
 }) {
   return showModalBottomSheet<WalletDraft>(
     context: context,
@@ -90,18 +126,31 @@ Future<WalletDraft?> showWalletFormSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) =>
-        WalletFormSheet(existing: existing, initialDraft: initialDraft),
+    builder: (context) => WalletFormSheet(
+      existing: existing,
+      initialDraft: initialDraft,
+      suggestedName: suggestedName,
+      suggestedBalance: suggestedBalance,
+    ),
   );
 }
 
 class WalletFormSheet extends StatefulWidget {
-  const WalletFormSheet({this.existing, this.initialDraft, super.key})
-    : assert(existing == null || initialDraft == null);
+  const WalletFormSheet({
+    this.existing,
+    this.initialDraft,
+    this.suggestedName,
+    this.suggestedBalance,
+    super.key,
+  }) : assert(existing == null || initialDraft == null);
 
   /// The wallet being edited, or null when adding a new one.
   final Wallet? existing;
   final WalletDraft? initialDraft;
+
+  /// What a new wallet starts filled in with.
+  final String? suggestedName;
+  final double? suggestedBalance;
 
   @override
   State<WalletFormSheet> createState() => _WalletFormSheetState();
@@ -116,9 +165,11 @@ class _WalletFormSheetState extends State<WalletFormSheet> with CheckAfterSave {
     text: _originalType == WalletType.cash ? _originalName : '',
   );
   late final _balanceController = TextEditingController(
-    text: widget.initialDraft == null || !widget.initialDraft!.balanceRecorded
-        ? ''
-        : formatAmountInput(widget.initialDraft!.startingBalance),
+    text: widget.initialDraft != null && widget.initialDraft!.balanceRecorded
+        ? formatAmountInput(widget.initialDraft!.startingBalance)
+        : widget.suggestedBalance != null
+        ? formatAmountInput(widget.suggestedBalance!)
+        : '',
   );
   late final _interestRateController = TextEditingController(
     text: _interestRateText(
@@ -126,19 +177,24 @@ class _WalletFormSheetState extends State<WalletFormSheet> with CheckAfterSave {
           widget.initialDraft?.annualInterestRatePercent,
     ),
   );
-  late WalletType _type = _editableWalletType(
-    widget.existing?.type ?? widget.initialDraft?.type ?? WalletType.cash,
-  );
+  late WalletType _type = _editableWalletType(_originalType ?? WalletType.cash);
   late String? _selectedBank = _initialBankSelection();
   late String? _selectedEWallet = _initialEWalletSelection();
 
   bool get _isEditing => widget.existing != null || widget.initialDraft != null;
 
+  late final _suggested = widget.suggestedName == null
+      ? null
+      : _spokenWallet(widget.suggestedName!);
+
   String get _originalName =>
-      widget.existing?.name ?? widget.initialDraft?.name ?? '';
+      widget.existing?.name ??
+      widget.initialDraft?.name ??
+      _suggested?.name ??
+      '';
 
   WalletType? get _originalType =>
-      widget.existing?.type ?? widget.initialDraft?.type;
+      widget.existing?.type ?? widget.initialDraft?.type ?? _suggested?.type;
 
   // Both lists start on the wallet as it was opened, never on a name typed
   // under another type since: these are first read when a list is shown,

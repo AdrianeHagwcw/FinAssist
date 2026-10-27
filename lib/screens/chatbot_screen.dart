@@ -870,6 +870,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       case ChatActionType.savingsGoal:
         return showGoalFormSheet(
           context,
+          // After the goals still being saved for, as Goals adds one.
+          nextPriority:
+              _records?.goals
+                  .where((goal) => goal.status == GoalStatus.active)
+                  .length ??
+              0,
           initialName: action.name,
           initialTarget: action.amount,
         );

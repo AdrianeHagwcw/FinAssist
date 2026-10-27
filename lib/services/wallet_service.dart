@@ -73,11 +73,6 @@ class WalletService {
     });
   }
 
-  /// Combined balance of every active wallet, updating live.
-  static Stream<double> watchTotalBalance() {
-    return watchWallets().map(totalWalletBalance);
-  }
-
   /// Every transaction, newest first, updating live.
   ///
   /// The whole collection is streamed and filtered in the app rather than
@@ -230,14 +225,6 @@ class WalletService {
     return reference.id;
   }
 
-  /// The wallet kept for [purpose], or null when there is none yet.
-  static Wallet? walletFor(List<Wallet> wallets, WalletPurpose purpose) {
-    for (final wallet in wallets) {
-      if (!wallet.archived && wallet.purpose == purpose) return wallet;
-    }
-    return null;
-  }
-
   /// Renames a wallet or changes its type. The balance is never touched here;
   /// only a transaction may move money.
   static void updateWallet({
@@ -342,17 +329,6 @@ class WalletService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)),
       'archive wallet',
-    );
-  }
-
-  /// Brings an archived wallet back into the list.
-  static void restoreWallet(String walletId) {
-    commitFirestoreWrite(
-      _walletsCollection.doc(walletId).set({
-        'archived': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)),
-      'restore wallet',
     );
   }
 
@@ -464,48 +440,6 @@ class WalletService {
     }
     _applyDeltas(batch, deltas);
     commitFirestoreWrite(batch.commit(), 'record expense batch');
-  }
-
-  /// Rewrites an existing transaction: takes back what the old version did to
-  /// the balances and applies the new one, in the same batch.
-  ///
-  /// Used when an entry is edited. If there is no transaction with [id] yet,
-  /// this simply records a new one under that id, which is what happens the
-  /// first time an older expense is edited.
-  static Future<void> replaceTransaction({
-    required String id,
-    required TransactionType type,
-    required double amount,
-    required String label,
-    String? walletId,
-    String? toWalletId,
-    String? note,
-    DateTime? date,
-  }) async {
-    if (type == TransactionType.transfer &&
-        (walletId == null || walletId == toWalletId)) {
-      throw ArgumentError('A transfer needs two different wallets.');
-    }
-
-    final snapshot = await _transactionsCollection.doc(id).get();
-    final previous = snapshot.exists
-        ? AppTransaction.fromMap(snapshot.id, snapshot.data())
-        : null;
-    if (previous?.type == TransactionType.expense) {
-      throw StateError('Recorded expenses cannot be edited.');
-    }
-
-    _writeTransaction(
-      id: id,
-      type: type,
-      amount: amount,
-      label: label,
-      walletId: walletId,
-      toWalletId: type == TransactionType.transfer ? toWalletId : null,
-      note: note,
-      date: date,
-      previous: previous,
-    );
   }
 
   /// Reads one transaction, or null when it isn't there or can't be reached.
@@ -677,7 +611,6 @@ class WalletService {
     String? toWalletId,
     String? note,
     DateTime? date,
-    AppTransaction? previous,
   }) {
     final batch = _firestore.batch();
     final transactionId = addTransactionToBatch(
@@ -690,7 +623,6 @@ class WalletService {
       toWalletId: toWalletId,
       note: note,
       date: date,
-      previous: previous,
     );
 
     commitFirestoreWrite(batch.commit(), 'record ${type.name}');
@@ -937,7 +869,6 @@ class WalletService {
     String? toWalletId,
     String? note,
     DateTime? date,
-    AppTransaction? previous,
     Map<String, double>? collectDeltasInto,
     String? billInstanceId,
     String? debtId,
@@ -978,7 +909,6 @@ class WalletService {
     });
 
     final deltas = collectDeltasInto ?? <String, double>{};
-    if (previous != null) _collectDeltas(deltas, previous, reverse: true);
     _collectDeltas(deltas, transaction, reverse: false);
 
     // A caller gathering several transactions applies the total itself.

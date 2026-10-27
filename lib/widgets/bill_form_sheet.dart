@@ -14,7 +14,15 @@ import 'check_after_save.dart';
 import 'dialog_kit.dart';
 
 /// Adds or edits a bill schedule. Returns true when it was saved.
-Future<bool> showBillFormSheet(BuildContext context, {Bill? existing}) async {
+///
+/// [initialName] and [initialAmount] start a new bill filled in, as from
+/// Voice Entry; the user checks them before saving.
+Future<bool> showBillFormSheet(
+  BuildContext context, {
+  Bill? existing,
+  String? initialName,
+  double? initialAmount,
+}) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -23,17 +31,31 @@ Future<bool> showBillFormSheet(BuildContext context, {Bill? existing}) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) => BillFormSheet(existing: existing),
+    builder: (context) => BillFormSheet(
+      existing: existing,
+      initialName: initialName,
+      initialAmount: initialAmount,
+    ),
   );
 
   return saved ?? false;
 }
 
 class BillFormSheet extends StatefulWidget {
-  const BillFormSheet({this.existing, this.onSave, super.key});
+  const BillFormSheet({
+    this.existing,
+    this.initialName,
+    this.initialAmount,
+    this.onSave,
+    super.key,
+  });
 
   /// The bill being edited, or null when adding one.
   final Bill? existing;
+
+  /// What a new bill starts filled in with.
+  final String? initialName;
+  final double? initialAmount;
 
   /// Saves the bill. Tests pass a fake instead of Firestore.
   final void Function({
@@ -54,12 +76,13 @@ class _BillFormSheetState extends State<BillFormSheet> with CheckAfterSave {
   final _formKey = GlobalKey<FormState>();
 
   late final _nameController = TextEditingController(
-    text: widget.existing?.name ?? '',
+    text: widget.existing?.name ?? widget.initialName ?? '',
   );
   late final _amountController = TextEditingController(
-    text: widget.existing == null
-        ? ''
-        : formatAmountInput(widget.existing!.amount),
+    text: switch (widget.existing?.amount ?? widget.initialAmount) {
+      final amount? => formatAmountInput(amount),
+      null => '',
+    },
   );
 
   late String _category = widget.existing?.category ?? 'Bills';

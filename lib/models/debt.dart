@@ -281,6 +281,8 @@ class Debt {
     this.rateBasis = InterestBasis.wholeAmount,
     this.fees = 0,
     this.otherKind,
+    this.paidOffAt,
+    this.paidOffAmount = 0,
   });
 
   factory Debt.fromMap(String id, Map<String, dynamic>? data) {
@@ -313,6 +315,8 @@ class Debt {
       rateBasis: InterestBasis.fromName(_asString(map['rateBasis'])),
       fees: _asDouble(map['fees']).abs(),
       otherKind: _asString(map['otherKind']),
+      paidOffAt: _asDate(map['paidOffAt']),
+      paidOffAmount: _asDouble(map['paidOffAmount']).abs(),
     );
   }
 
@@ -365,6 +369,32 @@ class Debt {
 
   /// What the user called the kind when they chose Other.
   final String? otherKind;
+
+  /// When it was paid off before its schedule ended, and what that last
+  /// payment was. Null while it runs its course.
+  final DateTime? paidOffAt;
+  final double paidOffAmount;
+
+  bool get paidOffEarly => paidOffAt != null;
+
+  /// What is still owed of the money the user got, after [paidSoFar]: each
+  /// payment pays back a fixed share of it, the rest being interest.
+  double loanLeft(double paidSoFar) {
+    final left = amountReceived - paidSoFar * (1 - interestShare);
+    return left > 0.005 ? _centavos(left) : 0;
+  }
+
+  /// How a payment of [amount] that finishes it early splits: what is still
+  /// owed of the money borrowed, and the rest, which is interest or a fee
+  /// for paying early. Less than what is owed is a discount: no interest.
+  ({double toLoan, double interest}) payoffSplit(
+    double amount,
+    double paidSoFar,
+  ) {
+    final left = loanLeft(paidSoFar);
+    final toLoan = amount < left ? amount : left;
+    return (toLoan: _centavos(toLoan), interest: _centavos(amount - toLoan));
+  }
 
   /// The kind as shown: the user's own word for Other or Other loan.
   String get kindLabel {
@@ -633,6 +663,16 @@ class DebtProgress {
     for (final instance in instances) {
       paid += instance.amountPaid;
       if (instance.status == BillStatus.paid) made++;
+    }
+
+    // Paid off early: what was paid is the whole of it, with nothing left.
+    if (debt.paidOffEarly) {
+      return DebtProgress(
+        paid: paid,
+        paymentsMade: debt.paymentCount,
+        total: paid,
+        paymentCount: debt.paymentCount,
+      );
     }
 
     return DebtProgress(

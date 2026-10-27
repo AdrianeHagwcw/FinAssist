@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../models/app_transaction.dart';
 import '../models/bill.dart';
 import '../models/debt.dart';
 import '../models/wallet.dart';
@@ -13,11 +12,10 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
 import '../widgets/bill_status_badge.dart';
-import '../widgets/check_after_save.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/item_card.dart';
 import '../widgets/money_text.dart';
-import '../widgets/wallet_picker.dart';
+import '../widgets/payoff_sheet.dart';
 import 'bill_calendar_screen.dart';
 
 /// One installment or one amount owed to the user.
@@ -26,7 +24,6 @@ class DebtDetailScreen extends StatefulWidget {
     required this.debt,
     this.liveDebt,
     this.payments,
-    this.transactions,
     this.wallets,
     super.key,
   });
@@ -36,7 +33,6 @@ class DebtDetailScreen extends StatefulWidget {
   /// Replace the live data. Used by tests.
   final Stream<Debt?>? liveDebt;
   final Stream<List<BillInstance>>? payments;
-  final Stream<List<AppTransaction>>? transactions;
   final Stream<List<Wallet>>? wallets;
 
   @override
@@ -52,9 +48,6 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       (widget.debt.billId == null
           ? Stream.value(const [])
           : BillService.watchInstancesForBill(widget.debt.billId!));
-
-  late final Stream<List<AppTransaction>> _transactions =
-      widget.transactions ?? WalletService.watchTransactions();
 
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets(includeArchived: true);
@@ -87,34 +80,18 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
   }
 
   Future<void> _delete(Debt debt) async {
-    final iOwe = debt.direction == DebtDirection.iOwe;
     final ok = await _confirm(
       title: 'Delete ${debt.name}?',
-      message: iOwe
-          ? 'Its unpaid payments are removed from your Bill Planner. Payments '
-                'you already made stay, because that money really left your '
-                'wallet.'
-          : 'It stops being tracked. Any money already moved between your '
-                'wallets stays recorded.',
+      message:
+          'Its unpaid payments are removed from your Bill Planner. Payments '
+          'you already made stay, because that money really left your '
+          'wallet.',
       action: 'Delete',
     );
     if (!ok) return;
 
     await DebtService.deleteDebt(debt);
     if (mounted) Navigator.pop(context);
-  }
-
-  Future<void> _recordRepayment(Debt debt) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: context.appColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => RepaymentSheet(debt: debt, wallets: widget.wallets),
-    );
   }
 
   @override
@@ -125,7 +102,6 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       stream: _debt,
       builder: (context, snapshot) {
         final debt = snapshot.data ?? widget.debt;
-        final iOwe = debt.direction == DebtDirection.iOwe;
 
         return Scaffold(
           backgroundColor: colors.pageBackground,
@@ -140,28 +116,10 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
             actions: [
               PopupMenuButton<String>(
                 tooltip: 'Options',
-                onSelected: (value) async {
+                onSelected: (value) {
                   if (value == 'delete') _delete(debt);
-                  if (value == 'forgive') {
-                    final ok = await _confirm(
-                      title: 'Stop expecting the rest?',
-                      message:
-                          'The ${formatPeso(debt.stillOwedToMe)} still owed is '
-                          'written off and this is marked settled. No wallet '
-                          'changes.',
-                      action: 'Write it off',
-                    );
-                    if (ok) DebtService.forgive(debt);
-                  }
                 },
                 itemBuilder: (context) => [
-                  if (!iOwe && debt.status == DebtStatus.active)
-                    menuItem(
-                      value: 'forgive',
-                      label: 'Write off the rest',
-                      icon: Icons.volunteer_activism_outlined,
-                      color: dangerColorOn(context),
-                    ),
                   menuItem(
                     value: 'delete',
                     label: 'Delete',
@@ -172,28 +130,11 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
               ),
             ],
           ),
-          body: iOwe
-              ? _InstallmentBody(
-                  debt: debt,
-                  payments: _payments,
-                  wallets: _wallets,
-                )
-              : _OwedToMeBody(
-                  debt: debt,
-                  transactions: _transactions,
-                  wallets: _wallets,
-                  onRecord: () => _recordRepayment(debt),
-                  onUndo: (repayment) async {
-                    final ok = await _confirm(
-                      title: 'Undo this repayment?',
-                      message:
-                          '${formatPeso(repayment.amount)} comes back out of '
-                          'the wallet and is owed again.',
-                      action: 'Undo',
-                    );
-                    if (ok) DebtService.undoRepayment(debt, repayment);
-                  },
-                ),
+          body: _InstallmentBody(
+            debt: debt,
+            payments: _payments,
+            wallets: _wallets,
+          ),
         );
       },
     );
@@ -237,7 +178,11 @@ class _InstallmentBody extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    progress.isPaidOff ? 'Paid off' : 'Still to pay',
+                    debt.paidOffEarly
+                        ? 'Paid off early · ${formatShortDate(debt.paidOffAt!)}'
+                        : progress.isPaidOff
+                        ? 'Paid off'
+                        : 'Still to pay',
                     style: TextStyle(
                       fontSize: 13,
                       color: context.appColors.textMuted,
@@ -268,10 +213,14 @@ class _InstallmentBody extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    '${formatPeso(progress.paid)} of '
-                    '${formatPeso(progress.total)} paid · '
-                    '${progress.paymentsLeft} of ${debt.paymentCount} '
-                    'payments left',
+                    debt.paidOffEarly
+                        ? '${formatPeso(progress.paid)} paid in all, the last '
+                              '${formatPeso(debt.paidOffAmount)} to finish it '
+                              'early'
+                        : '${formatPeso(progress.paid)} of '
+                              '${formatPeso(progress.total)} paid · '
+                              '${progress.paymentsLeft} of ${debt.paymentCount} '
+                              'payments left',
                     style: TextStyle(fontSize: 13, color: colors.textBody),
                   ),
                   const Divider(height: 28),
@@ -305,33 +254,70 @@ class _InstallmentBody extends StatelessWidget {
             const SizedBox(height: 16),
             _CostOfBorrowing(debt: debt, wallets: wallets, paid: progress.paid),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const BillCalendarScreen(),
+            if (!progress.isPaidOff) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BillCalendarScreen(),
+                    ),
+                  ),
+                  style: openButtonStyle(),
+                  icon: const Icon(Icons.calendar_month),
+                  label: const Text(
+                    'Pay in Bill Planner',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
-                style: openButtonStyle(),
-                icon: const Icon(Icons.calendar_month),
-                label: const Text(
-                  'Pay in Bill Planner',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Each payment is a bill, so you pay it, part-pay it, and '
+                'choose the wallet there.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.appColors.textMuted,
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Each payment is a bill, so you pay it, part-pay it, and choose '
-              'the wallet there.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: context.appColors.textMuted,
+              // Finished before its schedule: one payment closes it.
+              if (debt.billId != null) ...[
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    key: const Key('payoff-open'),
+                    onPressed: () => showPayoffSheet(
+                      context,
+                      debt: debt,
+                      progress: progress,
+                    ),
+                    style: openOutlineStyle(context, height: 52),
+                    child: const Text(
+                      'Paid it off early',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ] else if (debt.paidOffEarly)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  key: const Key('payoff-undo'),
+                  onPressed: () => _undoPayoff(context, debt),
+                  style: dangerOutlineStyle(context, height: 52),
+                  child: const Text(
+                    'Undo paying it off',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ),
-            ),
             const SizedBox(height: 22),
             Text(
               'Statement of account',
@@ -366,6 +352,32 @@ class _InstallmentBody extends StatelessWidget {
       },
     );
   }
+}
+
+/// Asks, then takes back a payoff made by mistake.
+Future<void> _undoPayoff(BuildContext context, Debt debt) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Undo paying it off?'),
+      content: Text(
+        '${formatPeso(debt.paidOffAmount)} goes back to your wallets, and the '
+        'payments that were left are owed again.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          style: dangerTextStyle(context),
+          child: const Text('Undo'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true) await DebtService.undoPayOff(debt);
 }
 
 /// What borrowing costs, the way a lender has to disclose it: the extra in
@@ -546,6 +558,16 @@ List<Widget> _statementRows(
   final colors = context.appColors;
   final rows = <Widget>[];
 
+  // The payoff is not one of the plan's dates: it is listed last.
+  final payoffId = debt.billId == null
+      ? null
+      : BillService.payoffInstanceId(debt.billId!);
+  final payoff = instances.where((i) => i.id == payoffId).firstOrNull;
+  instances = [
+    for (final instance in instances)
+      if (instance.id != payoffId) instance,
+  ];
+
   // Counted down from the whole amount payable, so the last row reads zero
   // when the plan is finished.
   var owed = progress.total;
@@ -590,6 +612,11 @@ List<Widget> _statementRows(
     final stillDue = paidEarlier ? 0.0 : instance?.remaining ?? amount;
 
     owed = (owed - paid).clamp(0.0, double.infinity).toDouble();
+
+    // Paid off early: only the payments made are listed.
+    if (debt.paidOffEarly && !paidEarlier && paid <= 0.005) continue;
+    final closedByPayoff =
+        payoffId != null && instance?.carriedInto == payoffId;
 
     final settledHere = stillDue <= 0.005;
     final partly = paid > 0.005 && !settledHere;
@@ -637,7 +664,10 @@ List<Widget> _statementRows(
               children: [
                 Expanded(
                   child: Text(
-                    settledHere
+                    closedByPayoff
+                        ? '${formatPeso(paid)} paid, the rest when it was paid '
+                              'off'
+                        : settledHere
                         ? '${formatPeso(amount)} paid in full'
                         : partly
                         ? '${formatPeso(paid)} of ${formatPeso(amount)} paid · '
@@ -663,6 +693,53 @@ List<Widget> _statementRows(
     );
   }
 
+  if (debt.paidOffEarly) {
+    final amount = payoff?.amountPaid ?? debt.paidOffAmount;
+    rows.add(
+      Container(
+        key: const Key('statement-payoff'),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: colors.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: confirmColorOn(context)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Paid off early · ${formatShortDate(debt.paidOffAt!)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${formatPeso(amount)} to finish it',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '${formatPeso(0)} left',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: colors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // No totals box: the card at the top of the screen already states what
   // has been paid, what is left and how many payments remain, and saying it
   // twice only invites the two to disagree.
@@ -680,185 +757,6 @@ BillInstance? _instanceOn(List<BillInstance> instances, DateTime day) {
     }
   }
   return null;
-}
-
-class _OwedToMeBody extends StatelessWidget {
-  const _OwedToMeBody({
-    required this.debt,
-    required this.transactions,
-    required this.wallets,
-    required this.onRecord,
-    required this.onUndo,
-  });
-
-  final Debt debt;
-  final Stream<List<AppTransaction>> transactions;
-  final Stream<List<Wallet>> wallets;
-  final VoidCallback onRecord;
-  final void Function(AppTransaction repayment) onUndo;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final settled = debt.status == DebtStatus.settled;
-    final fraction = debt.principal <= 0
-        ? 0.0
-        : (debt.received / debt.principal).clamp(0.0, 1.0).toDouble();
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: colors.card,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                settled ? 'Settled' : 'Still owed to you',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: context.appColors.textMuted,
-                ),
-              ),
-              const SizedBox(height: 6),
-              MoneyText(
-                debt.stillOwedToMe,
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
-                  color: colors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 14),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: LinearProgressIndicator(
-                  value: fraction,
-                  minHeight: 10,
-                  backgroundColor: colors.track,
-                  valueColor: AlwaysStoppedAnimation(confirmColorOn(context)),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '${formatPeso(debt.received > 0 ? debt.received : 0)} of '
-                '${formatPeso(debt.principal)} paid back',
-                style: TextStyle(fontSize: 13, color: colors.textBody),
-              ),
-              if (debt.dueDate != null || debt.note != null)
-                const Divider(height: 28),
-              if (debt.dueDate != null)
-                _Line('Promised by', formatShortDate(debt.dueDate!)),
-              if (debt.note != null) _Line('Notes', debt.note!),
-            ],
-          ),
-        ),
-        if (!settled) ...[
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: onRecord,
-              style: confirmButtonStyle(),
-              icon: const Icon(Icons.check),
-              label: const Text(
-                'Record a Repayment',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-        ],
-        const SizedBox(height: 22),
-        Text(
-          'Repayments',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: colors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 10),
-        StreamBuilder<List<Wallet>>(
-          stream: wallets,
-          builder: (context, walletSnapshot) {
-            final walletList = walletSnapshot.data ?? const <Wallet>[];
-
-            return StreamBuilder<List<AppTransaction>>(
-              stream: transactions,
-              builder: (context, snapshot) {
-                final repayments = (snapshot.data ?? const <AppTransaction>[])
-                    .where(
-                      (t) =>
-                          t.debtId == debt.id &&
-                          t.type == TransactionType.income,
-                    )
-                    .toList();
-
-                if (repayments.isEmpty) {
-                  return Text(
-                    'Nothing paid back yet.',
-                    style: TextStyle(color: context.appColors.textMuted),
-                  );
-                }
-
-                return Column(
-                  children: [
-                    for (final repayment in repayments)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.check_circle,
-                              color: confirmColorOn(context),
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                '${formatShortDate(repayment.date)} · into '
-                                '${_walletName(walletList, repayment.walletId)}',
-                                style: TextStyle(color: colors.textPrimary),
-                              ),
-                            ),
-                            MoneyText(
-                              repayment.amount,
-                              sign: '+',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: confirmColorOn(context),
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Undo this repayment',
-                              color: dangerColorOn(context),
-                              icon: const Icon(Icons.close, size: 18),
-                              onPressed: () => onUndo(repayment),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                );
-              },
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  static String _walletName(List<Wallet> wallets, String? id) {
-    for (final wallet in wallets) {
-      if (wallet.id == id) return wallet.name;
-    }
-    return 'a wallet';
-  }
 }
 
 class _Line extends StatelessWidget {
@@ -895,158 +793,6 @@ class _Line extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Records money paid back to the user.
-class RepaymentSheet extends StatefulWidget {
-  const RepaymentSheet({
-    required this.debt,
-    this.wallets,
-    this.onSave,
-    super.key,
-  });
-
-  final Debt debt;
-
-  /// Its own feed of wallets unless given one. A live Firestore feed only
-  /// hands its data to the first listener, so a sheet can't borrow the one
-  /// the screen underneath is already showing.
-  final Stream<List<Wallet>>? wallets;
-
-  /// Replaces saving. Used by tests.
-  final void Function(double amount, String walletId)? onSave;
-
-  @override
-  State<RepaymentSheet> createState() => _RepaymentSheetState();
-}
-
-class _RepaymentSheetState extends State<RepaymentSheet>
-    with CheckAfterSave, WatchesGoals {
-  late final _amountController = TextEditingController(
-    text: formatAmountInput(widget.debt.stillOwedToMe),
-  );
-  late final Stream<List<Wallet>> _wallets =
-      widget.wallets ?? WalletService.watchWallets();
-  String? _walletId;
-
-  @override
-  void initState() {
-    super.initState();
-    recheckWhenChanged(_amountController);
-    watchGoals(walletsGiven: widget.wallets != null);
-  }
-
-  @override
-  void dispose() {
-    _amountController.dispose();
-    super.dispose();
-  }
-
-  double? get _amount =>
-      double.tryParse(_amountController.text.trim().replaceAll(',', ''));
-
-  /// What stops the repayment being saved as it stands, or null.
-  String? _problem(List<Wallet> wallets) {
-    final amount = _amount;
-    final owed = widget.debt.stillOwedToMe;
-    return amount == null || !isRecordableAmount(amount)
-        ? minimumAmountError
-        : amount > owed + 0.005
-        ? 'Only ${formatPeso(owed)} is still owed.'
-        : (_walletId ?? defaultWalletId(wallets)) == null
-        ? 'Add a wallet first.'
-        : null;
-  }
-
-  void _save(List<Wallet> wallets) {
-    markTriedToSave();
-    if (_problem(wallets) != null) return;
-    final amount = _amount;
-    final walletId = _walletId ?? defaultWalletId(wallets);
-
-    if (widget.onSave != null) {
-      widget.onSave!(amount!, walletId!);
-    } else {
-      DebtService.recordRepayment(
-        widget.debt,
-        amount: amount!,
-        walletId: walletId!,
-      );
-    }
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-          child: StreamBuilder<List<Wallet>>(
-            stream: _wallets,
-            builder: (context, snapshot) {
-              final wallets = snapshot.data ?? const <Wallet>[];
-              final error = triedToSave ? _problem(wallets) : null;
-
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${widget.debt.name} paid you back',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  AmountField(controller: _amountController, label: 'Amount'),
-                  const SizedBox(height: 16),
-                  if (wallets.isNotEmpty)
-                    WalletPicker(
-                      wallets: wallets,
-                      selectedId: _walletId ?? defaultWalletId(wallets),
-                      label: 'Into which wallet?',
-                      goals: heldGoals,
-                      onChanged: (value) => setState(() => _walletId = value),
-                    ),
-                  if (error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      error,
-                      style: TextStyle(
-                        color: dangerColorOn(context),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _save(wallets),
-                      style: confirmButtonStyle(),
-                      child: const Text(
-                        'Record Repayment',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
       ),
     );
   }

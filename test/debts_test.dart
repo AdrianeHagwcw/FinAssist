@@ -233,7 +233,6 @@ void main() {
             home: Scaffold(
               body: DebtFormSheet(
                 today: DateTime(2026, 10, 28),
-                wallets: Stream.value(const []),
                 onSave: (draft) => saved = draft,
               ),
             ),
@@ -278,7 +277,6 @@ void main() {
           home: Scaffold(
             body: DebtFormSheet(
               today: DateTime(2026, 10, 28),
-              wallets: Stream.value(const []),
               onSave: (_) {},
               onAddAsDebt: (name) => movedName = name,
             ),

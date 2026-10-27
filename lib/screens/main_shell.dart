@@ -24,6 +24,7 @@ import 'bill_calendar_screen.dart';
 import 'bill_detail_screen.dart';
 import 'categories_screen.dart';
 import 'chatbot_screen.dart';
+import 'debts_screen.dart';
 import 'goal_detail_screen.dart';
 import 'goals_screen.dart';
 import 'help_screen.dart';
@@ -59,9 +60,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static const _transactionsIndex = 1;
   static const _reportsIndex = 2;
   static const _walletIndex = 3;
-
-  /// Preserves the legacy controller for saved Goals screen routes.
-  final _goalsTab = GoalsTabController();
 
   /// Keeps phone reminders in step with the data. Not run by tests, which
   /// pass their own pages and can't reach Firebase.
@@ -106,7 +104,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       ReminderService.opened.removeListener(_openReminder);
       _reminders.stop();
     }
-    _goalsTab.dispose();
     super.dispose();
   }
 
@@ -142,7 +139,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         MaterialPageRoute(builder: (context) => const BillCalendarScreen()),
       );
     } else if (payload.startsWith('goal:')) {
-      _openSavings();
+      _openGoals();
       final goal = await GoalService.watchGoal(payload.substring(5)).first;
       if (goal != null && mounted) {
         navigator.push(
@@ -166,26 +163,20 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       }
     } else if (payload == 'installments') {
       // The year's interest: each installment shows what it has cost.
-      _openDebts();
+      _openInstallments();
     } else {
       // The leftover notice waits on Home.
       _selectTab(_homeIndex);
     }
   }
 
-  /// Goals and debts have no tab of their own any more, so they open as a
-  /// screen on top of Home.
+  /// Goals has no tab of its own, so it opens as a screen on top of Home.
   void _openGoals() {
     _selectTab(_homeIndex);
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => GoalsScreen(controller: _goalsTab)),
+      MaterialPageRoute(builder: (_) => const GoalsScreen()),
     );
-  }
-
-  void _openSavings() {
-    _goalsTab.openSavings();
-    _openGoals();
   }
 
   /// Bill Planner and Installments open over the tabs, with a back arrow:
@@ -197,13 +188,17 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     );
   }
 
-  void _openDebts() {
+  void _openInstallments() {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => const BillCalendarScreen(initialShowDebts: true),
       ),
     );
+  }
+
+  void _push(Widget screen) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
   }
 
   void _navigateFromVoice(VoiceDestination destination) {
@@ -222,61 +217,40 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         return;
       case VoiceDestination.savings:
         _selectTab(_homeIndex);
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const SetAsideScreen()),
-        );
+        _push(const SetAsideScreen());
+        return;
+      case VoiceDestination.installments:
+        _openInstallments();
         return;
       case VoiceDestination.debts:
-        _openDebts();
+        _push(const DebtsScreen(loans: true));
         return;
       case VoiceDestination.goals:
-        _openSavings();
+        _openGoals();
         return;
       case VoiceDestination.reports:
         _selectTab(_reportsIndex);
         return;
       case VoiceDestination.settings:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileScreen()),
-        );
+        _push(const ProfileScreen());
         return;
       case VoiceDestination.scanReceipt:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const OcrScreen()),
-        );
+        _push(const OcrScreen());
         return;
       case VoiceDestination.assistant:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ChatbotScreen()),
-        );
+        _push(const ChatbotScreen());
         return;
       case VoiceDestination.expenseCategories:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const CategoriesScreen()),
-        );
+        _push(const CategoriesScreen());
         return;
       case VoiceDestination.payCycleHistory:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const HistoryScreen()),
-        );
+        _push(const HistoryScreen());
         return;
       case VoiceDestination.reminders:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const RemindersScreen()),
-        );
+        _push(const RemindersScreen());
         return;
       case VoiceDestination.help:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const HelpScreen()),
-        );
+        _push(const HelpScreen());
         return;
     }
   }
@@ -303,7 +277,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             // Savings on Home opens the savings balance; Goals has its own
             // shortcut, where goals are added.
             onOpenGoals: _openGoals,
-            onOpenDebts: _openDebts,
+            onOpenDebts: _openInstallments,
+            onOpenReports: () => _selectTab(_reportsIndex),
             onVoiceNavigate: _navigateFromVoice,
           ),
           const TransactionsScreen(),
@@ -373,7 +348,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 builder: (context) => VoiceRecognitionScreen(
                   autoStart: true,
                   onNavigate: _navigateFromVoice,
-                  onIncomeSaved: () {
+                  onSaved: () {
                     if (mounted) setState(() => _homeRefreshKey++);
                   },
                 ),

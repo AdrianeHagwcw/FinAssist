@@ -3,9 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../utils/amount_input_formatter.dart';
 import '../models/debt.dart';
-import '../models/wallet.dart';
 import '../services/debt_service.dart';
-import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../utils/date_format.dart';
@@ -14,7 +12,6 @@ import '../utils/text_limits.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
 import 'loan_form_sheet.dart';
-import 'wallet_picker.dart';
 
 /// Adds something bought on installment: a phone, an appliance, a credit
 /// card installment, Buy now, pay later. Borrowed money has its own form
@@ -23,9 +20,15 @@ import 'wallet_picker.dart';
 ///
 /// Returns which list the new entry went to, or null if nothing was saved,
 /// and confirms the save so the user knows it worked.
+///
+/// [name], [price], [perPayment] and [count] start it filled in, as from
+/// Voice Entry; the user checks them before saving.
 Future<DebtDirection?> showDebtFormSheet(
   BuildContext context, {
-  DebtDirection direction = DebtDirection.iOwe,
+  String? name,
+  double? price,
+  double? perPayment,
+  int? count,
 }) async {
   String? asDebt;
   final saved = await showModalBottomSheet<DebtDirection>(
@@ -37,7 +40,10 @@ Future<DebtDirection?> showDebtFormSheet(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     builder: (sheetContext) => DebtFormSheet(
-      initialDirection: direction,
+      initialName: name,
+      initialPrice: price,
+      initialPerPayment: perPayment,
+      initialCount: count,
       onAddAsDebt: (name) {
         asDebt = name;
         Navigator.pop(sheetContext);
@@ -52,11 +58,9 @@ Future<DebtDirection?> showDebtFormSheet(
 
   if (saved != null && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      const SnackBar(
         content: Text(
-          saved == DebtDirection.iOwe
-              ? 'Installment saved. Its payments are in your Bill Planner.'
-              : 'Saved to Owed to me.',
+          'Installment saved. Its payments are in your Bill Planner.',
         ),
         backgroundColor: appConfirmGreen,
       ),
@@ -77,8 +81,8 @@ class DebtDraft {
     required this.frequency,
     required this.firstDueDate,
     this.lastPayment = 0,
-    required this.movedWalletId,
-    required this.note,
+    this.movedWalletId,
+    this.note,
     this.paidBefore = 0,
     this.quotedRate,
     this.quotedRatePer = RatePeriod.year,
@@ -124,22 +128,26 @@ class DebtDraft {
 
 class DebtFormSheet extends StatefulWidget {
   const DebtFormSheet({
-    this.initialDirection = DebtDirection.iOwe,
-    this.wallets,
+    this.initialName,
+    this.initialPrice,
+    this.initialPerPayment,
+    this.initialCount,
     this.today,
     this.onSave,
     this.onAddAsDebt,
     super.key,
   });
 
-  final DebtDirection initialDirection;
+  /// What it starts filled in with.
+  final String? initialName;
+  final double? initialPrice;
+  final double? initialPerPayment;
+  final int? initialCount;
 
   /// Closes this form and opens the Debts one with the name typed so far,
   /// for borrowed money started here by mistake.
   final void Function(String name)? onAddAsDebt;
 
-  /// Replaces the live wallet list. Used by tests.
-  final Stream<List<Wallet>>? wallets;
   final DateTime? today;
 
   /// Replaces saving. Used by tests.
@@ -150,13 +158,6 @@ class DebtFormSheet extends StatefulWidget {
 }
 
 class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
-  late final Stream<List<Wallet>> _wallets =
-      widget.wallets ?? WalletService.watchWallets();
-
-  // Only what the user owes is recorded now; money they lend out was taken
-  // out of the app.
-  final DebtDirection _direction = DebtDirection.iOwe;
-
   /// Chosen by hand under More options; until then the name decides it,
   /// among the kinds bought on installment. Loans belong under Debts.
   DebtCategory? _pickedCategory;
@@ -177,26 +178,27 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
   late final DateTime _today = widget.today ?? DateTime.now();
   late DateTime? _date = DateTime(_today.year, _today.month + 1, _today.day);
 
-  final _nameController = TextEditingController();
-  final _principalController = TextEditingController();
-  final _perPaymentController = TextEditingController();
-  final _countController = TextEditingController();
+  late final _nameController = TextEditingController(text: widget.initialName);
+  late final _principalController = TextEditingController(
+    text: _amountText(widget.initialPrice),
+  );
+  late final _perPaymentController = TextEditingController(
+    text: _amountText(widget.initialPerPayment),
+  );
+  late final _countController = TextEditingController(
+    text: widget.initialCount?.toString(),
+  );
   final _lastController = TextEditingController();
   final _downController = TextEditingController();
-  final _noteController = TextEditingController();
   final _paidBeforeController = TextEditingController();
   final _otherKindController = TextEditingController();
 
-  // Lent money almost always leaves a wallet, so that starts on. An
-  // installment is often a gadget bought on credit, where no cash arrives.
-  bool _movedMoney = false;
+  static String _amountText(double? amount) =>
+      amount == null ? '' : formatAmountInput(amount);
 
   /// Everything a plan does not need is folded away until asked for. The
   /// form was a wall of fields and explanations before anything was typed.
   bool _showMore = false;
-  String? _movedWalletId;
-
-  bool get _iOwe => _direction == DebtDirection.iOwe;
 
   @override
   void initState() {
@@ -227,7 +229,6 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
       _countController,
       _lastController,
       _downController,
-      _noteController,
       _paidBeforeController,
       _otherKindController,
     ]) {
@@ -304,7 +305,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
 
   Debt get _preview => Debt(
     id: '',
-    direction: _direction,
+    direction: DebtDirection.iOwe,
     name: _nameController.text,
     category: _category,
     principal: _principal,
@@ -327,68 +328,39 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
     if (picked != null) setState(() => _date = picked);
   }
 
-  static double _balanceOf(List<Wallet> wallets, String? id) {
-    for (final wallet in wallets) {
-      if (wallet.id == id) return wallet.balance;
-    }
-    return 0;
-  }
-
-  static String _nameOf(List<Wallet> wallets, String? id) {
-    for (final wallet in wallets) {
-      if (wallet.id == id) return wallet.name;
-    }
-    return 'That wallet';
-  }
-
-  String? _movedWallet(List<Wallet> wallets) => _movedMoney && !_iOwe
-      ? (_movedWalletId ?? defaultWalletId(wallets))
-      : null;
-
   /// What stops the plan being saved as it stands, or null. Shown once Save
   /// has been tapped, and gone as soon as it is fixed.
-  String? _problem(List<Wallet> wallets) {
+  String? _problem() {
     final principal = _principal;
     final perPayment = _number(_perPaymentController);
-    final movedWallet = _movedWallet(wallets);
     final nameProblem = itemNameProblem(
       _nameController.text,
       maxLength: maxItemNameLength,
-      empty: _iOwe ? 'Give it a name.' : 'Who owes you?',
+      empty: 'Give it a name.',
     );
 
     if (nameProblem != null) {
       return nameProblem;
-    } else if (!_iOwe && !isRecordableAmount(principal)) {
+    } else if (!isRecordableAmount(perPayment)) {
       return minimumAmountError;
-    } else if (_iOwe && !isRecordableAmount(perPayment)) {
-      return minimumAmountError;
-    } else if (_iOwe && _paymentCount < 1) {
+    } else if (_paymentCount < 1) {
       return 'Enter how many payments.';
-    } else if (_iOwe && _paymentCount > _mostPayments) {
+    } else if (_paymentCount > _mostPayments) {
       return 'Up to $_mostPayments payments. Check the number on your '
           'contract.';
-    } else if (_iOwe && _paidBefore >= _paymentCount) {
+    } else if (_paidBefore >= _paymentCount) {
       return 'That is every payment, so nothing is left to pay.';
-    } else if (_iOwe && _date == null) {
+    } else if (_date == null) {
       return 'Choose when the first payment is due.';
-    } else if (_iOwe &&
-        _number(_downController) > 0 &&
+    } else if (_number(_downController) > 0 &&
         _number(_downController) >= _number(_principalController)) {
       return 'The down payment must be less than the cash price.';
-    } else if (_iOwe && _preview.totalPayable + 0.005 < principal) {
+    } else if (_preview.totalPayable + 0.005 < principal) {
       // Most often a down payment left out: say where it goes.
       return 'Those payments add up to ${formatPeso(_preview.totalPayable)}, '
           'less than the ${formatPeso(principal)} '
           '${_number(_downController) > 0 ? 'left after the down payment' : 'cash price'}. '
           '${_number(_downController) > 0 ? 'Check the amounts.' : 'If you paid part upfront, add it as the down payment under More options.'}';
-    } else if (_movedMoney && movedWallet == null) {
-      return 'Add a wallet first.';
-    } else if (!_iOwe &&
-        _movedMoney &&
-        _balanceOf(wallets, movedWallet) + 0.005 < principal) {
-      return '${_nameOf(wallets, movedWallet)} only holds '
-          '${formatPeso(_balanceOf(wallets, movedWallet))}.';
     }
     return null;
   }
@@ -397,27 +369,24 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
   /// slip such as 1200 for 12 is caught.
   static const _mostPayments = 360;
 
-  void _save(List<Wallet> wallets) {
+  void _save() {
     markTriedToSave();
-    if (_problem(wallets) != null) return;
+    if (_problem() != null) return;
 
     final name = cleanText(_nameController.text);
     final principal = _principal;
     final perPayment = _number(_perPaymentController);
-    final movedWallet = _movedWallet(wallets);
 
     final draft = DebtDraft(
-      direction: _direction,
+      direction: DebtDirection.iOwe,
       name: name,
-      category: _iOwe ? _category : DebtCategory.familyFriend,
+      category: _category,
       principal: principal,
       perPayment: perPayment,
       paymentCount: _paymentCount,
       lastPayment: _preview.hasDifferentLastPayment ? _preview.finalPayment : 0,
       frequency: _frequency,
       firstDueDate: _date,
-      movedWalletId: movedWallet,
-      note: _noteController.text,
       paidBefore: _paidBefore,
       otherKind: _category == DebtCategory.other
           ? cleanText(_otherKindController.text)
@@ -426,7 +395,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
 
     if (widget.onSave != null) {
       widget.onSave!(draft);
-    } else if (_iOwe) {
+    } else {
       DebtService.addInstallment(
         name: draft.name,
         category: draft.category,
@@ -436,19 +405,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
         lastPayment: draft.lastPayment,
         frequency: draft.frequency,
         firstDueDate: draft.firstDueDate!,
-        note: draft.note,
         paidBefore: draft.paidBefore,
-        quotedRate: draft.quotedRate,
-        quotedRatePer: draft.quotedRatePer,
         otherKind: draft.otherKind,
-      );
-    } else {
-      DebtService.addLent(
-        name: draft.name,
-        amount: draft.principal,
-        dueDate: draft.firstDueDate,
-        lentFromWalletId: draft.movedWalletId,
-        note: draft.note,
       );
     }
 
@@ -460,28 +418,17 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
       onTap: _pickDate,
       borderRadius: BorderRadius.circular(12),
       child: InputDecorator(
-        decoration: dialogFieldDecoration(
-          context,
-          _iOwe ? 'First payment' : 'When they will pay back (optional)',
-        ),
+        decoration: dialogFieldDecoration(context, 'First payment'),
         child: Row(
           children: [
             Expanded(
               child: Text(_date == null ? 'No date' : formatShortDate(_date!)),
             ),
-            if (!_iOwe && _date != null)
-              IconButton(
-                tooltip: 'Remove date',
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.close, size: 18),
-                onPressed: () => setState(() => _date = null),
-              )
-            else
-              Image.asset(
-                'assets/icons/icons8-calendar-96.png',
-                width: 22,
-                height: 22,
-              ),
+            Image.asset(
+              'assets/icons/icons8-calendar-96.png',
+              width: 22,
+              height: 22,
+            ),
           ],
         ),
       ),
@@ -497,11 +444,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
       child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: StreamBuilder<List<Wallet>>(
-            stream: _wallets,
-            builder: (context, snapshot) {
-              final wallets = snapshot.data ?? const <Wallet>[];
-              final error = triedToSave ? _problem(wallets) : null;
+          child: Builder(
+            builder: (context) {
+              final error = triedToSave ? _problem() : null;
 
               return Column(
                 mainAxisSize: MainAxisSize.min,
@@ -545,8 +490,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                     decoration:
                         dialogFieldDecoration(
                           context,
-                          _iOwe ? 'Name' : 'Who owes you?',
-                          hint: _iOwe ? 'e.g. Phone, Aircon' : 'e.g. Ana',
+                          'Name',
+                          hint: 'e.g. Phone, Aircon',
                         ).copyWith(
                           floatingLabelBehavior: FloatingLabelBehavior.always,
                         ),
@@ -571,103 +516,96 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                   const SizedBox(height: 16),
                   AmountField(
                     controller: _principalController,
-                    label: _iOwe ? 'Cash price (optional)' : 'Amount',
-                    hint: _iOwe ? 'e.g. 12,000' : 'e.g. 500',
-                    helper: _iOwe
-                        ? 'Shows how much more you pay than paying in full.'
-                        : null,
+                    label: 'Cash price (optional)',
+                    hint: 'e.g. 12,000',
+                    helper: 'Shows how much more you pay than paying in full.',
                     alwaysShowHint: true,
                     autofocus: false,
                   ),
-                  if (_iOwe) ...[
-                    const SizedBox(height: 16),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: TextField(
-                            controller: _perPaymentController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            inputFormatters: const [
-                              ThousandsSeparatorFormatter(),
-                            ],
-                            decoration:
-                                dialogFieldDecoration(
-                                  context,
-                                  'Each payment',
-                                ).copyWith(
-                                  // The peso sign waits for the first digit,
-                                  // so the example isn't taken for an amount.
-                                  prefixText: _perPaymentController.text.isEmpty
-                                      ? null
-                                      : '₱ ',
-                                  hintText: 'e.g. 1,500',
-                                  floatingLabelBehavior:
-                                      FloatingLabelBehavior.always,
-                                ),
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: TextField(
+                          controller: _perPaymentController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
                           ),
+                          inputFormatters: const [
+                            ThousandsSeparatorFormatter(),
+                          ],
+                          decoration:
+                              dialogFieldDecoration(
+                                context,
+                                'Each payment',
+                              ).copyWith(
+                                // The peso sign waits for the first digit,
+                                // so the example isn't taken for an amount.
+                                prefixText: _perPaymentController.text.isEmpty
+                                    ? null
+                                    : '₱ ',
+                                hintText: 'e.g. 1,500',
+                                floatingLabelBehavior:
+                                    FloatingLabelBehavior.always,
+                              ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: TextField(
-                            controller: _countController,
-                            keyboardType: TextInputType.number,
-                            // Whole payments only, never a sign, a point or
-                            // a pasted paragraph.
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(3),
-                            ],
-                            decoration:
-                                dialogFieldDecoration(
-                                  context,
-                                  'How many',
-                                  hint: 'e.g. 12',
-                                ).copyWith(
-                                  floatingLabelBehavior:
-                                      FloatingLabelBehavior.always,
-                                ),
-                          ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: TextField(
+                          controller: _countController,
+                          keyboardType: TextInputType.number,
+                          // Whole payments only, never a sign, a point or
+                          // a pasted paragraph.
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(3),
+                          ],
+                          decoration:
+                              dialogFieldDecoration(
+                                context,
+                                'How many',
+                                hint: 'e.g. 12',
+                              ).copyWith(
+                                floatingLabelBehavior:
+                                    FloatingLabelBehavior.always,
+                              ),
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      if (_iOwe) ...[
-                        Expanded(
-                          child: DropdownButtonFormField<PaymentFrequency>(
-                            initialValue: _frequency,
-                            isExpanded: true,
-                            decoration: dialogFieldDecoration(
-                              context,
-                              'How often',
-                            ),
-                            items: [
-                              for (final frequency in PaymentFrequency.values)
-                                DropdownMenuItem(
-                                  value: frequency,
-                                  child: Text(frequency.label),
-                                ),
-                            ],
-                            onChanged: (value) => setState(
-                              () => _frequency = value ?? _frequency,
-                            ),
+                      Expanded(
+                        child: DropdownButtonFormField<PaymentFrequency>(
+                          initialValue: _frequency,
+                          isExpanded: true,
+                          decoration: dialogFieldDecoration(
+                            context,
+                            'How often',
                           ),
+                          items: [
+                            for (final frequency in PaymentFrequency.values)
+                              DropdownMenuItem(
+                                value: frequency,
+                                child: Text(frequency.label),
+                              ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _frequency = value ?? _frequency),
                         ),
-                        const SizedBox(width: 12),
-                      ],
+                      ),
+                      const SizedBox(width: 12),
                       Expanded(child: _datePicker()),
                     ],
                   ),
                   // Already paying it: what is behind counts as paid, so the
                   // app never asks for those payments again.
-                  if (_iOwe && _startedBefore) ...[
+                  if (_startedBefore) ...[
                     const SizedBox(height: 16),
                     TextField(
                       key: const Key('installment-paid-before'),
@@ -691,10 +629,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                           ),
                     ),
                   ],
-                  if (_iOwe) ...[
-                    const SizedBox(height: 16),
-                    _SummaryCard(debt: _preview),
-                  ],
+                  const SizedBox(height: 16),
+                  _SummaryCard(debt: _preview),
                   const SizedBox(height: 6),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -713,104 +649,73 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                     ),
                   ),
                   if (_showMore) ...[
-                    if (_iOwe) ...[
-                      const SizedBox(height: 8),
-                      // Only matters with a cash price, so it waits for one.
-                      if (_number(_principalController) > 0) ...[
-                        AmountField(
-                          key: const Key('installment-down-payment'),
-                          controller: _downController,
-                          label: 'Down payment (optional)',
-                          hint: 'e.g. 2,000',
-                          helper: 'If you paid part of the price upfront.',
-                          alwaysShowHint: true,
-                          autofocus: false,
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      DropdownButtonFormField<DebtCategory>(
-                        // Rebuilt as the name changes the guess.
-                        key: ValueKey(_category),
-                        initialValue: _category,
-                        isExpanded: true,
-                        decoration: dialogFieldDecoration(context, 'Kind'),
-                        items: [
-                          for (final category in DebtCategory.installmentKinds)
-                            DropdownMenuItem(
-                              value: category,
-                              child: Text(category.label),
-                            ),
-                        ],
-                        onChanged: (value) =>
-                            setState(() => _pickedCategory = value),
+                    const SizedBox(height: 8),
+                    // Only matters with a cash price, so it waits for one.
+                    if (_number(_principalController) > 0) ...[
+                      AmountField(
+                        key: const Key('installment-down-payment'),
+                        controller: _downController,
+                        label: 'Down payment (optional)',
+                        hint: 'e.g. 2,000',
+                        helper: 'If you paid part of the price upfront.',
+                        alwaysShowHint: true,
+                        autofocus: false,
                       ),
                       const SizedBox(height: 16),
-                      if (_category == DebtCategory.other) ...[
-                        TextField(
-                          key: const Key('installment-other-kind'),
-                          controller: _otherKindController,
-                          textCapitalization: TextCapitalization.sentences,
-                          maxLength: 30,
-                          inputFormatters: const [SafeTextFormatter()],
-                          decoration: dialogFieldDecoration(
-                            context,
-                            'What kind is it?',
-                            hint: 'e.g. Dental treatment',
+                    ],
+                    DropdownButtonFormField<DebtCategory>(
+                      // Rebuilt as the name changes the guess.
+                      key: ValueKey(_category),
+                      initialValue: _category,
+                      isExpanded: true,
+                      decoration: dialogFieldDecoration(context, 'Kind'),
+                      items: [
+                        for (final category in DebtCategory.installmentKinds)
+                          DropdownMenuItem(
+                            value: category,
+                            child: Text(category.label),
                           ),
-                        ),
-                        const SizedBox(height: 8),
                       ],
+                      onChanged: (value) =>
+                          setState(() => _pickedCategory = value),
+                    ),
+                    const SizedBox(height: 16),
+                    if (_category == DebtCategory.other) ...[
                       TextField(
-                        key: const Key('installment-last-payment'),
-                        controller: _lastController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
+                        key: const Key('installment-other-kind'),
+                        controller: _otherKindController,
+                        textCapitalization: TextCapitalization.sentences,
+                        maxLength: 30,
+                        inputFormatters: const [SafeTextFormatter()],
+                        decoration: dialogFieldDecoration(
+                          context,
+                          'What kind is it?',
+                          hint: 'e.g. Dental treatment',
                         ),
-                        inputFormatters: const [ThousandsSeparatorFormatter()],
-                        decoration:
-                            dialogFieldDecoration(
-                              context,
-                              'Last payment (optional)',
-                              helper:
-                                  "Only if your contract's last payment is "
-                                  'different, such as ₱3,000 three times then '
-                                  '₱1,000.',
-                            ).copyWith(
-                              prefixText: '₱ ',
-                              hintText: 'Same as the rest',
-                              helperMaxLines: 3,
-                            ),
                       ),
-                    ],
-                    // Each payment is paid from cash on hand, a bank or both
-                    // when it is made, so there is no wallet to choose here.
-                    if (wallets.isNotEmpty) ...[
                       const SizedBox(height: 8),
-                      if (!_iOwe) ...[
-                        SwitchListTile(
-                          value: _movedMoney,
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('It came out of one of my wallets'),
-                          subtitle: const Text(
-                            'The wallet goes down now, and back up when you are '
-                            'paid back. Turn off for money lent before you used '
-                            'FinAssist.',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                          onChanged: (value) =>
-                              setState(() => _movedMoney = value),
-                        ),
-                        if (_movedMoney)
-                          WalletPicker(
-                            wallets: wallets,
-                            selectedId:
-                                _movedWalletId ?? defaultWalletId(wallets),
-                            label: 'Taken from',
-                            onChanged: (value) =>
-                                setState(() => _movedWalletId = value),
-                          ),
-                      ],
                     ],
+                    TextField(
+                      key: const Key('installment-last-payment'),
+                      controller: _lastController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: const [ThousandsSeparatorFormatter()],
+                      decoration:
+                          dialogFieldDecoration(
+                            context,
+                            'Last payment (optional)',
+                            helper:
+                                "Only if your contract's last payment is "
+                                'different, such as ₱3,000 three times then '
+                                '₱1,000.',
+                          ).copyWith(
+                            prefixText: '₱ ',
+                            hintText: 'Same as the rest',
+                            helperMaxLines: 3,
+                          ),
+                    ),
                   ],
                   if (error != null) ...[
                     Text(
@@ -826,11 +731,11 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () => _save(wallets),
+                      onPressed: _save,
                       style: confirmButtonStyle(),
-                      child: Text(
-                        _iOwe ? 'Save Installment' : 'Save',
-                        style: const TextStyle(
+                      child: const Text(
+                        'Save Installment',
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),

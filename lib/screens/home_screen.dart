@@ -59,6 +59,7 @@ class HomeScreen extends StatefulWidget {
     this.onOpenSavings,
     this.onOpenGoals,
     this.onOpenDebts,
+    this.onOpenReports,
     this.onVoiceNavigate,
     this.userName,
     this.wallets,
@@ -75,15 +76,19 @@ class HomeScreen extends StatefulWidget {
   /// Switches the app to the Wallet tab.
   final VoidCallback? onOpenWallets;
 
-  /// Switch the app to the Goals tab, on savings or on debts.
-  /// Opens the Bill Planner. The shell switches to its tab; on its own the
-  /// screen is pushed instead.
+  /// Open the Bill Planner and the savings balance. On its own, without
+  /// the app shell, the screens are pushed instead.
   final VoidCallback? onOpenBills;
   final VoidCallback? onOpenSavings;
 
   /// Opens Goals, where goals are added and put in order.
   final VoidCallback? onOpenGoals;
+
+  /// Opens Installments, the things bought to pay off.
   final VoidCallback? onOpenDebts;
+
+  /// Switches the app to the Reports tab.
+  final VoidCallback? onOpenReports;
 
   /// Routes commands recognized by Voice Entry to the app's sections.
   final ValueChanged<VoiceDestination>? onVoiceNavigate;
@@ -156,15 +161,18 @@ class _HomeScreenState extends State<HomeScreen> {
       case VoiceDestination.savings:
         (widget.onOpenSavings ?? _openSavings)();
         return;
-      case VoiceDestination.debts:
+      case VoiceDestination.installments:
         (widget.onOpenDebts ??
             () => _push(const BillCalendarScreen(initialShowDebts: true)))();
         return;
+      case VoiceDestination.debts:
+        _push(const DebtsScreen(loans: true));
+        return;
       case VoiceDestination.goals:
-        (widget.onOpenSavings ?? _openSavings)();
+        (widget.onOpenGoals ?? () => _push(const GoalsScreen()))();
         return;
       case VoiceDestination.reports:
-        _push(const ReportsScreen());
+        (widget.onOpenReports ?? () => _push(const ReportsScreen()))();
         return;
       case VoiceDestination.settings:
         _push(const ProfileScreen());
@@ -195,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
       VoiceRecognitionScreen(
         autoStart: true,
         onNavigate: widget.onVoiceNavigate ?? _openVoiceDestination,
-        onIncomeSaved: () => setState(() => _refreshKey++),
+        onSaved: () => setState(() => _refreshKey++),
       ),
     );
   }
@@ -411,7 +419,7 @@ class _HomeScreenState extends State<HomeScreen> {
       (
         asset: 'assets/icons/icons8-combo-chart-100.png',
         title: 'Reports',
-        onTap: () => _push(const ReportsScreen()),
+        onTap: widget.onOpenReports ?? () => _push(const ReportsScreen()),
       ),
       // Last, side by side: what the user pays off, as two kinds. Money
       // with an hourglass for installments, a money bag for money borrowed.
@@ -432,8 +440,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ? actions
         : actions.take(3).toList();
 
-    // Keep the Quick Add recording actions on Home too. Scan Receipt and
-    // Voice Entry are already here, so only the four missing actions are added.
     return Column(
       children: List.generate((visibleActions.length + 2) ~/ 3, (rowIndex) {
         final rowActions = visibleActions.skip(rowIndex * 3).take(3).toList();

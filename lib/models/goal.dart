@@ -80,16 +80,6 @@ enum ContributionFrequency {
         (frequency) => frequency.name == name,
         orElse: () => ContributionFrequency.monthly,
       );
-
-  /// The rhythm that matches how often the user is paid, as stored in the
-  /// profile's `incomeFrequency`: money is easiest to put aside the day it
-  /// arrives. Irregular or unknown pay starts on monthly.
-  static ContributionFrequency forPay(String? incomeFrequency) =>
-      switch (incomeFrequency) {
-        'Weekly' => ContributionFrequency.weekly,
-        'Semi-monthly' || 'Bi-weekly' => ContributionFrequency.twiceMonthly,
-        _ => ContributionFrequency.monthly,
-      };
 }
 
 /// What a custom saving rhythm counts in.
@@ -195,8 +185,6 @@ enum GoalFundingSource {
     if (type == WalletType.bank) return GoalFundingSource.bank;
     return GoalFundingSource.savings;
   }
-
-  static GoalFundingSource fromWallet(Wallet wallet) => fromType(wallet.type);
 
   /// The source for money drawn from wallets of [types]: cash with any
   /// account is [both], otherwise the first wallet's kind. Null for none.

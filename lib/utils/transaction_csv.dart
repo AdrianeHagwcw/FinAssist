@@ -8,15 +8,26 @@ import '../models/app_transaction.dart';
 /// Nothing here touches Firebase, so the whole file can be checked by tests.
 /// Adding a field to the export means adding one entry to [csvColumns].
 
+/// What the file needs to know beyond each transaction itself.
+class CsvLookups {
+  const CsvLookups({this.walletNames = const {}, this.billTags = const {}});
+
+  /// A wallet id to its name.
+  final Map<String, String> walletNames;
+
+  /// A bill id to what paying it is, such as 'Installment payment', for the
+  /// schedules that pay off an installment or a debt.
+  final Map<String, String> billTags;
+}
+
 /// One column of the exported file.
 class CsvColumn {
   const CsvColumn(this.header, this.read, {this.isText = true});
 
   final String header;
 
-  /// The cell for one transaction. [walletNames] maps a wallet id to its name.
-  final String Function(AppTransaction entry, Map<String, String> walletNames)
-  read;
+  /// The cell for one transaction.
+  final String Function(AppTransaction entry, CsvLookups lookups) read;
 
   /// Text cells are guarded against being read as a spreadsheet formula.
   /// Dates and amounts are not, so they stay usable as dates and numbers.
@@ -30,49 +41,68 @@ const List<CsvColumn> csvColumns = [
   CsvColumn('Type', _type),
   CsvColumn('Category / Source', _label),
   CsvColumn('Amount', _amount, isText: false),
+  CsvColumn('Interest Included', _interest, isText: false),
   CsvColumn('Wallet', _wallet),
   CsvColumn('To Wallet', _toWallet),
   CsvColumn('Note', _note),
   CsvColumn('Tag', _tag),
 ];
 
-String _date(AppTransaction entry, Map<String, String> walletNames) {
+String _date(AppTransaction entry, CsvLookups lookups) {
   final date = entry.date;
   return '${date.year.toString().padLeft(4, '0')}-'
       '${date.month.toString().padLeft(2, '0')}-'
       '${date.day.toString().padLeft(2, '0')}';
 }
 
-String _time(AppTransaction entry, Map<String, String> walletNames) {
+String _time(AppTransaction entry, CsvLookups lookups) {
   return '${entry.date.hour.toString().padLeft(2, '0')}:'
       '${entry.date.minute.toString().padLeft(2, '0')}';
 }
 
-String _type(AppTransaction entry, Map<String, String> walletNames) =>
-    entry.type.label;
+/// The same words the app uses: money in, money out, or moved between the
+/// user's own wallets.
+String _type(AppTransaction entry, CsvLookups lookups) => switch (entry.type) {
+  TransactionType.income => 'Inflow',
+  TransactionType.expense => 'Outflow',
+  TransactionType.transfer => 'Transfer',
+};
 
-String _label(AppTransaction entry, Map<String, String> walletNames) =>
-    entry.label;
+String _label(AppTransaction entry, CsvLookups lookups) => entry.label;
 
 /// A plain number, so a spreadsheet can add the column up. The peso sign and
 /// the thousands separators the app shows would both get in the way.
-String _amount(AppTransaction entry, Map<String, String> walletNames) =>
+String _amount(AppTransaction entry, CsvLookups lookups) =>
     entry.amount.toStringAsFixed(2);
 
-String _wallet(AppTransaction entry, Map<String, String> walletNames) =>
-    walletNames[entry.walletId] ?? '';
+/// How much of an installment or debt payment was interest, already counted
+/// in Amount. Blank when none was, so the column adds up to what borrowing
+/// cost.
+String _interest(AppTransaction entry, CsvLookups lookups) =>
+    entry.interest > 0.005
+    ? entry.interest.clamp(0.0, entry.amount).toStringAsFixed(2)
+    : '';
 
-String _toWallet(AppTransaction entry, Map<String, String> walletNames) =>
-    walletNames[entry.toWalletId] ?? '';
+String _wallet(AppTransaction entry, CsvLookups lookups) =>
+    lookups.walletNames[entry.walletId] ?? '';
 
-String _note(AppTransaction entry, Map<String, String> walletNames) =>
-    entry.note ?? '';
+String _toWallet(AppTransaction entry, CsvLookups lookups) =>
+    lookups.walletNames[entry.toWalletId] ?? '';
+
+String _note(AppTransaction entry, CsvLookups lookups) => entry.note ?? '';
 
 /// What kind of record this is. The first match wins, so a bill payment
 /// brought over from the old collections still reads as an old record.
-String _tag(AppTransaction entry, Map<String, String> walletNames) {
+String _tag(AppTransaction entry, CsvLookups lookups) {
   if (entry.isLegacy) return 'Old record';
-  if (entry.isBillPayment) return 'Bill payment';
+  final instanceId = entry.billInstanceId;
+  if (instanceId != null) {
+    if (instanceId.endsWith('_payoff')) return 'Paid off early';
+    for (final bill in lookups.billTags.entries) {
+      if (instanceId.startsWith('${bill.key}_')) return bill.value;
+    }
+    return 'Bill payment';
+  }
   if (entry.isDebtMovement) return 'Loan';
   return 'Regular';
 }
@@ -82,14 +112,16 @@ String _tag(AppTransaction entry, Map<String, String> walletNames) {
 String buildTransactionCsv(
   List<AppTransaction> transactions, {
   Map<String, String> walletNames = const {},
+  Map<String, String> billTags = const {},
 }) {
+  final lookups = CsvLookups(walletNames: walletNames, billTags: billTags);
   final rows = <String>[
     csvColumns.map((column) => _cell(column.header, isText: false)).join(','),
     for (final entry in transactions)
       csvColumns
           .map(
             (column) =>
-                _cell(column.read(entry, walletNames), isText: column.isText),
+                _cell(column.read(entry, lookups), isText: column.isText),
           )
           .join(','),
   ];

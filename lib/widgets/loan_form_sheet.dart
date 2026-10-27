@@ -19,8 +19,15 @@ import 'item_card.dart' show percentText;
 /// family. The payments are worked out from the interest the lender quoted,
 /// the way the lender works them out, and go to the Bill Planner.
 ///
-/// Returns whether it was saved, and confirms the save.
-Future<bool> showLoanFormSheet(BuildContext context, {String? name}) async {
+/// Returns whether it was saved, and confirms the save. [name], [amount]
+/// and [count] start it filled in, as from the Installments form or Voice
+/// Entry.
+Future<bool> showLoanFormSheet(
+  BuildContext context, {
+  String? name,
+  double? amount,
+  int? count,
+}) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -29,7 +36,8 @@ Future<bool> showLoanFormSheet(BuildContext context, {String? name}) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) => LoanFormSheet(name: name),
+    builder: (context) =>
+        LoanFormSheet(name: name, amount: amount, count: count),
   );
 
   if (saved == true && context.mounted) {
@@ -48,10 +56,20 @@ Future<bool> showLoanFormSheet(BuildContext context, {String? name}) async {
 const _highMonthlyCost = 4.0;
 
 class LoanFormSheet extends StatefulWidget {
-  const LoanFormSheet({this.name, this.today, this.onSave, super.key});
+  const LoanFormSheet({
+    this.name,
+    this.amount,
+    this.count,
+    this.today,
+    this.onSave,
+    super.key,
+  });
 
-  /// Filled in when the user came from the Installments form.
+  /// Filled in when the user came from the Installments form or Voice
+  /// Entry: what it is called, the amount borrowed, and how many payments.
   final String? name;
+  final double? amount;
+  final int? count;
   final DateTime? today;
 
   /// Replaces saving. Used by tests.
@@ -66,9 +84,13 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
   late DateTime? _date = DateTime(_today.year, _today.month + 1, _today.day);
 
   late final _nameController = TextEditingController(text: widget.name);
-  final _principalController = TextEditingController();
+  late final _principalController = TextEditingController(
+    text: widget.amount == null ? '' : formatAmountInput(widget.amount!),
+  );
   final _rateController = TextEditingController();
-  final _countController = TextEditingController();
+  late final _countController = TextEditingController(
+    text: widget.count?.toString(),
+  );
   final _feesController = TextEditingController();
   final _statedPaymentController = TextEditingController();
   final _paidBeforeController = TextEditingController();

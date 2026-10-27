@@ -1,29 +1,43 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../models/goal.dart';
 import '../models/voice_command.dart';
 import '../models/wallet.dart';
+import '../providers/app_settings_provider.dart';
+import '../services/goal_service.dart';
 import '../services/speech_input.dart';
+import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/category_options.dart';
 import '../utils/money_format.dart';
+import '../widgets/bill_form_sheet.dart';
+import '../widgets/choice_grid.dart';
+import '../widgets/debt_form_sheet.dart';
 import '../widgets/found_details.dart';
+import '../widgets/goal_sheets.dart';
+import '../widgets/loan_form_sheet.dart';
+import '../widgets/transfer_sheet.dart';
+import '../widgets/wallet_form_sheet.dart';
 import 'add_expense_screen.dart';
 import 'income_waterfall_screen.dart';
 
-/// Voice Entry: recognize a finance command, check what was heard, then open
-/// the matching app flow. Nothing is saved here; the destination form is where
-/// the user checks everything and saves.
+/// Voice Entry: recognize a command said in English, Tagalog or both, show
+/// what was understood, then open the matching app flow with it filled in.
+/// Nothing is saved here; the form is where the user checks everything and
+/// saves.
 class VoiceRecognitionScreen extends StatefulWidget {
   const VoiceRecognitionScreen({
     this.autoStart = false,
     this.input,
     this.wallets,
+    this.goals,
     this.onNavigate,
-    this.onIncomeSaved,
+    this.onSaved,
     this.incomeScreenBuilder,
     super.key,
   });
@@ -34,14 +48,15 @@ class VoiceRecognitionScreen extends StatefulWidget {
   /// Stands in for the microphone. Used by tests.
   final SpeechInput? input;
 
-  /// Replaces the live wallet list on the expense form. Used by tests.
+  /// Replaces the live wallets and goals the forms use. Used by tests.
   final Stream<List<Wallet>>? wallets;
+  final Stream<List<Goal>>? goals;
 
   /// Lets the app shell switch tabs or open another section.
   final ValueChanged<VoiceDestination>? onNavigate;
 
-  /// Refreshes the home balance after voice-started income is saved.
-  final VoidCallback? onIncomeSaved;
+  /// Refreshes Home's balances after money recorded from a command is saved.
+  final VoidCallback? onSaved;
 
   /// Replaces the income destination in tests without Firebase.
   final IncomeWaterfallScreen Function({
@@ -102,6 +117,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         onWords: _onWords,
         onStopped: _onStopped,
         stopOnSilence: stopOnSilence,
+        localeId: context.read<AppSettingsProvider?>()?.voiceLanguage.localeId,
       );
     } catch (_) {
       problem = SpeechProblem.failed;
@@ -201,6 +217,36 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
     });
   }
 
+  Future<List<Wallet>> _loadWallets() =>
+      widget.wallets?.first ?? WalletService.loadWallets();
+
+  /// Where a new goal goes: after the goals still being saved for.
+  Future<int> _nextGoalPriority() async {
+    try {
+      final goals = await (widget.goals ?? GoalService.watchGoals()).first;
+      return goals.where((goal) => goal.status == GoalStatus.active).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// A form opened over this screen was saved: say so, and leave. Backed out
+  /// of, the user is back at what was heard, to try again or cancel.
+  void _saved(bool saved, {String? message, VoiceDestination? then}) {
+    if (!saved || !mounted) return;
+    widget.onSaved?.call();
+    if (message != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: appConfirmGreen),
+      );
+    }
+    Navigator.pop(context);
+    final onNavigate = widget.onNavigate;
+    if (then != null && onNavigate != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => onNavigate(then));
+    }
+  }
+
   /// Sends the recognized command to its existing app flow. Data-entry flows
   /// still require the user to check and save their details.
   Future<void> _useWords() async {
@@ -235,7 +281,81 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
                 ),
           ),
         );
-        if (saved == true && mounted) widget.onIncomeSaved?.call();
+        if (saved == true && mounted) widget.onSaved?.call();
+        return;
+      case VoiceCommandType.transfer:
+        final wallets = await _loadWallets();
+        if (!mounted) return;
+        final to = command.toSavings
+            ? savingsWalletOf(wallets)
+            : matchSpokenWallet(command.to, wallets);
+        final saved = await showTransferSheet(
+          context,
+          wallets: widget.wallets,
+          fromWalletId: matchSpokenWallet(command.from, wallets)?.id,
+          toWalletId: to?.id,
+          initialAmount: command.amount,
+        );
+        _saved(saved);
+        return;
+      case VoiceCommandType.bill:
+        final saved = await showBillFormSheet(
+          context,
+          initialName: command.name,
+          initialAmount: command.amount,
+        );
+        _saved(saved, message: 'Bill saved. It is in your Bill Planner.');
+        return;
+      case VoiceCommandType.goal:
+        final priority = await _nextGoalPriority();
+        if (!mounted) return;
+        final saved = await showGoalFormSheet(
+          context,
+          nextPriority: priority,
+          initialName: command.name,
+          initialTarget: command.amount,
+        );
+        _saved(saved, message: 'Goal saved.');
+        return;
+      case VoiceCommandType.installment:
+        final saved = await showDebtFormSheet(
+          context,
+          name: command.name,
+          price: command.perPayment ? null : command.amount,
+          perPayment: command.perPayment ? command.amount : null,
+          count: command.count,
+        );
+        _saved(saved != null);
+        return;
+      case VoiceCommandType.debt:
+        final saved = await showLoanFormSheet(
+          context,
+          name: command.name,
+          amount: command.amount,
+          count: command.count,
+        );
+        _saved(saved);
+        return;
+      case VoiceCommandType.wallet:
+        final draft = await showWalletFormSheet(
+          context,
+          suggestedName: command.name,
+          suggestedBalance: command.amount,
+        );
+        if (draft == null || !mounted) return;
+        await WalletService.addWallet(
+          type: draft.type,
+          name: draft.name,
+          startingBalance: draft.startingBalance,
+          balanceRecorded: draft.balanceRecorded,
+          annualInterestRatePercent: draft.annualInterestRatePercent,
+          currentWallets: await _loadWallets(),
+        );
+        _saved(
+          true,
+          message: '${draft.name} added to your wallets.',
+          then: VoiceDestination.wallet,
+        );
         return;
       case VoiceCommandType.navigation:
         final destination = command.destination;
@@ -316,8 +436,13 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
                                   : _words,
                               live: true,
                             )
-                          else if (_step != _Step.problem)
-                            const _Example(),
+                          else ...[
+                            const _LanguagePicker(),
+                            if (_step != _Step.problem) ...[
+                              const SizedBox(height: 20),
+                              const _Example(),
+                            ],
+                          ],
                         ],
                       ],
                     ),
@@ -372,35 +497,95 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
     );
   }
 
+  /// What was understood, before anything opens: each detail on its own
+  /// line, so a misheard name or amount is easy to spot.
   Widget _commandDetails(VoiceCommand command) {
+    final amount = command.amount == null ? null : formatPeso(command.amount!);
+    final payments = command.count == null
+        ? null
+        : '${command.count} ${command.count == 1 ? 'payment' : 'payments'}';
     switch (command.type) {
       case VoiceCommandType.expense:
         return FoundDetails(guess: command.expense, center: true);
       case VoiceCommandType.income:
         return _CommandDetails(
-          title: 'Ready to add income',
-          detail: [
-            if (command.amount != null) formatPeso(command.amount!),
-            command.incomeSource ?? 'Income',
-          ].join(' · '),
+          title: 'Add income',
+          rows: [
+            ('Amount', amount),
+            ('From', command.incomeSource ?? 'Income'),
+          ],
+        );
+      case VoiceCommandType.transfer:
+        return _CommandDetails(
+          title: command.toSavings ? 'Move money to savings' : 'Move money',
+          rows: [
+            ('Amount', amount),
+            ('From', command.from),
+            ('To', command.toSavings ? 'Savings' : command.to),
+          ],
+        );
+      case VoiceCommandType.bill:
+        return _CommandDetails(
+          title: 'Add a bill',
+          rows: [('Name', command.name), ('Amount', amount)],
+        );
+      case VoiceCommandType.goal:
+        return _CommandDetails(
+          title: 'Add a goal',
+          rows: [('Name', command.name), ('Target', amount)],
+        );
+      case VoiceCommandType.installment:
+        return _CommandDetails(
+          title: 'Add an installment',
+          rows: [
+            ('Name', command.name),
+            (command.perPayment ? 'Each payment' : 'Cash price', amount),
+            ('How many', payments),
+          ],
+        );
+      case VoiceCommandType.debt:
+        return _CommandDetails(
+          title: 'Add a debt',
+          rows: [
+            ('Lent by', command.name),
+            ('Amount borrowed', amount),
+            ('How many', payments),
+          ],
+        );
+      case VoiceCommandType.wallet:
+        return _CommandDetails(
+          title: 'Add a wallet',
+          rows: [('Name', command.name), ('Money in it now', amount)],
         );
       case VoiceCommandType.navigation:
         return _CommandDetails(
           title: command.destination == VoiceDestination.scanReceipt
               ? 'Would you like to scan a receipt?'
               : 'Would you like to open this section?',
-          detail: _destinationLabel(command.destination),
+          rows: [(null, _destinationLabel(command.destination))],
         );
     }
   }
 
   String _actionLabel(VoiceCommand command) => switch (command.type) {
     VoiceCommandType.expense => 'Use This',
-    VoiceCommandType.income => 'Continue',
     VoiceCommandType.navigation =>
       command.destination == VoiceDestination.scanReceipt
           ? 'Yes, Scan Receipt'
           : 'Yes, Open',
+    _ => 'Continue',
+  };
+
+  /// The form a command opens, by the name on its title.
+  String _formName(VoiceCommandType type) => switch (type) {
+    VoiceCommandType.income => 'Add Income',
+    VoiceCommandType.transfer => 'Transfer',
+    VoiceCommandType.bill => 'Add Bill',
+    VoiceCommandType.goal => 'Add Goal',
+    VoiceCommandType.installment => 'Add Installment',
+    VoiceCommandType.debt => 'Add Debt',
+    VoiceCommandType.wallet => 'Add Wallet',
+    _ => 'the form',
   };
 
   String _destinationLabel(VoiceDestination? destination) =>
@@ -410,7 +595,8 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         VoiceDestination.bills => 'Bill Planner',
         VoiceDestination.wallet => 'Wallets',
         VoiceDestination.savings => 'Savings',
-        VoiceDestination.debts => 'Installments',
+        VoiceDestination.installments => 'Installments',
+        VoiceDestination.debts => 'Debts',
         VoiceDestination.goals => 'Goals',
         VoiceDestination.reports => 'Reports',
         VoiceDestination.settings => 'Settings',
@@ -442,14 +628,14 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
           VoiceCommandType.expense =>
             'Use This starts a new expense from what you said. You check '
                 'everything before saving.',
-          VoiceCommandType.income =>
-            'Continue opens Add Income with these details filled in. Check '
-                'everything before saving.',
           VoiceCommandType.navigation =>
             command.destination == VoiceDestination.scanReceipt
                 ? 'Choose Yes to open the scanner, or No to cancel.'
                 : 'Choose Yes to open ${_destinationLabel(command.destination)}, '
                       'or No to cancel.',
+          _ =>
+            'Continue opens ${_formName(command.type)} with these filled in. '
+                'Fill in the rest and check everything before saving.',
         },
       ),
       _Step.nothingHeard => (
@@ -464,9 +650,9 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         ),
         SpeechProblem.unavailable => (
           "Voice entry isn't available",
-          "Your phone can't turn speech into text right now. Try updating "
-              'Speech Services by Google in the Play Store, or type the '
-              'expense instead.',
+          "Your phone can't turn speech into text in this language right "
+              'now. Try the other language below, or update Speech Services '
+              'by Google in the Play Store.',
         ),
         SpeechProblem.offline => (
           'No connection',
@@ -600,13 +786,47 @@ class _WordsCard extends StatelessWidget {
   }
 }
 
-/// An example of what to say, so the user knows what fits.
+/// The language the phone listens for. Tagalog also understands the
+/// English words people mix in.
+class _LanguagePicker extends StatelessWidget {
+  const _LanguagePicker();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider?>();
+    if (settings == null) return const SizedBox.shrink();
+    final colors = context.appColors;
+
+    return Column(
+      children: [
+        Text(
+          'I will speak in',
+          style: TextStyle(fontSize: 13, color: colors.textBody),
+        ),
+        const SizedBox(height: 8),
+        ChoiceGrid<VoiceLanguage>(
+          options: VoiceLanguage.values,
+          selected: settings.voiceLanguage,
+          label: (language) => language.label,
+          keyOf: (language) => 'voice-language-${language.name}',
+          onPick: settings.setVoiceLanguage,
+        ),
+      ],
+    );
+  }
+}
+
+/// Examples of what to say, in the language chosen, so the user knows what
+/// fits.
 class _Example extends StatelessWidget {
   const _Example();
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final tagalog =
+        context.watch<AppSettingsProvider?>()?.voiceLanguage ==
+        VoiceLanguage.filipino;
 
     return Column(
       children: [
@@ -615,12 +835,22 @@ class _Example extends StatelessWidget {
           style: TextStyle(fontSize: 13, color: colors.textBody),
         ),
         const SizedBox(height: 6),
-        for (final example in [
-          '“Lunch at Jollibee, 150 pesos”',
-          '“Add salary 500”',
-          '“Open wallets”',
-          '“Scan receipt”',
-        ])
+        for (final example
+            in tagalog
+                ? const [
+                    '“Pamasahe 50 pesos”',
+                    '“Sweldo 15,000”',
+                    '“Ilipat ang 500 sa GCash”',
+                    '“Magdagdag ng bill Meralco 2,500”',
+                    '“Buksan ang utang”',
+                  ]
+                : const [
+                    '“Lunch at Jollibee, 150 pesos”',
+                    '“Add salary 500”',
+                    '“Transfer 500 from GCash to BDO”',
+                    '“Add bill Meralco 2,500”',
+                    '“Open installments”',
+                  ])
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(
@@ -638,31 +868,81 @@ class _Example extends StatelessWidget {
   }
 }
 
+/// What a command will start with: a title, then each detail heard. A
+/// detail not heard says the user fills it in next, so nothing looks
+/// forgotten.
 class _CommandDetails extends StatelessWidget {
-  const _CommandDetails({required this.title, required this.detail});
+  const _CommandDetails({required this.title, required this.rows});
 
   final String title;
-  final String detail;
+
+  /// A label and what was heard for it; a null label shows the value alone.
+  final List<(String?, String?)> rows;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     return Column(
       children: [
-        Text(title, style: TextStyle(fontSize: 12, color: colors.textBody)),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: colors.textBody,
+          ),
+        ),
         const SizedBox(height: 8),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: colors.primaryTint,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(14),
           ),
-          child: Text(
-            detail,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: colors.primaryText,
-            ),
+          child: Column(
+            children: [
+              for (final (label, value) in rows)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: label == null
+                      ? Text(
+                          value ?? '',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: colors.primaryText,
+                          ),
+                        )
+                      : Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                label,
+                                style: TextStyle(color: colors.textBody),
+                              ),
+                            ),
+                            Flexible(
+                              child: Text(
+                                value ?? 'You fill this in next',
+                                textAlign: TextAlign.end,
+                                style: TextStyle(
+                                  fontWeight: value == null
+                                      ? FontWeight.normal
+                                      : FontWeight.w600,
+                                  fontStyle: value == null
+                                      ? FontStyle.italic
+                                      : FontStyle.normal,
+                                  color: value == null
+                                      ? colors.textMuted
+                                      : colors.primaryText,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+            ],
           ),
         ),
       ],

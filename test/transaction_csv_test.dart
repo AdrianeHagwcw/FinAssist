@@ -17,6 +17,7 @@ AppTransaction entry({
   bool isLegacy = false,
   String? billInstanceId,
   String? debtId,
+  double interest = 0,
 }) {
   return AppTransaction(
     id: id,
@@ -30,6 +31,7 @@ AppTransaction entry({
     isLegacy: isLegacy,
     billInstanceId: billInstanceId,
     debtId: debtId,
+    interest: interest,
   );
 }
 
@@ -49,7 +51,8 @@ void main() {
 
       expect(
         header,
-        'Date,Time,Type,Category / Source,Amount,Wallet,To Wallet,Note,Tag',
+        'Date,Time,Type,Category / Source,Amount,Interest Included,Wallet,'
+        'To Wallet,Note,Tag',
       );
       expect(header.split(',').length, csvColumns.length);
     });
@@ -67,7 +70,7 @@ void main() {
 
       expect(
         rowsOf(csv).last,
-        '2026-01-07,09:05,Expense,Food,1234.50,Cash,,,Regular',
+        '2026-01-07,09:05,Outflow,Food,1234.50,,Cash,,,Regular',
       );
     });
 
@@ -89,7 +92,28 @@ void main() {
         ),
       ], walletNames: walletNames);
 
-      expect(rowsOf(csv).last, contains(',Transfer,Transfer,120.00,Cash,GCash,'));
+      expect(
+        rowsOf(csv).last,
+        contains(',Transfer,Transfer,120.00,,Cash,GCash,'),
+      );
+    });
+
+    test('says Inflow and Outflow, as the app does', () {
+      final csv = buildTransactionCsv([
+        entry(type: TransactionType.income, label: 'Salary'),
+        entry(),
+      ]);
+
+      expect(rowsOf(csv)[1], contains(',Inflow,Salary,'));
+      expect(rowsOf(csv)[2], contains(',Outflow,Food,'));
+    });
+
+    test('shows how much of a payment was interest', () {
+      final csv = buildTransactionCsv([
+        entry(amount: 2000, interest: 333.33, billInstanceId: 'loan_20261005'),
+      ]);
+
+      expect(rowsOf(csv).last, contains(',2000.00,333.33,'));
     });
 
     test('leaves the wallet blank when there is none to name', () {
@@ -173,6 +197,23 @@ void main() {
         'Old record',
       );
       expect(tagOf(entry(billInstanceId: 'b1', debtId: 'd1')), 'Bill payment');
+    });
+
+    test('tells installment, debt and early payoff payments apart', () {
+      String tagOf(String instanceId) => rowsOf(
+        buildTransactionCsv(
+          [entry(billInstanceId: instanceId)],
+          billTags: {
+            'phone': 'Installment payment',
+            'sss': 'Debt payment',
+          },
+        ),
+      ).last.split(',').last;
+
+      expect(tagOf('phone_20261005'), 'Installment payment');
+      expect(tagOf('sss_20261015'), 'Debt payment');
+      expect(tagOf('sss_payoff'), 'Paid off early');
+      expect(tagOf('meralco_20261020'), 'Bill payment');
     });
   });
 

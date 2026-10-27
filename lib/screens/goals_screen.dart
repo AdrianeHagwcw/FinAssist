@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../models/debt.dart';
 import '../models/goal.dart';
 import '../services/goal_service.dart';
 import '../theme/app_buttons.dart';
@@ -15,60 +14,10 @@ import '../widgets/goal_sheets.dart';
 import '../widgets/money_text.dart';
 import 'goal_detail_screen.dart';
 
-/// The Goals tab: what the user is saving toward, in the order money reaches
-/// each goal.
-/// Lets other screens open the Goals tab on savings or on a debts list.
-class GoalsTabController extends ChangeNotifier {
-  bool _showDebts = false;
-
-  bool get showDebts => _showDebts;
-
-  /// The debts list to show. Tells its listeners on every [openDebts], even
-  /// to the list already showing.
-  final debtsList = _AlwaysNotifier<DebtDirection>(DebtDirection.iOwe);
-
-  void openSavings() {
-    _showDebts = false;
-    notifyListeners();
-  }
-
-  void openDebts(DebtDirection direction) {
-    _showDebts = true;
-    notifyListeners();
-    debtsList.show(direction);
-  }
-
-  @override
-  void dispose() {
-    debtsList.dispose();
-    super.dispose();
-  }
-}
-
-class _AlwaysNotifier<T> extends ValueNotifier<T> {
-  _AlwaysNotifier(super.value);
-
-  void show(T next) {
-    if (value == next) {
-      notifyListeners();
-    } else {
-      value = next;
-    }
-  }
-}
-
+/// Goals: what the user is saving toward, in the order money reaches each
+/// goal.
 class GoalsScreen extends StatefulWidget {
-  const GoalsScreen({
-    this.controller,
-    this.goals,
-    this.onReorder,
-    this.onOpen,
-    super.key,
-  });
-
-  /// Switches between savings and debts from outside, like Home's shortcuts
-  /// or saving an installment from the + button.
-  final GoalsTabController? controller;
+  const GoalsScreen({this.goals, this.onReorder, this.onOpen, super.key});
 
   /// Replaces the live goals. Used by tests.
   final Stream<List<Goal>>? goals;

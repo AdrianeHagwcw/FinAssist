@@ -6,7 +6,6 @@ import 'package:testapp/models/bill.dart';
 import 'package:testapp/models/debt.dart';
 import 'package:testapp/models/reminder.dart';
 import 'package:testapp/models/transaction_filter.dart';
-import 'package:testapp/models/wallet.dart';
 import 'package:testapp/providers/app_settings_provider.dart';
 import 'package:testapp/screens/debt_detail_screen.dart';
 import 'package:testapp/theme/app_theme.dart';
@@ -233,18 +232,6 @@ void main() {
       Scaffold(
         body: DebtFormSheet(
           today: DateTime(2026, 10, 26),
-          wallets: Stream.value([
-            Wallet(
-              id: 'cash',
-              name: 'Cash',
-              type: WalletType.cash,
-              balance: 5000,
-              startingBalance: 5000,
-              receivesIncome: true,
-              archived: false,
-              sortOrder: 0,
-            ),
-          ]),
           onSave: (draft) => saved = draft,
         ),
       ),
@@ -300,7 +287,6 @@ void main() {
         debt: debt,
         liveDebt: Stream.value(debt),
         payments: Stream.value(const []),
-        transactions: Stream.value(const []),
         wallets: Stream.value(const []),
       ),
     );
@@ -353,7 +339,6 @@ void main() {
       Scaffold(
         body: DebtFormSheet(
           today: DateTime(2026, 10, 26),
-          wallets: Stream.value(const <Wallet>[]),
           onSave: (draft) => saved = draft,
         ),
       ),

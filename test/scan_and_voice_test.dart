@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:testapp/widgets/transfer_sheet.dart';
+import 'package:testapp/models/wallet.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as speech;
@@ -54,16 +56,21 @@ class FakeSpeech extends SpeechInput {
   /// tapped one.
   bool? stopOnSilenceAsked;
 
+  /// The language the last start listened for.
+  String? localeAsked;
+
   @override
   Future<SpeechProblem?> start({
     required ValueChanged<String> onWords,
     required ValueChanged<SpeechProblem?> onStopped,
     bool stopOnSilence = true,
+    String? localeId,
   }) async {
     starts++;
     hear = onWords;
     end = onStopped;
     stopOnSilenceAsked = stopOnSilence;
+    localeAsked = localeId;
     return startProblem;
   }
 
@@ -584,10 +591,9 @@ void main() {
         ('open bill planner', VoiceDestination.bills),
         ('open wallets', VoiceDestination.wallet),
         ('open savings', VoiceDestination.savings),
-        // The screen is called Installments now, and the older words are
-        // kept because people still say them.
-        ('open installments', VoiceDestination.debts),
-        ('open installment', VoiceDestination.debts),
+        // Installments and Debts are two lists, each opened by its own words.
+        ('open installments', VoiceDestination.installments),
+        ('open installment', VoiceDestination.installments),
         ('show my loans', VoiceDestination.debts),
         ('open debts', VoiceDestination.debts),
         ('open goals', VoiceDestination.goals),
@@ -615,8 +621,11 @@ void main() {
 
       expect(find.text('Voice Entry'), findsOneWidget);
       expect(find.text('Say what you want to do'), findsOneWidget);
-      expect(find.text('“Lunch at Jollibee, 150 pesos”'), findsOneWidget);
-      expect(find.text('“Add salary 500”'), findsOneWidget);
+      // Tagalog with English mixed in, the way most people talk, unless the
+      // user picks English.
+      expect(find.text('Tagalog / Taglish'), findsOneWidget);
+      expect(find.text('“Sweldo 15,000”'), findsOneWidget);
+      expect(find.text('“Buksan ang utang”'), findsOneWidget);
       expect(find.byTooltip('Hold to speak'), findsOneWidget);
       expect(speech.starts, 0);
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
@@ -671,17 +680,15 @@ void main() {
           input: speech,
           wallets: Stream.value(const []),
           incomeScreenBuilder:
-              ({
-                double? initialAmount,
-                String? initialSource,
-              }) => IncomeWaterfallScreen(
-                initialAmount: initialAmount,
-                initialSource: initialSource,
-                wallets: Stream.value(const []),
-                loadBills: () async => const [],
-                goals: Stream.value(const []),
-                cycles: Stream.value(const []),
-              ),
+              ({double? initialAmount, String? initialSource}) =>
+                  IncomeWaterfallScreen(
+                    initialAmount: initialAmount,
+                    initialSource: initialSource,
+                    wallets: Stream.value(const []),
+                    loadBills: () async => const [],
+                    goals: Stream.value(const []),
+                    cycles: Stream.value(const []),
+                  ),
         ),
       );
       await tester.pump();
@@ -690,7 +697,9 @@ void main() {
       speech.end!(null);
       await tester.pump();
 
-      expect(find.text('₱500 · Salary'), findsOneWidget);
+      expect(find.text('Add income'), findsOneWidget);
+      expect(find.text('₱500'), findsOneWidget);
+      expect(find.text('Salary'), findsOneWidget);
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
 
@@ -700,6 +709,115 @@ void main() {
       );
       expect(amountField.controller!.text, '500');
       expect(find.text('Salary'), findsOneWidget);
+    });
+
+    testWidgets('listens in the language picked, and remembers it', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      await pumpScreen(tester, VoiceRecognitionScreen(input: speech));
+
+      await tester.tap(find.byTooltip('Hold to speak'));
+      await tester.pump();
+      expect(speech.localeAsked, 'fil-PH');
+      await tester.tap(find.byTooltip('Stop listening'));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('voice-language-english')));
+      await tester.pump();
+      expect(find.text('“Add salary 500”'), findsOneWidget);
+      await tester.tap(find.byTooltip('Hold to speak'));
+      await tester.pump();
+      expect(speech.localeAsked, 'en-PH');
+    });
+
+    testWidgets('a Tagalog bill command shows what it heard, then Add Bill', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(autoStart: true, input: speech),
+      );
+      await tester.pump();
+      speech.hear!('magdagdag ng bill meralco dalawang libo limandaan');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Add a bill'), findsOneWidget);
+      expect(find.text('Meralco'), findsOneWidget);
+      expect(find.text('₱2,500'), findsOneWidget);
+
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      final name = tester.widget<TextField>(find.byType(TextField).first);
+      expect(name.controller!.text, 'Meralco');
+      final amount = tester.widget<TextField>(find.byType(TextField).at(1));
+      expect(amount.controller!.text, '2500');
+    });
+
+    testWidgets('a detail not heard is left for the form', (tester) async {
+      final speech = FakeSpeech();
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(autoStart: true, input: speech),
+      );
+      await tester.pump();
+      speech.hear!('add installment phone');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Add an installment'), findsOneWidget);
+      expect(find.text('Phone'), findsOneWidget);
+      expect(find.text('You fill this in next'), findsNWidgets(2));
+    });
+
+    testWidgets('a transfer fills in the wallets that were named', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      Wallet wallet(String id, String name, WalletType type) => Wallet(
+        id: id,
+        name: name,
+        type: type,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+      );
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          // Read twice: once to match the names, once by the form.
+          wallets: Stream.multi(
+            (stream) => stream
+              ..add([
+                wallet('cash', 'Cash', WalletType.cash),
+                wallet('gcash', 'GCash', WalletType.ewallet),
+              ])
+              ..close(),
+          ),
+        ),
+      );
+      await tester.pump();
+      speech.hear!('ilipat ang 500 mula sa cash papunta sa gcash');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Move money'), findsOneWidget);
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TransferSheet), findsOneWidget);
+      final sheet = tester.widget<TransferSheet>(find.byType(TransferSheet));
+      expect(sheet.initialFromWalletId, 'cash');
+      expect(sheet.initialToWalletId, 'gcash');
+      expect(sheet.initialAmount, 500);
     });
 
     testWidgets('navigation command opens the requested app section', (
@@ -1216,9 +1334,7 @@ void main() {
       );
     });
 
-    testWidgets('an existing expense is shown read-only', (
-      tester,
-    ) async {
+    testWidgets('an existing expense is shown read-only', (tester) async {
       await pumpScreen(
         tester,
         AddExpenseScreen(

@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-import '../models/app_transaction.dart';
 import '../models/debt.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
@@ -40,6 +39,14 @@ class DebtService {
       });
       return debts;
     });
+  }
+
+  /// Every debt, read once. Returns cached records while offline.
+  static Future<List<Debt>> loadDebts() async {
+    final snapshot = await _debts.get();
+    return [
+      for (final doc in snapshot.docs) Debt.fromMap(doc.id, doc.data()),
+    ];
   }
 
   static Stream<Debt?> watchDebt(String id) {
@@ -161,94 +168,6 @@ class DebtService {
     }
   }
 
-  /// Saves money someone owes the user. When [lentFromWalletId] is given, the
-  /// money leaving that wallet is recorded in the same batch.
-  static String addLent({
-    required String name,
-    required double amount,
-    DateTime? dueDate,
-    String? lentFromWalletId,
-    String? note,
-  }) {
-    final batch = _firestore.batch();
-    final debt = _debts.doc();
-
-    batch.set(debt, {
-      'direction': DebtDirection.owedToMe.name,
-      'name': name.trim(),
-      'category': DebtCategory.familyFriend.name,
-      'principal': amount,
-      'received': 0,
-      'dueDate': dueDate == null ? null : Timestamp.fromDate(dueDate),
-      'note': _noteOrNull(note),
-      'status': DebtStatus.active.name,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    if (lentFromWalletId != null) {
-      WalletService.addTransactionToBatch(
-        batch,
-        type: TransactionType.expense,
-        amount: amount,
-        label: 'Lent',
-        walletId: lentFromWalletId,
-        note: name,
-        debtId: debt.id,
-      );
-    }
-
-    commitFirestoreWrite(batch.commit(), 'add money owed to me');
-    return debt.id;
-  }
-
-  /// Records money paid back to the user into a wallet. Paying back the full
-  /// amount settles it.
-  static void recordRepayment(
-    Debt debt, {
-    required double amount,
-    required String walletId,
-  }) {
-    if (!amount.isFinite || amount <= 0) {
-      throw ArgumentError.value(amount, 'amount', 'Must be greater than zero.');
-    }
-
-    final batch = _firestore.batch();
-
-    WalletService.addTransactionToBatch(
-      batch,
-      type: TransactionType.income,
-      amount: amount,
-      label: 'Repayment',
-      walletId: walletId,
-      note: debt.name,
-      debtId: debt.id,
-    );
-
-    final settled = debt.received + amount + 0.005 >= debt.principal;
-    batch.set(_debts.doc(debt.id), {
-      'received': FieldValue.increment(amount),
-      'status': (settled ? DebtStatus.settled : DebtStatus.active).name,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    commitFirestoreWrite(batch.commit(), 'record repayment');
-  }
-
-  /// Undoes one repayment: the money leaves the wallet again and is owed
-  /// again.
-  static void undoRepayment(Debt debt, AppTransaction repayment) {
-    final batch = _firestore.batch();
-    WalletService.removeTransactionFromBatch(batch, repayment);
-
-    batch.set(_debts.doc(debt.id), {
-      'received': FieldValue.increment(-repayment.amount),
-      'status': DebtStatus.active.name,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    commitFirestoreWrite(batch.commit(), 'undo repayment');
-  }
-
   /// Deletes a debt. For an installment, its unpaid payments leave the Bill
   /// Planner too; payments already made stay, because that money really left
   /// a wallet. Money that moved when the debt was made stays recorded for the
@@ -260,17 +179,59 @@ class DebtService {
     commitFirestoreWrite(_debts.doc(debt.id).delete(), 'delete debt');
   }
 
-  /// Marks money owed to the user as no longer expected back. Nothing moves
-  /// between wallets.
-  static void forgive(Debt debt) {
-    commitFirestoreWrite(
-      _debts.doc(debt.id).set({
-        'status': DebtStatus.settled.name,
-        'forgiven': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)),
-      'forgive debt',
+  /// Closes an installment or debt paid off before its schedule ended. The
+  /// amount the lender or store asked for comes out of the wallets in
+  /// [parts], split into what was still owed of the money borrowed and
+  /// interest, and the payments still to come leave the Bill Planner. It
+  /// stays listed, paid off early, and [undoPayOff] puts it back.
+  static Future<void> payOffEarly({
+    required Debt debt,
+    required List<BillPaymentPart> parts,
+    required DateTime date,
+  }) async {
+    final billId = debt.billId;
+    if (billId == null) return;
+    final instances = await BillService.loadInstancesForBill(billId);
+    final progress = DebtProgress.of(debt, instances);
+    final amount = parts.fold<double>(0, (total, part) => total + part.amount);
+    final split = debt.payoffSplit(amount, progress.paid);
+
+    final batch = _firestore.batch();
+    final deltas = <String, double>{};
+    BillService.addPayoffToBatch(
+      batch,
+      billId: billId,
+      name: debt.name,
+      parts: parts,
+      interest: split.interest,
+      date: date,
+      instances: instances,
+      collectDeltasInto: deltas,
     );
+    WalletService.applyDeltasToBatch(batch, deltas);
+    batch.set(_debts.doc(debt.id), {
+      'status': DebtStatus.settled.name,
+      'paidOffAt': Timestamp.fromDate(date),
+      'paidOffAmount': amount,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    commitFirestoreWrite(batch.commit(), 'pay off early');
+  }
+
+  /// Takes back a payoff made by mistake: the money returns to its wallets
+  /// and the payments left are owed again.
+  static Future<void> undoPayOff(Debt debt) async {
+    final billId = debt.billId;
+    if (billId == null) return;
+    final batch = _firestore.batch();
+    await BillService.addUndoPayoffToBatch(batch, billId);
+    batch.set(_debts.doc(debt.id), {
+      'status': DebtStatus.active.name,
+      'paidOffAt': FieldValue.delete(),
+      'paidOffAmount': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    commitFirestoreWrite(batch.commit(), 'undo pay off');
   }
 
   static String? _noteOrNull(String? note) {

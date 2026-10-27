@@ -919,8 +919,6 @@ void main() {
       final sss = deposit(id: 'sss', name: 'SSS', balance: 80000);
       final wallets = [cash, sss];
 
-      // The figure on Home only promises money the user could reach.
-      expect(reachableSavingsBalance(wallets), 5000);
       expect(lockedSavingsBalance(wallets), 80000);
       // Both are still savings, so neither counts as spendable.
       expect(walletBalanceFor(wallets, WalletPurpose.savings), 85000);
@@ -991,7 +989,6 @@ void main() {
       );
 
       expect(old.isLockedSavings, isFalse);
-      expect(reachableSavingsBalance([old]), 1200);
     });
 
     test(
@@ -8858,27 +8855,6 @@ void main() {
       );
     });
 
-    test('the tab controller opens savings or a debts list', () {
-      final controller = GoalsTabController();
-      addTearDown(controller.dispose);
-      var tabChanges = 0;
-      var listChanges = 0;
-      controller.addListener(() => tabChanges++);
-      controller.debtsList.addListener(() => listChanges++);
-
-      controller.openDebts(DebtDirection.owedToMe);
-      expect(controller.showDebts, isTrue);
-      expect(controller.debtsList.value, DebtDirection.owedToMe);
-
-      // Saving to the same list again still switches back to it.
-      controller.openDebts(DebtDirection.owedToMe);
-      expect(listChanges, 2);
-
-      controller.openSavings();
-      expect(controller.showDebts, isFalse);
-      expect(tabChanges, 3);
-    });
-
     testWidgets('invites a first goal', (tester) async {
       await pumpGoals(tester, const []);
 
@@ -9391,7 +9367,6 @@ void main() {
                 debt: debt,
                 liveDebt: Stream.value(debt),
                 payments: Stream.value(const []),
-                transactions: Stream.value(const []),
                 wallets: Stream.value([
                   Wallet(
                     id: 'bank',
@@ -9496,7 +9471,6 @@ void main() {
                 ),
                 due('3', DateTime(2026, 3, 31)),
               ]),
-              transactions: Stream.value(const []),
               wallets: Stream.value(const []),
             ),
           ),
@@ -9562,7 +9536,6 @@ void main() {
                   amountPaid: 0,
                 ),
               ]),
-              transactions: Stream.value(const []),
               wallets: Stream.value(const []),
             ),
           ),
@@ -9689,17 +9662,6 @@ void main() {
   });
 
   group('Debts', () {
-    final cash = Wallet(
-      id: 'cash',
-      name: 'Cash',
-      type: WalletType.cash,
-      balance: 5000,
-      startingBalance: 5000,
-      receivesIncome: true,
-      archived: false,
-      sortOrder: 0,
-    );
-
     void tall(WidgetTester tester) {
       tester.view.physicalSize = const Size(700, 2200);
       tester.view.devicePixelRatio = 1.0;
@@ -9723,7 +9685,6 @@ void main() {
           Scaffold(
             body: DebtFormSheet(
               today: DateTime(2026, 3, 10),
-              wallets: Stream.value([cash]),
               onSave: (draft) => saved = draft,
             ),
           ),
@@ -9768,7 +9729,6 @@ void main() {
           Scaffold(
             body: DebtFormSheet(
               today: DateTime(2026, 3, 10),
-              wallets: Stream.value([cash]),
               onSave: (draft) => saved = draft,
             ),
           ),
@@ -9823,7 +9783,6 @@ void main() {
             Scaffold(
               body: DebtFormSheet(
                 today: DateTime(2026, 3, 10),
-                wallets: Stream.value([cash]),
                 onSave: (_) {},
               ),
             ),
@@ -9880,7 +9839,6 @@ void main() {
           Scaffold(
             body: DebtFormSheet(
               today: DateTime(2026, 3, 10),
-              wallets: Stream.value([cash]),
               onSave: (draft) => saved = draft,
             ),
           ),
@@ -9940,7 +9898,6 @@ void main() {
           Scaffold(
             body: DebtFormSheet(
               today: DateTime(2026, 3, 10),
-              wallets: Stream.value([cash]),
               onSave: (draft) => saved = draft,
             ),
           ),
@@ -10038,39 +9995,6 @@ void main() {
       expect(find.textContaining('11 payments left'), findsOneWidget);
     });
 
-    testWidgets('a repayment cannot be more than is owed', (tester) async {
-      tall(tester);
-      double? saved;
-
-      await tester.pumpWidget(
-        app(
-          Scaffold(
-            body: RepaymentSheet(
-              debt: const Debt(
-                id: 'a',
-                direction: DebtDirection.owedToMe,
-                name: 'Ana',
-                category: DebtCategory.familyFriend,
-                principal: 500,
-                received: 200,
-                status: DebtStatus.active,
-              ),
-              wallets: Stream.value([cash]),
-              onSave: (amount, _) => saved = amount,
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      expect(find.text('300'), findsOneWidget);
-      await tester.enterText(find.byType(TextField).first, '400');
-      await tester.tap(find.text('Record Repayment'));
-      await tester.pump();
-
-      expect(find.text('Only ₱300 is still owed.'), findsOneWidget);
-      expect(saved, isNull);
-    });
   });
 
   group('goal plans', () {

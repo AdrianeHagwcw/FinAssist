@@ -1,6 +1,7 @@
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 
 import '../utils/transaction_csv.dart';
+import 'debt_service.dart';
 import 'wallet_service.dart';
 
 /// How an export ended.
@@ -45,7 +46,22 @@ class TransactionExport {
       for (final wallet in wallets) wallet.id: wallet.name,
     };
 
-    final csv = buildTransactionCsv(transactions, walletNames: walletNames);
+    // A payment toward an installment or a debt is a bill payment in the
+    // records; the file says which.
+    final debts = await DebtService.loadDebts();
+    final billTags = {
+      for (final debt in debts)
+        if (debt.billId != null)
+          debt.billId!: debt.category.isLoan
+              ? 'Debt payment'
+              : 'Installment payment',
+    };
+
+    final csv = buildTransactionCsv(
+      transactions,
+      walletNames: walletNames,
+      billTags: billTags,
+    );
     final fileName = transactionCsvFileName(now ?? DateTime.now());
 
     final savedPath = await FlutterFileDialog.saveFile(

@@ -52,10 +52,14 @@ class SpeechInput {
   /// listen the user did not start by holding the mic. While the mic is held
   /// the user says when they are done by letting go, so pausing for thought
   /// must not cut them off.
+  ///
+  /// [localeId] is the language to listen for, such as 'fil-PH'; null
+  /// listens in the phone's own language.
   Future<SpeechProblem?> start({
     required ValueChanged<String> onWords,
     required ValueChanged<SpeechProblem?> onStopped,
     bool stopOnSilence = true,
+    String? localeId,
   }) async {
     final engine = _engine;
     _dropCurrent?.call();
@@ -156,6 +160,7 @@ class SpeechInput {
           if (result.finalResult) end();
         },
         listenOptions: speech.SpeechListenOptions(
+          localeId: localeId,
           partialResults: true,
           cancelOnError: true,
           pauseFor: stopOnSilence

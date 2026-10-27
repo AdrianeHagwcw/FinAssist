@@ -2128,24 +2128,16 @@ ChatReply _debts(String text, FinanceSnapshot records, bool fil) {
     );
   }
 
-  final active = records.debts
-      .where((debt) => debt.status == DebtStatus.active)
-      .toList();
-  final owedToMe = active
+  // Only what the user pays off, as the app shows it: money lent to others
+  // is no longer tracked, and older records of it are left out.
+  final iOwe = records.debts
       .where(
-        (d) => d.direction == DebtDirection.owedToMe && d.stillOwedToMe > 0,
+        (d) =>
+            d.status == DebtStatus.active && d.direction == DebtDirection.iOwe,
       )
       .toList();
-  final iOwe = active.where((d) => d.direction == DebtDirection.iOwe).toList();
 
-  if (owedToMe.isEmpty && iOwe.isEmpty) {
-    return ChatReply(
-      fil ? 'Wala kang naitalang utang.' : "You don't have any debts recorded.",
-      filipino: fil,
-    );
-  }
-
-  // "Who owes me?" and "What do I owe?" are each about one side.
+  // "Who owes me?" is not something the app keeps.
   final asksOwedToMe =
       _has(text, [
         'owe me',
@@ -2160,63 +2152,44 @@ ChatReply _debts(String text, FinanceSnapshot records, bool fil) {
         'sisingilin',
       ]) ||
       _hasRoot(text, ['pautang']);
-  final asksIOwe =
-      !asksOwedToMe &&
-      _has(text, [
-        'i owe',
-        'do i owe',
-        'my debt',
-        'my debts',
-        'utang ko',
-        'mga utang ko',
-        'babayaran ko',
-      ]);
-  if (asksOwedToMe && owedToMe.isEmpty) {
+  if (asksOwedToMe) {
     return ChatReply(
       fil
-          ? 'Walang may utang sa iyo sa records mo.'
-          : 'No one owes you money in your records.',
+          ? 'Ang naitatala lang ng FinAssist ay ang mga binabayaran mo, hindi '
+                'ang pera na inutang sa iyo ng iba.'
+          : 'FinAssist only keeps track of what you pay off, not money '
+                'others owe you.',
       filipino: fil,
     );
   }
-  if (asksIOwe && iOwe.isEmpty) {
+  if (iOwe.isEmpty) {
     return ChatReply(
       fil
-          ? 'Wala kang utang na babayaran sa records mo.'
-          : "You don't have any debts to pay in your records.",
+          ? 'Wala kang installment o utang na binabayaran sa records mo.'
+          : "You don't have any installments or debts to pay in your "
+                'records.',
       filipino: fil,
     );
   }
 
-  final parts = <String>[];
-  if (iOwe.isNotEmpty && !asksOwedToMe) {
-    final lines = iOwe
-        .map(
-          (d) =>
-              '• ${d.name}: ${formatPeso(d.perPayment)} '
-              '${_often(d.frequency, fil)}',
-        )
-        .join('\n');
-    parts.add(
+  // Installments and debts are kept apart, as on their own screens.
+  String list(List<Debt> debts) => debts
+      .map(
+        (d) =>
+            '• ${d.name}: ${formatPeso(d.perPayment)} '
+            '${_often(d.frequency, fil)}',
+      )
+      .join('\n');
+  final installments = iOwe.where((d) => !d.category.isLoan).toList();
+  final loans = iOwe.where((d) => d.category.isLoan).toList();
+  final parts = [
+    if (installments.isNotEmpty)
+      'Installments (${installments.length}):\n${list(installments)}',
+    if (loans.isNotEmpty)
       fil
-          ? 'May ${iOwe.length} utang kang binabayaran:\n$lines'
-          : "You're paying ${iOwe.length} "
-                '${iOwe.length == 1 ? 'debt' : 'debts'}:\n$lines',
-    );
-  }
-  if (owedToMe.isNotEmpty && !asksIOwe) {
-    final total = formatPeso(
-      owedToMe.fold<double>(0, (sum, d) => sum + d.stillOwedToMe),
-    );
-    final lines = owedToMe
-        .map((d) => '• ${d.name}: ${formatPeso(d.stillOwedToMe)}')
-        .join('\n');
-    parts.add(
-      fil
-          ? 'May utang sa iyo na $total lahat:\n$lines'
-          : 'People owe you $total:\n$lines',
-    );
-  }
+          ? 'Mga utang (${loans.length}):\n${list(loans)}'
+          : 'Debts (${loans.length}):\n${list(loans)}',
+  ];
   return ChatReply(parts.join('\n\n'), filipino: fil);
 }
 
@@ -2224,6 +2197,7 @@ ChatReply _debts(String text, FinanceSnapshot records, bool fil) {
 List<Debt> _namedDebts(String text, FinanceSnapshot records) {
   final asked = text.trim().split(' ').toSet();
   return records.debts.where((debt) {
+    if (debt.direction != DebtDirection.iOwe) return false;
     final name = _plain(debt.name).split(' ').where((w) => w.isNotEmpty);
     return name.isNotEmpty && name.every(asked.contains);
   }).toList();

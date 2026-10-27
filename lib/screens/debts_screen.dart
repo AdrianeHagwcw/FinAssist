@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/bill.dart';
@@ -49,7 +48,6 @@ class DebtsScreen extends StatelessWidget {
 class DebtsView extends StatefulWidget {
   const DebtsView({
     this.loans = false,
-    this.showing,
     this.debts,
     this.paymentsFor,
     this.onOpen,
@@ -59,10 +57,6 @@ class DebtsView extends StatefulWidget {
 
   /// Borrowed money (Debts) instead of things bought on installment.
   final bool loans;
-
-  /// Switches the list to a direction from outside, like after adding an
-  /// installment from the + button.
-  final ValueListenable<DebtDirection>? showing;
 
   /// Replace the live data. Used by tests.
   final Stream<List<Debt>>? debts;
@@ -80,33 +74,13 @@ class _DebtsViewState extends State<DebtsView> {
   late final Stream<List<Debt>> _debts =
       widget.debts ?? DebtService.watchDebts();
 
-  late DebtDirection _direction = widget.showing?.value ?? DebtDirection.iOwe;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.showing?.addListener(_follow);
-  }
-
-  @override
-  void dispose() {
-    widget.showing?.removeListener(_follow);
-    super.dispose();
-  }
-
-  void _follow() {
-    final direction = widget.showing?.value;
-    if (direction != null && mounted) setState(() => _direction = direction);
-  }
-
-  /// Opens the form, then shows the list the new entry went to.
+  /// Opens the form for this list.
   Future<void> _add() async {
     if (widget.loans) {
       await showLoanFormSheet(context);
-      return;
+    } else {
+      await showDebtFormSheet(context);
     }
-    final saved = await showDebtFormSheet(context, direction: _direction);
-    if (saved != null && mounted) setState(() => _direction = saved);
   }
 
   Stream<List<BillInstance>> _payments(String billId) =>
@@ -358,7 +332,9 @@ class _InstallmentCard extends StatelessWidget {
           // On its own line: next to the amounts it runs off a narrow phone.
           Text(
             done
-                ? 'Paid off'
+                ? debt.paidOffEarly
+                      ? 'Paid off early · ${formatShortDate(debt.paidOffAt!)}'
+                      : 'Paid off'
                 : '${progress.paymentsLeft} '
                       '${progress.paymentsLeft == 1 ? 'payment' : 'payments'} left'
                       '${last == null ? '' : ' · last one ${formatShortDate(last)}'}',

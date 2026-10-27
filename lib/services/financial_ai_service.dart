@@ -593,8 +593,11 @@ ${responseLanguage == null ? '' : 'Write the explanation entirely in ${responseL
       ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
     final sortedGoals = [...records.goals]
       ..sort((a, b) => b.targetAmount.compareTo(a.targetAmount));
-    final sortedDebts = [...records.debts]
-      ..sort((a, b) => b.principal.compareTo(a.principal));
+    // Only what the user pays off, as the app lists it: older records of
+    // money lent to others are not shown anywhere, so they are not sent.
+    final sortedDebts =
+        records.debts.where((d) => d.direction == DebtDirection.iOwe).toList()
+          ..sort((a, b) => b.principal.compareTo(a.principal));
     final recurringBills = <String, Map<String, Object?>>{};
     for (final bill in sortedBills) {
       final key =
@@ -713,14 +716,14 @@ ${responseLanguage == null ? '' : 'Write the explanation entirely in ${responseL
           for (final debt in sortedDebts.take(_maxRawDebtsForPrompt))
             {
               'name': debt.name,
-              'direction': debt.direction.name,
+              // Installments and debts are separate lists in the app.
+              'kind': debt.category.isLoan ? 'debt' : 'installment',
               'category': debt.category.name,
               'status': debt.status.name,
               'principal': debt.principal,
               'perPayment': debt.perPayment,
               'paymentCount': debt.paymentCount,
               'totalPayable': debt.totalPayable,
-              'stillOwedToMe': debt.stillOwedToMe,
               if (debt.firstDueDate != null)
                 'firstDueDate': debt.firstDueDate!.toIso8601String(),
               if (debt.lastDueDate != null)
