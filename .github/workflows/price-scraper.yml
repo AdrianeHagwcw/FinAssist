@@ -1,0 +1,66 @@
+# The price scraper (scraper/README.md).
+#
+# - Every Monday morning (about 8:17 AM Philippine time) it collects the
+#   prices and saves them in Firestore. It can also be started by hand:
+#   Actions tab -> Price scraper -> Run workflow.
+# - On every push that changes the scraper, only its tests run.
+#
+# Saving needs the repository secret FIREBASE_SERVICE_ACCOUNT: the JSON key
+# of a Firebase service account (Firebase console -> Project settings ->
+# Service accounts -> Generate new private key).
+
+name: Price scraper
+
+on:
+  schedule:
+    # Monday 00:17 UTC. Not on the hour, when GitHub is busiest and
+    # scheduled runs start late.
+    - cron: '17 0 * * 1'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scraper/**'
+      - '.github/workflows/price-scraper.yml'
+
+permissions:
+  contents: read
+
+# A run started by hand while the weekly one is going waits its turn.
+concurrency:
+  group: price-scraper
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: scraper
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Run the tests
+        run: python -m unittest discover -s tests -v
+
+  scrape:
+    needs: test
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Collect, check, analyze and save the prices
+        run: python -m price_scraper.main
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

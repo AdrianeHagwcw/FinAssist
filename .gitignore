@@ -46,3 +46,10 @@ app.*.map.json
 
 # Android/Gradle generated files
 android/build/
+
+# Price scraper (Python)
+__pycache__/
+# The Firebase service account key lives only in GitHub's secrets.
+*service-account*.json
+*serviceAccount*.json
+*-firebase-adminsdk-*.json

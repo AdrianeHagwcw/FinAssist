@@ -1,0 +1,35 @@
+{
+  "_howToUpdate": "Pag-IBIG's site asks programs to prove they are human, so these rates are kept by hand. When Pag-IBIG announces new rates, check them on https://www.pagibigfund.gov.ph/, change the numbers below, and set checkedOn to the day you checked.",
+  "checkedOn": "2026-10-27",
+  "verifiedOnOfficialSite": false,
+  "standard": {
+    "asOf": "2023-07",
+    "note": "Yearly interest by how long the rate stays fixed.",
+    "rates": [
+      {"fixedYears": 1, "ratePercent": 5.75},
+      {"fixedYears": 3, "ratePercent": 6.25},
+      {"fixedYears": 5, "ratePercent": 6.5},
+      {"fixedYears": 10, "ratePercent": 7.125},
+      {"fixedYears": 15, "ratePercent": 7.75},
+      {"fixedYears": 20, "ratePercent": 8.5},
+      {"fixedYears": 25, "ratePercent": 9.125},
+      {"fixedYears": 30, "ratePercent": 9.75}
+    ],
+    "source": {
+      "name": "Moneymax, reporting Pag-IBIG's rates as of July 2023",
+      "url": "https://www.moneymax.ph/government-services/blog/pag-ibig-housing-loan-tips"
+    }
+  },
+  "promo": {
+    "asOf": "2026-06",
+    "note": "Fixed for the first 3 years, then repriced to the term the borrower chose.",
+    "rates": [
+      {"loanUpTo": 2500000, "fixedYears": 3, "ratePercent": 4.5},
+      {"loanFrom": 2500000, "loanUpTo": 10000000, "fixedYears": 3, "ratePercent": 5.75}
+    ],
+    "source": {
+      "name": "Daily Tribune, June 18, 2026",
+      "url": "https://tribune.net.ph/2026/06/18/pag-ibig-cuts-home-loan-rates"
+    }
+  }
+}
