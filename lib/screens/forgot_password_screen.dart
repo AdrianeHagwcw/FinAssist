@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../utils/text_limits.dart';
 import '../widgets/check_after_save.dart';
 
@@ -173,7 +174,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                     },
                     decoration: InputDecoration(
                       hintText: 'Enter your email',
-                      prefixIcon: const Icon(Icons.email_outlined),
+                      prefixIcon: const FieldIcon(AppIcons.email),
                       filled: true,
                       fillColor: context.appColors.card,
                       border: OutlineInputBorder(

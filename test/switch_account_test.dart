@@ -279,4 +279,56 @@ void main() {
       'Too many tries. Wait a few minutes, or reset your password.',
     );
   });
+
+  group('Log In', () {
+    Future<void> pumpLogIn(WidgetTester tester, {bool adding = false}) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: LoginScreen(addingAccount: adding),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a new phone is welcomed, with a way to sign up', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await pumpLogIn(tester);
+
+      expect(find.text('Welcome to FinAssist'), findsOneWidget);
+      expect(find.text('or use another account'), findsNothing);
+      expect(find.text('Continue with Google'), findsOneWidget);
+      expect(find.byKey(const Key('create-account')), findsOneWidget);
+    });
+
+    testWidgets('a returning user taps their account instead of typing', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await SavedAccounts.remember(ada);
+      await pumpLogIn(tester);
+
+      expect(find.text('Welcome back'), findsOneWidget);
+      expect(find.text('Ada'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('continue-as-ada@example.com')));
+      await tester.pump();
+
+      final fields = tester.widgetList<TextField>(find.byType(TextField));
+      expect(fields.first.controller?.text, 'ada@example.com');
+      // Only the password is left, and the keyboard is already there.
+      expect(fields.last.focusNode?.hasFocus, isTrue);
+    });
+
+    testWidgets('adding another account lists none of them', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await SavedAccounts.remember(ada);
+      await pumpLogIn(tester, adding: true);
+
+      expect(find.text('Add an account'), findsOneWidget);
+      expect(find.text('Ada'), findsNothing);
+    });
+  });
 }

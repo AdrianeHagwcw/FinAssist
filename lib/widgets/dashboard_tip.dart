@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/dashboard_tip.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 
 /// Home's tip: a short rule-based line, with no AI service and no connection.
 class DashboardTipCard extends StatelessWidget {
@@ -26,7 +27,7 @@ class DashboardTipCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.lightbulb_outline, color: colors.primaryText),
+            Image.asset(AppIcons.idea, width: 24, height: 24),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

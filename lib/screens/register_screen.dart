@@ -5,8 +5,10 @@ import 'package:flutter/services.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
+import '../theme/app_theme.dart';
 import '../utils/text_limits.dart';
-import '../widgets/app_logo.dart';
+import '../widgets/auth_parts.dart';
 import 'email_verification_screen.dart';
 import 'login_screen.dart';
 
@@ -55,7 +57,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _passwordError;
   String? _confirmPasswordError;
   String? _formError;
-  bool _showPasswordRequirements = false;
+
+  /// The email is someone's account already: offer to log in instead.
+  bool _emailInUse = false;
+
+  final _emailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+  final _confirmFocus = FocusNode();
 
   /// Set by the first Create Account tap. From then on every field is
   /// checked as it is typed, so a message goes as soon as its field is right.
@@ -79,10 +87,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         : !_validEmail(email)
         ? 'Enter a valid email address.'
         : null;
-    final passwordError = password.isEmpty ? 'This field is required.' : null;
-    final passwordMeetsPolicy = _passwordRequirementsFor(
-      password,
-    ).every((requirement) => requirement.value);
+    final passwordError = password.isEmpty
+        ? 'This field is required.'
+        : _passwordStillNeeds(password);
     final confirmPasswordError = confirmPassword.isEmpty
         ? 'This field is required.'
         : password != confirmPassword
@@ -99,7 +106,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return nameError == null &&
         emailError == null &&
         passwordError == null &&
-        passwordMeetsPolicy &&
         confirmPasswordError == null;
   }
 
@@ -111,7 +117,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _triedToRegister = true;
     setState(() {
       _formError = null;
-      _showPasswordRequirements = password.isNotEmpty;
+      _emailInUse = false;
     });
     if (!_checkFields()) return;
 
@@ -153,11 +159,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       // SHOW EMAIL VERIFICATION SCREEN TO GUIDE THE USER
       // -------------------------------------------------------
 
+      // The phone can offer to save the new password.
+      TextInput.finishAutofillContext();
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
-          builder: (context) =>
-              EmailVerificationScreen(email: email, user: user),
+          builder: (context) => EmailVerificationScreen(
+            email: email,
+            user: user,
+            sendOnOpen: true,
+          ),
         ),
         (route) => false,
       );
@@ -166,7 +177,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       switch (e.code) {
         case 'email-already-in-use':
-          message = 'An account already exists with this email.';
+          message = 'An account already uses this email.';
+          _emailInUse = true;
           break;
 
         case 'invalid-email':
@@ -193,6 +205,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           message = e.message ?? 'Registration failed. Please try again.';
       }
 
+      // Nothing to save: no account was made with this password.
+      TextInput.finishAutofillContext(shouldSave: false);
       if (mounted) setState(() => _formError = message);
     } catch (e) {
       if (mounted) {
@@ -211,28 +225,46 @@ class _RegisterScreenState extends State<RegisterScreen> {
       RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
 
   List<MapEntry<String, bool>> _passwordRequirementsFor(String password) => [
-    MapEntry('At least 6 characters', password.length >= 6),
-    MapEntry(
-      'Require uppercase character',
-      RegExp(r'[A-Z]').hasMatch(password),
-    ),
-    MapEntry(
-      'Require lowercase character',
-      RegExp(r'[a-z]').hasMatch(password),
-    ),
-    MapEntry(
-      'Require special character',
-      RegExp(r'[^A-Za-z0-9\s]').hasMatch(password),
-    ),
-    MapEntry('Require numeric character', RegExp(r'[0-9]').hasMatch(password)),
+    MapEntry('at least 6 characters', password.length >= 6),
+    MapEntry('a capital letter', RegExp(r'[A-Z]').hasMatch(password)),
+    MapEntry('a small letter', RegExp(r'[a-z]').hasMatch(password)),
+    MapEntry('a number', RegExp(r'[0-9]').hasMatch(password)),
+    MapEntry('a symbol', RegExp(r'[^A-Za-z0-9\s]').hasMatch(password)),
   ];
+
+  /// What the password still needs, in one line, or null when it has it all:
+  /// "Still needed: a capital letter and a symbol."
+  String? _passwordStillNeeds(String password) {
+    final missing = [
+      for (final rule in _passwordRequirementsFor(password))
+        if (!rule.value) rule.key,
+    ];
+    if (missing.isEmpty) return null;
+    final list = missing.length == 1
+        ? missing.single
+        : '${missing.take(missing.length - 1).join(', ')} and ${missing.last}';
+    return 'Still needed: $list.';
+  }
 
   void _onFieldChanged(String field) {
     setState(() {
       _formError = null;
-      if (field == 'password') _showPasswordRequirements = true;
+      _emailInUse = false;
     });
     if (_triedToRegister) _checkFields();
+  }
+
+  /// To Log In with the email filled in, when it already has an account.
+  void _logInInstead() {
+    final email = _emailController.text.trim();
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context, email);
+      return;
+    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => LoginScreen(initialEmail: email)),
+    );
   }
 
   // =========================================================
@@ -245,6 +277,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _emailFocus.dispose();
+    _passwordFocus.dispose();
+    _confirmFocus.dispose();
 
     super.dispose();
   }
@@ -266,13 +301,55 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  OutlineInputBorder _border(Color color, {double width = 1}) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: color, width: width),
+      );
+
+  /// One label, inside the box, that moves up as you type.
+  InputDecoration _field({
+    required String label,
+    required String icon,
+    String? errorText,
+    String? helperText,
+    Widget? helper,
+    Widget? suffix,
+  }) {
+    final colors = context.appColors;
+    return InputDecoration(
+      labelText: label,
+      errorText: errorText,
+      errorMaxLines: 2,
+      helperText: helperText,
+      helperMaxLines: 2,
+      helperStyle: TextStyle(fontSize: 12, color: colors.textMuted),
+      helper: helper,
+      prefixIcon: FieldIcon(icon),
+      suffixIcon: suffix,
+      border: _border(colors.inputBorder),
+      enabledBorder: _border(colors.inputBorder),
+      focusedBorder: _border(appPrimaryBlue, width: 2),
+      errorBorder: _border(dangerColorOn(context), width: 1.5),
+      focusedErrorBorder: _border(dangerColorOn(context), width: 2),
+    );
+  }
+
+  Widget _eye(bool hidden, VoidCallback toggle, String what) => PasswordEye(
+    hidden: hidden,
+    onPressed: _isLoading ? null : toggle,
+    what: what,
+  );
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final passwordsMatch =
+        _confirmPasswordController.text.isNotEmpty &&
+        _confirmPasswordController.text == _passwordController.text;
 
     return Scaffold(
       backgroundColor: colors.card,
-
       appBar: AppBar(
         backgroundColor: colors.card,
         elevation: 0,
@@ -283,481 +360,223 @@ class _RegisterScreenState extends State<RegisterScreen> {
           onPressed: _isLoading ? null : _backToLogin,
         ),
       ),
-
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+            child: AutofillGroup(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const AuthHeader(),
+                  const SizedBox(height: 32),
+                  Text(
+                    'Create your account',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "It's free and takes about a minute.",
+                    style: TextStyle(fontSize: 14, color: colors.textMuted),
+                  ),
+                  const SizedBox(height: 20),
 
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-
-              children: [
-                // =================================================
-                // FINASSIST LOGO
-                // =================================================
-                Center(
-                  child: Column(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: const AppLogo(
-                          width: 180,
-                          height: 120,
-                          fit: BoxFit.cover,
-                          alignment: Alignment.topCenter,
-                        ),
-                      ),
-
-                      const SizedBox(height: 10),
-
-                      const Text(
-                        'FinAssist',
-
-                        style: TextStyle(
-                          fontSize: 30,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF1976D2),
-                        ),
-                      ),
-
-                      const SizedBox(height: 6),
-
-                      Text(
-                        'Smart insights. Better financial future.',
-
-                        textAlign: TextAlign.center,
-
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: context.appColors.textMuted,
-                        ),
-                      ),
+                  // ===========================================
+                  // NAME
+                  // ===========================================
+                  TextField(
+                    controller: _nameController,
+                    enabled: !_isLoading,
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.name],
+                    onSubmitted: (_) => _emailFocus.requestFocus(),
+                    maxLength: maxPersonNameLength,
+                    buildCounter: _buildCharacterCounter,
+                    // Letters from any language, so Niño and Ma. Clara fit.
+                    inputFormatters: [
+                      personNameFormatter,
+                      const SafeTextFormatter(),
+                      LengthLimitingTextInputFormatter(maxPersonNameLength),
                     ],
+                    onChanged: (_) => _onFieldChanged('name'),
+                    decoration: _field(
+                      label: 'Full name',
+                      icon: AppIcons.person,
+                      errorText: _nameError,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 14),
 
-                const SizedBox(height: 40),
-
-                // =================================================
-                // CREATE ACCOUNT
-                // =================================================
-                Text(
-                  'Create Account',
-
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: colors.textPrimary,
+                  // ===========================================
+                  // EMAIL
+                  // ===========================================
+                  TextField(
+                    controller: _emailController,
+                    focusNode: _emailFocus,
+                    enabled: !_isLoading,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.email],
+                    onSubmitted: (_) => _passwordFocus.requestFocus(),
+                    maxLength: maxEmailLength,
+                    buildCounter: _buildCharacterCounter,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                      LengthLimitingTextInputFormatter(maxEmailLength),
+                    ],
+                    onChanged: (_) => _onFieldChanged('email'),
+                    decoration: _field(
+                      label: 'Email',
+                      icon: AppIcons.email,
+                      errorText: _emailError,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 14),
 
-                const SizedBox(height: 8),
-
-                Text(
-                  'Create your account to get started with FinAssist',
-
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: context.appColors.textMuted,
+                  // ===========================================
+                  // PASSWORD, with its rules ticked as they are met
+                  // ===========================================
+                  TextField(
+                    controller: _passwordController,
+                    focusNode: _passwordFocus,
+                    enabled: !_isLoading,
+                    obscureText: _obscurePassword,
+                    textInputAction: TextInputAction.next,
+                    // The phone can suggest a strong one and remember it.
+                    autofillHints: const [AutofillHints.newPassword],
+                    onSubmitted: (_) => _confirmFocus.requestFocus(),
+                    maxLength: maxPasswordLength,
+                    buildCounter: _buildCharacterCounter,
+                    inputFormatters: [
+                      LengthLimitingTextInputFormatter(maxPasswordLength),
+                    ],
+                    onChanged: (_) => _onFieldChanged('password'),
+                    decoration: _field(
+                      label: 'Password',
+                      icon: AppIcons.lock,
+                      errorText: _passwordError,
+                      helperText:
+                          'At least 6 characters, with a capital letter, a '
+                          'small letter, a number and a symbol like ! or @.',
+                      suffix: _eye(
+                        _obscurePassword,
+                        () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
+                        'password',
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 14),
 
-                const SizedBox(height: 30),
+                  // ===========================================
+                  // CONFIRM PASSWORD
+                  // ===========================================
+                  TextField(
+                    controller: _confirmPasswordController,
+                    focusNode: _confirmFocus,
+                    enabled: !_isLoading,
+                    obscureText: _obscureConfirmPassword,
+                    textInputAction: TextInputAction.done,
+                    autofillHints: const [AutofillHints.newPassword],
+                    onSubmitted: (_) => _register(),
+                    maxLength: maxPasswordLength,
+                    buildCounter: _buildCharacterCounter,
+                    inputFormatters: [
+                      LengthLimitingTextInputFormatter(maxPasswordLength),
+                    ],
+                    onChanged: (_) => _onFieldChanged('confirmPassword'),
+                    decoration: _field(
+                      label: 'Confirm password',
+                      icon: AppIcons.lock,
+                      errorText: _confirmPasswordError,
+                      helper: passwordsMatch && _confirmPasswordError == null
+                          ? Row(
+                              key: const Key('passwords-match'),
+                              children: [
+                                Icon(
+                                  Icons.check_circle,
+                                  size: 16,
+                                  color: confirmColorOn(context),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Passwords match',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: confirmColorOn(context),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : null,
+                      suffix: _eye(
+                        _obscureConfirmPassword,
+                        () => setState(
+                          () => _obscureConfirmPassword =
+                              !_obscureConfirmPassword,
+                        ),
+                        'confirmed password',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
 
-                // =================================================
-                // NAME
-                // =================================================
-                const Text(
-                  'Full Name',
-
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-
-                const SizedBox(height: 8),
-
-                TextField(
-                  controller: _nameController,
-
-                  enabled: !_isLoading,
-
-                  textCapitalization: TextCapitalization.words,
-
-                  maxLength: maxPersonNameLength,
-                  buildCounter: _buildCharacterCounter,
-                  // Letters from any language, so Niño and Ma. Clara fit.
-                  inputFormatters: [
-                    personNameFormatter,
-                    const SafeTextFormatter(),
-                    LengthLimitingTextInputFormatter(maxPersonNameLength),
+                  // ===========================================
+                  // WHAT WENT WRONG, with the way through
+                  // ===========================================
+                  if (_formError != null) ...[
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                      decoration: BoxDecoration(
+                        color: dangerColorOn(context).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 20,
+                            color: dangerColorOn(context),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _formError!,
+                              key: const Key('register-form-error'),
+                              style: TextStyle(
+                                color: dangerColorOn(context),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          if (_emailInUse)
+                            TextButton(
+                              key: const Key('log-in-instead'),
+                              onPressed: _isLoading ? null : _logInInstead,
+                              child: const Text('Log in instead'),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                   ],
 
-                  onChanged: (_) => _onFieldChanged('name'),
-
-                  decoration: InputDecoration(
-                    hintText: 'Enter your full name',
-                    errorText: _nameError,
-
-                    prefixIcon: Icon(
-                      Icons.person_outline,
-                      color: context.appColors.textMuted,
-                    ),
-
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: const BorderSide(
-                        color: Color(0xFF1976D2),
-                        width: 2,
-                      ),
-                    ),
-                    errorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: dangerColorOn(context),
-                        width: 1.5,
-                      ),
-                    ),
-                    focusedErrorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: dangerColorOn(context),
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // =================================================
-                // EMAIL
-                // =================================================
-                const Text(
-                  'Email',
-
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-
-                const SizedBox(height: 8),
-
-                TextField(
-                  controller: _emailController,
-
-                  enabled: !_isLoading,
-
-                  keyboardType: TextInputType.emailAddress,
-
-                  maxLength: maxEmailLength,
-                  buildCounter: _buildCharacterCounter,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.deny(RegExp(r'\s')),
-                    LengthLimitingTextInputFormatter(maxEmailLength),
-                  ],
-
-                  onChanged: (_) => _onFieldChanged('email'),
-
-                  decoration: InputDecoration(
-                    hintText: 'Enter your email',
-                    errorText: _emailError,
-
-                    prefixIcon: Icon(
-                      Icons.email_outlined,
-                      color: context.appColors.textMuted,
-                    ),
-
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: const BorderSide(
-                        color: Color(0xFF1976D2),
-                        width: 2,
-                      ),
-                    ),
-                    errorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: dangerColorOn(context),
-                        width: 1.5,
-                      ),
-                    ),
-                    focusedErrorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: dangerColorOn(context),
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // =================================================
-                // PASSWORD
-                // =================================================
-                const Text(
-                  'Password',
-
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-
-                const SizedBox(height: 6),
-                Text(
-                  'Your password is used to sign in. It is not saved in your '
-                  'financial records or shown to other users.',
-                  style: TextStyle(fontSize: 12, color: colors.textBody),
-                ),
-
-                const SizedBox(height: 8),
-
-                TextField(
-                  controller: _passwordController,
-
-                  enabled: !_isLoading,
-
-                  obscureText: _obscurePassword,
-
-                  maxLength: maxPasswordLength,
-                  buildCounter: _buildCharacterCounter,
-                  inputFormatters: [
-                    LengthLimitingTextInputFormatter(maxPasswordLength),
-                  ],
-
-                  onChanged: (_) => _onFieldChanged('password'),
-
-                  decoration: InputDecoration(
-                    hintText: 'Create a password',
-                    error: _passwordError != null
-                        ? Text(
-                            _passwordError!,
-                            style: TextStyle(color: dangerColorOn(context)),
-                          )
-                        : _showPasswordRequirements &&
-                              _passwordRequirementsFor(
-                                _passwordController.text,
-                              ).any((requirement) => !requirement.value)
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children:
-                                _passwordRequirementsFor(
-                                      _passwordController.text,
-                                    )
-                                    .where((requirement) => !requirement.value)
-                                    .map((requirement) {
-                                      return Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          requirement.key,
-                                          style: TextStyle(
-                                            color: dangerColorOn(context),
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      );
-                                    })
-                                    .toList(),
-                          )
-                        : null,
-
-                    prefixIcon: Icon(
-                      Icons.lock_outline,
-                      color: context.appColors.textMuted,
-                    ),
-
-                    suffixIcon: IconButton(
-                      tooltip: _obscurePassword
-                          ? 'Show password'
-                          : 'Hide password',
-                      onPressed: _isLoading
-                          ? null
-                          : () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
-
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                      ),
-                    ),
-
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: const BorderSide(
-                        color: Color(0xFF1976D2),
-                        width: 2,
-                      ),
-                    ),
-                    errorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: dangerColorOn(context),
-                        width: 1.5,
-                      ),
-                    ),
-                    focusedErrorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: dangerColorOn(context),
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // =================================================
-                // CONFIRM PASSWORD
-                // =================================================
-                const Text(
-                  'Confirm Password',
-
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-
-                const SizedBox(height: 8),
-
-                TextField(
-                  controller: _confirmPasswordController,
-
-                  enabled: !_isLoading,
-
-                  obscureText: _obscureConfirmPassword,
-
-                  maxLength: maxPasswordLength,
-                  buildCounter: _buildCharacterCounter,
-                  inputFormatters: [
-                    LengthLimitingTextInputFormatter(maxPasswordLength),
-                  ],
-
-                  onChanged: (_) => _onFieldChanged('confirmPassword'),
-
-                  decoration: InputDecoration(
-                    hintText: 'Confirm your password',
-                    errorText: _confirmPasswordError,
-
-                    prefixIcon: Icon(
-                      Icons.lock_outline,
-                      color: context.appColors.textMuted,
-                    ),
-
-                    suffixIcon: IconButton(
-                      tooltip: _obscureConfirmPassword
-                          ? 'Show confirmed password'
-                          : 'Hide confirmed password',
-                      onPressed: _isLoading
-                          ? null
-                          : () {
-                              setState(() {
-                                _obscureConfirmPassword =
-                                    !_obscureConfirmPassword;
-                              });
-                            },
-
-                      icon: Icon(
-                        _obscureConfirmPassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                      ),
-                    ),
-
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-
-                      borderSide: const BorderSide(
-                        color: Color(0xFF1976D2),
-                        width: 2,
-                      ),
-                    ),
-                    errorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: dangerColorOn(context),
-                        width: 1.5,
-                      ),
-                    ),
-                    focusedErrorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: dangerColorOn(context),
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 30),
-
-                // =================================================
-                // REGISTER BUTTON
-                // =================================================
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-
-                  child: ElevatedButton(
+                  // ===========================================
+                  // CREATE ACCOUNT: green, it makes something new
+                  // ===========================================
+                  ElevatedButton(
                     onPressed: _isLoading ? null : _register,
-
                     style: confirmButtonStyle(),
-
                     child: _isLoading
                         ? const SizedBox(
                             width: 24,
                             height: 24,
-
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white,
@@ -765,63 +584,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           )
                         : const Text(
                             'Create Account',
-
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                   ),
-                ),
+                  const SizedBox(height: 20),
 
-                if (_formError != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _formError!,
-                    key: const Key('register-form-error'),
-                    style: TextStyle(
-                      color: dangerColorOn(context),
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 25),
-
-                // =================================================
-                // ALREADY HAVE ACCOUNT
-                // =================================================
-                Center(
-                  child: RichText(
-                    text: TextSpan(
-                      text: 'Already have an account? ',
-
-                      style: TextStyle(
-                        color: context.appColors.textMuted,
-                        fontSize: 14,
+                  // ===========================================
+                  // ALREADY HAVE AN ACCOUNT
+                  // ===========================================
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Already have an account?',
+                        style: TextStyle(color: colors.textMuted, fontSize: 14),
                       ),
-
-                      children: [
-                        WidgetSpan(
-                          child: GestureDetector(
-                            onTap: _isLoading ? null : _backToLogin,
-
-                            child: Text(
-                              'Log In',
-
-                              style: TextStyle(
-                                color: colors.primaryText,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
+                      TextButton(
+                        onPressed: _isLoading ? null : _backToLogin,
+                        child: Text(
+                          'Log In',
+                          style: TextStyle(
+                            color: colors.primaryText,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

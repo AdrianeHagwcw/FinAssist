@@ -197,20 +197,87 @@ void main() {
 
   test('the eye remembers whether amounts are hidden', () async {
     SharedPreferences.setMockInitialValues({});
-    final settings = await AppSettingsProvider.load();
+    final settings = await AppSettingsProvider.load(account: 'ana');
     expect(settings.amountsMasked, isFalse);
 
     settings.toggleAmountsMasked();
     expect(settings.amountsMasked, isTrue);
-    expect((await AppSettingsProvider.load()).amountsMasked, isTrue);
+    expect(
+      (await AppSettingsProvider.load(account: 'ana')).amountsMasked,
+      isTrue,
+    );
 
     settings.toggleAmountsMasked();
-    expect((await AppSettingsProvider.load()).amountsMasked, isFalse);
+    expect(
+      (await AppSettingsProvider.load(account: 'ana')).amountsMasked,
+      isFalse,
+    );
   });
 
-  test('an older hide-on-launch choice is still honoured', () async {
-    SharedPreferences.setMockInitialValues({'maskByDefault': true});
-    expect((await AppSettingsProvider.load()).amountsMasked, isTrue);
+  group('dark mode and the eye belong to the account', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('signed out, and for a new account, it is light', () async {
+      expect((await AppSettingsProvider.load()).themeMode, ThemeMode.light);
+      expect(
+        (await AppSettingsProvider.load(account: 'new')).themeMode,
+        ThemeMode.light,
+      );
+    });
+
+    test('logging out goes back to light; logging in brings it back', () async {
+      final settings = await AppSettingsProvider.load(account: 'ana');
+      settings.setThemeMode(ThemeMode.dark);
+      settings.toggleAmountsMasked();
+
+      settings.useAccount(null);
+      expect(settings.themeMode, ThemeMode.light);
+      expect(settings.amountsMasked, isFalse);
+
+      // Another account on the same phone has its own.
+      settings.useAccount('ben');
+      expect(settings.themeMode, ThemeMode.light);
+      expect(settings.amountsMasked, isFalse);
+
+      settings.useAccount('ana');
+      expect(settings.themeMode, ThemeMode.dark);
+      expect(settings.amountsMasked, isTrue);
+    });
+
+    test('no account inherits dark mode or hidden amounts', () async {
+      // Saved by older builds: for the phone, and copied into an account
+      // that never chose it.
+      SharedPreferences.setMockInitialValues({
+        'themeMode': 'dark',
+        'amountsMasked': true,
+        'maskByDefault': true,
+        'themeMode:ana': 'dark',
+        'amountsMasked:ana': true,
+      });
+
+      // Signed out, signed in, or brand new: light, with amounts shown.
+      final settings = await AppSettingsProvider.load();
+      expect(settings.themeMode, ThemeMode.light);
+      settings.useAccount('ana');
+      expect(settings.themeMode, ThemeMode.light);
+      expect(settings.amountsMasked, isFalse);
+      settings.useAccount('new');
+      expect(settings.themeMode, ThemeMode.light);
+
+      // And none of it is left to be read again.
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getKeys(), isEmpty);
+    });
+
+    test('dark only after the account turns it on', () async {
+      final settings = await AppSettingsProvider.load(account: 'ana');
+      expect(settings.themeMode, ThemeMode.light);
+      settings.setThemeMode(ThemeMode.dark);
+      expect(
+        (await AppSettingsProvider.load(account: 'ana')).themeMode,
+        ThemeMode.dark,
+      );
+    });
   });
 
   test('category preferences reset when the account changes', () {

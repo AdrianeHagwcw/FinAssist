@@ -7,6 +7,7 @@ import '../services/budget_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../widgets/empty_state_view.dart';
@@ -94,7 +95,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     InfoIntroCard(
-                      icon: Icons.history,
+                      iconAsset: AppIcons.cashInflow,
                       title: 'Every cash inflow, a clearer picture',
                       message: pending == 0
                           ? 'Every cash inflow you log: what came in, where it went, and what was left.'

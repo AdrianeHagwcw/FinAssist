@@ -49,6 +49,7 @@ import 'package:testapp/services/legacy_migration.dart';
 import 'package:testapp/services/transaction_export.dart';
 import 'package:testapp/theme/app_buttons.dart';
 import 'package:testapp/theme/app_colors.dart';
+import 'package:testapp/theme/app_icons.dart';
 import 'package:testapp/theme/app_theme.dart';
 import 'package:testapp/widgets/app_logo.dart';
 import 'package:testapp/widgets/back_to_home.dart';
@@ -286,7 +287,7 @@ void main() {
     );
   });
 
-  testWidgets('password policy errors appear beneath the password field', (
+  testWidgets('the password rules are one line, then only what is missing', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -294,6 +295,12 @@ void main() {
     );
 
     final fields = find.byType(TextField);
+    expect(
+      tester.widget<TextField>(fields.at(2)).decoration?.helperText,
+      'At least 6 characters, with a capital letter, a small letter, a '
+      'number and a symbol like ! or @.',
+    );
+
     await tester.enterText(fields.at(0), 'Ada Lovelace');
     await tester.enterText(fields.at(1), 'ada@example.com');
     await tester.enterText(fields.at(2), 'abc');
@@ -301,18 +308,45 @@ void main() {
     await tester.tap(find.text('Create Account').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('At least 6 characters'), findsOneWidget);
-    expect(find.text('Require uppercase character'), findsOneWidget);
-    expect(find.text('Require special character'), findsOneWidget);
-    expect(find.text('Require numeric character'), findsOneWidget);
-    expect(find.text('Require lowercase character'), findsNothing);
+    expect(
+      find.text(
+        'Still needed: at least 6 characters, a capital letter, a number '
+        'and a symbol.',
+      ),
+      findsOneWidget,
+    );
 
-    await tester.enterText(fields.at(2), 'Abc1!x');
+    // It shrinks as they are added, and goes once all are there.
+    await tester.enterText(fields.at(2), 'Abcdef');
     await tester.pump();
-    expect(find.text('At least 6 characters'), findsNothing);
-    expect(find.text('Require uppercase character'), findsNothing);
-    expect(find.text('Require special character'), findsNothing);
-    expect(find.text('Require numeric character'), findsNothing);
+    expect(find.text('Still needed: a number and a symbol.'), findsOneWidget);
+    await tester.enterText(fields.at(2), 'Abc1!x');
+    // The red line fades out.
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Still needed'), findsNothing);
+
+    // Typed twice the same, it says so.
+    await tester.enterText(fields.at(3), 'Abc1!x');
+    await tester.pump();
+    expect(find.byKey(const Key('passwords-match')), findsOneWidget);
+  });
+
+  testWidgets('create account is a short email form', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const RegisterScreen()),
+    );
+
+    expect(find.text('Create your account'), findsOneWidget);
+    expect(find.text('Continue with Google'), findsNothing);
+    // One label per field, inside it.
+    expect(
+      tester
+          .widgetList<TextField>(find.byType(TextField))
+          .map((field) => field.decoration?.labelText),
+      ['Full name', 'Email', 'Password', 'Confirm password'],
+    );
   });
 
   testWidgets('signed-out users go straight to log in', (
@@ -330,11 +364,11 @@ void main() {
     );
     await tester.pump();
 
-    // Android's launch screen shows the logo, so there is no welcome page.
-    expect(find.text('Welcome to FinAssist'), findsNothing);
+    // Android's launch screen shows the logo, so there is no welcome page:
+    // Log In greets a new user itself.
     expect(find.text('Get Started'), findsNothing);
-    expect(find.text('Welcome Back!'), findsOneWidget);
-    expect(find.text('Google'), findsOneWidget);
+    expect(find.text('Welcome to FinAssist'), findsOneWidget);
+    expect(find.text('Continue with Google'), findsOneWidget);
     expect(find.text('Facebook'), findsNothing);
   });
 
@@ -359,7 +393,7 @@ void main() {
     session.complete(StartDestination.signedOut);
     await tester.pump();
     expect(LaunchScreen.isHolding, isFalse);
-    expect(find.text('Welcome Back!'), findsOneWidget);
+    expect(find.text('Welcome to FinAssist'), findsOneWidget);
   });
 
   testWidgets('a slow start shows the logo and a loading ring in the saved '
@@ -394,7 +428,7 @@ void main() {
 
     session.complete(StartDestination.signedOut);
     await tester.pump();
-    expect(find.text('Welcome Back!'), findsOneWidget);
+    expect(find.text('Welcome to FinAssist'), findsOneWidget);
   });
 
   testWidgets('choosing a theme sets the next launch screen straight away', (
@@ -11708,8 +11742,14 @@ void main() {
 
       expect(find.text('Financial tips'), findsOneWidget);
       expect(find.textContaining('trusted sources'), findsNothing);
+      // Each tip shows the app's colored bulb.
       expect(
-        find.byIcon(Icons.lightbulb_outline),
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Image &&
+              widget.image is AssetImage &&
+              (widget.image as AssetImage).assetName == AppIcons.idea,
+        ),
         findsWidgets,
         reason: 'at least one tip is always shown',
       );

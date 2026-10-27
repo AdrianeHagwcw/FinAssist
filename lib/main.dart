@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 
@@ -24,14 +25,20 @@ Future<void> main() async {
   await activateFirebaseAppCheck();
   clearRemindersOnAccountChange();
 
+  final auth = FirebaseAuth.instance;
   final (settings, _) = await (
-    AppSettingsProvider.load(),
+    // The signed-in account's dark mode and eye; signed out, the defaults.
+    AppSettingsProvider.load(account: auth.currentUser?.uid),
     // So the first screen's logo is there on its first frame.
     AppLogo.precache(),
   ).wait;
   // Early, so a reminder that opened the app is caught, but not waited for:
   // the home screen opens it whenever it arrives.
   unawaited(ReminderService.init());
+  // The next launch screen matches whoever is signed in now: light signed
+  // out, even if dark was the last account's choice.
+  unawaited(LaunchScreen.follow(dark: settings.themeMode == ThemeMode.dark));
+  auth.authStateChanges().listen((user) => settings.useAccount(user?.uid));
 
   runApp(ChangeNotifierProvider.value(value: settings, child: const MyApp()));
 }

@@ -1,20 +1,14 @@
 package com.example.testapp
 
 import android.os.Build
-import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        // The theme saved by the app's settings, through shared_preferences.
-        // Covers a phone that had the choice made before this version.
-        val themeMode = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-            .getString("flutter.themeMode", null)
-        useDarkLaunchScreen(themeMode == "dark")
-    }
+    // The app alone picks the next launch screen, through "setDark" below:
+    // light when no one is signed in, dark only for an account that turned
+    // dark mode on. Nothing here reads a saved theme of its own.
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

@@ -6,6 +6,7 @@ import '../services/account_session.dart';
 import '../services/saved_accounts.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../utils/auth_errors.dart';
 import '../utils/text_limits.dart';
 import '../widgets/check_after_save.dart';
@@ -524,9 +525,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             horizontal: 16,
                             vertical: 5,
                           ),
-                          leading: Icon(
-                            Icons.edit_outlined,
-                            color: colors.primaryText,
+                          // Like the other rows: the app's colored icon on
+                          // a tinted tile.
+                          leading: Container(
+                            width: 42,
+                            height: 42,
+                            padding: const EdgeInsets.all(9),
+                            decoration: BoxDecoration(
+                              color: colors.primaryTint,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Image.asset(AppIcons.profile),
                           ),
                           title: const Text(
                             'Edit account information',

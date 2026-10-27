@@ -5,8 +5,10 @@ import '../screens/forgot_password_screen.dart';
 import '../services/saved_accounts.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/text_limits.dart';
+import 'auth_parts.dart';
 
 /// What was picked in the Switch account sheet: another account used on
 /// this phone, or a new one when [account] is null.
@@ -334,13 +336,9 @@ class _AccountPasswordDialogState extends State<AccountPasswordDialog> {
                 labelText: 'Password',
                 errorText: _problem,
                 errorMaxLines: 2,
-                suffixIcon: IconButton(
-                  tooltip: _hidden ? 'Show password' : 'Hide password',
-                  icon: Icon(
-                    _hidden
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                  ),
+                prefixIcon: const FieldIcon(AppIcons.lock),
+                suffixIcon: PasswordEye(
+                  hidden: _hidden,
                   onPressed: () => setState(() => _hidden = !_hidden),
                 ),
               ),
@@ -366,11 +364,7 @@ class _AccountPasswordDialogState extends State<AccountPasswordDialog> {
                 onPressed: _busy
                     ? null
                     : () => Navigator.pop(context, PasswordStep.useGoogle),
-                icon: const Icon(
-                  Icons.g_mobiledata,
-                  size: 28,
-                  color: Colors.red,
-                ),
+                icon: const GoogleLogo(),
                 label: Text(
                   'Use Google instead',
                   style: TextStyle(color: colors.textBody),

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
-import '../widgets/app_logo.dart';
+import '../theme/app_icons.dart';
 import 'login_screen.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
@@ -13,10 +13,16 @@ class EmailVerificationScreen extends StatefulWidget {
     super.key,
     this.email,
     this.user,
+    this.sendOnOpen = false,
   });
 
   final String? email;
   final User? user;
+
+  /// Sends the email straight away, right after Create Account, so it is
+  /// already on its way. Not when an unverified account logs in: its email
+  /// went before, and sending again could hit the sending limit.
+  final bool sendOnOpen;
 
   @override
   State<EmailVerificationScreen> createState() =>
@@ -40,6 +46,11 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
         FirebaseAuth.instance.currentUser?.email ??
         widget.email ??
         '';
+    if (widget.sendOnOpen) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _sendVerificationEmail(),
+      );
+    }
   }
 
   String _formatCooldown() {
@@ -70,7 +81,9 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 
   Future<User?> _getSignedInUser() async {
     final auth = FirebaseAuth.instance;
-    return widget.user ?? auth.currentUser ?? await auth.authStateChanges().first;
+    return widget.user ??
+        auth.currentUser ??
+        await auth.authStateChanges().first;
   }
 
   void _returnToLogin() {
@@ -119,10 +132,6 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
         });
       }
       _startCooldown();
-
-      if (!mounted) return;
-
-      await _showMessage('Verification email sent. Please check your inbox.');
     } on FirebaseAuthException catch (e) {
       String message;
       switch (e.code) {
@@ -213,11 +222,12 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Row(
+        // The same envelope as the screen behind it.
+        title: Row(
           children: [
-            Icon(Icons.info_outline, color: Color(0xFF1976D2)),
-            SizedBox(width: 10),
-            Text('Verification'),
+            Image.asset(AppIcons.email, width: 24, height: 24),
+            const SizedBox(width: 10),
+            const Text('Verification'),
           ],
         ),
         content: Text(message),
@@ -252,6 +262,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final sent = _hasSentVerificationEmail;
+    final email = _emailController.text;
 
     return Scaffold(
       backgroundColor: colors.card,
@@ -260,6 +272,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
+          tooltip: 'Back to Log In',
           icon: Icon(Icons.arrow_back, color: colors.textBody),
           onPressed: _isLoading ? null : _backToLogin,
         ),
@@ -267,143 +280,153 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // What this step is about, at a glance.
                 Center(
-                  child: Column(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: const AppLogo(
-                          width: 180,
-                          height: 120,
-                          fit: BoxFit.cover,
-                          alignment: Alignment.topCenter,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Verify your email',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF1976D2),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Please confirm your email address before continuing.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 15, color: context.appColors.textMuted),
-                      ),
-                    ],
+                  child: Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      color: colors.primaryTint,
+                      shape: BoxShape.circle,
+                    ),
+                    padding: const EdgeInsets.all(20),
+                    child: Image.asset(AppIcons.email),
                   ),
                 ),
-                const SizedBox(height: 30),
-                const Text(
-                  'Email',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _emailController,
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    prefixIcon: Icon(
-                      Icons.email_outlined,
-                      color: context.appColors.textMuted,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: colors.inputBorder),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF1976D2),
-                        width: 2,
-                      ),
-                    ),
+                const SizedBox(height: 24),
+                Text(
+                  'Check your email',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
                   ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  sent
+                      ? 'We sent a verification link to'
+                      : 'Send a verification link to',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, color: colors.textMuted),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  email,
+                  key: const Key('verification-email-address'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  sent
+                      ? 'Open the link, then come back and tap the button '
+                            'below.'
+                      : 'Then open the link to finish setting up your '
+                            'account.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, color: colors.textMuted),
                 ),
                 if (_sendError != null) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 14),
                   Text(
                     _sendError!,
                     key: const Key('verification-email-error'),
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       color: dangerColorOn(context),
                       fontSize: 13,
                     ),
                   ),
-                ] else if (_hasSentVerificationEmail) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Verification email sent. Open the link in your inbox to continue.',
-                    key: Key('verification-email-sent'),
-                    style: TextStyle(color: Color(0xFF2E7D32), fontSize: 13),
-                  ),
                 ],
-                const SizedBox(height: 30),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: (_isLoading || _cooldownSeconds > 0)
+                const SizedBox(height: 28),
+
+                // The next step, as the one big button: send first, then
+                // confirm once it is opened.
+                ElevatedButton(
+                  key: const Key('verification-main-button'),
+                  onPressed: _isLoading
+                      ? null
+                      : sent
+                      ? _checkVerification
+                      : _cooldownSeconds > 0
+                      ? null
+                      : _sendVerificationEmail,
+                  style: confirmButtonStyle(),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          sent
+                              ? "I've verified my email"
+                              : 'Send verification email',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+                const SizedBox(height: 8),
+                if (sent)
+                  TextButton(
+                    key: const Key('verification-resend'),
+                    onPressed: _isLoading || _cooldownSeconds > 0
                         ? null
                         : _sendVerificationEmail,
-                    style: confirmButtonStyle(),
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Text(
-                            _cooldownSeconds > 0
-                                ? 'Resend in ${_formatCooldown()}'
-                                : _hasSentVerificationEmail
-                                ? 'Resend verification email'
-                                : 'Send verification email',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Center(
-                  child: TextButton(
-                    onPressed: _isLoading ? null : _checkVerification,
                     child: Text(
-                      'I have verified my email',
-                      style: TextStyle(
-                        color: colors.primaryText,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      _cooldownSeconds > 0
+                          ? 'Resend in ${_formatCooldown()}'
+                          : 'Resend email',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  )
+                else
+                  TextButton(
+                    onPressed: _isLoading ? null : _checkVerification,
+                    child: const Text(
+                      "I've already verified it",
+                      style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Center(
-                  child: TextButton(
-                    onPressed: _isLoading ? null : _backToLogin,
-                    child: Text(
-                      'Back to login',
-                      style: TextStyle(
-                        color: colors.primaryText,
-                        fontWeight: FontWeight.w600,
+                const SizedBox(height: 20),
+
+                // Where it usually hides.
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset(AppIcons.idea, width: 18, height: 18),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        "Can't find it? Check your Spam or Promotions folder.",
+                        style: TextStyle(fontSize: 13, color: colors.textMuted),
                       ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: _isLoading ? null : _backToLogin,
+                  child: Text(
+                    'Back to Log In',
+                    style: TextStyle(
+                      color: colors.textBody,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),

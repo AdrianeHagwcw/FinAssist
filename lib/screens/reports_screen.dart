@@ -19,6 +19,7 @@ import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/money_format.dart';
 import '../widgets/money_text.dart';
@@ -266,7 +267,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           if (transactions.isEmpty) {
             _currentInsightsKey = null;
             return const _Message(
-              icon: Icons.insert_chart_outlined,
+              iconAsset: AppIcons.chart,
               title: 'Nothing to report yet',
               body:
                   'Log an expense or add income, and your summaries and '
@@ -419,8 +420,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              for (final line in insights)
-                _Line(icon: Icons.lightbulb_outline, text: line),
+              for (final line in insights) _Line(text: line),
               if (insights.isNotEmpty) const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _loadingAiSuggestions
@@ -460,7 +460,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
               for (final suggestion
                   in suggestionsAreCurrent ? _aiSuggestions : const <String>[])
-                _Line(icon: Icons.lightbulb_outline, text: suggestion),
+                _Line(text: suggestion),
             ],
           ),
         ),
@@ -471,12 +471,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           child: _records == null
               ? const _EmptyNote(
                   'Tips show up once your records load.',
-                  icon: Icons.lightbulb_outline,
+                  iconAsset: AppIcons.idea,
                 )
               : Column(
                   children: [
                     for (final tip in moneyTipsFor(_records!.at(_now)))
-                      _Line(icon: Icons.lightbulb_outline, text: tip),
+                      _Line(text: tip),
                   ],
                 ),
         ),
@@ -793,9 +793,11 @@ class _Section extends StatelessWidget {
 
 /// One line of Insights or Financial tips: an icon and a sentence.
 class _Line extends StatelessWidget {
-  const _Line({required this.icon, required this.text});
+  const _Line({required this.text, this.icon});
 
-  final IconData icon;
+  /// A note about the tips, such as "records changed", as a line icon. A tip
+  /// itself has none, and shows the app's bulb.
+  final IconData? icon;
   final String text;
 
   @override
@@ -805,7 +807,9 @@ class _Line extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: appPrimaryBlue),
+          icon == null
+              ? Image.asset(AppIcons.idea, width: 20, height: 20)
+              : Icon(icon, size: 20, color: appPrimaryBlue),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -820,10 +824,10 @@ class _Line extends StatelessWidget {
 }
 
 class _EmptyNote extends StatelessWidget {
-  const _EmptyNote(this.text, {this.icon});
+  const _EmptyNote(this.text, {this.iconAsset});
 
   final String text;
-  final IconData? icon;
+  final String? iconAsset;
 
   @override
   Widget build(BuildContext context) {
@@ -831,8 +835,8 @@ class _EmptyNote extends StatelessWidget {
 
     return Row(
       children: [
-        if (icon != null) ...[
-          Icon(icon, color: colors.textBody),
+        if (iconAsset != null) ...[
+          Image.asset(iconAsset!, width: 22, height: 22),
           const SizedBox(width: 10),
         ],
         Expanded(
@@ -847,9 +851,17 @@ class _EmptyNote extends StatelessWidget {
 }
 
 class _Message extends StatelessWidget {
-  const _Message({required this.icon, required this.title, required this.body});
+  const _Message({
+    required this.title,
+    required this.body,
+    this.icon,
+    this.iconAsset,
+  });
 
-  final IconData icon;
+  /// A line icon for a problem, such as being offline; [iconAsset] for what
+  /// the screen is about.
+  final IconData? icon;
+  final String? iconAsset;
   final String title;
   final String body;
 
@@ -863,7 +875,9 @@ class _Message extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: appPrimaryBlue),
+            iconAsset != null
+                ? Image.asset(iconAsset!, width: 64, height: 64)
+                : Icon(icon, size: 56, color: appPrimaryBlue),
             const SizedBox(height: 16),
             Text(
               title,

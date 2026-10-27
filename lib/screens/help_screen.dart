@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_intro_card.dart';
 
@@ -21,7 +22,7 @@ class HelpScreen extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       children: const [
         InfoIntroCard(
-          icon: Icons.help_outline,
+          iconAsset: AppIcons.help,
           title: 'A little clarity goes a long way',
           message:
               'Quick answers to help you keep your money records in order.',

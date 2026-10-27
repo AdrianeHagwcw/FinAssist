@@ -9,6 +9,7 @@ import '../services/goal_service.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
@@ -424,14 +425,14 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
           const SizedBox(height: 12),
           _ChoiceTile(
             selected: _choice == _Choice.save,
-            icon: Icons.savings_outlined,
+            icon: AppIcons.moneyBox,
             title: 'Save it',
             subtitle: 'Set it aside. It stops counting as money you can spend.',
             onTap: () => setState(() => _choice = _Choice.save),
           ),
           _ChoiceTile(
             selected: _choice == _Choice.spend,
-            icon: Icons.shopping_bag_outlined,
+            icon: AppIcons.shopping,
             title: 'Use it for spending',
             subtitle:
                 'Keep it available. It is still recorded, not thrown away.',
@@ -439,7 +440,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
           ),
           _ChoiceTile(
             selected: _choice == _Choice.split,
-            icon: Icons.call_split,
+            icon: AppIcons.split,
             title: 'Split it',
             subtitle: 'Save part, keep the rest for spending.',
             onTap: () => setState(() => _choice = _Choice.split),
@@ -574,7 +575,9 @@ class _ChoiceTile extends StatelessWidget {
   });
 
   final bool selected;
-  final IconData icon;
+
+  /// The app's colored icon for the choice.
+  final String icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
@@ -602,7 +605,7 @@ class _ChoiceTile extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(icon, color: appPrimaryBlue),
+                Image.asset(icon, width: 28, height: 28),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

@@ -13,6 +13,7 @@ import '../services/wallet_service.dart';
 import '../utils/category_options.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/check_after_save.dart';
 import '../widgets/dialog_kit.dart';
@@ -518,11 +519,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
                       padding: const EdgeInsets.only(top: 6, left: 4),
                       child: Row(
                         children: [
-                          Icon(
-                            Icons.lightbulb_outline,
-                            size: 14,
-                            color: colors.textBody,
-                          ),
+                          Image.asset(AppIcons.idea, width: 16, height: 16),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(

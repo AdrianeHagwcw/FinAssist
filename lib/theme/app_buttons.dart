@@ -81,6 +81,17 @@ ButtonStyle dangerOutlineStyle(BuildContext context, {double height = 46}) {
   );
 }
 
+/// A green outlined button, for a secondary action that creates something,
+/// such as Create an account under Log In.
+ButtonStyle confirmOutlineStyle(BuildContext context, {double height = 46}) {
+  return OutlinedButton.styleFrom(
+    foregroundColor: confirmColorOn(context),
+    side: BorderSide(color: confirmColorOn(context).withValues(alpha: 0.6)),
+    minimumSize: Size(0, height),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  );
+}
+
 /// A blue outlined button, for a secondary action that only opens something.
 ButtonStyle openOutlineStyle(BuildContext context, {double height = 46}) {
   return OutlinedButton.styleFrom(

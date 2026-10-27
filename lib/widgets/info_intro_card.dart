@@ -6,11 +6,12 @@ class InfoIntroCard extends StatelessWidget {
   const InfoIntroCard({
     required this.title,
     required this.message,
-    this.icon,
+    this.iconAsset,
     super.key,
   });
 
-  final IconData? icon;
+  /// The app's colored icon for what the screen is about.
+  final String? iconAsset;
   final String title;
   final String message;
 
@@ -24,8 +25,8 @@ class InfoIntroCard extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (icon != null) ...[
-          Icon(icon, color: context.appColors.primaryText, size: 28),
+        if (iconAsset != null) ...[
+          Image.asset(iconAsset!, width: 32, height: 32),
           const SizedBox(height: 12),
         ],
         Text(
