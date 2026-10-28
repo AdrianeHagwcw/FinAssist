@@ -62,9 +62,9 @@ class LeftoverNotice extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   pending
-                      ? 'Still to decide: left from your ${cycle.source} period'
-                      : 'Left from your ${cycle.source} period. What should '
-                            'happen to it?',
+                      ? 'Still to decide: left from ${_monthName(cycle)}'
+                      : 'Left from ${_monthName(cycle)}. What should happen '
+                            'to it?',
                   style: TextStyle(fontSize: 12, color: colors.textBody),
                 ),
               ],
@@ -129,6 +129,7 @@ class LeftoverReviewScreen extends StatefulWidget {
     required this.cycle,
     required this.leftover,
     required this.periodEnd,
+    this.others = const [],
     this.onResolve,
     this.onSaving,
     this.wallets,
@@ -138,6 +139,9 @@ class LeftoverReviewScreen extends StatefulWidget {
 
   final AllocationCycle cycle;
   final double leftover;
+
+  /// The month's other incomes still undecided, closed by the same decision.
+  final List<AllocationCycle> others;
 
   /// The day after the period's last day.
   final DateTime periodEnd;
@@ -275,6 +279,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
           saved: saved,
           spent: spent,
           saving: saving,
+          others: widget.others,
         );
       } catch (_) {
         // Already settled somewhere else, or the amounts no longer add up.
@@ -392,7 +397,7 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Left from your ${widget.cycle.source}',
+                  'Left from ${_monthName(widget.cycle)}',
                   style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
                 const SizedBox(height: 10),
@@ -406,7 +411,8 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Money for ${formatShortDate(widget.cycle.receivedAt)} – '
+                  'What came in less what went out, '
+                  '${formatShortDate(periodOf(widget.cycle).start)} – '
                   '${formatShortDate(lastDay)}',
                   style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
@@ -645,4 +651,11 @@ class _ChoiceTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The month an income belongs to, as "Oct 2026": what is left is decided
+/// for the whole month.
+String _monthName(AllocationCycle cycle) {
+  final month = periodOf(cycle).start;
+  return '${formatMonthName(month)} ${month.year}';
 }

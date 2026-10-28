@@ -225,7 +225,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final span = count == 1
         ? 'This $unit, since your records start here'
         : 'The last $count ${unit}s';
-    return '$span. Tap a bar for its exact amount.';
+    return '$span.';
   }
 
   static DateTime _dayOf(DateTime date) =>
@@ -414,7 +414,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
         const SizedBox(height: 16),
         _Section(
-          title: 'Inflow vs. outflow',
+          title: 'Inflow vs. Outflow',
           subtitle: _trendSubtitle(points.length),
           child: _TrendChart(points: points),
         ),
@@ -446,8 +446,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
               const Padding(
                 padding: EdgeInsets.only(top: 2, bottom: 4),
                 child: Text(
-                  'Gemini receives aggregate totals only; transaction notes '
-                  'and identifiers are not sent.',
+                  'Only your totals go to Google\'s Gemini AI. Your notes '
+                  'and the details of each record are never sent.',
                   style: TextStyle(fontSize: 11, height: 1.35),
                 ),
               ),
@@ -541,9 +541,10 @@ class _SummaryGrid extends StatelessWidget {
       children: [
         Row(
           children: [
-            tile('Income', summary.income, green),
+            // The same words as Home and Transactions.
+            tile('Inflow', summary.income, green),
             const SizedBox(width: 10),
-            tile('Expenses', summary.expenses, red),
+            tile('Outflow', summary.expenses, red),
           ],
         ),
         const SizedBox(height: 10),
@@ -599,11 +600,19 @@ class _TrendChart extends StatelessWidget {
       );
     }
 
-    // Four or five round gridlines, with room above the tallest bar so it
-    // never touches the top.
+    // Four or five round gridlines, with room above the tallest bar for its
+    // amount, so it never runs off the top.
     final step = _niceStep(highest / 4);
-    final maxY = step * (highest * 1.1 / step).ceil();
+    final maxY = step * (highest * (masked ? 1.1 : 1.25) / step).ceil();
     final barWidth = points.length > 4 ? 12.0 : 18.0;
+    // Room between a period's two bars for each one's amount, so two of a
+    // like height never overlap.
+    final barsSpace = points.length <= 2 ? 26.0 : 12.0;
+
+    // Each bar's amount always shows on top of it, never only while held.
+    // Full amounts when there is room; short ones, like ₱1.5k, when not.
+    String amount(double value) =>
+        points.length <= 2 ? formatPeso(value) : formatPesoCompact(value);
 
     Widget key(String label, Color color) => Row(
       mainAxisSize: MainAxisSize.min,
@@ -649,11 +658,18 @@ class _TrendChart extends StatelessWidget {
                 for (var i = 0; i < points.length; i++)
                   BarChartGroupData(
                     x: i,
-                    barsSpace: 2,
+                    barsSpace: barsSpace,
                     barRods: [
                       rod(points[i].moneyIn, green),
                       rod(points[i].moneyOut, red),
                     ],
+                    // Each bar's amount on top of it. None for an empty
+                    // period, and none while amounts are hidden.
+                    showingTooltipIndicators:
+                        masked ||
+                            (points[i].moneyIn <= 0 && points[i].moneyOut <= 0)
+                        ? const []
+                        : const [0, 1],
                   ),
               ],
               gridData: FlGridData(
@@ -706,21 +722,23 @@ class _TrendChart extends StatelessWidget {
                   ),
                 ),
               ),
+              // Nothing to press: the labels are always there.
               barTouchData: BarTouchData(
+                enabled: false,
                 touchTooltipData: BarTouchTooltipData(
                   fitInsideHorizontally: true,
                   fitInsideVertically: true,
-                  tooltipBorderRadius: BorderRadius.circular(8),
-                  tooltipBorder: BorderSide(color: colors.border),
-                  getTooltipColor: (_) => colors.card,
+                  tooltipPadding: EdgeInsets.zero,
+                  tooltipMargin: 4,
+                  getTooltipColor: (_) => Colors.transparent,
+                  // The bar's own amount, in the plain text color, as a
+                  // chart's data labels are.
                   getTooltipItem: (group, groupIndex, rod, rodIndex) =>
                       BarTooltipItem(
-                        '${points[groupIndex].label} · '
-                        '${rodIndex == 0 ? 'In' : 'Out'}\n'
-                        '${formatPeso(rod.toY, masked: masked)}',
+                        amount(rod.toY),
                         TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
                           color: colors.textPrimary,
                         ),
                       ),

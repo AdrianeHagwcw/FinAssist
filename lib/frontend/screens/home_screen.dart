@@ -2,7 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../backend/models/allocation.dart';
+import '../../backend/models/cycle_history.dart';
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/bill.dart';
 import '../../backend/models/dashboard_tip.dart';
@@ -537,25 +537,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _leftoverNotice(BuildContext context, SafeToSpendInputs inputs) {
-    final cycle = cycleAwaitingReview(inputs.cycles, now: philippineNow());
-    if (cycle == null) return const SizedBox.shrink();
-
-    final period = periodOf(cycle);
-    final leftover = leftoverOf(
-      cycle,
+    // The newest month that is over with what is left still undecided: what
+    // came in less what went out, from the actual records.
+    final now = philippineNow();
+    final month = monthFlows(
+      inputs.cycles,
       inputs.transactions,
-      others: inputs.cycles,
-    );
-    if (leftover <= 0) return const SizedBox.shrink();
+    ).where((flow) => flow.awaitingDecision(now)).firstOrNull;
+    if (month == null || month.leftToDecide <= 0) {
+      return const SizedBox.shrink();
+    }
+    final undecided = newestCycles(month.undecided);
 
     return LeftoverNotice(
-      cycle: cycle,
-      leftover: leftover,
+      cycle: undecided.first,
+      leftover: month.leftToDecide,
       onReview: () => _push(
         LeftoverReviewScreen(
-          cycle: cycle,
-          leftover: leftover,
-          periodEnd: period.end,
+          cycle: undecided.first,
+          leftover: month.leftToDecide,
+          periodEnd: month.period.end,
+          others: undecided.skip(1).toList(),
         ),
       ),
     );

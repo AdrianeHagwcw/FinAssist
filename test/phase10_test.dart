@@ -12,7 +12,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:testapp/backend/models/allocation.dart';
 import 'package:testapp/backend/models/app_transaction.dart';
-import 'package:testapp/backend/models/cycle_history.dart';
 import 'package:testapp/backend/models/expense_category_preferences.dart';
 import 'package:testapp/backend/models/goal.dart';
 import 'package:testapp/backend/models/wallet.dart';
@@ -23,7 +22,6 @@ import 'package:testapp/frontend/screens/history_screen.dart';
 import 'package:testapp/frontend/screens/income_waterfall_screen.dart';
 import 'package:testapp/frontend/screens/leftover_review_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
-import 'package:testapp/backend/utils/money_format.dart';
 import 'package:testapp/backend/utils/categories.dart';
 import 'package:testapp/backend/utils/date_format.dart';
 import 'package:testapp/frontend/widgets/category_icon.dart';
@@ -153,36 +151,6 @@ void main() {
     expect(periodOf(record).end, DateTime(2026, 9, 1));
   });
 
-  test('cycle statuses distinguish open, reviewable and resolved periods', () {
-    final now = DateTime(2026, 9, 18);
-    expect(
-      cycleStatus(cycle('new', DateTime(2026, 9, 17)), now),
-      CycleStatus.active,
-    );
-    expect(
-      cycleStatus(cycle('last', DateTime(2026, 8, 19)), now),
-      CycleStatus.pending,
-    );
-    expect(
-      cycleStatus(cycle('old', DateTime(2026, 7, 1)), now),
-      CycleStatus.pending,
-    );
-    expect(
-      cycleStatus(
-        cycle('saved', DateTime(2026, 7, 1), decision: LeftoverDecision.saved),
-        now,
-      ),
-      CycleStatus.done,
-    );
-    expect(
-      cycleStatus(
-        cycle('spend', DateTime(2026, 7, 1), decision: LeftoverDecision.spent),
-        now,
-      ),
-      CycleStatus.declined,
-    );
-  });
-
   test('hiding a category keeps Others and the original labels', () {
     final prefs = ExpenseCategoryPreferences.fromMap({
       // Added before the list was fixed; it still shows and can be hidden.
@@ -291,19 +259,33 @@ void main() {
     expect(settings.categories.availableCategories, isNot(contains('Hobbies')));
   });
 
+  // The income record each planned income was saved with.
+  AppTransaction incomeOf(AllocationCycle cycle) => AppTransaction(
+    id: '${cycle.id}-in',
+    type: TransactionType.income,
+    amount: cycle.income,
+    label: cycle.source,
+    date: cycle.receivedAt,
+    walletId: 'cash',
+  );
+
   for (final dark in [false, true]) {
     testWidgets(
-      'history sorts, filters and opens correct pending cycle ($dark)',
+      'history lists months newest first and opens a finished month ($dark)',
       (tester) async {
         AllocationCycle? reviewed;
         double? amount;
         final old = cycle('August salary', DateTime(2026, 8, 1));
+        final current = cycle('September salary', DateTime(2026, 9, 15));
         await pumpScreen(
           tester,
           HistoryScreen(
             today: DateTime(2026, 9, 18),
             profile: Stream.value({'incomeFrequency': 'Monthly'}),
+            wallets: Stream.value(const []),
             transactions: Stream.value([
+              incomeOf(old),
+              incomeOf(current),
               AppTransaction(
                 id: 'expense',
                 type: TransactionType.expense,
@@ -312,10 +294,7 @@ void main() {
                 date: DateTime(2026, 8, 3),
               ),
             ]),
-            cycles: Stream.value([
-              old,
-              cycle('September salary', DateTime(2026, 9, 15)),
-            ]),
+            cycles: Stream.value([old, current]),
             onReview: (c, left, _) {
               reviewed = c;
               amount = left;
@@ -323,47 +302,50 @@ void main() {
           ),
           dark: dark,
         );
-        expect(find.text('September salary'), findsOneWidget);
-        await tester.tap(find.text('Needs a decision (1)'));
-        await tester.pumpAndSettle();
-        expect(find.text('September salary'), findsNothing);
-        expect(find.text('August salary'), findsOneWidget);
-        expect(find.text('Needs a decision'), findsOneWidget);
+        final september = tester.getTopLeft(find.text('Sep 2026')).dy;
+        final august = tester.getTopLeft(find.text('Aug 2026')).dy;
+        expect(september, lessThan(august));
+        // September is still under way: nothing to decide yet.
+        expect(find.byKey(const Key('decide-2026-9')), findsNothing);
         await capture(tester, dark ? 'history-dark' : 'history-light');
-        await scrollTo(tester, find.text('Decide what is left'));
+        await scrollTo(tester, find.byKey(const Key('decide-2026-8')));
         await capture(
           tester,
           dark ? 'history-review-dark' : 'history-review-light',
         );
-        await tester.tap(find.text('Decide what is left'));
+        await tester.tap(find.byKey(const Key('decide-2026-8')));
         expect(reviewed?.id, old.id);
-        expect(amount, 8800);
+        // ₱18,000 in, ₱1,200 out, less the ₱2,000 already kept for a goal.
+        expect(amount, 14800);
         expect(tester.takeException(), isNull);
       },
     );
   }
 
-  testWidgets('resolved history uses recorded leftover and respects masking', (
+  testWidgets('a decided month says what was done, and respects masking', (
     tester,
   ) async {
+    final july = cycle(
+      'July',
+      DateTime(2026, 7, 1),
+      decision: LeftoverDecision.saved,
+    );
     final settings = AppSettingsProvider()..toggleAmountsMasked();
     await pumpScreen(
       tester,
       HistoryScreen(
         profile: Stream.value({'incomeFrequency': 'Monthly'}),
-        transactions: Stream.value(const []),
-        cycles: Stream.value([
-          cycle('July', DateTime(2026, 7, 1), decision: LeftoverDecision.saved),
-        ]),
+        wallets: Stream.value(const []),
+        transactions: Stream.value([incomeOf(july)]),
+        cycles: Stream.value([july]),
       ),
       settings: settings,
     );
-    expect(find.text('Done'), findsOneWidget);
-    expect(find.text('Decide what is left'), findsNothing);
-    expect(find.text(formatPeso(18000)), findsNothing);
+    expect(find.textContaining('Decide what to do'), findsNothing);
+    expect(find.text('You saved ₱3,000 of what was left.'), findsNothing);
     settings.toggleAmountsMasked();
     await tester.pumpAndSettle();
-    expect(find.text(formatPeso(3000)), findsWidgets);
+    expect(find.text('You saved ₱3,000 of what was left.'), findsOneWidget);
   });
 
   testWidgets('history has distinct empty and failed states', (tester) async {
@@ -371,6 +353,7 @@ void main() {
       tester,
       HistoryScreen(
         profile: Stream.value({}),
+        wallets: Stream.value(const []),
         transactions: Stream.value(const []),
         cycles: Stream.value(const []),
       ),
@@ -381,6 +364,7 @@ void main() {
       HistoryScreen(
         key: UniqueKey(),
         profile: Stream.value({}),
+        wallets: Stream.value(const []),
         transactions: Stream.value(const []),
         cycles: Stream.error(StateError('offline and uncached')),
       ),
@@ -650,7 +634,12 @@ void main() {
       tester,
       HistoryScreen(
         profile: Stream.value({'incomeFrequency': 'Monthly'}),
-        transactions: Stream.value(const []),
+        wallets: Stream.value(const []),
+        transactions: Stream.value([
+          incomeOf(
+            cycle('A longer freelance income source', DateTime(2026, 7, 1)),
+          ),
+        ]),
         cycles: Stream.value([
           cycle('A longer freelance income source', DateTime(2026, 7, 1)),
         ]),
@@ -659,7 +648,10 @@ void main() {
       width: 320,
       textScale: 1.5,
     );
-    await tester.scrollUntilVisible(find.text('Decide what is left'), 250);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('decide-2026-7')),
+      250,
+    );
     expect(tester.takeException(), isNull);
   });
 }

@@ -418,6 +418,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       goals: _allGoals,
       target: _income,
       matchTarget: true,
+      allowBoth: false,
     );
   }
 
@@ -434,6 +435,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           target: _plan.toBills,
           matchTarget: true,
           adding: _incomeSplit,
+          allowBoth: false,
         );
 
   /// Goal money must stay in wallets that still have it after the bills.
@@ -657,6 +659,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             question: 'Where did it go?',
             target: _income,
             matchTarget: true,
+            // Income lands in cash on hand or the bank, not part of each.
+            allowBoth: false,
             initialAmounts: _incomeSplit,
             totalLabel: 'Received',
             onChanged: (amounts) => setState(() => _incomeSplit = amounts),
@@ -766,6 +770,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             target: plan.toBills,
             matchTarget: true,
             withFees: true,
+            // Bills are paid from cash on hand or the bank, not both.
+            allowBoth: false,
             adding: _incomeSplit,
             initialAmounts: _billsFrom,
             totalLabel: 'Paying bills',

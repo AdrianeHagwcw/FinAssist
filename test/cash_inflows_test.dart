@@ -4,143 +4,124 @@ import 'package:provider/provider.dart';
 
 import 'package:testapp/backend/models/allocation.dart';
 import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/cycle_history.dart';
 import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/frontend/providers/app_settings_provider.dart';
 import 'package:testapp/frontend/screens/history_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
 
-AllocationCycle income(
+AllocationCycle planned(
   String id,
   DateTime at, {
-  double amount = 10000,
-  double toBills = 0,
-  List<String> paid = const [],
+  double amount = 1000,
+  double toGoal = 0,
+  LeftoverDecision? decision,
+  double saved = 0,
 }) => AllocationCycle(
   id: id,
   income: amount,
-  toBills: toBills,
-  remaining: amount - toBills,
+  toGoal: toGoal,
+  remaining: amount - toGoal,
   receivedAt: at,
   source: id,
-  incomeTransactionIds: ['$id-in'],
-  planPaymentIds: paid,
+  decision: decision,
+  savedAmount: saved,
 );
 
-AppTransaction out(
+AppTransaction record(
+  String id,
+  TransactionType type,
   double amount,
   DateTime at, {
-  String id = '',
-  String? billInstanceId,
+  String label = 'Food',
   String? debtId,
-  TransactionType type = TransactionType.expense,
 }) => AppTransaction(
-  id: id.isEmpty ? 'out-$amount-$at' : id,
+  id: id,
   type: type,
   amount: amount,
-  label: 'Food',
+  label: label,
   date: at,
   walletId: 'cash',
-  billInstanceId: billInstanceId,
   debtId: debtId,
 );
 
 void main() {
-  group('what was spent out of each income', () {
-    test('the earliest money is used first, and nothing is counted twice', () {
-      // A ₱10,000 salary on the 1st, a ₱500 refund on the 3rd; ₱2,000
-      // spent on the 10th comes out of the salary, not the refund.
-      final spent = spendingByCycle(
+  group('a month of actual records', () {
+    test('money in, money out, and what is left', () {
+      final months = monthFlows(
+        [planned('Salary', DateTime(2026, 10, 27))],
         [
-          income('salary', DateTime(2026, 10, 1, 9)),
-          income('refund', DateTime(2026, 10, 3, 9), amount: 500),
-        ],
-        [out(2000, DateTime(2026, 10, 10))],
-      );
-      expect(spent, {'salary': 2000, 'refund': 0});
-    });
-
-    test('once one income is used up, the next one pays', () {
-      final spent = spendingByCycle(
-        [
-          income('allowance', DateTime(2026, 10, 1), amount: 1000),
-          income('salary', DateTime(2026, 10, 5)),
-        ],
-        [out(1500, DateTime(2026, 10, 6))],
-      );
-      expect(spent, {'allowance': 1000, 'salary': 500});
-    });
-
-    test('only money that had already come in pays', () {
-      final spent = spendingByCycle(
-        [
-          income('allowance', DateTime(2026, 10, 1), amount: 1000),
-          income('salary', DateTime(2026, 10, 15)),
-        ],
-        [
-          // Before the salary arrived: the allowance, then more than it had.
-          out(1500, DateTime(2026, 10, 5)),
-          // Before any income this month: paid from older money.
-          out(300, DateTime(2026, 9, 30)),
-        ],
-      );
-      expect(spent, {'allowance': 1500, 'salary': 0});
-    });
-
-    test('spending earlier on the day it came in does not count', () {
-      final spent = spendingByCycle(
-        [income('salary', DateTime(2026, 10, 27, 16, 46))],
-        [
-          out(30, DateTime(2026, 10, 27, 11)),
-          out(120, DateTime(2026, 10, 27, 16, 58)),
-        ],
-      );
-      expect(spent, {'salary': 120});
-    });
-
-    test('bills paid when it was logged are not counted again; later ones '
-        'are', () {
-      final spent = spendingByCycle(
-        [
-          income(
+          record(
             'salary',
-            DateTime(2026, 10, 1),
-            toBills: 2000,
-            paid: ['plan-bill'],
+            TransactionType.income,
+            1000,
+            DateTime(2026, 10, 27),
+            label: 'Salary',
           ),
-        ],
-        [
-          out(
-            2000,
-            DateTime(2026, 10, 1),
-            id: 'plan-bill',
-            billInstanceId: 'b',
+          record(
+            'sold',
+            TransactionType.income,
+            500,
+            DateTime(2026, 10, 28),
+            label: 'Sold Something',
           ),
-          out(1500, DateTime(2026, 10, 12), billInstanceId: 'c'),
+          record('food', TransactionType.expense, 120, DateTime(2026, 10, 28)),
+          record('jeep', TransactionType.expense, 30, DateTime(2026, 10, 27)),
         ],
       );
-      expect(spent, {'salary': 1500});
+
+      final october = months.single;
+      expect(october.totalIn, 1500);
+      expect(october.totalOut, 150);
+      expect(october.left, 1350);
+      expect(october.moneyIn.map((t) => t.id), ['sold', 'salary']);
     });
 
-    test('transfers and borrowed or lent money are not spending', () {
-      final spent = spendingByCycle(
-        [income('salary', DateTime(2026, 10, 1))],
-        [
-          out(500, DateTime(2026, 10, 2), type: TransactionType.transfer),
-          out(700, DateTime(2026, 10, 3), debtId: 'ana'),
-        ],
-      );
-      expect(spent, {'salary': 0});
+    test('transfers and borrowed or lent money are neither', () {
+      final october = monthFlows(const [], [
+        record('in', TransactionType.income, 1000, DateTime(2026, 10, 1)),
+        record('move', TransactionType.transfer, 400, DateTime(2026, 10, 2)),
+        record(
+          'lent',
+          TransactionType.expense,
+          300,
+          DateTime(2026, 10, 3),
+          debtId: 'ana',
+        ),
+      ]).single;
+      expect(october.totalIn, 1000);
+      expect(october.totalOut, 0);
     });
 
-    test('a new month starts fresh', () {
-      final spent = spendingByCycle(
-        [
-          income('september', DateTime(2026, 9, 1)),
-          income('october', DateTime(2026, 10, 1)),
-        ],
-        [out(400, DateTime(2026, 10, 2))],
-      );
-      expect(spent, {'september': 0, 'october': 400});
+    test('months follow Philippine time', () {
+      // 4:30 PM on Oct 31 in London is 12:30 AM on Nov 1 in Manila.
+      final months = monthFlows(const [], [
+        record(
+          'late',
+          TransactionType.income,
+          100,
+          DateTime.utc(2026, 10, 31, 16, 30),
+        ),
+      ]);
+      expect(months.single.month, DateTime(2026, 11));
+    });
+
+    test('goal money already saved is not offered again at month end', () {
+      final october = monthFlows(
+        [planned('Salary', DateTime(2026, 10, 1), toGoal: 300)],
+        [record('in', TransactionType.income, 1000, DateTime(2026, 10, 1))],
+      ).single;
+      expect(october.left, 1000);
+      expect(october.leftToDecide, 700);
+    });
+
+    test('the decision waits for the month to end', () {
+      final october = monthFlows(
+        [planned('Salary', DateTime(2026, 10, 1))],
+        [record('in', TransactionType.income, 1000, DateTime(2026, 10, 1))],
+      ).single;
+      expect(october.awaitingDecision(DateTime(2026, 10, 20)), isFalse);
+      expect(october.awaitingDecision(DateTime(2026, 10, 31)), isTrue);
     });
   });
 
@@ -149,8 +130,10 @@ void main() {
       WidgetTester tester, {
       required List<AllocationCycle> cycles,
       required List<AppTransaction> transactions,
+      DateTime? today,
+      void Function(AllocationCycle, double, DateTime)? onReview,
     }) async {
-      tester.view.physicalSize = const Size(420, 2400);
+      tester.view.physicalSize = const Size(420, 2600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -160,9 +143,10 @@ void main() {
           child: MaterialApp(
             theme: AppTheme.light,
             home: HistoryScreen(
-              today: DateTime(2026, 10, 28),
+              today: today ?? DateTime(2026, 10, 28),
               cycles: Stream.value(cycles),
               transactions: Stream.value(transactions),
+              onReview: onReview,
               wallets: Stream.value(const [
                 Wallet(
                   id: 'cash',
@@ -182,98 +166,113 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('lists interest too, so the month adds up to Inflow', (
+    final october = [
+      record(
+        'salary',
+        TransactionType.income,
+        1000,
+        DateTime(2026, 10, 27),
+        label: 'Salary',
+      ),
+      record(
+        'interest',
+        TransactionType.income,
+        12,
+        DateTime(2026, 10, 15),
+        label: 'Interest',
+      ),
+      record('food', TransactionType.expense, 120, DateTime(2026, 10, 28)),
+    ];
+
+    testWidgets('shows the totals, then every income and every expense', (
       tester,
     ) async {
       await pump(
         tester,
-        cycles: [income('Salary', DateTime(2026, 10, 27), amount: 1000)],
-        transactions: [
-          AppTransaction(
-            id: 'Salary-in',
-            type: TransactionType.income,
-            amount: 1000,
-            label: 'Salary',
-            date: DateTime(2026, 10, 27),
-            walletId: 'cash',
-          ),
-          AppTransaction(
-            id: 'interest',
-            type: TransactionType.income,
-            amount: 12,
-            label: 'Interest',
-            date: DateTime(2026, 10, 15),
-            walletId: 'bank',
-            note: 'Interest from BDO',
-          ),
-          out(150, DateTime(2026, 10, 27, 12)),
-        ],
+        cycles: [planned('Salary', DateTime(2026, 10, 27))],
+        transactions: october,
       );
 
       expect(find.text('Oct 2026'), findsOneWidget);
-      expect(find.text('2 inflows'), findsOneWidget);
-      expect(find.text('Total came in'), findsOneWidget);
       expect(find.text('+₱1,012'), findsOneWidget);
+      expect(find.text('-₱120'), findsNWidgets(2));
+      expect(find.text('₱892'), findsOneWidget);
+      expect(find.text('Money in (2)'), findsOneWidget);
       expect(find.text('Salary'), findsOneWidget);
-      expect(find.text('+₱1,000'), findsOneWidget);
       expect(find.text('Interest'), findsOneWidget);
-      expect(find.text('+₱12'), findsOneWidget);
-      // ₱150 spent out of the salary, ₱850 left of it.
-      expect(find.text('₱150'), findsOneWidget);
-      expect(find.text('₱850'), findsOneWidget);
-      expect(find.text('In progress'), findsOneWidget);
+      expect(find.text('Money out (1)'), findsOneWidget);
+      // Actual records only: no status for a month still under way.
+      expect(find.text('In progress'), findsNothing);
+      expect(find.textContaining('Decide what to do'), findsNothing);
     });
 
-    testWidgets('a card opens to every payment taken out of it', (
+    testWidgets('at month end, one decision for the month', (tester) async {
+      AllocationCycle? decidedOn;
+      double? left;
+      await pump(
+        tester,
+        cycles: [planned('Salary', DateTime(2026, 10, 27))],
+        transactions: october,
+        today: DateTime(2026, 10, 31),
+        onReview: (cycle, amount, _) {
+          decidedOn = cycle;
+          left = amount;
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('decide-2026-10')));
+      expect(decidedOn?.id, 'Salary');
+      expect(left, 892);
+    });
+
+    testWidgets('a decided month says what was done', (tester) async {
+      await pump(
+        tester,
+        cycles: [
+          planned(
+            'Salary',
+            DateTime(2026, 9, 2),
+            decision: LeftoverDecision.saved,
+            saved: 500,
+          ),
+        ],
+        transactions: [
+          record(
+            'in',
+            TransactionType.income,
+            1000,
+            DateTime(2026, 9, 2),
+            label: 'Salary',
+          ),
+        ],
+      );
+
+      expect(find.text('You saved ₱500 of what was left.'), findsOneWidget);
+    });
+
+    testWidgets('a long month shows its first expenses, then all', (
       tester,
     ) async {
       await pump(
         tester,
-        cycles: [
-          income('Allowance', DateTime(2026, 10, 1), amount: 1000),
-          income('Salary', DateTime(2026, 10, 5)),
-        ],
+        cycles: const [],
         transactions: [
-          AppTransaction(
-            id: 'Salary-in',
-            type: TransactionType.income,
-            amount: 10000,
-            label: 'Salary',
-            date: DateTime(2026, 10, 5),
-            walletId: 'cash',
-          ),
-          // ₱1,000 of it from the allowance, the other ₱500 from the salary.
-          out(1500, DateTime(2026, 10, 6)),
-          out(200, DateTime(2026, 10, 7)),
+          record('in', TransactionType.income, 5000, DateTime(2026, 10, 1)),
+          for (var day = 2; day <= 9; day++)
+            record(
+              'out$day',
+              TransactionType.expense,
+              10,
+              DateTime(2026, 10, day),
+            ),
         ],
       );
 
-      await tester.tap(find.byKey(const Key('inflow-open-Salary')));
+      expect(find.text('Money out (8)'), findsOneWidget);
+      expect(find.text('-₱10'), findsNWidgets(5));
+      await tester.tap(find.byKey(const Key('show-all-2026-10')));
       await tester.pumpAndSettle();
-
-      expect(find.text('Went into'), findsOneWidget);
-      expect(find.text('Cash'), findsOneWidget);
-      expect(find.text('Spent out of it'), findsOneWidget);
-      expect(find.text('2 payments'), findsOneWidget);
-      expect(find.text('-₱500'), findsOneWidget);
-      expect(find.text('of ₱1,500'), findsOneWidget);
-      expect(find.text('-₱200'), findsOneWidget);
-      // The card itself, without the arrow that opens it.
-      expect(find.text('₱700'), findsWidgets);
-      expect(find.byIcon(Icons.chevron_right), findsNothing);
-    });
-
-    testWidgets('says when more went out than an income had', (tester) async {
-      await pump(
-        tester,
-        cycles: [income('Allowance', DateTime(2026, 10, 1), amount: 1000)],
-        transactions: [out(1300, DateTime(2026, 10, 2))],
-      );
-
-      expect(
-        find.text('₱300 more went out than this income had'),
-        findsOneWidget,
-      );
+      expect(find.text('-₱10'), findsNWidgets(8));
     });
   });
 }

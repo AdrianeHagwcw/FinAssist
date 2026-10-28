@@ -116,6 +116,7 @@ class _PayoffSheetState extends State<PayoffSheet>
       goals: heldGoals,
       target: _amount,
       matchTarget: true,
+      allowBoth: false,
     );
   }
 
@@ -297,6 +298,8 @@ class _PayoffSheetState extends State<PayoffSheet>
                     purpose: SplitPurpose.paying,
                     target: _amount,
                     matchTarget: true,
+                    // Like any bill: from cash on hand or the bank, not both.
+                    allowBoth: false,
                     onChanged: (amounts) => setState(() => _amounts = amounts),
                   ),
                   if (error != null) ...[

@@ -55,12 +55,16 @@ class BudgetService {
   /// counting as spending money the moment the cycle is marked saved: to a
   /// goal, whose money stays in the wallets it is in, or into a savings
   /// account, moved out of those wallets.
+  ///
+  /// The decision is for the whole month: [others], the month's other
+  /// incomes still undecided, are closed with it, with nothing of their own.
   static void resolveLeftover({
     required AllocationCycle cycle,
     required LeftoverDecision decision,
     double saved = 0,
     double spent = 0,
     LeftoverSaving? saving,
+    Iterable<AllocationCycle> others = const [],
   }) {
     if (cycle.isResolved) {
       throw StateError('This cycle has already been reviewed.');
@@ -79,6 +83,15 @@ class BudgetService {
       'leftoverSpent': spent,
       'leftoverDecidedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    for (final other in others) {
+      if (other.id == cycle.id || other.isResolved) continue;
+      batch.set(_profile.collection('allocationCycles').doc(other.id), {
+        'leftoverDecision': decision.name,
+        'leftoverSaved': 0,
+        'leftoverSpent': 0,
+        'leftoverDecidedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
 
     if (saved > 0 && saving != null) {
       final now = DateTime.now();

@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:testapp/main.dart';
 import 'package:testapp/backend/models/allocation.dart';
+import 'package:testapp/backend/models/cycle_history.dart';
 import 'package:testapp/backend/models/app_transaction.dart';
 import 'package:testapp/backend/models/bill.dart';
 import 'package:testapp/backend/models/debt.dart';
@@ -5232,7 +5234,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('asks where it went: cash on hand, cash in bank or both', (
+    testWidgets('asks where it went: cash on hand or cash in bank', (
       tester,
     ) async {
       await pumpWaterfall(tester, wallets: [cash, gcash]);
@@ -5240,7 +5242,8 @@ void main() {
       expect(find.text('Where did it go?'), findsOneWidget);
       expect(find.text('Cash on Hand'), findsOneWidget);
       expect(find.text('Cash in Bank'), findsOneWidget);
-      expect(find.text('Both'), findsOneWidget);
+      // One income lands on one side, so it has one clear source.
+      expect(find.text('Both'), findsNothing);
     });
 
     testWidgets('with no wallet yet, one can be added', (tester) async {
@@ -5363,11 +5366,9 @@ void main() {
 
       await tester.enterText(find.byType(TextField).first, '2000');
       await pickSource(tester, 'Allowance');
-      await tester.tap(find.text('Both'));
+      await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
-      // All of it starts in the cash, ready to be split.
-      await tester.enterText(find.byKey(const Key('goes-to-w1')), '1500');
-      await tester.enterText(find.byKey(const Key('goes-to-w2')), '700');
+      await tester.enterText(find.byKey(const Key('goes-to-w2')), '2200');
       await tester.pumpAndSettle();
 
       // More than came in is refused.
@@ -5375,13 +5376,13 @@ void main() {
       expect(find.text('That is ₱200 more than ₱2,000.'), findsWidgets);
       expect(find.text('Step 1 of 2'), findsOneWidget);
 
-      await tester.enterText(find.byKey(const Key('goes-to-w2')), '500');
+      await tester.enterText(find.byKey(const Key('goes-to-w2')), '2000');
       await tester.pumpAndSettle();
       await next(tester);
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
 
-      expect(income, {'w1': 1500, 'w2': 500});
+      expect(income, {'w2': 2000});
     });
 
     testWidgets('with no bills it goes straight to what is left', (
@@ -5632,7 +5633,7 @@ void main() {
       await pumpWaterfall(
         tester,
         wallets: [cash, gcash],
-        bills: [bill('Rent', 3000)],
+        bills: [bill('Rent', 2000)],
       );
 
       await fillIncome(tester, '1000');
@@ -5645,15 +5646,16 @@ void main() {
       // The cash has its ₱500 and the ₱1,000 that just came in: no more.
       await tester.tap(find.text('Cash on Hand'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('pay-from-w1')), '3000');
+      await tester.enterText(find.byKey(const Key('pay-from-w1')), '2000');
       await tester.pumpAndSettle();
       expect(find.textContaining('Only ₱1,500 in Cash is free'), findsWidgets);
 
-      // The rest from GCash, from money already there.
-      await tester.tap(find.text('Both'));
+      // Bills are paid from one side, never part of each: all of it from
+      // the bank, from money already there.
+      expect(find.text('Both'), findsNothing);
+      await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('pay-from-w1')), '1500');
-      await tester.enterText(find.byKey(const Key('pay-from-w2')), '1500');
+      await tester.enterText(find.byKey(const Key('pay-from-w2')), '2000');
       await tester.pumpAndSettle();
       await next(tester);
 
@@ -6693,7 +6695,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('asks cash on hand, cash in bank or both, then fills it in', (
+    testWidgets('asks cash on hand or cash in bank, then fills it in', (
       tester,
     ) async {
       await pumpSheet(tester);
@@ -6789,7 +6791,7 @@ void main() {
       expect(paid?.single.serviceCharge, 10);
     });
 
-    testWidgets('one bill can be paid partly in cash and partly by bank', (
+    testWidgets('a bill is paid from cash or the bank, never part of each', (
       tester,
     ) async {
       final little = Wallet(
@@ -6809,23 +6811,30 @@ void main() {
         onPay: (parts) => paid = parts,
       );
 
-      await tester.tap(find.text('Both'));
+      // One payment, one clear source: no Both.
+      expect(find.text('Both'), findsNothing);
+      await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
-      // The cash gives all it has; the bank the rest.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('pay-from-w1')),
-          matching: find.text('1000'),
-        ),
-        findsOne,
-      );
-      await tester.enterText(find.byKey(const Key('pay-from-w2')), '2000');
+      await tester.enterText(find.byKey(const Key('pay-from-w2')), '3000');
       await tester.pumpAndSettle();
       await pay(tester);
 
       expect(
         {for (final part in paid!) part.walletId: part.amount},
-        {'w1': 1000, 'w2': 2000},
+        {'w2': 3000},
+      );
+      // Mixing the two is refused even if it got that far.
+      expect(
+        walletSplitProblem(
+          purpose: SplitPurpose.paying,
+          amounts: const {'w1': 1000, 'w2': 2000},
+          wallets: [little, gcash],
+          goals: const [],
+          target: 3000,
+          matchTarget: true,
+          allowBoth: false,
+        ),
+        'Choose Cash on Hand or Cash in Bank, not both.',
       );
     });
 
@@ -8218,30 +8227,42 @@ void main() {
       );
     });
 
-    test("the leftover is what bills left, less the month's spending", () {
-      final c = cycle(remaining: 2000);
+    test("what is left is the month's money in less its money out", () {
+      final months = monthFlows(
+        [cycle()],
+        [
+          AppTransaction(
+            id: 'in',
+            type: TransactionType.income,
+            amount: 2000,
+            label: 'Allowance',
+            date: DateTime(2026, 3, 1),
+            walletId: 'w',
+          ),
+          AppTransaction(
+            id: 'a',
+            type: TransactionType.expense,
+            amount: 700,
+            label: 'Food',
+            date: DateTime(2026, 3, 6),
+            walletId: 'w',
+          ),
+          AppTransaction(
+            id: 'late',
+            type: TransactionType.expense,
+            amount: 5000,
+            label: 'Food',
+            // April's, not March's.
+            date: DateTime(2026, 4, 2),
+            walletId: 'w',
+          ),
+        ],
+      );
 
-      final leftover = leftoverOf(c, [
-        AppTransaction(
-          id: 'a',
-          type: TransactionType.expense,
-          amount: 700,
-          label: 'Food',
-          date: DateTime(2026, 3, 6),
-          walletId: 'w',
-        ),
-        AppTransaction(
-          id: 'late',
-          type: TransactionType.expense,
-          amount: 5000,
-          label: 'Food',
-          // April's, not March's.
-          date: DateTime(2026, 4, 2),
-          walletId: 'w',
-        ),
-      ]);
-
-      expect(leftover, 1300);
+      // April has no money in, so only March is an inflow month.
+      expect(months, hasLength(1));
+      expect(months.single.left, 1300);
+      expect(months.single.leftToDecide, 1300);
     });
 
     Future<void> pumpReview(
@@ -11607,13 +11628,42 @@ void main() {
       tester,
     ) async {
       await pumpReports(tester);
-      final trendTitle = find.text('Inflow vs. outflow');
+      final trendTitle = find.text('Inflow vs. Outflow');
       await tester.ensureVisible(trendTitle);
       expect(trendTitle, findsOneWidget);
-      expect(find.text('Inflow'), findsOneWidget);
-      expect(find.text('Outflow'), findsOneWidget);
+      // The top boxes and the chart's key use the same two words.
+      expect(find.text('Inflow'), findsNWidgets(2));
+      expect(find.text('Outflow'), findsNWidgets(2));
+      expect(find.text('Income'), findsNothing);
+      expect(find.text('Expenses'), findsNothing);
       expect(find.text('Inward'), findsNothing);
       expect(find.text('Outward'), findsNothing);
+    });
+
+    testWidgets('the bar amounts always show, with nothing to press', (
+      tester,
+    ) async {
+      await pumpReports(tester);
+      final chart = tester.widget<BarChart>(find.byType(BarChart));
+
+      // Pressing does nothing: the amounts are already there.
+      expect(chart.data.barTouchData.enabled, isFalse);
+      // Every period with money in or out has an amount on top of each of
+      // its two bars.
+      for (final group in chart.data.barGroups) {
+        final inflow = group.barRods[0].toY;
+        final outflow = group.barRods[1].toY;
+        expect(
+          group.showingTooltipIndicators,
+          inflow <= 0 && outflow <= 0 ? isEmpty : [0, 1],
+        );
+      }
+      expect(
+        chart.data.barGroups.any(
+          (group) => group.showingTooltipIndicators.isNotEmpty,
+        ),
+        isTrue,
+      );
     });
 
     /// The tappable row for a category, found inside the legend so a mention

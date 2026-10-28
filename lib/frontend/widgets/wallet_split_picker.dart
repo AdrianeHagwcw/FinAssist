@@ -121,10 +121,13 @@ String? splitTotalProblem(
   double total, {
   required double target,
   required bool matchTarget,
+  bool allowBoth = true,
 }) {
   if (total <= 0) {
     return target > 0
-        ? 'Choose Cash on Hand, Cash in Bank or Both, then enter how much.'
+        ? allowBoth
+              ? 'Choose Cash on Hand, Cash in Bank or Both, then enter how much.'
+              : 'Choose Cash on Hand or Cash in Bank, then enter how much.'
         : null;
   }
   if (target <= 0) return null;
@@ -153,6 +156,7 @@ String? walletSplitProblem({
   Map<String, double> adding = const {},
   Map<String, double>? limits,
   String Function(Wallet wallet, double room)? tooMuchMessage,
+  bool allowBoth = true,
 }) {
   if (purpose == SplitPurpose.goal) {
     return goalFundingProblem(
@@ -164,6 +168,16 @@ String? walletSplitProblem({
   }
 
   final byId = {for (final wallet in wallets) wallet.id: wallet};
+  // One payment or income, one side: never part cash and part bank.
+  if (!allowBoth) {
+    final used = [
+      for (final entry in amounts.entries)
+        if (entry.value > 0) ?byId[entry.key],
+    ];
+    if (used.any(isCashOnHand) && used.any((w) => !isCashOnHand(w))) {
+      return 'Choose Cash on Hand or Cash in Bank, not both.';
+    }
+  }
   var total = 0.0;
   for (final entry in amounts.entries) {
     final amount = entry.value;
@@ -193,7 +207,12 @@ String? walletSplitProblem({
     }
     total += amount;
   }
-  return splitTotalProblem(total, target: target, matchTarget: matchTarget);
+  return splitTotalProblem(
+    total,
+    target: target,
+    matchTarget: matchTarget,
+    allowBoth: allowBoth,
+  );
 }
 
 /// Where money comes from or goes to: Cash on Hand, Cash in Bank or Both
@@ -223,6 +242,7 @@ class WalletSplitPicker extends StatefulWidget {
     this.keyPrefix,
     this.limits,
     this.tooMuchMessage,
+    this.allowBoth = true,
     super.key,
   });
 
@@ -277,6 +297,10 @@ class WalletSplitPicker extends StatefulWidget {
   /// usual "only so much is free".
   final String Function(Wallet wallet, double room)? tooMuchMessage;
 
+  /// Offers Both. Off where one payment or income must have one clear
+  /// side, cash on hand or the bank: bills and income.
+  final bool allowBoth;
+
   /// The amounts by wallet id for the wallets showing. Blank and zero
   /// amounts are left out, and so is a group the user switched away from.
   final ValueChanged<Map<String, double>> onChanged;
@@ -298,7 +322,16 @@ class _AccountRow {
 
 class _WalletSplitPickerState extends State<WalletSplitPicker> {
   /// Null until the user picks.
-  late WalletGroupChoice? _option = _optionFor(widget.initialAmounts);
+  late WalletGroupChoice? _option = switch (_optionFor(widget.initialAmounts)) {
+    // Started on both where both are not offered: the user picks one.
+    WalletGroupChoice.both when !widget.allowBoth => null,
+    final option => option,
+  };
+
+  /// The choices offered: Both only where money may come from both.
+  List<WalletGroupChoice> get _choices => widget.allowBoth
+      ? WalletGroupChoice.values
+      : const [WalletGroupChoice.cash, WalletGroupChoice.bank];
 
   /// One field per cash wallet, kept while switching options so nothing
   /// typed is lost.
@@ -675,8 +708,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final (index, choice)
-                  in WalletGroupChoice.values.indexed) ...[
+              for (final (index, choice) in _choices.indexed) ...[
                 if (index > 0) const SizedBox(width: 8),
                 Expanded(
                   child: _OptionTile(
@@ -1041,6 +1073,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
             total,
             target: widget.target,
             matchTarget: widget.matchTarget,
+            allowBoth: widget.allowBoth,
           )
         : null;
     if (problem == null) return null;

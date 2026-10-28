@@ -99,6 +99,7 @@ class _BillPaymentSheetState extends State<BillPaymentSheet>
     wallets: wallets,
     goals: heldGoals,
     target: widget.instance.remaining,
+    allowBoth: false,
   );
 
   void _pay(List<Wallet> wallets) {
@@ -184,6 +185,9 @@ class _BillPaymentSheetState extends State<BillPaymentSheet>
                     purpose: SplitPurpose.paying,
                     target: instance.remaining,
                     withFees: true,
+                    // A bill is paid from cash on hand or from the bank, never
+                    // part of each, so each payment has one clear source.
+                    allowBoth: false,
                     // "Pay part of it" starts empty, for the amount to type.
                     prefill: widget.payInFull,
                     onChanged: (amounts) => setState(() => _amounts = amounts),
