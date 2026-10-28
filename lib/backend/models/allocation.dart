@@ -327,10 +327,37 @@ double spentInCycle(
 Map<String, double> spendingByCycle(
   Iterable<AllocationCycle> cycles,
   Iterable<AppTransaction> transactions,
+) => {
+  for (final entry in paymentsByCycle(cycles, transactions).entries)
+    entry.key:
+        (entry.value.fold<double>(0, (total, p) => total + p.amount) * 100)
+            .round() /
+        100,
+};
+
+/// One payment taken out of an income, or the part of it that was.
+class CyclePayment {
+  const CyclePayment(this.transaction, this.amount);
+
+  final AppTransaction transaction;
+
+  /// What this income paid of it.
+  final double amount;
+
+  /// Only part of it came out of this income; the rest, out of another.
+  bool get isPart => amount < transaction.amount - 0.005;
+}
+
+/// Every payment taken out of each income, by its id, oldest first: what
+/// [spendingByCycle] adds up, so the total can be checked line by line.
+Map<String, List<CyclePayment>> paymentsByCycle(
+  Iterable<AllocationCycle> cycles,
+  Iterable<AppTransaction> transactions,
 ) {
   final unique = {for (final cycle in cycles) cycle.id: cycle}.values.toList();
   final planned = {for (final cycle in unique) ...cycle.planPaymentIds};
   final spent = {for (final cycle in unique) cycle.id: 0.0};
+  final payments = {for (final cycle in unique) cycle.id: <CyclePayment>[]};
 
   final outflows =
       transactions
@@ -372,18 +399,18 @@ Map<String, double> spendingByCycle(
         if (room <= 0.005) continue;
         final taken = amount < room ? amount : room;
         spent[cycle.id] = spent[cycle.id]! + taken;
+        payments[cycle.id]!.add(CyclePayment(outflow, taken));
         amount -= taken;
       }
       if (amount > 0.005) {
-        spent[arrived.last.id] = spent[arrived.last.id]! + amount;
+        final newest = arrived.last.id;
+        spent[newest] = spent[newest]! + amount;
+        payments[newest]!.add(CyclePayment(outflow, amount));
       }
     }
   }
 
-  return {
-    for (final entry in spent.entries)
-      entry.key: (entry.value * 100).round() / 100,
-  };
+  return payments;
 }
 
 /// The newest cycle whose period is on its last day or already over and whose

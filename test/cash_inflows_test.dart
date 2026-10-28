@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:testapp/backend/models/allocation.dart';
 import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/frontend/providers/app_settings_provider.dart';
 import 'package:testapp/frontend/screens/history_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
@@ -162,6 +163,18 @@ void main() {
               today: DateTime(2026, 10, 28),
               cycles: Stream.value(cycles),
               transactions: Stream.value(transactions),
+              wallets: Stream.value(const [
+                Wallet(
+                  id: 'cash',
+                  name: 'Cash',
+                  type: WalletType.cash,
+                  balance: 0,
+                  startingBalance: 0,
+                  receivesIncome: false,
+                  archived: false,
+                  sortOrder: 0,
+                ),
+              ]),
             ),
           ),
         ),
@@ -199,6 +212,7 @@ void main() {
 
       expect(find.text('Oct 2026'), findsOneWidget);
       expect(find.text('2 inflows'), findsOneWidget);
+      expect(find.text('Total came in'), findsOneWidget);
       expect(find.text('+₱1,012'), findsOneWidget);
       expect(find.text('Salary'), findsOneWidget);
       expect(find.text('+₱1,000'), findsOneWidget);
@@ -208,6 +222,45 @@ void main() {
       expect(find.text('₱150'), findsOneWidget);
       expect(find.text('₱850'), findsOneWidget);
       expect(find.text('In progress'), findsOneWidget);
+    });
+
+    testWidgets('a card opens to every payment taken out of it', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        cycles: [
+          income('Allowance', DateTime(2026, 10, 1), amount: 1000),
+          income('Salary', DateTime(2026, 10, 5)),
+        ],
+        transactions: [
+          AppTransaction(
+            id: 'Salary-in',
+            type: TransactionType.income,
+            amount: 10000,
+            label: 'Salary',
+            date: DateTime(2026, 10, 5),
+            walletId: 'cash',
+          ),
+          // ₱1,000 of it from the allowance, the other ₱500 from the salary.
+          out(1500, DateTime(2026, 10, 6)),
+          out(200, DateTime(2026, 10, 7)),
+        ],
+      );
+
+      await tester.tap(find.byKey(const Key('inflow-open-Salary')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Went into'), findsOneWidget);
+      expect(find.text('Cash'), findsOneWidget);
+      expect(find.text('Spent out of it'), findsOneWidget);
+      expect(find.text('2 payments'), findsOneWidget);
+      expect(find.text('-₱500'), findsOneWidget);
+      expect(find.text('of ₱1,500'), findsOneWidget);
+      expect(find.text('-₱200'), findsOneWidget);
+      // The card itself, without the arrow that opens it.
+      expect(find.text('₱700'), findsWidgets);
+      expect(find.byIcon(Icons.chevron_right), findsNothing);
     });
 
     testWidgets('says when more went out than an income had', (tester) async {

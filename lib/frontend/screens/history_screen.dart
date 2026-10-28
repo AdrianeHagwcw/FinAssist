@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../backend/models/allocation.dart';
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/cycle_history.dart';
+import '../../backend/models/wallet.dart';
 import '../../backend/services/budget_service.dart';
 import '../../backend/services/wallet_service.dart';
 import '../../backend/utils/date_format.dart';
@@ -14,9 +15,11 @@ import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../widgets/category_icon.dart';
 import '../widgets/choice_grid.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/money_text.dart';
+import '../widgets/transaction_row.dart' show walletNameFor;
 import 'leftover_review_screen.dart';
 
 /// Cash Inflows: every time money came in, month by month, and where each
@@ -29,6 +32,7 @@ class HistoryScreen extends StatefulWidget {
     this.profile,
     this.today,
     this.onReview,
+    this.wallets,
     super.key,
   });
   final Stream<List<AllocationCycle>>? cycles;
@@ -36,6 +40,9 @@ class HistoryScreen extends StatefulWidget {
   final Stream<Map<String, dynamic>?>? profile;
   final DateTime? today;
   final void Function(AllocationCycle, double, DateTime)? onReview;
+
+  /// Replaces the live wallets an income's details name. Used by tests.
+  final Stream<List<Wallet>>? wallets;
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
@@ -47,10 +54,13 @@ sealed class _Entry {
 }
 
 class _Planned extends _Entry {
-  _Planned(this.cycle, this.spent, this.left);
+  _Planned(this.cycle, this.spent, this.left, this.payments);
   final AllocationCycle cycle;
   final double spent;
   final double left;
+
+  /// The payments taken out of it, which [spent] adds up.
+  final List<CyclePayment> payments;
   @override
   DateTime get date => cycle.receivedAt;
 }
@@ -163,6 +173,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
 
     final now = widget.today ?? philippineNow();
+    final payments = paymentsByCycle(cycles, transactions);
     final spending = spendingByCycle(cycles, transactions);
     final entries = <_Entry>[
       for (final cycle in cycles)
@@ -175,6 +186,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               double.infinity,
             ),
             cycle.savedAmount + cycle.spentAmount,
+            payments[cycle.id] ?? const [],
           )
         else
           _Planned(
@@ -184,6 +196,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               0.0,
               double.infinity,
             ),
+            payments[cycle.id] ?? const [],
           ),
       for (final t in unplanned) _Unplanned(t),
     ]..sort((a, b) => b.date.compareTo(a.date));
@@ -248,6 +261,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 entry: entry,
                 status: cycleStatus(entry.cycle, now),
                 onReview: () => _review(entry.cycle, entry.left),
+                onOpen: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => _IncomeDetailScreen(
+                      entry: entry,
+                      status: cycleStatus(entry.cycle, now),
+                      transactions: transactions,
+                      wallets: widget.wallets,
+                      onReview: () => _review(entry.cycle, entry.left),
+                    ),
+                  ),
+                ),
               ),
               _Unplanned(:final transaction) => _UnplannedRow(
                 transaction: transaction,
@@ -299,14 +324,25 @@ class _MonthHeader extends StatelessWidget {
               ],
             ),
           ),
-          MoneyText(
-            total,
-            sign: '+',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: confirmColorOn(context),
-            ),
+          // Named, so it is not read as one income: everything that came
+          // in that month, added up.
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                'Total came in',
+                style: TextStyle(fontSize: 12, color: colors.textMuted),
+              ),
+              MoneyText(
+                total,
+                sign: '+',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: confirmColorOn(context),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -321,11 +357,16 @@ class _IncomeCard extends StatelessWidget {
     required this.entry,
     required this.status,
     required this.onReview,
+    this.onOpen,
   });
 
   final _Planned entry;
   final CycleStatus status;
   final VoidCallback onReview;
+
+  /// Opens the details: every payment that came out of it. Null on the
+  /// details page itself.
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -370,155 +411,491 @@ class _IncomeCard extends StatelessWidget {
     ];
     final total = parts.fold<double>(0, (sum, part) => sum + part.amount);
 
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+      side: BorderSide(color: colors.border),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: colors.card,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: Key('inflow-open-${cycle.id}'),
+          onTap: onOpen,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: colors.primaryTint,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Image.asset(AppIcons.cashInflow),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            cycle.source,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: colors.textPrimary,
+                            ),
+                          ),
+                          Text(
+                            'Came in ${formatShortDate(philippineTime(cycle.receivedAt))}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    // Says the card opens, on the list only.
+                    if (onOpen != null)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 2, top: 3),
+                        child: Icon(
+                          Icons.chevron_right,
+                          color: colors.textMuted,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                MoneyText(
+                  cycle.income,
+                  sign: '+',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: confirmColorOn(context),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (total > 0)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(5),
+                    child: SizedBox(
+                      height: 10,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final part in parts)
+                            if (part.amount > 0.005)
+                              Expanded(
+                                flex: (part.amount / total * 1000)
+                                    .round()
+                                    .clamp(1, 1000),
+                                child: ColoredBox(color: part.color),
+                              ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 10),
+                for (var i = 0; i < parts.length; i += 2)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(child: _Key(part: parts[i])),
+                        const SizedBox(width: 14),
+                        Expanded(child: _Key(part: parts[i + 1])),
+                      ],
+                    ),
+                  ),
+                if (over > 0.005) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '${formatPeso(over, masked: masked)} more went out than this '
+                    'income had',
+                    key: const Key('inflow-over'),
+                    style: TextStyle(
+                      color: dangerColorOn(context),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                switch (status) {
+                  CycleStatus.active => Text(
+                    'Still counting. On ${formatMonthDay(lastDay)} you decide what '
+                    'to do with what is left.',
+                    style: TextStyle(fontSize: 12, color: colors.textMuted),
+                  ),
+                  CycleStatus.pending => SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: onReview,
+                      style: openButtonStyle(height: 48),
+                      icon: const Icon(Icons.arrow_forward, size: 18),
+                      label: const Text(
+                        'Decide what is left',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                  CycleStatus.done || CycleStatus.declined => Text(
+                    cycle.decision == LeftoverDecision.split
+                        ? 'You saved part of what was left and kept the rest.'
+                        : cycle.decision == LeftoverDecision.saved
+                        ? 'You saved what was left.'
+                        : 'You kept what was left for spending.',
+                    style: TextStyle(fontSize: 12, color: colors.textMuted),
+                  ),
+                },
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One income, in full: the card, then what is behind each of its numbers,
+/// so the arithmetic can be checked line by line.
+class _IncomeDetailScreen extends StatefulWidget {
+  const _IncomeDetailScreen({
+    required this.entry,
+    required this.status,
+    required this.transactions,
+    required this.onReview,
+    this.wallets,
+  });
+
+  final _Planned entry;
+  final CycleStatus status;
+  final List<AppTransaction> transactions;
+  final VoidCallback onReview;
+  final Stream<List<Wallet>>? wallets;
+
+  @override
+  State<_IncomeDetailScreen> createState() => _IncomeDetailScreenState();
+}
+
+class _IncomeDetailScreenState extends State<_IncomeDetailScreen> {
+  // Archived ones too, so money that went into a wallet since put away
+  // still says where it went.
+  late final _wallets =
+      widget.wallets ?? WalletService.watchWallets(includeArchived: true);
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final cycle = widget.entry.cycle;
+    final byId = {for (final t in widget.transactions) t.id: t};
+    final incomeRecords = [
+      for (final id in cycle.incomeTransactionIds) ?byId[id],
+    ];
+    final billPayments = [for (final id in cycle.planPaymentIds) ?byId[id]];
+
+    return Scaffold(
+      backgroundColor: colors.pageBackground,
+      appBar: AppBar(
+        title: Text(
+          cycle.source,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        backgroundColor: appPrimaryBlue,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: StreamBuilder<List<Wallet>>(
+        stream: _wallets,
+        builder: (context, snapshot) {
+          final wallets = snapshot.data ?? const <Wallet>[];
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            children: [
+              _IncomeCard(
+                entry: widget.entry,
+                status: widget.status,
+                onReview: widget.onReview,
+              ),
+              if (incomeRecords.isNotEmpty) ...[
+                const _SectionTitle('Went into'),
+                _Rows(
+                  rows: [
+                    for (final t in incomeRecords)
+                      _Row(
+                        icon: Image.asset(AppIcons.cashInflow),
+                        title: walletNameFor(wallets, t.walletId),
+                        amount: t.amount,
+                        sign: '+',
+                        color: confirmColorOn(context),
+                      ),
+                  ],
+                ),
+              ],
+              if (cycle.toBills > 0.005) ...[
+                const _SectionTitle('Paid on bills when it came in'),
+                _Rows(
+                  rows: [
+                    for (final t in billPayments)
+                      _Row(
+                        icon: CategoryIcon(t.label, size: 24),
+                        title: t.note ?? t.label,
+                        subtitle: walletNameFor(wallets, t.walletId),
+                        amount: t.amount,
+                        sign: '-',
+                      ),
+                  ],
+                  empty: 'Paid from this income when it was logged.',
+                ),
+              ],
+              if (cycle.toGoal > 0.005) ...[
+                const _SectionTitle('Saved for goals'),
+                _Rows(
+                  rows: [
+                    _Row(
+                      icon: Image.asset(AppIcons.moneyBox),
+                      title: cycle.goalName ?? 'Goals',
+                      subtitle: 'Kept in your wallets, marked for it',
+                      amount: cycle.toGoal,
+                    ),
+                  ],
+                ),
+              ],
+              _SectionTitle(
+                'Spent out of it',
+                note: widget.entry.payments.isEmpty
+                    ? null
+                    : '${widget.entry.payments.length} '
+                          '${widget.entry.payments.length == 1 ? 'payment' : 'payments'}',
+              ),
+              _Rows(
+                rows: [
+                  for (final payment in widget.entry.payments)
+                    _Row(
+                      icon: CategoryIcon(payment.transaction.label, size: 24),
+                      title: payment.transaction.label,
+                      subtitle: [
+                        formatShortDate(
+                          philippineTime(payment.transaction.date),
+                        ),
+                        if ((payment.transaction.note ?? '').trim().isNotEmpty)
+                          payment.transaction.note!.trim(),
+                      ].join(' · '),
+                      amount: payment.amount,
+                      sign: '-',
+                      // Only part of it came out of this income.
+                      partOf: payment.isPart
+                          ? payment.transaction.amount
+                          : null,
+                    ),
+                ],
+                empty: 'Nothing spent out of it yet.',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Each payment is taken from the money that came in first. '
+                'When an income runs out, the next one pays the rest, so a '
+                'payment can be split between two.',
+                style: TextStyle(fontSize: 12, color: colors.textMuted),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// A heading over one part of an income's details.
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text, {this.note});
+
+  final String text;
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 12, 2, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: colors.textPrimary,
+              ),
+            ),
+          ),
+          if (note != null)
+            Text(
+              note!,
+              style: TextStyle(fontSize: 12, color: colors.textMuted),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Rows in one card, with lines between them.
+class _Rows extends StatelessWidget {
+  const _Rows({required this.rows, this.empty});
+
+  final List<Widget> rows;
+
+  /// Said when there are no rows.
+  final String? empty;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: colors.card,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colors.border),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: rows.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                empty ?? '',
+                style: TextStyle(color: colors.textBody),
+              ),
+            )
+          : Column(
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0)
+                    Divider(height: 1, indent: 64, color: colors.border),
+                  rows[i],
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+/// One line of an income's details: what it was, and its amount.
+class _Row extends StatelessWidget {
+  const _Row({
+    required this.icon,
+    required this.title,
+    required this.amount,
+    this.subtitle,
+    this.sign,
+    this.color,
+    this.partOf,
+  });
+
+  final Widget icon;
+  final String title;
+  final String? subtitle;
+  final double amount;
+  final String? sign;
+  final Color? color;
+
+  /// The whole payment, when only [amount] of it came out of this income.
+  final double? partOf;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final masked = context.select<AppSettingsProvider, bool>(
+      (settings) => settings.amountsMasked,
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Row(
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: colors.primaryTint,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Image.asset(AppIcons.cashInflow),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      cycle.source,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: colors.textPrimary,
-                      ),
-                    ),
-                    Text(
-                      'Came in ${formatShortDate(philippineTime(cycle.receivedAt))}',
-                      style: TextStyle(fontSize: 12, color: colors.textMuted),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  label,
+          Container(
+            width: 38,
+            height: 38,
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: colors.primaryTint,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: icon,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: color,
-                    fontSize: 12,
                     fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
                   ),
                 ),
+                if (subtitle != null && subtitle!.isNotEmpty)
+                  Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: colors.textMuted),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              MoneyText(
+                amount,
+                sign: sign,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: color ?? colors.textPrimary,
+                ),
               ),
+              if (partOf != null)
+                Text(
+                  'of ${formatPeso(partOf!, masked: masked)}',
+                  style: TextStyle(fontSize: 12, color: colors.textMuted),
+                ),
             ],
           ),
-          const SizedBox(height: 12),
-          MoneyText(
-            cycle.income,
-            sign: '+',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: confirmColorOn(context),
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (total > 0)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(5),
-              child: SizedBox(
-                height: 10,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final part in parts)
-                      if (part.amount > 0.005)
-                        Expanded(
-                          flex: (part.amount / total * 1000).round().clamp(
-                            1,
-                            1000,
-                          ),
-                          child: ColoredBox(color: part.color),
-                        ),
-                  ],
-                ),
-              ),
-            ),
-          const SizedBox(height: 10),
-          for (var i = 0; i < parts.length; i += 2)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(child: _Key(part: parts[i])),
-                  const SizedBox(width: 14),
-                  Expanded(child: _Key(part: parts[i + 1])),
-                ],
-              ),
-            ),
-          if (over > 0.005) ...[
-            const SizedBox(height: 6),
-            Text(
-              '${formatPeso(over, masked: masked)} more went out than this '
-              'income had',
-              key: const Key('inflow-over'),
-              style: TextStyle(
-                color: dangerColorOn(context),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-          const SizedBox(height: 10),
-          switch (status) {
-            CycleStatus.active => Text(
-              'Still counting. On ${formatMonthDay(lastDay)} you decide what '
-              'to do with what is left.',
-              style: TextStyle(fontSize: 12, color: colors.textMuted),
-            ),
-            CycleStatus.pending => SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: onReview,
-                style: openButtonStyle(height: 48),
-                icon: const Icon(Icons.arrow_forward, size: 18),
-                label: const Text(
-                  'Decide what is left',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-            CycleStatus.done || CycleStatus.declined => Text(
-              cycle.decision == LeftoverDecision.split
-                  ? 'You saved part of what was left and kept the rest.'
-                  : cycle.decision == LeftoverDecision.saved
-                  ? 'You saved what was left.'
-                  : 'You kept what was left for spending.',
-              style: TextStyle(fontSize: 12, color: colors.textMuted),
-            ),
-          },
         ],
       ),
     );
