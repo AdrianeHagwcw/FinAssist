@@ -18,6 +18,7 @@ import '../../backend/services/reminder_scheduler.dart';
 import '../../backend/services/reminder_service.dart';
 import '../../backend/services/saved_accounts.dart';
 import '../../backend/services/wallet_service.dart';
+import '../../backend/utils/ph_time.dart';
 import '../widgets/interest_sheet.dart';
 import 'add_expense_screen.dart';
 import 'bill_calendar_screen.dart';
@@ -115,7 +116,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // Back on a new day: Home is worked out again, so This Month, today's
     // spending and Safe to Spend follow the date instead of the day the app
     // was left open on.
-    final today = _dateOnly(DateTime.now());
+    final today = _dateOnly(philippineNow());
     if (today != _homeDay) {
       setState(() {
         _homeDay = today;
@@ -125,7 +126,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   /// The day Home was last worked out for.
-  DateTime _homeDay = _dateOnly(DateTime.now());
+  DateTime _homeDay = _dateOnly(philippineNow());
 
   static DateTime _dateOnly(DateTime date) =>
       DateTime(date.year, date.month, date.day);

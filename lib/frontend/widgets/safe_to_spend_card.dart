@@ -20,6 +20,7 @@ import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../../backend/utils/money_format.dart';
+import '../../backend/utils/ph_time.dart';
 import 'dialog_kit.dart';
 import 'money_text.dart';
 
@@ -213,7 +214,8 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
   /// Bills are re-read when the transactions or the bill schedules change.
   int _billsLoadedFor = -1;
 
-  DateTime get _now => widget.today ?? DateTime.now();
+  /// Philippine time, whatever the phone's time zone.
+  DateTime get _now => widget.today ?? philippineNow();
 
   void _refreshBills(List<AppTransaction> transactions) {
     final signature = Object.hash(
@@ -245,7 +247,8 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
   }) {
     final now = _now;
     final period = payPeriodFor(null, now: now);
-    final startOfToday = DateTime(now.year, now.month, now.day);
+    // The moment today began in the Philippines.
+    final startOfToday = philippineDayStart(now);
 
     return SafeToSpendInputs(
       safeToSpend: SafeToSpend(

@@ -1,3 +1,4 @@
+import '../utils/ph_time.dart';
 import 'app_transaction.dart';
 import 'goal.dart';
 import 'transaction_filter.dart';
@@ -72,7 +73,8 @@ class ReportPeriod {
   final DateTime end;
 
   bool contains(DateTime date) {
-    final day = _day(date);
+    // By the Philippine calendar, as the rest of the app counts days.
+    final day = _day(philippineTime(date));
     return !day.isBefore(start) && !day.isAfter(end);
   }
 

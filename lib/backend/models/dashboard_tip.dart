@@ -1,4 +1,5 @@
 import '../utils/money_format.dart';
+import '../utils/ph_time.dart';
 import 'app_transaction.dart';
 import 'bill.dart';
 import 'reminder.dart';
@@ -68,13 +69,13 @@ DashboardTip dashboardTipFor({
   }
 
   final today = DateTime(now.year, now.month, now.day);
-  final loggedToday = records.any(
-    (t) =>
-        !t.isLegacy &&
-        t.date.year == today.year &&
-        t.date.month == today.month &&
-        t.date.day == today.day,
-  );
+  final loggedToday = records.any((t) {
+    final day = philippineTime(t.date);
+    return !t.isLegacy &&
+        day.year == today.year &&
+        day.month == today.month &&
+        day.day == today.day;
+  });
   if (transactions != null && !loggedToday) {
     return const DashboardTip(
       title: 'Nothing logged today',

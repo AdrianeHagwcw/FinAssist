@@ -20,6 +20,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
+import '../../backend/utils/ph_time.dart';
 import '../widgets/app_icon_button.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/money_text.dart';
@@ -133,7 +134,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Changing this rebuilds the Safe to Spend card after income is added.
   int _refreshKey = 0;
-  bool _showAllQuickActions = false;
+  // Every shortcut shows when the app opens; Show less folds them to three.
+  bool _showAllQuickActions = true;
 
   /// The bills the Safe to Spend card loaded, reused by the tip so the screen
   /// doesn't read them twice.
@@ -284,7 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required List<Goal>? goals,
   }) {
     final colors = context.appColors;
-    final now = widget.today ?? DateTime.now();
+    final now = widget.today ?? philippineNow();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
@@ -519,7 +521,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         DueSoonNotice(
           bills: inputs.bills,
-          now: inputs.now ?? DateTime.now(),
+          now: inputs.now ?? philippineNow(),
           onOpen: (bill) => _push(BillDetailScreen(instance: bill)),
         ),
         // A time deposit or government savings that has come due. Nothing
@@ -535,7 +537,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _leftoverNotice(BuildContext context, SafeToSpendInputs inputs) {
-    final cycle = cycleAwaitingReview(inputs.cycles, now: DateTime.now());
+    final cycle = cycleAwaitingReview(inputs.cycles, now: philippineNow());
     if (cycle == null) return const SizedBox.shrink();
 
     final period = periodOf(cycle);

@@ -726,6 +726,25 @@ void main() {
         for (final label in ['Expense', 'Income', 'Transfer']) {
           expect(find.text(label), findsOneWidget);
         }
+        // Every shortcut shows when the app opens.
+        for (final label in [
+          'Scan Receipt',
+          'Voice Entry',
+          'Bill Planner',
+          'Savings',
+          'Goals',
+          'Installments',
+          'Debts',
+          'Reports',
+        ]) {
+          expect(find.text(label), findsOneWidget);
+        }
+        expect(find.text('Show less'), findsOneWidget);
+        expect(find.text('Add Income'), findsNothing);
+
+        // Show less folds them to the first three, View all opens them.
+        await tester.tap(find.text('Show less'));
+        await tester.pump();
         for (final label in [
           'Scan Receipt',
           'Voice Entry',
@@ -738,9 +757,6 @@ void main() {
         ]) {
           expect(find.text(label), findsNothing);
         }
-        expect(find.text('View all'), findsOneWidget);
-        expect(find.text('Add Income'), findsNothing);
-
         await tester.tap(find.text('View all'));
         await tester.pump();
 
@@ -12175,9 +12191,6 @@ void main() {
       for (final shortcut in ['Expense', 'Income', 'Transfer']) {
         expect(find.text(shortcut), findsOneWidget);
       }
-      expect(find.text('Bill Planner'), findsNothing);
-      await tester.tap(find.text('View all'));
-      await tester.pumpAndSettle();
       for (final shortcut in [
         'Bill Planner',
         'Savings',
