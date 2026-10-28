@@ -45,8 +45,34 @@ void main() {
       );
 
   group('the interest in each payment', () {
-    test('is the same share of every payment, adding up to the extra', () {
-      final debt = phone();
+    Debt loan() => Debt(
+      id: 'l',
+      direction: DebtDirection.iOwe,
+      name: 'Cash2Go',
+      category: DebtCategory.cardCashLoan,
+      principal: 24000,
+      perPayment: 2400,
+      paymentCount: 12,
+      firstDueDate: DateTime(2026, 1, 25),
+      billId: 'lb',
+      status: DebtStatus.active,
+    );
+
+    test('is nothing for an installment: the price is the whole of it', () {
+      final plan = phone();
+      // The store already told the buyer what it costs, so the app tracks
+      // only the payments and adds nothing on top.
+      expect(plan.interestShare, 0);
+      expect(plan.interestOf(1), 0);
+
+      final total = [
+        for (var n = 1; n <= plan.paymentCount; n++) plan.interestOf(n),
+      ].fold<double>(0, (sum, part) => sum + part);
+      expect(total, 0);
+    });
+
+    test('is still the same share of every loan payment', () {
+      final debt = loan();
       expect(debt.extraCost, 4800);
       expect(debt.interestShare, closeTo(1 / 6, 1e-9));
       expect(debt.interestOf(1), 400);
@@ -57,7 +83,7 @@ void main() {
     });
 
     test('is nothing when only what was borrowed is paid back', () {
-      const loan = Debt(
+      const paidBack = Debt(
         id: 'l',
         direction: DebtDirection.iOwe,
         name: 'Loan from Tita',
@@ -68,20 +94,20 @@ void main() {
         lastPayment: 1000,
         status: DebtStatus.active,
       );
-      expect(loan.interestShare, 0);
-      expect(loan.interestOf(1), 0);
+      expect(paidBack.interestShare, 0);
+      expect(paidBack.interestOf(1), 0);
     });
 
-    test('follows a part payment, to the centavo', () {
+    test('follows a part payment on a loan, to the centavo', () {
       final due = BillInstance(
         id: 'b_1',
         billId: 'b',
-        name: 'Phone',
+        name: 'Cash2Go',
         amount: 2400,
         category: 'Bills',
         dueDate: DateTime(2026, 2, 25),
         status: BillStatus.unpaid,
-        interestShare: phone().interestShare,
+        interestShare: loan().interestShare,
       );
       expect(due.interestIn(2400), 400);
       expect(due.interestIn(1000), 166.67);
@@ -179,7 +205,7 @@ void main() {
         '₱800 of your Phone payments was interest. Tap to see what it has '
         'cost.',
       );
-      expect(reminder.payload, 'installments');
+      expect(reminder.payload, 'debts');
     });
 
     test('does not come when nothing was interest, or when it is off', () {
@@ -251,19 +277,17 @@ void main() {
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'Phone');
     await tester.enterText(fields.at(1), '24000');
-    await tester.enterText(fields.at(2), '2400');
-    await tester.enterText(fields.at(3), '12');
+    await tester.enterText(fields.at(2), '12');
     await tester.pump();
 
-    expect(find.text('12 payments of ₱2,400, every month'), findsOneWidget);
-    expect(find.text('₱400 of each payment is interest.'), findsOneWidget);
+    expect(find.text('12 payments of ₱2,000, every month'), findsOneWidget);
+    expect(find.textContaining('of each payment is interest'), findsNothing);
 
     // Payments always come from the Bills wallet: there is nothing to pick.
     await tester.tap(find.text('More options (optional)'));
     await tester.pumpAndSettle();
     expect(find.text('Usually paid from'), findsNothing);
-    // Interest is a loan's question, asked on the Debts form; here the
-    // cash price already shows what paying over time costs.
+    // Interest is a loan's question, asked on the Debts form.
     expect(find.text('Interest (optional)'), findsNothing);
     // The kind was picked from the name, among things bought on
     // installment.
@@ -275,9 +299,11 @@ void main() {
 
     expect(saved?.category, DebtCategory.gadget);
     expect(saved?.quotedRate, isNull);
+    expect(saved?.perPayment, 2000);
+    expect(saved?.lastPayment, 0);
   });
 
-  testWidgets('the installment says how much interest is paid so far', (
+  testWidgets('an installment shows its payments, not interest', (
     tester,
   ) async {
     final debt = phone(paidBefore: 3);
@@ -292,10 +318,9 @@ void main() {
     );
     await tester.pump();
 
-    expect(
-      find.text('₱400 of each payment is interest. Paid so far: ₱1,200.'),
-      findsOneWidget,
-    );
+    expect(find.text('What borrowing costs'), findsNothing);
+    expect(find.byKey(const Key('installment-interest-paid')), findsNothing);
+    expect(find.text('Price'), findsOneWidget);
   });
 
   testWidgets('History shows the interest inside a payment, or hides it', (
@@ -345,8 +370,8 @@ void main() {
     );
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'Dental braces');
-    await tester.enterText(fields.at(2), '2000');
-    await tester.enterText(fields.at(3), '6');
+    await tester.enterText(fields.at(1), '2000');
+    await tester.enterText(fields.at(2), '6');
     await tester.tap(find.text('More options (optional)'));
     await tester.pumpAndSettle();
 

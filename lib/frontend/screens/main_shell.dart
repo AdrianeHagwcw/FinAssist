@@ -180,8 +180,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         if (added && mounted) setState(() => _homeRefreshKey++);
       }
     } else if (payload == 'installments') {
-      // The year's interest: each installment shows what it has cost.
       _openInstallments();
+    } else if (payload == 'debts') {
+      // Loans keep their interest, so the year's figure opens Debts.
+      _openDebts();
     } else {
       // The leftover notice waits on Home.
       _selectTab(_homeIndex);
@@ -212,6 +214,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => const BillCalendarScreen(initialShowDebts: true),
       ),
+    );
+  }
+
+  void _openDebts() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DebtsScreen(loans: true)),
     );
   }
 

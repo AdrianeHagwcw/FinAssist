@@ -292,6 +292,20 @@ class _InstallmentCard extends StatelessWidget {
             debt.kindLabel,
             style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
           ),
+          if (debt.paidWithLabel != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                'Card or account: ${debt.paidWithLabel}',
+                key: const Key('installment-paid-with-line'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.appColors.textMuted,
+                ),
+              ),
+            ),
           const SizedBox(height: 10),
           ClipRRect(
             borderRadius: BorderRadius.circular(6),

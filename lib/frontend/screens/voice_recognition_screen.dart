@@ -318,12 +318,18 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         _saved(saved, message: 'Goal saved.');
         return;
       case VoiceCommandType.installment:
+        // An installment is entered as a cash price and a number of months,
+        // so a per-payment amount is turned back into the price it covers.
+        final count = command.count;
+        final amount = command.amount;
+        final price = command.perPayment && amount != null && count != null
+            ? amount * count
+            : amount;
         final saved = await showDebtFormSheet(
           context,
           name: command.name,
-          price: command.perPayment ? null : command.amount,
-          perPayment: command.perPayment ? command.amount : null,
-          count: command.count,
+          price: price,
+          count: count,
         );
         _saved(saved != null);
         return;

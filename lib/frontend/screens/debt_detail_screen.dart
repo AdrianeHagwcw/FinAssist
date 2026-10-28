@@ -224,9 +224,30 @@ class _InstallmentBody extends StatelessWidget {
                     style: TextStyle(fontSize: 13, color: colors.textBody),
                   ),
                   const Divider(height: 28),
-                  _Line('Borrowed', formatPeso(debt.principal)),
+                  _Line(
+                    debt.category.isLoan ? 'Borrowed' : 'Price',
+                    formatPeso(debt.principal),
+                  ),
                   _Line(debt.frequency.eachLabel, formatPeso(debt.perPayment)),
-                  if (debt.extraCost > 0)
+                  if (debt.paidWithWalletId != null ||
+                      debt.paidWithLabel != null)
+                    StreamBuilder<List<Wallet>>(
+                      stream: wallets,
+                      builder: (context, snapshot) {
+                        final charged = [
+                          for (final wallet
+                              in snapshot.data ?? const <Wallet>[])
+                            if (wallet.id == debt.paidWithWalletId) wallet,
+                        ].firstOrNull;
+                        return _Line(
+                          'Card or account used',
+                          charged?.name ??
+                              debt.paidWithLabel ??
+                              debt.paidWithWalletId!,
+                        );
+                      },
+                    ),
+                  if (debt.category.isLoan && debt.extraCost > 0)
                     _Line(
                       'More than you borrowed',
                       '${formatPeso(debt.extraCost)} '
@@ -252,8 +273,16 @@ class _InstallmentBody extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            _CostOfBorrowing(debt: debt, wallets: wallets, paid: progress.paid),
-            const SizedBox(height: 16),
+            // Interest belongs to borrowed money. An installment's price is
+            // the whole of what is paid, so there is no cost to disclose.
+            if (debt.category.isLoan) ...[
+              _CostOfBorrowing(
+                debt: debt,
+                wallets: wallets,
+                paid: progress.paid,
+              ),
+              const SizedBox(height: 16),
+            ],
             if (!progress.isPaidOff) ...[
               SizedBox(
                 width: double.infinity,

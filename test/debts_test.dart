@@ -3,12 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/services/bill_service.dart';
 import 'package:testapp/frontend/providers/app_settings_provider.dart';
 import 'package:testapp/backend/models/debt.dart';
+import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/frontend/screens/debts_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
+import 'package:testapp/frontend/widgets/bill_payment_sheet.dart';
 import 'package:testapp/frontend/widgets/debt_form_sheet.dart';
 import 'package:testapp/frontend/widgets/loan_form_sheet.dart';
+import 'package:testapp/frontend/widgets/wallet_split_picker.dart';
 
 Debt loan({
   double principal = 5000,
@@ -242,12 +246,9 @@ void main() {
       final fields = find.byType(TextField);
       await tester.enterText(fields.at(0), 'Aircon');
       await tester.enterText(fields.at(1), '30000');
-      await tester.enterText(fields.at(2), '2500');
-      await tester.enterText(fields.at(3), '12');
+      await tester.enterText(fields.at(2), '12');
       await tester.pump();
 
-      // ₱30,000 cash price, but only ₱30,000 is paid in 12 of ₱2,500: no
-      // down payment yet, and nothing is extra.
       await tester.tap(find.text('More options (optional)'));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -255,16 +256,257 @@ void main() {
         '5000',
       );
       await tester.pump();
-      // ₱25,000 left after the down payment, paid back as ₱30,000.
+      // ₱25,000 left after the down payment, split over 12 months. Nothing
+      // is added on top: the price is the whole of what is paid.
       expect(
-        find.textContaining('₱5,000 more than you borrowed'),
+        find.text('12 payments of ₱2,083.33, every month'),
         findsOneWidget,
       );
+      expect(find.textContaining('more than you borrowed'), findsNothing);
 
       await tester.ensureVisible(find.text('Save Installment'));
       await tester.tap(find.text('Save Installment'));
       await tester.pumpAndSettle();
       expect(saved?.principal, 25000);
+      expect(saved?.perPayment, 2083.33);
+      expect(saved?.lastPayment, 2083.37);
+    });
+
+    testWidgets('the card or account a purchase was charged to is saved', (
+      tester,
+    ) async {
+      DebtDraft? saved;
+      tester.view.physicalSize = const Size(800, 3200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: DebtFormSheet(
+              today: DateTime(2026, 10, 28),
+              wallets: Stream.value([
+                Wallet(
+                  id: 'cash',
+                  name: 'Cash on Hand',
+                  type: WalletType.cash,
+                  balance: 2000,
+                  startingBalance: 2000,
+                  receivesIncome: false,
+                  archived: false,
+                  sortOrder: 0,
+                ),
+                Wallet(
+                  id: 'bank',
+                  name: 'BPI Savings',
+                  type: WalletType.bank,
+                  balance: 50000,
+                  startingBalance: 50000,
+                  receivesIncome: false,
+                  archived: false,
+                  sortOrder: 1,
+                ),
+              ]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Always shown, even though it is optional.
+      expect(find.text('Card or account used'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'iPhone 15',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '48000',
+      );
+      await tester.enterText(find.byKey(const Key('installment-months')), '12');
+      await tester.tap(find.byKey(const Key('installment-paid-with')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('BPI Savings').last);
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Save Installment'));
+      await tester.tap(find.text('Save Installment'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.paidWithWalletId, 'bank');
+      expect(saved?.paidWithLabel, 'BPI Savings');
+    });
+
+    testWidgets('a card that is not a wallet can be typed instead', (
+      tester,
+    ) async {
+      DebtDraft? saved;
+      tester.view.physicalSize = const Size(800, 3200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: DebtFormSheet(
+              today: DateTime(2026, 10, 28),
+              wallets: Stream.value(const <Wallet>[]),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Aircon',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '30000',
+      );
+      await tester.enterText(find.byKey(const Key('installment-months')), '12');
+      await tester.tap(find.byKey(const Key('installment-paid-with')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Another card or account').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('installment-paid-with-label')),
+        'BPI credit card',
+      );
+      await tester.pump();
+
+      await tester.ensureVisible(find.text('Save Installment'));
+      await tester.tap(find.text('Save Installment'));
+      await tester.pumpAndSettle();
+
+      // Written down only: no wallet id, because it is not one of theirs.
+      expect(saved?.paidWithWalletId, isNull);
+      expect(saved?.paidWithLabel, 'BPI credit card');
+    });
+
+    testWidgets('the installment card shows what it was charged to', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: DebtsView(
+                debts: Stream.value([
+                  Debt(
+                    id: 'd',
+                    direction: DebtDirection.iOwe,
+                    name: 'Phone',
+                    category: DebtCategory.gadget,
+                    principal: 24000,
+                    perPayment: 2000,
+                    paymentCount: 12,
+                    firstDueDate: DateTime(2026, 1, 5),
+                    billId: 'b',
+                    status: DebtStatus.active,
+                    paidWithWalletId: 'bank',
+                    paidWithLabel: 'BPI Savings',
+                  ),
+                ]),
+                paymentsFor: (_) => Stream.value(const <BillInstance>[]),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Card or account: BPI Savings'), findsOneWidget);
+    });
+
+    testWidgets('an installment payment is from cash or the bank, not both', (
+      tester,
+    ) async {
+      final cash = Wallet(
+        id: 'cash',
+        name: 'Cash on Hand',
+        type: WalletType.cash,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+      );
+      final bank = Wallet(
+        id: 'bank',
+        name: 'BPI Savings',
+        type: WalletType.bank,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+      );
+      final payment = BillInstance(
+        id: 'b_1',
+        billId: 'b',
+        name: 'Phone',
+        amount: 2000,
+        category: 'Bills',
+        dueDate: DateTime(2026, 11, 28),
+        status: BillStatus.unpaid,
+      );
+      List<BillPaymentPart>? paid;
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: BillPaymentSheet(
+                instance: payment,
+                wallets: Stream.value([cash, bank]),
+                onPay: (parts) => paid = parts,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // One payment, one clear side: no Both.
+      expect(find.text('Both'), findsNothing);
+      expect(find.text('Cash on Hand'), findsOneWidget);
+      expect(find.text('Cash in Bank'), findsOneWidget);
+
+      await tester.tap(find.text('Cash in Bank'));
+      await tester.pumpAndSettle();
+      // The whole payment is filled in from the first bank account.
+      await tester.tap(find.byKey(const Key('bill-pay-button')));
+      await tester.pumpAndSettle();
+
+      expect(paid, isNotNull);
+      expect(paid!.fold<double>(0, (sum, part) => sum + part.amount), 2000);
+
+      // Mixing the two sides is refused even if it got that far.
+      expect(
+        walletSplitProblem(
+          purpose: SplitPurpose.paying,
+          amounts: const {'cash': 1000, 'bank': 1000},
+          wallets: [cash, bank],
+          goals: const [],
+          target: 2000,
+          matchTarget: true,
+          allowBoth: false,
+        ),
+        'Choose Cash on Hand or Cash in Bank, not both.',
+      );
     });
 
     testWidgets('a loan typed into the installment form can move to Debts', (

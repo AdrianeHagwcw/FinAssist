@@ -971,25 +971,27 @@ ChatReply _formula(String text, FinanceSnapshot? records, bool fil) {
   }
   if (topic == _FormulaTopic.installment) {
     return say(
-      'For an installment, total to pay = regular payment × '
-          '(number of payments − 1) + the last payment. If the last payment '
-          'is the same, this is just payment amount × number of payments.\n\n'
+      'For an installment, each month = (cash price − down payment) ÷ the '
+          'number of months. Each month is rounded to the centavo, and the '
+          'last one takes the few centavos rounding leaves, so the payments '
+          'add up to the price exactly.\n\n'
           'Remaining balance = total to pay − recorded payments. Part payments '
           'reduce the balance, but only fully paid scheduled payments count '
           'as completed. Next due date is the earliest unpaid scheduled payment. '
           'Open the installment statement to see its full payment history. '
-          'FinAssist uses the terms you entered; it does not invent an interest '
-          'rate.',
-      'Sa hulugan, kabuuang babayaran = regular na hulog × (bilang ng hulog '
-          '− 1) + huling hulog. Kung pareho ang huling hulog, ito ay hulog × '
-          'bilang ng hulog.\n\n'
+          'FinAssist uses the price and months you entered; it does not add '
+          'interest of its own.',
+      'Sa hulugan, bawat buwan = (cash price − down payment) ÷ bilang ng '
+          'buwan. Bawat buwan ay binubuo hanggang centavo, at ang huling '
+          'buwan ang tumatanggap ng natirang barya, kaya eksaktong katumbas '
+          'ng price ang lahat ng bayad.\n\n'
           'Natitirang balance = kabuuang babayaran − mga naitalang bayad. '
           'Nababawasan ng partial na bayad ang balance, pero ang buong bayad '
           'lang na hulog ang itinuturing na tapos. Ang susunod na due date ay '
           'ang pinakamaagang hulog na hindi pa bayad. Buksan ang statement ng '
           'hulugan para makita ang buong kasaysayan ng bayad. Ginagamit ng '
-          'FinAssist ang mga termino na inilagay mo; hindi ito nag-iimbento ng '
-          'interes.',
+          'FinAssist ang price at bilang ng buwan na inilagay mo; hindi ito '
+          'nagdadagdag ng interes.',
     );
   }
   if (topic == _FormulaTopic.goal) {
