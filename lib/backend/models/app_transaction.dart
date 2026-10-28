@@ -12,6 +12,15 @@ enum TransactionType {
 
   final String label;
 
+  /// The word transaction history uses for this kind. A transfer's row goes
+  /// further and names its direction, but this is the fallback when the two
+  /// wallets are not known.
+  String get flowLabel => switch (this) {
+    TransactionType.income => 'Inflow',
+    TransactionType.expense => 'Outflow',
+    TransactionType.transfer => 'Transfer',
+  };
+
   /// Reads a stored type name, falling back to [expense] for unknown values.
   static TransactionType fromName(String? name) {
     return TransactionType.values.firstWhere(

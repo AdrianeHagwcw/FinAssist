@@ -42,9 +42,8 @@ class TransactionExport {
     // Archived wallets are included, so an entry made in a wallet the user has
     // since put away still shows the wallet it belongs to.
     final wallets = await WalletService.loadWallets();
-    final walletNames = {
-      for (final wallet in wallets) wallet.id: wallet.name,
-    };
+    final walletNames = {for (final wallet in wallets) wallet.id: wallet.name};
+    final walletTypes = {for (final wallet in wallets) wallet.id: wallet.type};
 
     // A payment toward an installment or a debt is a bill payment in the
     // records; the file says which.
@@ -60,6 +59,7 @@ class TransactionExport {
     final csv = buildTransactionCsv(
       transactions,
       walletNames: walletNames,
+      walletTypes: walletTypes,
       billTags: billTags,
     );
     final fileName = transactionCsvFileName(now ?? DateTime.now());

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/transaction_filter.dart';
+import '../../backend/models/transfer_direction.dart';
 import '../../backend/models/wallet.dart';
 import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
@@ -95,7 +96,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           stream: _transactions,
           builder: (context, snapshot) {
             final all = snapshot.data;
-            final shown = all?.where(_filter.matches).toList() ?? const [];
+            final shown =
+                all
+                    ?.where((t) => _filter.matches(t, wallets: wallets))
+                    .toList() ??
+                const [];
 
             return Scaffold(
               backgroundColor: colors.pageBackground,
@@ -205,7 +210,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           moved: shown
               .where((t) => t.type == TransactionType.transfer)
               .fold<double>(0, (sum, t) => sum + t.amount),
-          showing: _filter.type,
+          showing:
+              _filter.type ??
+              (_filter.direction != null ? TransactionType.transfer : null),
           loans: loanMovements(shown),
         ),
         const SizedBox(height: 12),
@@ -410,11 +417,7 @@ class _InOutStrip extends StatelessWidget {
                 figure('Outflow', moneyOut, dangerColorOn(context)),
               ],
               TransactionType.transfer => [
-                figure(
-                  'Moved between your wallets',
-                  moved,
-                  colors.primaryText,
-                ),
+                figure('Moved between your wallets', moved, colors.primaryText),
               ],
               null => [
                 figure('Inflow', moneyIn, confirmColorOn(context)),
@@ -474,7 +477,10 @@ class _ActiveFilters extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final parts = [
-      if (filter.type != null) flowLabel(filter.type!),
+      if (filter.direction != null)
+        filter.direction!.label
+      else if (filter.type != null)
+        filter.type!.flowLabel,
       if (filter.category != null) filter.category!,
       if (filter.query != null && filter.query!.trim().isNotEmpty)
         '"${filter.query!.trim()}"',
@@ -586,6 +592,60 @@ class _FilterSheetState extends State<_FilterSheet> {
     () => _filter = _filter.copyWith(from: () => from, to: () => to),
   );
 
+  /// What the Type tiles offer. The stored type names keep their keys; the
+  /// two directions sit beside them because a transfer row reads as a
+  /// withdrawal or a deposit.
+  static const _typeChoices = <String?>[
+    null,
+    'income',
+    'expense',
+    'transfer',
+    'withdrawal',
+    'deposit',
+  ];
+
+  static const _typeChoiceLabels = {
+    'income': 'Inflow',
+    'expense': 'Outflow',
+    'transfer': 'Transfer',
+    'withdrawal': 'Withdrawal',
+    'deposit': 'Deposit',
+  };
+
+  static String _typeChoiceLabel(String? choice) =>
+      choice == null ? 'All' : _typeChoiceLabels[choice]!;
+
+  /// The tile to highlight: a direction when one is chosen, otherwise the
+  /// stored type. Null is All.
+  String? get _typeChoice => _filter.direction?.name ?? _filter.type?.name;
+
+  void _pickType(String? choice) {
+    setState(() {
+      if (choice == null) {
+        _filter = _filter.copyWith(type: () => null, direction: () => null);
+        return;
+      }
+
+      final direction = switch (choice) {
+        'withdrawal' => TransferDirection.withdrawal,
+        'deposit' => TransferDirection.deposit,
+        _ => null,
+      };
+      if (direction != null) {
+        _filter = _filter.copyWith(
+          type: () => TransactionType.transfer,
+          direction: () => direction,
+        );
+        return;
+      }
+
+      final type = TransactionType.values.firstWhere(
+        (type) => type.name == choice,
+      );
+      _filter = _filter.copyWith(type: () => type, direction: () => null);
+    });
+  }
+
   Future<void> _pickDate(_DateChoice choice) async {
     switch (choice) {
       case _DateChoice.any:
@@ -624,7 +684,9 @@ class _FilterSheetState extends State<_FilterSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final matching = widget.transactions.where(_filter.matches).length;
+    final matching = widget.transactions
+        .where((t) => _filter.matches(t, wallets: widget.wallets))
+        .length;
 
     Widget section(String title) => Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -686,7 +748,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                     dialogFieldDecoration(
                       context,
                       'Search',
-                      hint: 'Category, note or type',
+                      hint: 'Category or type',
                     ).copyWith(
                       prefixIcon: const Icon(Icons.search),
                       floatingLabelBehavior: FloatingLabelBehavior.always,
@@ -711,15 +773,13 @@ class _FilterSheetState extends State<_FilterSheet> {
               ),
               const SizedBox(height: 20),
               section('Type'),
-              ChoiceGrid<TransactionType?>(
-                options: const [null, ...TransactionType.values],
-                selected: _filter.type,
-                label: (type) => type == null ? 'All' : flowLabel(type),
-                keyOf: (type) => 'filter-type-${type?.name ?? 'all'}',
-                columns: 4,
-                onPick: (type) => setState(
-                  () => _filter = _filter.copyWith(type: () => type),
-                ),
+              ChoiceGrid<String?>(
+                options: _typeChoices,
+                selected: _typeChoice,
+                label: _typeChoiceLabel,
+                keyOf: (choice) => 'filter-type-${choice ?? 'all'}',
+                columns: 3,
+                onPick: _pickType,
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
@@ -843,11 +903,3 @@ class _FilterSheetState extends State<_FilterSheet> {
     );
   }
 }
-
-/// A kind of transaction in the words the app uses for it: money in and
-/// money out, or moved between the user's own wallets.
-String flowLabel(TransactionType type) => switch (type) {
-  TransactionType.income => 'Inflow',
-  TransactionType.expense => 'Outflow',
-  TransactionType.transfer => 'Transfer',
-};

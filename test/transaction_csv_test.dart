@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/backend/utils/transaction_csv.dart';
 
 AppTransaction entry({
@@ -35,7 +36,12 @@ AppTransaction entry({
   );
 }
 
-const walletNames = {'w1': 'Cash', 'w2': 'GCash'};
+const walletNames = {'w1': 'Cash', 'w2': 'GCash', 'w3': 'BPI'};
+const walletTypes = {
+  'w1': WalletType.cash,
+  'w2': WalletType.gcash,
+  'w3': WalletType.bank,
+};
 
 /// The rows of a built file, without the trailing empty line.
 List<String> rowsOf(String csv) {
@@ -83,19 +89,69 @@ void main() {
     });
 
     test('names both wallets of a transfer', () {
+      final csv = buildTransactionCsv(
+        [
+          entry(
+            type: TransactionType.transfer,
+            label: 'Transfer',
+            walletId: 'w1',
+            toWalletId: 'w2',
+          ),
+        ],
+        walletNames: walletNames,
+        walletTypes: walletTypes,
+      );
+
+      expect(
+        rowsOf(csv).last,
+        contains(',Deposit,Transfer,120.00,,Cash,GCash,'),
+      );
+    });
+
+    test('names a transfer the way the CPA does', () {
+      final csv = buildTransactionCsv(
+        [
+          entry(
+            type: TransactionType.transfer,
+            label: 'Transfer',
+            walletId: 'w3',
+            toWalletId: 'w1',
+          ),
+          entry(
+            type: TransactionType.transfer,
+            label: 'Transfer',
+            walletId: 'w1',
+            toWalletId: 'w3',
+          ),
+          entry(
+            type: TransactionType.transfer,
+            label: 'Transfer',
+            walletId: 'w2',
+            toWalletId: 'w3',
+          ),
+        ],
+        walletNames: walletNames,
+        walletTypes: walletTypes,
+      );
+
+      final rows = rowsOf(csv);
+      // Bank to cash, cash to bank, then e-wallet to bank.
+      expect(rows[1], contains(',Withdrawal,Transfer,'));
+      expect(rows[2], contains(',Deposit,Transfer,'));
+      expect(rows[3], contains(',Transfer,Transfer,'));
+    });
+
+    test('a transfer without known wallets stays a plain transfer', () {
       final csv = buildTransactionCsv([
         entry(
           type: TransactionType.transfer,
           label: 'Transfer',
-          walletId: 'w1',
-          toWalletId: 'w2',
+          walletId: 'gone',
+          toWalletId: 'cash',
         ),
-      ], walletNames: walletNames);
+      ], walletTypes: walletTypes);
 
-      expect(
-        rowsOf(csv).last,
-        contains(',Transfer,Transfer,120.00,,Cash,GCash,'),
-      );
+      expect(rowsOf(csv).last, contains(',Transfer,Transfer,'));
     });
 
     test('says Inflow and Outflow, as the app does', () {
@@ -139,9 +195,7 @@ void main() {
 
   group('cells that could break the file', () {
     test('a note with a comma stays one cell', () {
-      final csv = buildTransactionCsv([
-        entry(note: 'Rice, eggs and milk'),
-      ]);
+      final csv = buildTransactionCsv([entry(note: 'Rice, eggs and milk')]);
 
       expect(csv, contains('"Rice, eggs and milk"'));
       expect(rowsOf(csv).length, 2);
@@ -203,10 +257,7 @@ void main() {
       String tagOf(String instanceId) => rowsOf(
         buildTransactionCsv(
           [entry(billInstanceId: instanceId)],
-          billTags: {
-            'phone': 'Installment payment',
-            'sss': 'Debt payment',
-          },
+          billTags: {'phone': 'Installment payment', 'sss': 'Debt payment'},
         ),
       ).last.split(',').last;
 

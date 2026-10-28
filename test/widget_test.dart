@@ -23,6 +23,7 @@ import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/backend/services/bill_service.dart';
 import 'package:testapp/backend/services/budget_service.dart';
 import 'package:testapp/backend/models/transaction_filter.dart';
+import 'package:testapp/backend/models/transfer_direction.dart';
 import 'package:testapp/frontend/providers/app_settings_provider.dart';
 import 'package:testapp/frontend/screens/bill_calendar_screen.dart';
 import 'package:testapp/frontend/screens/bill_detail_screen.dart';
@@ -5668,10 +5669,15 @@ void main() {
   });
 
   group('which way the money went', () {
-    Wallet pocket(String id, String name, WalletPurpose purpose) => Wallet(
+    Wallet pocket(
+      String id,
+      String name,
+      WalletType type, {
+      WalletPurpose purpose = WalletPurpose.spending,
+    }) => Wallet(
       id: id,
       name: name,
-      type: WalletType.other,
+      type: type,
       balance: 1000,
       startingBalance: 1000,
       receivesIncome: false,
@@ -5681,9 +5687,15 @@ void main() {
     );
 
     final wallets = [
-      pocket('cash', 'Cash', WalletPurpose.spending),
-      pocket('gcash', 'GCash', WalletPurpose.spending),
-      pocket('save', 'Savings', WalletPurpose.savings),
+      pocket('cash', 'Cash', WalletType.cash),
+      pocket('bank', 'BPI', WalletType.bank),
+      pocket('gcash', 'GCash', WalletType.gcash),
+      pocket(
+        'save',
+        'Savings',
+        WalletType.other,
+        purpose: WalletPurpose.savings,
+      ),
     ];
 
     AppTransaction entry(
@@ -5699,6 +5711,11 @@ void main() {
       walletId: walletId,
       toWalletId: toWalletId,
     );
+
+    String labelOf(String from, String to) => transactionDirection(
+      entry(TransactionType.transfer, walletId: from, toWalletId: to),
+      wallets,
+    ).label;
 
     test('earning and spending are inflow and outflow, and carry a sign', () {
       final inward = transactionDirection(
@@ -5716,50 +5733,39 @@ void main() {
       expect(outward.sign, '-');
     });
 
-    test('moving your own money is a deposit or a withdrawal, unsigned', () {
-      // Into savings.
-      final deposit = transactionDirection(
-        entry(TransactionType.transfer, toWalletId: 'save'),
-        wallets,
-      );
-      expect(deposit.label, 'Deposit');
+    test('the CPA labels: bank to cash, cash to bank, e-wallet to bank', () {
+      expect(labelOf('bank', 'cash'), 'Withdrawal');
+      expect(labelOf('cash', 'bank'), 'Deposit');
+      expect(labelOf('gcash', 'bank'), 'Transfer');
+
       expect(
-        deposit.sign,
+        transactionDirection(
+          entry(TransactionType.transfer, walletId: 'bank', toWalletId: 'cash'),
+          wallets,
+        ).sign,
         isEmpty,
         reason: 'nothing was earned or spent, so no plus or minus',
       );
-
-      // Back out of savings.
-      expect(
-        transactionDirection(
-          entry(TransactionType.transfer, walletId: 'save', toWalletId: 'cash'),
-          wallets,
-        ).label,
-        'Withdraw',
-      );
-
-      // Between two spending wallets it is neither.
-      expect(
-        transactionDirection(
-          entry(TransactionType.transfer, toWalletId: 'gcash'),
-          wallets,
-        ).label,
-        'Moved',
-      );
     });
 
-    test('a wallet reads a transfer from its own side', () {
-      final transfer = entry(TransactionType.transfer, toWalletId: 'save');
+    test('the label follows cash in hand, whatever the savings wallet is', () {
+      // Cash into a savings record is money deposited into an account.
+      expect(labelOf('cash', 'save'), 'Deposit');
+      // Back out of it is a withdrawal.
+      expect(labelOf('save', 'cash'), 'Withdrawal');
+      // Account to savings is a transfer between accounts.
+      expect(labelOf('bank', 'save'), 'Transfer');
+    });
 
+    test('cash to cash and unknown wallets are plain transfers', () {
+      expect(labelOf('cash', 'cash'), 'Transfer');
       expect(
-        transactionDirection(transfer, wallets, forWalletId: 'cash').label,
-        'Withdraw',
-        reason: 'the money left this wallet',
-      );
-      expect(
-        transactionDirection(transfer, wallets, forWalletId: 'save').label,
-        'Deposit',
-        reason: 'the same move, seen from where it landed',
+        transactionDirection(
+          entry(TransactionType.transfer, walletId: 'gone', toWalletId: 'cash'),
+          wallets,
+        ).label,
+        'Transfer',
+        reason: 'an old record without a known wallet is not guessed at',
       );
     });
   });
@@ -7302,6 +7308,171 @@ void main() {
       );
     });
 
+    test('search finds a transfer by the word the history shows', () {
+      Wallet wallet(String id, WalletType type) => Wallet(
+        id: id,
+        name: id,
+        type: type,
+        balance: 1000,
+        startingBalance: 1000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+      );
+
+      final wallets = [
+        wallet('cash', WalletType.cash),
+        wallet('bank', WalletType.bank),
+        wallet('gcash', WalletType.gcash),
+      ];
+
+      final withdrawal = t(
+        'w',
+        type: TransactionType.transfer,
+        walletId: 'bank',
+        toWalletId: 'cash',
+      );
+      final deposit = t(
+        'd',
+        type: TransactionType.transfer,
+        walletId: 'cash',
+        toWalletId: 'bank',
+      );
+      final betweenAccounts = t(
+        't',
+        type: TransactionType.transfer,
+        walletId: 'gcash',
+        toWalletId: 'bank',
+      );
+
+      expect(
+        const TransactionFilter(
+          query: 'withdrawal',
+        ).matches(withdrawal, wallets: wallets),
+        isTrue,
+      );
+      expect(
+        const TransactionFilter(
+          query: 'withdraw',
+        ).matches(withdrawal, wallets: wallets),
+        isTrue,
+        reason: 'part of the word is enough, as everywhere else',
+      );
+      expect(
+        const TransactionFilter(
+          query: 'deposit',
+        ).matches(deposit, wallets: wallets),
+        isTrue,
+      );
+      expect(
+        const TransactionFilter(
+          query: 'transfer',
+        ).matches(betweenAccounts, wallets: wallets),
+        isTrue,
+      );
+      expect(
+        const TransactionFilter(
+          query: 'withdrawal',
+        ).matches(deposit, wallets: wallets),
+        isFalse,
+      );
+    });
+
+    test('search matches money in and money out by name', () {
+      final income = t('i', type: TransactionType.income, label: 'Salary');
+      final expense = t('e', label: 'Food');
+
+      expect(
+        const TransactionFilter(query: 'inflow').matches(income),
+        isTrue,
+        reason: 'the history calls money in an inflow',
+      );
+      expect(
+        const TransactionFilter(query: 'inflow').matches(expense),
+        isFalse,
+      );
+      expect(
+        const TransactionFilter(query: 'outflow').matches(expense),
+        isTrue,
+        reason: 'the history calls money out an outflow',
+      );
+      expect(
+        const TransactionFilter(query: 'outflow').matches(income),
+        isFalse,
+      );
+    });
+
+    test('a direction narrows transfers to one way', () {
+      Wallet wallet(String id, WalletType type) => Wallet(
+        id: id,
+        name: id,
+        type: type,
+        balance: 1000,
+        startingBalance: 1000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+      );
+
+      final wallets = [
+        wallet('cash', WalletType.cash),
+        wallet('bank', WalletType.bank),
+        wallet('gcash', WalletType.gcash),
+      ];
+
+      final withdrawal = t(
+        'w',
+        type: TransactionType.transfer,
+        walletId: 'bank',
+        toWalletId: 'cash',
+      );
+      final deposit = t(
+        'd',
+        type: TransactionType.transfer,
+        walletId: 'cash',
+        toWalletId: 'bank',
+      );
+      final betweenAccounts = t(
+        't',
+        type: TransactionType.transfer,
+        walletId: 'gcash',
+        toWalletId: 'bank',
+      );
+      final expense = t('e');
+
+      const withdrawals = TransactionFilter(
+        type: TransactionType.transfer,
+        direction: TransferDirection.withdrawal,
+      );
+      const deposits = TransactionFilter(
+        type: TransactionType.transfer,
+        direction: TransferDirection.deposit,
+      );
+
+      expect(withdrawals.matches(withdrawal, wallets: wallets), isTrue);
+      expect(withdrawals.matches(deposit, wallets: wallets), isFalse);
+      expect(withdrawals.matches(betweenAccounts, wallets: wallets), isFalse);
+      expect(
+        withdrawals.matches(expense, wallets: wallets),
+        isFalse,
+        reason: 'a direction still only means transfers',
+      );
+
+      expect(deposits.matches(deposit, wallets: wallets), isTrue);
+      expect(deposits.matches(withdrawal, wallets: wallets), isFalse);
+      expect(deposits.matches(betweenAccounts, wallets: wallets), isFalse);
+    });
+
+    test('a type and its direction count as one filter', () {
+      const filter = TransactionFilter(
+        type: TransactionType.transfer,
+        direction: TransferDirection.withdrawal,
+      );
+
+      expect(filter.activeCount, 1);
+      expect(filter.isEmpty, isFalse);
+    });
+
     test('a date range includes both of its end days', () {
       final filter = TransactionFilter(
         from: DateTime(2026, 3, 1),
@@ -7377,8 +7548,9 @@ void main() {
 
     Future<void> pumpList(
       WidgetTester tester,
-      List<AppTransaction> transactions,
-    ) async {
+      List<AppTransaction> transactions, {
+      List<Wallet>? extraWallets,
+    }) async {
       tester.view.physicalSize = const Size(700, 1800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -7391,7 +7563,7 @@ void main() {
             theme: AppTheme.light,
             home: TransactionsScreen(
               transactions: Stream.value(transactions),
-              wallets: Stream.value([cash, gcash]),
+              wallets: Stream.value([cash, gcash, ...?extraWallets]),
               showLegacyImport: false,
             ),
           ),
@@ -7535,6 +7707,111 @@ void main() {
 
       expect(find.textContaining('Showing:'), findsOneWidget);
       expect(find.textContaining('Monthly rent'), findsOneWidget);
+      expect(find.text('Food'), findsNothing);
+    });
+
+    testWidgets('search finds a transfer by the word the history shows', (
+      tester,
+    ) async {
+      await pumpList(tester, [
+        AppTransaction(
+          id: 't',
+          type: TransactionType.transfer,
+          amount: 300,
+          label: 'Transfer',
+          date: now,
+          walletId: 'cash',
+          toWalletId: 'gcash',
+        ),
+        AppTransaction(
+          id: 'e',
+          type: TransactionType.expense,
+          amount: 80,
+          label: 'Food',
+          date: now,
+          walletId: 'cash',
+        ),
+      ]);
+
+      await tester.tap(find.byKey(const Key('transaction-search-filters')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('transaction-search-input')),
+        'deposit',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Show 1 result'));
+      await tester.pumpAndSettle();
+
+      // Cash into GCash is a deposit, so the word finds the row.
+      expect(find.text('Cash → GCash'), findsOneWidget);
+      expect(find.text('Food'), findsNothing);
+    });
+
+    testWidgets('the type tiles narrow transfers to a withdrawal or deposit', (
+      tester,
+    ) async {
+      final bank = Wallet(
+        id: 'bank',
+        name: 'Bank',
+        type: WalletType.bank,
+        balance: 1000,
+        startingBalance: 1000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+      );
+
+      await pumpList(
+        tester,
+        [
+          AppTransaction(
+            id: 'w',
+            type: TransactionType.transfer,
+            amount: 500,
+            label: 'Transfer',
+            date: now,
+            walletId: 'bank',
+            toWalletId: 'cash',
+          ),
+          AppTransaction(
+            id: 'd',
+            type: TransactionType.transfer,
+            amount: 200,
+            label: 'Transfer',
+            date: now,
+            walletId: 'cash',
+            toWalletId: 'bank',
+          ),
+          AppTransaction(
+            id: 'e',
+            type: TransactionType.expense,
+            amount: 80,
+            label: 'Food',
+            date: now,
+            walletId: 'cash',
+          ),
+        ],
+        extraWallets: [bank],
+      );
+
+      await tester.tap(find.byKey(const Key('transaction-search-filters')));
+      await tester.pumpAndSettle();
+
+      // Both words sit in the Type section beside the stored kinds.
+      expect(find.byKey(const Key('filter-type-withdrawal')), findsOneWidget);
+      expect(find.byKey(const Key('filter-type-deposit')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('filter-type-withdrawal')));
+      await tester.pump();
+      expect(find.text('Show 1 result'), findsOneWidget);
+
+      await tester.tap(find.text('Show 1 result'));
+      await tester.pumpAndSettle();
+
+      // Only the bank into cash row is a withdrawal.
+      expect(find.text('Bank → Cash'), findsOneWidget);
+      expect(find.text('Cash → Bank'), findsNothing);
       expect(find.text('Food'), findsNothing);
     });
 
@@ -9821,10 +10098,7 @@ void main() {
         await tester.pumpWidget(
           app(
             Scaffold(
-              body: DebtFormSheet(
-                today: DateTime(2026, 3, 10),
-                onSave: (_) {},
-              ),
+              body: DebtFormSheet(today: DateTime(2026, 3, 10), onSave: (_) {}),
             ),
           ),
         );
@@ -10034,7 +10308,6 @@ void main() {
       expect(find.text(' of ₱24,000 paid'), findsOneWidget);
       expect(find.textContaining('11 payments left'), findsOneWidget);
     });
-
   });
 
   group('goal plans', () {

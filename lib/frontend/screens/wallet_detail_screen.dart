@@ -568,11 +568,7 @@ class _TransactionRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     [
-                      transactionDirection(
-                        transaction,
-                        wallets,
-                        forWalletId: wallet.id,
-                      ).label,
+                      transactionDirection(transaction, wallets).label,
                       if (note != null && note.isNotEmpty) note,
                     ].join(' · '),
                     maxLines: 1,

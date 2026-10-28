@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../backend/models/app_transaction.dart';
+import '../../backend/models/transfer_direction.dart';
 import '../../backend/models/wallet.dart';
 import '../providers/app_settings_provider.dart';
 import '../theme/app_buttons.dart';
@@ -22,40 +23,36 @@ String loanIconAsset(AppTransaction transaction) =>
 /// instead of leaving a plus or minus sign to carry the meaning alone.
 ///
 /// Inflow and outflow change what you have. A deposit or a withdrawal only
-/// moves money between your own pockets, so neither carries a sign.
+/// moves money between your own pockets, so neither carries a sign. The
+/// licensed CPA's rule names that move: money into cash in hand is a
+/// withdrawal, money out of it is a deposit, and an account to account move
+/// is a transfer. The word belongs to the transaction, so both wallets in a
+/// transfer read it the same way.
 ({String label, String sign}) transactionDirection(
   AppTransaction transaction,
-  List<Wallet> wallets, {
-  String? forWalletId,
-}) {
+  List<Wallet> wallets,
+) {
   switch (transaction.type) {
     case TransactionType.income:
       return (label: 'Inflow', sign: '+');
     case TransactionType.expense:
       return (label: 'Outflow', sign: '-');
     case TransactionType.transfer:
-      // Read from the wallet being looked at when there is one, otherwise
-      // from where the money ended up.
-      if (forWalletId != null) {
-        return transaction.walletId == forWalletId
-            ? (label: 'Withdraw', sign: '')
-            : (label: 'Deposit', sign: '');
-      }
-      if (_isSetAside(wallets, transaction.toWalletId)) {
-        return (label: 'Deposit', sign: '');
-      }
-      if (_isSetAside(wallets, transaction.walletId)) {
-        return (label: 'Withdraw', sign: '');
-      }
-      return (label: 'Moved', sign: '');
+      return (
+        label: TransferDirection.between(
+          from: _walletType(wallets, transaction.walletId),
+          to: _walletType(wallets, transaction.toWalletId),
+        ).label,
+        sign: '',
+      );
   }
 }
 
-bool _isSetAside(List<Wallet> wallets, String? id) {
+WalletType? _walletType(List<Wallet> wallets, String? id) {
   for (final wallet in wallets) {
-    if (wallet.id == id) return wallet.isSetAside;
+    if (wallet.id == id) return wallet.type;
   }
-  return false;
+  return null;
 }
 
 /// A wallet's name by id, including archived ones the list was given.

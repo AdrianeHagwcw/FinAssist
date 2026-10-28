@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../models/app_transaction.dart';
+import '../models/transfer_direction.dart';
+import '../models/wallet.dart';
 
 /// Builds the spreadsheet the user exports from Reports.
 ///
@@ -10,10 +12,18 @@ import '../models/app_transaction.dart';
 
 /// What the file needs to know beyond each transaction itself.
 class CsvLookups {
-  const CsvLookups({this.walletNames = const {}, this.billTags = const {}});
+  const CsvLookups({
+    this.walletNames = const {},
+    this.walletTypes = const {},
+    this.billTags = const {},
+  });
 
   /// A wallet id to its name.
   final Map<String, String> walletNames;
+
+  /// A wallet id to its kind, so a transfer can be named the way the app
+  /// names it: a deposit, a withdrawal, or a transfer.
+  final Map<String, WalletType> walletTypes;
 
   /// A bill id to what paying it is, such as 'Installment payment', for the
   /// schedules that pay off an installment or a debt.
@@ -60,12 +70,15 @@ String _time(AppTransaction entry, CsvLookups lookups) {
       '${entry.date.minute.toString().padLeft(2, '0')}';
 }
 
-/// The same words the app uses: money in, money out, or moved between the
-/// user's own wallets.
+/// The same words the app uses: money in, money out, or a move between the
+/// user's own wallets, named from the wallets' kinds as the app names it.
 String _type(AppTransaction entry, CsvLookups lookups) => switch (entry.type) {
   TransactionType.income => 'Inflow',
   TransactionType.expense => 'Outflow',
-  TransactionType.transfer => 'Transfer',
+  TransactionType.transfer => TransferDirection.between(
+    from: lookups.walletTypes[entry.walletId],
+    to: lookups.walletTypes[entry.toWalletId],
+  ).label,
 };
 
 String _label(AppTransaction entry, CsvLookups lookups) => entry.label;
@@ -112,9 +125,14 @@ String _tag(AppTransaction entry, CsvLookups lookups) {
 String buildTransactionCsv(
   List<AppTransaction> transactions, {
   Map<String, String> walletNames = const {},
+  Map<String, WalletType> walletTypes = const {},
   Map<String, String> billTags = const {},
 }) {
-  final lookups = CsvLookups(walletNames: walletNames, billTags: billTags);
+  final lookups = CsvLookups(
+    walletNames: walletNames,
+    walletTypes: walletTypes,
+    billTags: billTags,
+  );
   final rows = <String>[
     csvColumns.map((column) => _cell(column.header, isText: false)).join(','),
     for (final entry in transactions)
