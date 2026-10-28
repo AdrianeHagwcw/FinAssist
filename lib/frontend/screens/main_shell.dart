@@ -109,9 +109,26 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
     // A new day may have started, so "nothing logged today" is planned again.
-    if (state == AppLifecycleState.resumed) _reminders.refresh();
+    _reminders.refresh();
+    // Back on a new day: Home is worked out again, so This Month, today's
+    // spending and Safe to Spend follow the date instead of the day the app
+    // was left open on.
+    final today = _dateOnly(DateTime.now());
+    if (today != _homeDay) {
+      setState(() {
+        _homeDay = today;
+        _homeRefreshKey++;
+      });
+    }
   }
+
+  /// The day Home was last worked out for.
+  DateTime _homeDay = _dateOnly(DateTime.now());
+
+  static DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
 
   /// Opens what a tapped reminder is about.
   Future<void> _openReminder() async {

@@ -346,3 +346,78 @@ class SpendingLegend extends StatelessWidget {
     );
   }
 }
+
+/// The legend in two columns: a color key, the category and its amount.
+/// Compact enough for Home, where the full list with shares is one tap away
+/// in Reports.
+class SpendingLegendGrid extends StatelessWidget {
+  const SpendingLegendGrid({required this.spending, this.limit, super.key});
+
+  final List<MapEntry<String, double>> spending;
+
+  /// Shows only the largest few, with the rest summed into one entry.
+  final int? limit;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final entries = foldSpending(spending, limit);
+    final restCount = limit == null || spending.length <= limit!
+        ? 0
+        : spending.length - limit!;
+
+    Widget cell(MapEntry<String?, double> entry) => Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: _entryColor(context, entry.key),
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            entry.key ?? '$restCount more',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              color: entry.key == null ? colors.textBody : colors.textPrimary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        MoneyText(
+          entry.value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: colors.textPrimary,
+          ),
+        ),
+      ],
+    );
+
+    return Column(
+      children: [
+        for (var i = 0; i < entries.length; i += 2)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(
+              children: [
+                Expanded(child: cell(entries[i])),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: i + 1 < entries.length
+                      ? cell(entries[i + 1])
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}

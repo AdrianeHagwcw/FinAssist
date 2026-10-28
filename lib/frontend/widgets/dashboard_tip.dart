@@ -6,14 +6,9 @@ import '../theme/app_icons.dart';
 
 /// Home's tip: a short rule-based line, with no AI service and no connection.
 class DashboardTipCard extends StatelessWidget {
-  const DashboardTipCard({
-    required this.tip,
-    required this.onOpenHistory,
-    super.key,
-  });
+  const DashboardTipCard({required this.tip, super.key});
 
   final DashboardTip tip;
-  final VoidCallback onOpenHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -45,15 +40,6 @@ class DashboardTipCard extends StatelessWidget {
                     tip.message,
                     style: TextStyle(color: colors.textBody, height: 1.5),
                   ),
-                  if (tip.showHistory)
-                    TextButton(
-                      onPressed: onOpenHistory,
-                      style: TextButton.styleFrom(
-                        foregroundColor: colors.primaryText,
-                        padding: EdgeInsets.zero,
-                      ),
-                      child: const Text('View Cash Inflows'),
-                    ),
                 ],
               ),
             ),

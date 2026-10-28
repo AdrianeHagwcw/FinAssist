@@ -38,6 +38,7 @@ const _philippineBanks = [
   'Netbank',
   'Overseas Filipino Bank',
   'SeaBank Philippines',
+  'MariBank',
   'Tonik Digital Bank',
   'UNO Digital Bank',
   'UnionDigital Bank',

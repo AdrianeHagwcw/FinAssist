@@ -202,6 +202,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         _InOutStrip(
           moneyIn: totals.moneyIn,
           moneyOut: totals.moneyOut,
+          moved: shown
+              .where((t) => t.type == TransactionType.transfer)
+              .fold<double>(0, (sum, t) => sum + t.amount),
+          showing: _filter.type,
           loans: loanMovements(shown),
         ),
         const SizedBox(height: 12),
@@ -338,11 +342,20 @@ class _InOutStrip extends StatelessWidget {
   const _InOutStrip({
     required this.moneyIn,
     required this.moneyOut,
+    required this.moved,
     required this.loans,
+    this.showing,
   });
 
   final double moneyIn;
   final double moneyOut;
+
+  /// Moved between the user's own wallets: neither in nor out.
+  final double moved;
+
+  /// The one kind the list is narrowed to. Only its figure is shown, so the
+  /// other never reads as a misleading ₱0.
+  final TransactionType? showing;
 
   /// Shown apart, so the list adds up: a loan is your own money leaving and
   /// coming back, not spending or income.
@@ -389,16 +402,31 @@ class _InOutStrip extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: [
-              figure('Inflow', moneyIn, confirmColorOn(context)),
-              Container(
-                width: 1,
-                height: 34,
-                color: colors.border,
-                margin: const EdgeInsets.symmetric(horizontal: 12),
-              ),
-              figure('Outflow', moneyOut, dangerColorOn(context)),
-            ],
+            children: switch (showing) {
+              TransactionType.income => [
+                figure('Inflow', moneyIn, confirmColorOn(context)),
+              ],
+              TransactionType.expense => [
+                figure('Outflow', moneyOut, dangerColorOn(context)),
+              ],
+              TransactionType.transfer => [
+                figure(
+                  'Moved between your wallets',
+                  moved,
+                  colors.primaryText,
+                ),
+              ],
+              null => [
+                figure('Inflow', moneyIn, confirmColorOn(context)),
+                Container(
+                  width: 1,
+                  height: 34,
+                  color: colors.border,
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+                figure('Outflow', moneyOut, dangerColorOn(context)),
+              ],
+            },
           ),
           if (loans.moneyIn > 0.005 || loans.moneyOut > 0.005) ...[
             const SizedBox(height: 12),
@@ -446,7 +474,7 @@ class _ActiveFilters extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final parts = [
-      if (filter.type != null) filter.type!.label,
+      if (filter.type != null) flowLabel(filter.type!),
       if (filter.category != null) filter.category!,
       if (filter.query != null && filter.query!.trim().isNotEmpty)
         '"${filter.query!.trim()}"',
@@ -686,7 +714,7 @@ class _FilterSheetState extends State<_FilterSheet> {
               ChoiceGrid<TransactionType?>(
                 options: const [null, ...TransactionType.values],
                 selected: _filter.type,
-                label: (type) => type?.label ?? 'All',
+                label: (type) => type == null ? 'All' : flowLabel(type),
                 keyOf: (type) => 'filter-type-${type?.name ?? 'all'}',
                 columns: 4,
                 onPick: (type) => setState(
@@ -771,11 +799,12 @@ class _FilterSheetState extends State<_FilterSheet> {
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton(
+                    // Solid red, like Log Out. Nothing to clear: nothing to
+                    // press, so it shows paler until a filter is set.
+                    child: ElevatedButton(
                       key: const Key('filter-clear'),
-                      // Nothing to clear: nothing to press.
                       onPressed: _filter.isEmpty ? null : _clear,
-                      style: dangerOutlineStyle(context, height: 52),
+                      style: dangerButtonStyle(height: 52),
                       child: const Text(
                         'Clear all',
                         style: TextStyle(
@@ -814,3 +843,11 @@ class _FilterSheetState extends State<_FilterSheet> {
     );
   }
 }
+
+/// A kind of transaction in the words the app uses for it: money in and
+/// money out, or moved between the user's own wallets.
+String flowLabel(TransactionType type) => switch (type) {
+  TransactionType.income => 'Inflow',
+  TransactionType.expense => 'Outflow',
+  TransactionType.transfer => 'Transfer',
+};

@@ -18,6 +18,7 @@ import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
 import '../widgets/app_icon_button.dart';
 import '../widgets/app_logo.dart';
@@ -49,6 +50,7 @@ import 'reports_screen.dart';
 import 'set_aside_screen.dart';
 import 'voice_recognition_screen.dart';
 import 'wallet_detail_screen.dart';
+import 'transactions_screen.dart';
 import 'wallets_screen.dart';
 
 /// The landing screen: what is safe to spend today, what the wallets hold,
@@ -326,21 +328,23 @@ class _HomeScreenState extends State<HomeScreen> {
               setState(() => _showAllQuickActions = !_showAllQuickActions),
         ),
         _quickActions(),
-        const SizedBox(height: 20),
-        _tip(wallets: wallets, transactions: transactions, now: now),
 
         const SizedBox(height: 25),
+        // Reports is in the bottom bar and Quick Actions, so the side of
+        // the title only says which month this is.
         _SectionTitle(
-          'Spending This Month',
-          action: 'See Reports',
-          onAction: widget.onOpenReports ?? () => _push(const ReportsScreen()),
+          'This Month',
+          note: '${formatMonthName(now)} ${now.year}',
         ),
-        _MonthSpendingCard(
+        _ThisMonthCard(
           transactions: transactions,
           now: now,
-          onOpenReports:
-              widget.onOpenReports ?? () => _push(const ReportsScreen()),
+          onOpenInflows: () => _openMonth(TransactionType.income, now),
+          onOpenOutflows: () => _openMonth(TransactionType.expense, now),
         ),
+        // The tip comes after the numbers it talks about.
+        const SizedBox(height: 16),
+        _tip(wallets: wallets, transactions: transactions, now: now),
 
         const SizedBox(height: 25),
         _SectionTitle(
@@ -367,12 +371,23 @@ class _HomeScreenState extends State<HomeScreen> {
         bills: _bills,
         now: now,
       ),
-      onOpenHistory: () => _push(const HistoryScreen()),
     );
   }
 
   /// Opens the user's savings.
   void _openSavings() => _push(const SetAsideScreen());
+
+  /// Transactions for this month so far, only money in or only money out,
+  /// so the list adds up to the box that was tapped.
+  void _openMonth(TransactionType type, DateTime now) => _push(
+    TransactionsScreen(
+      initialFilter: TransactionFilter(
+        type: type,
+        from: DateTime(now.year, now.month),
+        to: DateTime(now.year, now.month, now.day),
+      ),
+    ),
+  );
 
   Widget _quickActions() {
     Widget tile(String asset, String title, VoidCallback onTap) {
@@ -544,11 +559,14 @@ class _HomeScreenState extends State<HomeScreen> {
 /// A balance the user has already promised: what is kept for bills, and what
 /// is kept as savings. Tapping one opens where that money is going.
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.title, {this.action, this.onAction});
+  const _SectionTitle(this.title, {this.action, this.onAction, this.note});
 
   final String title;
   final String? action;
   final VoidCallback? onAction;
+
+  /// Plain text on the right, such as the month shown.
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -574,6 +592,14 @@ class _SectionTitle extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
               ),
               child: Text(action!),
+            )
+          else if (note != null)
+            Text(
+              note!,
+              style: TextStyle(
+                fontSize: 13,
+                color: context.appColors.textMuted,
+              ),
             ),
         ],
       ),
@@ -1429,19 +1455,24 @@ class _GoalMathCard extends StatelessWidget {
 
 /// This month's spending: the total, how it splits, and the biggest
 /// categories.
-class _MonthSpendingCard extends StatelessWidget {
-  const _MonthSpendingCard({
+/// This month at a glance: what came in and what went out, each opening its
+/// own list, then where the spending went by category.
+class _ThisMonthCard extends StatelessWidget {
+  const _ThisMonthCard({
     required this.transactions,
     required this.now,
-    required this.onOpenReports,
+    required this.onOpenInflows,
+    required this.onOpenOutflows,
   });
 
   final List<AppTransaction>? transactions;
   final DateTime now;
-  final VoidCallback onOpenReports;
+  final VoidCallback onOpenInflows;
+  final VoidCallback onOpenOutflows;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final list = transactions;
     if (list == null) {
       return const _Card(
@@ -1452,69 +1483,109 @@ class _MonthSpendingCard extends StatelessWidget {
       );
     }
 
-    final spending = spendingByCategory(
-      transactionsIn(list, ReportPeriod.monthOf(now)),
-    );
+    final month = transactionsIn(list, ReportPeriod.monthOf(now));
+    // Transfers between the user's own wallets are neither, and neither is
+    // money borrowed or lent: the same rule as Transactions and Reports.
+    final flow = inAndOut(month);
+    final spending = spendingByCategory(month);
 
-    final total = spending.fold<double>(0, (sum, e) => sum + e.value);
-
-    if (spending.isEmpty) {
-      return _Card(
-        child: Row(
-          children: [
-            Image.asset(
-              'assets/icons/icons8-pie-chart-96.png',
-              width: 44,
-              height: 44,
+    Widget box({
+      required Key key,
+      required String label,
+      required double amount,
+      required String sign,
+      required Color color,
+      required VoidCallback onTap,
+    }) => Expanded(
+      child: Material(
+        color: colors.pageBackground,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          key: key,
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(fontSize: 12, color: colors.textBody),
+                      ),
+                      const SizedBox(height: 2),
+                      MoneyText(
+                        amount,
+                        sign: amount > 0 ? sign : null,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, size: 18, color: colors.textMuted),
+              ],
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(
-                'No spending yet this month. Expenses and bills you pay '
-                'show up here.',
-                style: TextStyle(
-                  color: context.appColors.textBody,
-                  height: 1.4,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onOpenReports,
-        borderRadius: BorderRadius.circular(16),
-        child: _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              MoneyText(
-                total,
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  color: context.appColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'spent so far this month',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: context.appColors.textBody,
-                ),
-              ),
-              const SizedBox(height: 14),
-              SpendingBar(spending: spending, limit: 3),
-              const SizedBox(height: 6),
-              SpendingLegend(spending: spending, limit: 3),
-            ],
           ),
         ),
+      ),
+    );
+
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              box(
+                key: const Key('month-inflow'),
+                label: 'Inflow',
+                amount: flow.moneyIn,
+                sign: '+',
+                color: confirmColorOn(context),
+                onTap: onOpenInflows,
+              ),
+              const SizedBox(width: 10),
+              box(
+                key: const Key('month-outflow'),
+                label: 'Outflow',
+                amount: flow.moneyOut,
+                sign: '-',
+                color: dangerColorOn(context),
+                onTap: onOpenOutflows,
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Spending by category',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (spending.isEmpty)
+            Text(
+              'No spending yet this month. Expenses and bills you pay show '
+              'up here.',
+              style: TextStyle(color: colors.textBody, height: 1.4),
+            )
+          else ...[
+            SpendingBar(spending: spending, limit: 5),
+            const SizedBox(height: 8),
+            SpendingLegendGrid(spending: spending, limit: 5),
+          ],
+        ],
       ),
     );
   }

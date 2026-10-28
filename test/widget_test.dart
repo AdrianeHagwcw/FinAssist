@@ -2851,7 +2851,11 @@ void main() {
       expect(find.text('Select a bank'), findsOneWidget);
       expect(
         bankField.items!.map((item) => item.value),
-        containsAll(['BDO Unibank', 'Bank of the Philippine Islands (BPI)']),
+        containsAll([
+          'BDO Unibank',
+          'Bank of the Philippine Islands (BPI)',
+          'MariBank',
+        ]),
       );
       expect(
         bankField.items!.map((item) => item.value),
@@ -7535,7 +7539,7 @@ void main() {
       expect(find.text('Show 2 results'), findsOneWidget);
       expect(
         tester
-            .widget<OutlinedButton>(find.byKey(const Key('filter-clear')))
+            .widget<ElevatedButton>(find.byKey(const Key('filter-clear')))
             .onPressed,
         isNull,
       );
@@ -12130,7 +12134,8 @@ void main() {
     ) async {
       await pumpHome(tester, const [], wallets: const []);
 
-      expect(find.text('₱0'), findsNWidgets(3));
+      // The balance and its two boxes, then This Month's Inflow and Outflow.
+      expect(find.text('₱0'), findsNWidgets(5));
       await tester.tap(find.text('Cash on Hand'));
       await tester.pumpAndSettle();
       expect(
@@ -12190,8 +12195,24 @@ void main() {
       final noticesTop = tester.getTopLeft(find.text('Notices placeholder'));
       expect(totalTop.dy, lessThan(noticesTop.dy));
 
-      // The bill payment is spending; the loan to Ana isn't.
-      expect(find.text('spent so far this month'), findsOneWidget);
+      // This month: the bill payment went out; the loan to Ana isn't
+      // spending, and nothing came in.
+      expect(find.text('This Month'), findsOneWidget);
+      expect(find.text('Sep 2026'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('month-outflow')),
+          matching: find.text('-₱1,000'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('month-inflow')),
+          matching: find.text('₱0'),
+        ),
+        findsOneWidget,
+      );
       expect(find.byType(SpendingBar), findsOneWidget);
       final segments = find.descendant(
         of: find.byType(SpendingBar),
@@ -12202,7 +12223,13 @@ void main() {
         10,
         reason: 'the bar has to be drawn, not just present',
       );
-      expect(find.text('100%'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SpendingLegendGrid),
+          matching: find.text('Bills'),
+        ),
+        findsOneWidget,
+      );
 
       // Both show in the recent list.
       expect(find.text('Lent'), findsOneWidget);
