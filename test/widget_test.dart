@@ -10105,17 +10105,19 @@ void main() {
         );
         await tester.pump();
 
-        // Only what every plan has: the rest waits under More options.
+        // Only what every plan has.
         expect(find.text('Interest (optional)'), findsNothing);
-        // The rare and the optional start folded away, so the first look at
-        // the form is the plan itself and nothing else.
+        // The rare and the optional are not asked at all.
         expect(find.text('Last payment (optional)'), findsNothing);
         expect(find.text('Notes (optional)'), findsNothing);
-        expect(find.text('More options (optional)'), findsOneWidget);
+        // No fold: every field the plan needs is on the form.
+        expect(find.text('More options (optional)'), findsNothing);
+        expect(find.text('Fewer options'), findsNothing);
         // Nothing a plan no longer asks for.
         expect(find.text('How often'), findsNothing);
         expect(find.text('First payment'), findsNothing);
         expect(find.text('Each payment'), findsNothing);
+        expect(find.text('How many have you paid already?'), findsNothing);
         // Grey examples inside the empty fields.
         // Things bought on installment: loans have their own form.
         expect(find.text('e.g. iPhone 15 from Globe'), findsOneWidget);

@@ -285,8 +285,6 @@ void main() {
     expect(find.textContaining('of each payment is interest'), findsNothing);
 
     // Payments always come from the Bills wallet: there is nothing to pick.
-    await tester.tap(find.text('More options (optional)'));
-    await tester.pumpAndSettle();
     expect(find.text('Usually paid from'), findsNothing);
     // Interest is a loan's question, asked on the Debts form.
     expect(find.text('Interest (optional)'), findsNothing);
@@ -372,8 +370,6 @@ void main() {
     await tester.enterText(fields.at(0), 'Dental braces');
     await tester.enterText(fields.at(1), '2000');
     await tester.enterText(fields.at(2), '6');
-    await tester.tap(find.text('More options (optional)'));
-    await tester.pumpAndSettle();
 
     expect(find.text('Notes (optional)'), findsNothing);
     await tester.enterText(

@@ -250,8 +250,6 @@ void main() {
       await tester.enterText(fields.at(2), '12');
       await tester.pump();
 
-      await tester.tap(find.text('More options (optional)'));
-      await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const Key('installment-down-payment')),
         '5000',

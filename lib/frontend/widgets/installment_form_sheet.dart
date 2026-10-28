@@ -80,7 +80,6 @@ class InstallmentDraft {
     required this.frequency,
     required this.firstDueDate,
     this.lastPayment = 0,
-    this.paidBefore = 0,
     this.otherKind,
     this.paidWithWalletId,
     this.paidWithLabel,
@@ -100,9 +99,6 @@ class InstallmentDraft {
 
   /// First payment of the plan.
   final DateTime firstDueDate;
-
-  /// Payments made before it was tracked here.
-  final int paidBefore;
 
   /// The user's own kind, when they chose Other.
   final String? otherKind;
@@ -149,8 +145,8 @@ class InstallmentFormSheet extends StatefulWidget {
 
 class _InstallmentFormSheetState extends State<InstallmentFormSheet>
     with CheckAfterSave {
-  /// Chosen by hand under More options; until then the name decides it,
-  /// among the kinds bought on installment. Loans belong under Debts.
+  /// Chosen by hand from Kind; until then the name decides it, among the
+  /// kinds bought on installment. Loans belong under Debts.
   DebtCategory? _pickedCategory;
   DebtCategory get _category {
     final guess = guessDebtCategory(_nameController.text);
@@ -179,7 +175,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
     text: widget.initialCount?.toString(),
   );
   final _downController = TextEditingController();
-  final _paidBeforeController = TextEditingController();
   final _otherKindController = TextEditingController();
   final _paidWithLabelController = TextEditingController();
 
@@ -195,10 +190,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
   static String _amountText(double? amount) =>
       amount == null ? '' : formatAmountInput(amount);
 
-  /// Everything a plan does not need is folded away until asked for. The
-  /// form was a wall of fields and explanations before anything was typed.
-  bool _showMore = false;
-
   @override
   void initState() {
     super.initState();
@@ -208,7 +199,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       _principalController,
       _countController,
       _downController,
-      _paidBeforeController,
       _paidWithLabelController,
     ]) {
       controller.addListener(_refresh);
@@ -225,7 +215,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       _principalController,
       _countController,
       _downController,
-      _paidBeforeController,
       _otherKindController,
       _paidWithLabelController,
     ]) {
@@ -251,10 +240,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
   /// Months typed. Required: the payments are worked out from them.
   int get _paymentCount => int.tryParse(_countController.text.trim()) ?? 0;
 
-  /// Payments made before it was tracked here, typed by hand. They count as
-  /// paid, and no wallet moved for them in the app.
-  int get _paidBefore => int.tryParse(_paidBeforeController.text.trim()) ?? 0;
-
   /// Each payment and the last one, worked out from the price and the
   /// months so they add up to the price exactly.
   ({double perPayment, double lastPayment}) get _payments =>
@@ -271,10 +256,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
   /// last day where it is shorter.
   DateTime get _nextDueDate => nextMonthSameDay(_today);
 
-  /// The first payment of the plan. With payments already made, it is set
-  /// back so the next unpaid one still lands next month.
-  DateTime get _firstDueDate => addMonthsClamped(_nextDueDate, -_paidBefore);
-
   Debt get _preview => Debt(
     id: '',
     direction: DebtDirection.iOwe,
@@ -285,9 +266,8 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
     paymentCount: _paymentCount,
     lastPayment: _hasDifferentLastPayment ? _lastPayment : 0,
     frequency: _frequency,
-    firstDueDate: _firstDueDate,
+    firstDueDate: _nextDueDate,
     status: DebtStatus.active,
-    paidBefore: _paidBefore,
   );
 
   /// What stops the plan being saved as it stands, or null. Shown once Save
@@ -313,8 +293,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       return 'The down payment must be less than the cash price.';
     } else if (!isRecordableAmount(_perPayment)) {
       return 'The price is too small to split into $_paymentCount payments.';
-    } else if (_paidBefore >= _paymentCount) {
-      return 'That is every payment, so nothing is left to pay.';
     }
     return null;
   }
@@ -340,8 +318,7 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       paymentCount: _paymentCount,
       lastPayment: _hasDifferentLastPayment ? _lastPayment : 0,
       frequency: _frequency,
-      firstDueDate: _firstDueDate,
-      paidBefore: _paidBefore,
+      firstDueDate: _nextDueDate,
       otherKind: _category == DebtCategory.other
           ? cleanText(_otherKindController.text)
           : null,
@@ -363,7 +340,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
         lastPayment: draft.lastPayment,
         frequency: draft.frequency,
         firstDueDate: draft.firstDueDate,
-        paidBefore: draft.paidBefore,
         otherKind: draft.otherKind,
         paidWithWalletId: draft.paidWithWalletId,
         paidWithLabel: draft.paidWithLabel,
@@ -565,98 +541,55 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                           floatingLabelBehavior: FloatingLabelBehavior.always,
                         ),
                   ),
-                  // Already paying it: what is behind counts as paid, so the
-                  // app never asks for those payments again.
+                  // Only matters with a cash price, so it waits for one.
+                  if (_price > 0) ...[
+                    const SizedBox(height: 16),
+                    AmountField(
+                      key: const Key('installment-down-payment'),
+                      controller: _downController,
+                      label: 'Down payment (optional)',
+                      hint: 'e.g. 2,000',
+                      helper: 'If you paid part of the price upfront.',
+                      alwaysShowHint: true,
+                      autofocus: false,
+                    ),
+                  ],
                   const SizedBox(height: 16),
-                  TextField(
-                    key: const Key('installment-paid-before'),
-                    controller: _paidBeforeController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(3),
-                    ],
-                    decoration:
-                        dialogFieldDecoration(
-                          context,
-                          'How many have you paid already?',
-                          hint: 'e.g. 3',
-                          helper:
-                              'Leave blank if none. These count as paid, and '
-                              'no wallet changes.',
-                        ).copyWith(
-                          helperMaxLines: 3,
-                          floatingLabelBehavior: FloatingLabelBehavior.always,
+                  DropdownButtonFormField<DebtCategory>(
+                    // Rebuilt as the name changes the guess.
+                    key: ValueKey(_category),
+                    initialValue: _category,
+                    isExpanded: true,
+                    decoration: dialogFieldDecoration(context, 'Kind'),
+                    items: [
+                      for (final category in DebtCategory.installmentKinds)
+                        DropdownMenuItem(
+                          value: category,
+                          child: Text(category.label),
                         ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _pickedCategory = value),
                   ),
+                  if (_category == DebtCategory.other) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      key: const Key('installment-other-kind'),
+                      controller: _otherKindController,
+                      textCapitalization: TextCapitalization.sentences,
+                      maxLength: 30,
+                      inputFormatters: const [SafeTextFormatter()],
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'What kind is it?',
+                        hint: 'e.g. Dental treatment',
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   _SummaryCard(debt: _preview),
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () => setState(() => _showMore = !_showMore),
-                      style: TextButton.styleFrom(
-                        foregroundColor: colors.primaryText,
-                        padding: EdgeInsets.zero,
-                      ),
-                      icon: Icon(
-                        _showMore ? Icons.expand_less : Icons.expand_more,
-                      ),
-                      label: Text(
-                        _showMore ? 'Fewer options' : 'More options (optional)',
-                      ),
-                    ),
-                  ),
-                  if (_showMore) ...[
-                    const SizedBox(height: 8),
-                    // Only matters with a cash price, so it waits for one.
-                    if (_price > 0) ...[
-                      AmountField(
-                        key: const Key('installment-down-payment'),
-                        controller: _downController,
-                        label: 'Down payment (optional)',
-                        hint: 'e.g. 2,000',
-                        helper: 'If you paid part of the price upfront.',
-                        alwaysShowHint: true,
-                        autofocus: false,
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    DropdownButtonFormField<DebtCategory>(
-                      // Rebuilt as the name changes the guess.
-                      key: ValueKey(_category),
-                      initialValue: _category,
-                      isExpanded: true,
-                      decoration: dialogFieldDecoration(context, 'Kind'),
-                      items: [
-                        for (final category in DebtCategory.installmentKinds)
-                          DropdownMenuItem(
-                            value: category,
-                            child: Text(category.label),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _pickedCategory = value),
-                    ),
-                    const SizedBox(height: 16),
-                    if (_category == DebtCategory.other) ...[
-                      TextField(
-                        key: const Key('installment-other-kind'),
-                        controller: _otherKindController,
-                        textCapitalization: TextCapitalization.sentences,
-                        maxLength: 30,
-                        inputFormatters: const [SafeTextFormatter()],
-                        decoration: dialogFieldDecoration(
-                          context,
-                          'What kind is it?',
-                          hint: 'e.g. Dental treatment',
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                  ],
                   if (error != null) ...[
+                    const SizedBox(height: 10),
                     Text(
                       error,
                       style: TextStyle(
@@ -664,7 +597,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 10),
                   ],
                   const SizedBox(height: 10),
                   SizedBox(
@@ -708,9 +640,6 @@ class _SummaryCard extends StatelessWidget {
         debt.principal > 0 && debt.perPayment > 0 && debt.paymentCount > 0;
     final body = TextStyle(fontSize: 13, height: 1.4, color: colors.textBody);
     if (!ready) return const SizedBox.shrink();
-    final next = debt.paidBefore > 0
-        ? debt.dueDateOf(debt.paidBefore + 1)
-        : null;
 
     return Container(
       key: const Key('installment-summary'),
@@ -745,14 +674,6 @@ class _SummaryCard extends StatelessWidget {
               Text(
                 'The last payment is ${formatPeso(debt.finalPayment)}, to '
                 'make the payments add up exactly.',
-                style: body,
-              ),
-            ],
-            if (next != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                '${debt.paidBefore} already paid · next one '
-                '${formatShortDate(next)}',
                 style: body,
               ),
             ],
