@@ -541,7 +541,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (cycle == null) return const SizedBox.shrink();
 
     final period = periodOf(cycle);
-    final leftover = leftoverOf(cycle, inputs.transactions, period);
+    final leftover = leftoverOf(
+      cycle,
+      inputs.transactions,
+      others: inputs.cycles,
+    );
     if (leftover <= 0) return const SizedBox.shrink();
 
     return LeftoverNotice(

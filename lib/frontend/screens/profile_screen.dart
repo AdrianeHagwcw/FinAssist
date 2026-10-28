@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../backend/services/account_deletion.dart';
 import '../../backend/services/account_session.dart';
 import '../../backend/services/saved_accounts.dart';
 import '../theme/app_buttons.dart';
+import '../widgets/dialog_kit.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import '../utils/auth_errors.dart';
 import '../../backend/utils/text_limits.dart';
 import '../widgets/check_after_save.dart';
+import '../widgets/delete_account_dialog.dart';
 import '../widgets/export_transactions_tile.dart';
 import '../widgets/light_dark_toggle.dart';
 import '../widgets/switch_account_sheet.dart';
@@ -297,10 +300,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final message = await showDialog<String>(
       context: context,
-      builder: (_) => _EditAccountInformationDialog(
+      builder: (_) => EditAccountInformationDialog(
         initialName: user.displayName ?? '',
         initialEmail: user.email ?? '',
-        onSave: (name, email) => _saveAccountInformation(user, name, email),
+        usesPassword: _usesPassword(user),
+        onSave: (name, email, password) =>
+            _saveAccountInformation(user, name, email, password),
       ),
     );
 
@@ -311,31 +316,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<String> _saveAccountInformation(
+  /// Signs in with an email and password, so its email can be changed
+  /// here. A Google account's email belongs to Google.
+  static bool _usesPassword(User user) =>
+      user.providerData.any((provider) => provider.providerId == 'password');
+
+  /// Saves the name and starts an email change. The email changes only
+  /// once the link sent to the new address is opened, and only after the
+  /// current [password] confirms it is the owner asking.
+  Future<({String message, bool wrongPassword})> _saveAccountInformation(
     User user,
     String name,
     String email,
+    String? password,
   ) async {
     var nameWasUpdated = false;
     try {
+      final emailChanged =
+          email.toLowerCase() != (user.email ?? '').toLowerCase();
+      // Checked first, so a wrong password changes nothing at all.
+      if (emailChanged && password != null) {
+        await user.reauthenticateWithCredential(
+          EmailAuthProvider.credential(email: user.email!, password: password),
+        );
+      }
+
       if (name != (user.displayName ?? '').trim()) {
         await user.updateDisplayName(name);
         nameWasUpdated = true;
       }
 
-      final emailChanged =
-          email.toLowerCase() != (user.email ?? '').toLowerCase();
       if (emailChanged) {
         await user.verifyBeforeUpdateEmail(email);
+        return (
+          message: nameWasUpdated
+              ? 'Name updated. Open the link sent to your new email to '
+                    'finish changing it.'
+              : 'Open the link sent to your new email to finish changing it.',
+          wrongPassword: false,
+        );
       }
-
-      if (emailChanged) {
-        return nameWasUpdated
-            ? 'Name updated. Check your new email address to finish changing it.'
-            : 'Check your new email address to finish changing it.';
-      }
-      return 'Account information updated.';
+      return (message: 'Account information updated.', wrongPassword: false);
     } on FirebaseAuthException catch (error) {
+      if (AccountDeletion.authProblem(error.code) ==
+          AccountProblem.wrongPassword) {
+        return (message: 'That password is not right.', wrongPassword: true);
+      }
       final detail = switch (error.code) {
         'invalid-email' => 'Enter a valid email address.',
         'email-already-in-use' => 'That email is already linked to an account.',
@@ -345,10 +371,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
           'Could not connect. Check your connection and try again.',
         _ => error.message ?? 'Could not update account information.',
       };
-      return nameWasUpdated
-          ? 'Name updated, but the email was not changed. $detail'
-          : detail;
+      return (
+        message: nameWasUpdated
+            ? 'Name updated, but the email was not changed. $detail'
+            : detail,
+        wrongPassword: false,
+      );
     }
+  }
+
+  // =========================================================
+  // DELETE ACCOUNT
+  // =========================================================
+
+  /// Deletes the account for good, once the owner confirms it is them.
+  Future<void> _deleteAccount() async {
+    final user = currentUser;
+    if (user == null) return;
+    final usesPassword = _usesPassword(user);
+
+    final deleted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => DeleteAccountDialog(
+        usesPassword: usesPassword,
+        onDelete: (password) async {
+          final problem =
+              await AccountDeletion.confirm(user, password: password) ??
+              await AccountDeletion.deleteEverything(user);
+          if (problem == null) await AccountDeletion.signOutDeleted(user);
+          return problem;
+        },
+      ),
+    );
+    if (deleted != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false,
+    );
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Your account was deleted.')),
+    );
   }
 
   // =========================================================
@@ -606,6 +672,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const Divider(height: 1, indent: 65),
                         const ExportTransactionsTile(),
+                        const Divider(height: 1, indent: 65),
+                        // Under Export, so a copy can be saved first. Red,
+                        // since it cannot be undone.
+                        ListTile(
+                          key: const Key('delete-account'),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 5,
+                          ),
+                          // The same tinted box and colored icon as the
+                          // rows above.
+                          leading: Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: colors.primaryTint,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.all(9),
+                            child: Image.asset(
+                              'assets/icons/icons8-trash-96.png',
+                            ),
+                          ),
+                          title: Text(
+                            'Delete account',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: dangerColorOn(context),
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Removes your account and all your records for '
+                            'good',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textMuted,
+                            ),
+                          ),
+                          trailing: Icon(
+                            Icons.chevron_right,
+                            color: colors.textMuted,
+                          ),
+                          onTap: _deleteAccount,
+                        ),
                       ],
                     ),
                   ),
@@ -824,117 +935,222 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-class _EditAccountInformationDialog extends StatefulWidget {
-  const _EditAccountInformationDialog({
+class EditAccountInformationDialog extends StatefulWidget {
+  const EditAccountInformationDialog({
     required this.initialName,
     required this.initialEmail,
+    required this.usesPassword,
     required this.onSave,
+    super.key,
   });
 
   final String initialName;
   final String initialEmail;
-  final Future<String> Function(String name, String email) onSave;
+
+  /// An email-and-password account, whose email can be changed here after
+  /// its password is given. A Google account's email is shown only.
+  final bool usesPassword;
+  final Future<({String message, bool wrongPassword})> Function(
+    String name,
+    String email,
+    String? password,
+  )
+  onSave;
 
   @override
-  State<_EditAccountInformationDialog> createState() =>
+  State<EditAccountInformationDialog> createState() =>
       _EditAccountInformationDialogState();
 }
 
 class _EditAccountInformationDialogState
-    extends State<_EditAccountInformationDialog>
+    extends State<EditAccountInformationDialog>
     with CheckAfterSave {
   late final _formKey = GlobalKey<FormState>();
   late final _nameController = TextEditingController(text: widget.initialName);
   late final _emailController = TextEditingController(
     text: widget.initialEmail,
   );
+  final _passwordController = TextEditingController();
   bool _saving = false;
+  bool _passwordHidden = true;
+  String? _passwordError;
+
+  @override
+  void initState() {
+    super.initState();
+    // The password field appears as soon as the email is changed.
+    _emailController.addListener(_refresh);
+  }
+
+  void _refresh() => setState(() {});
 
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
+    _emailController
+      ..removeListener(_refresh)
+      ..dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
+  bool get _emailChanged =>
+      _emailController.text.trim().toLowerCase() !=
+      widget.initialEmail.toLowerCase();
+
+  bool get _asksPassword => widget.usesPassword && _emailChanged;
+
   Future<void> _save() async {
+    setState(() => _passwordError = null);
     if (!checkForm(_formKey)) return;
     setState(() => _saving = true);
 
-    final message = await widget.onSave(
+    final result = await widget.onSave(
       cleanText(_nameController.text),
       _emailController.text.trim(),
+      _asksPassword ? _passwordController.text : null,
     );
     if (!mounted) return;
-    Navigator.pop(context, message);
+    if (result.wrongPassword) {
+      // Stays open, so only the password needs typing again.
+      setState(() {
+        _saving = false;
+        _passwordError = result.message;
+      });
+      return;
+    }
+    Navigator.pop(context, result.message);
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Edit account information'),
-    content: Form(
-      key: _formKey,
-      autovalidateMode: checkMode,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextFormField(
-            key: const Key('account-name-field'),
-            controller: _nameController,
-            textCapitalization: TextCapitalization.words,
-            // The same rules as sign-up and setup, so a name cannot be
-            // changed here into one they would refuse.
-            inputFormatters: [
-              personNameFormatter,
-              const SafeTextFormatter(),
-              LengthLimitingTextInputFormatter(maxPersonNameLength),
+  Widget build(BuildContext context) {
+    const buttonText = TextStyle(fontSize: 16, fontWeight: FontWeight.bold);
+
+    return AlertDialog(
+      shape: dialogShape,
+      titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      contentPadding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      title: const DialogTitle(
+        text: 'Edit account information',
+        iconAsset: AppIcons.profile,
+      ),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          autovalidateMode: checkMode,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                key: const Key('account-name-field'),
+                controller: _nameController,
+                textCapitalization: TextCapitalization.words,
+                // The same rules as sign-up and setup, so a name cannot be
+                // changed here into one they would refuse.
+                inputFormatters: [
+                  personNameFormatter,
+                  const SafeTextFormatter(),
+                  LengthLimitingTextInputFormatter(maxPersonNameLength),
+                ],
+                decoration: dialogFieldDecoration(context, 'Full name'),
+                validator: (value) =>
+                    personNameProblem(value ?? '', empty: 'Enter your name.'),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                key: const Key('account-email-field'),
+                controller: _emailController,
+                // A Google account's email is Google's to change.
+                readOnly: !widget.usesPassword,
+                enabled: widget.usesPassword,
+                keyboardType: TextInputType.emailAddress,
+                inputFormatters: [
+                  FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                  LengthLimitingTextInputFormatter(maxEmailLength),
+                ],
+                decoration: dialogFieldDecoration(context, 'Email'),
+                validator: (value) {
+                  final email = value?.trim() ?? '';
+                  if (email.isEmpty ||
+                      !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+                    return 'Enter a valid email address.';
+                  }
+                  return null;
+                },
+              ),
+              if (_asksPassword) ...[
+                const SizedBox(height: 14),
+                TextFormField(
+                  key: const Key('account-password-field'),
+                  controller: _passwordController,
+                  obscureText: _passwordHidden,
+                  decoration: dialogFieldDecoration(context, 'Current password')
+                      .copyWith(
+                        errorText: _passwordError,
+                        suffixIcon: IconButton(
+                          tooltip: _passwordHidden
+                              ? 'Show password'
+                              : 'Hide password',
+                          icon: Icon(
+                            _passwordHidden
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                          ),
+                          onPressed: () => setState(
+                            () => _passwordHidden = !_passwordHidden,
+                          ),
+                        ),
+                      ),
+                  validator: (value) => (value ?? '').isEmpty
+                      ? 'Enter your password to change your email.'
+                      : null,
+                ),
+              ],
+              const SizedBox(height: 12),
+              DialogNote(
+                text: widget.usesPassword
+                    ? 'Changing your email sends a link to the new address. '
+                          'It changes once you open that link.'
+                    : 'You sign in with Google, so your email comes from your '
+                          'Google account. Change it there.',
+              ),
             ],
-            decoration: const InputDecoration(labelText: 'Full Name'),
-            validator: (value) =>
-                personNameProblem(value ?? '', empty: 'Enter your name.'),
           ),
-          const SizedBox(height: 12),
-          TextFormField(
-            key: const Key('account-email-field'),
-            controller: _emailController,
-            keyboardType: TextInputType.emailAddress,
-            inputFormatters: [
-              FilteringTextInputFormatter.deny(RegExp(r'\s')),
-              LengthLimitingTextInputFormatter(maxEmailLength),
+        ),
+      ),
+      // Full-width, as on Add Expense: save on top, cancel under it.
+      actions: [
+        SizedBox(
+          width: double.infinity,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ElevatedButton(
+                key: const Key('account-save'),
+                onPressed: _saving ? null : _save,
+                style: confirmButtonStyle(),
+                child: _saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Save Changes', style: buttonText),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton(
+                onPressed: _saving ? null : () => Navigator.pop(context),
+                style: dangerButtonStyle(),
+                child: const Text('Cancel', style: buttonText),
+              ),
             ],
-            decoration: const InputDecoration(labelText: 'Email'),
-            validator: (value) {
-              final email = value?.trim() ?? '';
-              if (email.isEmpty ||
-                  !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
-                return 'Enter a valid email address.';
-              }
-              return null;
-            },
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Changing your email sends a verification link to the new address.',
-            style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: _saving ? null : () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      ElevatedButton(
-        onPressed: _saving ? null : _save,
-        child: _saving
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Text('Save'),
-      ),
-    ],
-  );
+        ),
+      ],
+    );
+  }
 }

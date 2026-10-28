@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../utils/money_format.dart';
+import '../utils/ph_time.dart';
 import 'app_transaction.dart';
 import 'bill.dart';
 import 'goal.dart';
@@ -199,11 +200,15 @@ class AllocationCycle {
     this.goalName,
     this.periodStart,
     this.periodEnd,
+    this.incomeTransactionIds = const [],
+    this.planPaymentIds = const [],
   });
 
   factory AllocationCycle.fromMap(String id, Map<String, dynamic>? data) {
     final map = data ?? const <String, dynamic>{};
     final received = map['receivedAt'];
+    final incomeIds = map['incomeTransactionIds'];
+    final payments = map['billPayments'];
 
     return AllocationCycle(
       id: id,
@@ -228,6 +233,21 @@ class AllocationCycle {
       periodEnd: map['periodEnd'] is Timestamp
           ? (map['periodEnd'] as Timestamp).toDate()
           : null,
+      incomeTransactionIds: [
+        if (incomeIds is List)
+          for (final id in incomeIds)
+            if (id is String)
+              id
+            // Older records kept only the first.
+            else if (map['incomeTransactionId'] is String)
+              map['incomeTransactionId'] as String,
+      ],
+      planPaymentIds: [
+        if (payments is List)
+          for (final payment in payments)
+            if (payment is Map && payment['transactionId'] is String)
+              payment['transactionId'] as String,
+      ],
     );
   }
 
@@ -250,6 +270,13 @@ class AllocationCycle {
   final DateTime? periodStart;
   final DateTime? periodEnd;
 
+  /// The income records this was saved with, one per wallet it went into.
+  final List<String> incomeTransactionIds;
+
+  /// The bills paid when it was logged. Already counted in [toBills], so
+  /// they are never counted again as spending out of it.
+  final List<String> planPaymentIds;
+
   /// A decision was made. "Decide later" doesn't count: it is still open.
   bool get isResolved =>
       decision != null && decision != LeftoverDecision.pending;
@@ -259,39 +286,104 @@ class AllocationCycle {
 
 /// The calendar month an income entry belongs to. Legacy saved pay-period
 /// bounds and profile schedules are intentionally ignored.
+///
+/// By the Philippine calendar, as every other month in the app.
 PayPeriod periodOf(AllocationCycle cycle) =>
-    payPeriodFor(null, now: cycle.receivedAt);
+    payPeriodFor(null, now: philippineTime(cycle.receivedAt));
 
-/// What is left of a cycle's income: what was left after bills, less what was
-/// spent during its period. Never below zero.
+/// What is left of a cycle's income: what was left after bills and goals,
+/// less what was spent out of it. Never below zero. [others] are the user's
+/// other incomes, which share the month's spending with it.
 double leftoverOf(
   AllocationCycle cycle,
-  Iterable<AppTransaction> transactions,
-  PayPeriod period,
-) {
-  final left = cycle.remaining - spentInCycle(cycle, transactions, period);
+  Iterable<AppTransaction> transactions, {
+  Iterable<AllocationCycle> others = const [],
+}) {
+  final left =
+      cycle.remaining - spentInCycle(cycle, transactions, others: others);
   return left > 0 ? left : 0;
 }
 
-/// What was spent out of this pay, from the day it came in to the end of its
-/// period.
-///
-/// Shown beside the leftover so the drop from one to the other is accounted
-/// for rather than left to guess at.
+/// What was spent out of this income; see [spendingByCycle].
 double spentInCycle(
   AllocationCycle cycle,
+  Iterable<AppTransaction> transactions, {
+  Iterable<AllocationCycle> others = const [],
+}) => spendingByCycle([cycle, ...others], transactions)[cycle.id] ?? 0;
+
+/// What was spent out of each income, by its id.
+///
+/// The earliest money is used first: every payment after money came in is
+/// taken from the oldest income of that month that still has some left,
+/// and only from income that had already arrived. So each payment counts
+/// once, and the incomes add up to what really went out. More than they
+/// had is put on the newest, so it can say by how much. Spending before a
+/// month's first income was paid from older money, so none of it counts.
+///
+/// What went out is everything Outflow counts: expenses, and bills,
+/// installments and debts paid later. Not the bills paid when an income
+/// was logged, which are in its [AllocationCycle.toBills] already, and not
+/// transfers or money borrowed or lent.
+Map<String, double> spendingByCycle(
+  Iterable<AllocationCycle> cycles,
   Iterable<AppTransaction> transactions,
-  PayPeriod period,
 ) {
-  return discretionarySpending(
-    transactions,
-    from: DateTime(
-      cycle.receivedAt.year,
-      cycle.receivedAt.month,
-      cycle.receivedAt.day,
-    ),
-    until: period.end,
-  );
+  final unique = {for (final cycle in cycles) cycle.id: cycle}.values.toList();
+  final planned = {for (final cycle in unique) ...cycle.planPaymentIds};
+  final spent = {for (final cycle in unique) cycle.id: 0.0};
+
+  final outflows =
+      transactions
+          .where(
+            (t) =>
+                t.type == TransactionType.expense &&
+                !t.isDebtMovement &&
+                !planned.contains(t.id),
+          )
+          .toList()
+        ..sort((a, b) => a.date.compareTo(b.date));
+
+  // Month by month: one month's money is never spent in another.
+  final byMonth = <DateTime, List<AllocationCycle>>{};
+  for (final cycle in unique) {
+    byMonth.putIfAbsent(periodOf(cycle).start, () => []).add(cycle);
+  }
+
+  for (final month in byMonth.values) {
+    month.sort((a, b) {
+      final byDate = a.receivedAt.compareTo(b.receivedAt);
+      return byDate != 0 ? byDate : a.id.compareTo(b.id);
+    });
+    final first = month.first.receivedAt;
+    final end = philippineDayStart(periodOf(month.first).end);
+
+    for (final outflow in outflows) {
+      if (outflow.date.isBefore(first) || !outflow.date.isBefore(end)) {
+        continue;
+      }
+      final arrived = [
+        for (final cycle in month)
+          if (!cycle.receivedAt.isAfter(outflow.date)) cycle,
+      ];
+      var amount = outflow.amount;
+      for (final cycle in arrived) {
+        if (amount <= 0.005) break;
+        final room = cycle.remaining - spent[cycle.id]!;
+        if (room <= 0.005) continue;
+        final taken = amount < room ? amount : room;
+        spent[cycle.id] = spent[cycle.id]! + taken;
+        amount -= taken;
+      }
+      if (amount > 0.005) {
+        spent[arrived.last.id] = spent[arrived.last.id]! + amount;
+      }
+    }
+  }
+
+  return {
+    for (final entry in spent.entries)
+      entry.key: (entry.value * 100).round() / 100,
+  };
 }
 
 /// The newest cycle whose period is on its last day or already over and whose

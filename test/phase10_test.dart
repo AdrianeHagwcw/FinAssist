@@ -324,11 +324,11 @@ void main() {
           dark: dark,
         );
         expect(find.text('September salary'), findsOneWidget);
-        await tester.tap(find.text('Needs review (1)'));
+        await tester.tap(find.text('Needs a decision (1)'));
         await tester.pumpAndSettle();
         expect(find.text('September salary'), findsNothing);
         expect(find.text('August salary'), findsOneWidget);
-        expect(find.text('Pending'), findsOneWidget);
+        expect(find.text('Needs a decision'), findsOneWidget);
         await capture(tester, dark ? 'history-dark' : 'history-light');
         await scrollTo(tester, find.text('Decide what is left'));
         await capture(

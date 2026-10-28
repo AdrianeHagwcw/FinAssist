@@ -46,7 +46,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Tap +, choose income, expense or transfer, then select a wallet. A transfer moves money between wallets without counting it as income or spending.',
+                'Tap + and choose Expense, Income or Transfer. Then choose where the money is: Cash on Hand, Cash in Bank, or Both. A transfer moves money between your own wallets, so it is not counted as money in or money out.',
               ),
             ),
           ],
@@ -56,7 +56,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Safe to Spend allows for upcoming bills, savings and goal money. Tap the light bulb on the Available Balance card to see the calculation. Money set aside stays in your wallet.',
+                'Safe to Spend is what you can spend today and still have enough for bills due this month and your goals. It starts again every midnight, Philippine time. What you spent on earlier days is already out of your balance. Tap the bar or the light bulb on the Available Balance card to see how it is worked out.',
               ),
             ),
           ],
@@ -66,7 +66,37 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Open Cash Inflows from Transactions or Settings, then Needs review. Choose Review leftover to save, keep for spending or split it. You can also decide later.',
+                'Open Cash Inflows from the light bulb at the top of Transactions, or from Settings, then Needs review. Choose Review leftover to save, keep for spending or split it. You can also decide later.',
+              ),
+            ),
+          ],
+        ),
+        ExpansionTile(
+          title: Text('What do Inflow and Outflow mean?'),
+          children: [
+            ListTile(
+              title: Text(
+                'Inflow is money that came in, like your salary. Outflow is money that went out, like expenses and payments. Moving money between your own wallets is neither. This Month on Home shows both; tap one to see its list.',
+              ),
+            ),
+          ],
+        ),
+        ExpansionTile(
+          title: Text('What is the difference between Installments and Debts?'),
+          children: [
+            ListTile(
+              title: Text(
+                'Installments are things you bought and pay for in parts, like a phone or an appliance. Debts are money you borrowed, like from a bank, SSS, Pag-IBIG or family. Each payment of either one shows in your Bill Planner, where you pay it.',
+              ),
+            ),
+          ],
+        ),
+        ExpansionTile(
+          title: Text('What if I paid one off early?'),
+          children: [
+            ListTile(
+              title: Text(
+                'Open the installment or debt and tap Paid it off early. Enter the amount the store or lender asked for and the wallet it came from. The payments left are taken off your Bill Planner. If it was a mistake, tap Undo paying it off.',
               ),
             ),
           ],
@@ -96,7 +126,17 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Scan Receipt reads the text on a receipt photo, and Voice Entry turns what you say into words. Either way you check the text first, then Use This opens a new expense with the amount, category and description filled in where they could be found. You check and change anything before saving; nothing is saved automatically. Receipt photos are not attached to expenses or uploaded anywhere.',
+                'Scan Receipt reads the text on a receipt photo and starts a new expense with the amount, category and description filled in. Receipt photos are not attached to expenses or uploaded anywhere. Voice Entry understands English, Tagalog and Taglish. Say an expense ("Pamasahe 50"), income ("Sweldo 15,000"), a transfer ("Ilipat ang 500 sa GCash"), a bill, goal, installment, debt or wallet to add, or a screen to open ("Buksan ang utang"). It shows what it understood, then opens the form filled in. Either way you check everything before saving; nothing is saved automatically.',
+              ),
+            ),
+          ],
+        ),
+        ExpansionTile(
+          title: Text('How do I save a copy or delete my account?'),
+          children: [
+            ListTile(
+              title: Text(
+                'In Settings, Export transactions saves all your records as a file you can open in Excel or Google Sheets. Delete account, just below it, removes your account and all your records for good. Save a copy first if you want one.',
               ),
             ),
           ],

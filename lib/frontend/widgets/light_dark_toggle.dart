@@ -47,9 +47,12 @@ class LightDarkToggle extends StatelessWidget {
           color: context.appColors.primaryTint,
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(
-          isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
-          color: context.appColors.primaryText,
+        // A colored icon in a tinted box, like every other Settings row.
+        padding: const EdgeInsets.all(9),
+        child: Image.asset(
+          isDark
+              ? 'assets/icons/icons8-moon-96.png'
+              : 'assets/icons/icons8-sun-96.png',
         ),
       ),
       title: const Text(

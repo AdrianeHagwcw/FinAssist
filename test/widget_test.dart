@@ -8220,7 +8220,6 @@ void main() {
 
     test("the leftover is what bills left, less the month's spending", () {
       final c = cycle(remaining: 2000);
-      final period = periodOf(c);
 
       final leftover = leftoverOf(c, [
         AppTransaction(
@@ -8240,7 +8239,7 @@ void main() {
           date: DateTime(2026, 4, 2),
           walletId: 'w',
         ),
-      ], period);
+      ]);
 
       expect(leftover, 1300);
     });
