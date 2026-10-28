@@ -260,7 +260,7 @@ class _DetailBody extends StatelessWidget {
                             if (wallet.id == debt.paidWithWalletId) wallet,
                         ].firstOrNull;
                         return _Line(
-                          'Card or account used',
+                          'Wallet used',
                           charged?.name ??
                               debt.paidWithLabel ??
                               debt.paidWithWalletId!,

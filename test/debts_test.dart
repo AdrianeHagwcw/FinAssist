@@ -244,10 +244,15 @@ void main() {
           ),
         ),
       );
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Aircon');
-      await tester.enterText(fields.at(1), '30000');
-      await tester.enterText(fields.at(2), '12');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Aircon',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '30000',
+      );
+      await tester.enterText(find.byKey(const Key('installment-months')), '12');
       await tester.pump();
 
       await tester.enterText(
@@ -257,11 +262,21 @@ void main() {
       await tester.pump();
       // ₱25,000 left after the down payment, split over 12 months. Nothing
       // is added on top: the price is the whole of what is paid.
-      expect(
-        find.text('12 payments of ₱2,083.33, every month'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('You will pay ₱25,000'), findsOneWidget);
       expect(find.textContaining('more than you borrowed'), findsNothing);
+      // The each-payment field follows the down payment too.
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('installment-each-payment')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        '2,083.33',
+      );
 
       await tester.ensureVisible(find.text('Save Installment'));
       await tester.tap(find.text('Save Installment'));
@@ -316,7 +331,9 @@ void main() {
       await tester.pump();
 
       // Always shown, even though it is optional.
-      expect(find.text('Card or account used'), findsOneWidget);
+      expect(find.text('Wallet used'), findsOneWidget);
+      // The first wallet is already chosen, so the field is never blank.
+      expect(find.text('Cash on Hand'), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('installment-description')),
         'iPhone 15',
@@ -328,6 +345,9 @@ void main() {
       await tester.enterText(find.byKey(const Key('installment-months')), '12');
       await tester.tap(find.byKey(const Key('installment-paid-with')));
       await tester.pumpAndSettle();
+      // Only the wallets the user set up: nothing else to pick.
+      expect(find.text('Not recorded'), findsNothing);
+      expect(find.text('Another card or account'), findsNothing);
       await tester.tap(find.text('BPI Savings').last);
       await tester.pumpAndSettle();
 
@@ -339,7 +359,7 @@ void main() {
       expect(saved?.paidWithLabel, 'BPI Savings');
     });
 
-    testWidgets('a card that is not a wallet can be typed instead', (
+    testWidgets('with no wallets yet, the wallet is left unrecorded', (
       tester,
     ) async {
       InstallmentDraft? saved;
@@ -362,6 +382,10 @@ void main() {
       );
       await tester.pump();
 
+      // Nothing to pick from, so the form says where to add one.
+      expect(find.text('Wallet used'), findsOneWidget);
+      expect(find.text('Add a wallet first, under Accounts.'), findsOneWidget);
+
       await tester.enterText(
         find.byKey(const Key('installment-description')),
         'Aircon',
@@ -371,23 +395,14 @@ void main() {
         '30000',
       );
       await tester.enterText(find.byKey(const Key('installment-months')), '12');
-      await tester.tap(find.byKey(const Key('installment-paid-with')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Another card or account').last);
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const Key('installment-paid-with-label')),
-        'BPI credit card',
-      );
-      await tester.pump();
 
       await tester.ensureVisible(find.text('Save Installment'));
       await tester.tap(find.text('Save Installment'));
       await tester.pumpAndSettle();
 
-      // Written down only: no wallet id, because it is not one of theirs.
+      // The plan still saves; only the wallet is left out.
       expect(saved?.paidWithWalletId, isNull);
-      expect(saved?.paidWithLabel, 'BPI credit card');
+      expect(saved?.paidWithLabel, isNull);
     });
 
     testWidgets('the installment card shows what it was charged to', (
@@ -425,7 +440,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Card or account: BPI Savings'), findsOneWidget);
+      expect(find.text('Wallet used: BPI Savings'), findsOneWidget);
     });
 
     testWidgets('an installment payment is from cash or the bank, not both', (

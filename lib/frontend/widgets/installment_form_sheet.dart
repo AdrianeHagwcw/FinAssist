@@ -5,11 +5,12 @@ import '../../backend/models/debt.dart';
 import '../../backend/models/wallet.dart';
 import '../../backend/services/debt_service.dart';
 import '../../backend/services/wallet_service.dart';
-import '../theme/app_buttons.dart';
-import '../theme/app_colors.dart';
 import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
 import '../../backend/utils/text_limits.dart';
+import '../theme/app_buttons.dart';
+import '../theme/app_colors.dart';
+import '../utils/amount_input_formatter.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
 import 'loan_form_sheet.dart';
@@ -106,7 +107,8 @@ class InstallmentDraft {
   /// The wallet the purchase was charged to, for tracking only.
   final String? paidWithWalletId;
 
-  /// The card or account in the user's words, when it is not a wallet.
+  /// Its name when the plan was saved, so the card can show it without
+  /// loading the wallets.
   final String? paidWithLabel;
 }
 
@@ -175,17 +177,17 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
     text: widget.initialCount?.toString(),
   );
   final _downController = TextEditingController();
+  final _perPaymentController = TextEditingController();
   final _otherKindController = TextEditingController();
-  final _paidWithLabelController = TextEditingController();
 
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? const Stream.empty();
 
-  /// The wallet picked for "Card or account used", [_otherCard], or null.
+  /// The wallet picked for "Wallet used", or null.
   String? _paidWithChoice;
-  String? _paidWithLabel;
 
-  static const _otherCard = '__other_card__';
+  /// Its name, written down with the plan so the card can show it.
+  String? _paidWithLabel;
 
   static String _amountText(double? amount) =>
       amount == null ? '' : formatAmountInput(amount);
@@ -199,14 +201,38 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       _principalController,
       _countController,
       _downController,
-      _paidWithLabelController,
     ]) {
       controller.addListener(_refresh);
     }
+    _syncPerPayment();
     recheckWhenChanged(_nameController);
   }
 
-  void _refresh() => setState(() {});
+  /// The each-payment field is worked out, not typed: it follows the price,
+  /// the months and any down payment as they change.
+  void _refresh() {
+    _syncPerPayment();
+    setState(() {});
+  }
+
+  /// Writes the worked-out payment into its field, grouped with commas like
+  /// the amounts the user types.
+  void _syncPerPayment() {
+    final each = _perPayment;
+    final text = each <= 0
+        ? ''
+        : const ThousandsSeparatorFormatter()
+              .formatEditUpdate(
+                TextEditingValue.empty,
+                TextEditingValue(text: formatAmountInput(each)),
+              )
+              .text;
+    if (_perPaymentController.text == text) return;
+    _perPaymentController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
 
   @override
   void dispose() {
@@ -216,7 +242,7 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       _countController,
       _downController,
       _otherKindController,
-      _paidWithLabelController,
+      _perPaymentController,
     ]) {
       controller
         ..removeListener(_refresh)
@@ -306,9 +332,6 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
     if (_problem() != null) return;
 
     final name = cleanText(_nameController.text);
-    final otherCard = _paidWithChoice == _otherCard
-        ? cleanText(_paidWithLabelController.text)
-        : null;
 
     final draft = InstallmentDraft(
       name: name,
@@ -322,10 +345,8 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       otherKind: _category == DebtCategory.other
           ? cleanText(_otherKindController.text)
           : null,
-      paidWithWalletId: _paidWithChoice == null || _paidWithChoice == _otherCard
-          ? null
-          : _paidWithChoice,
-      paidWithLabel: otherCard ?? _paidWithLabel,
+      paidWithWalletId: _paidWithChoice,
+      paidWithLabel: _paidWithLabel,
     );
 
     if (widget.onSave != null) {
@@ -349,8 +370,9 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
     Navigator.pop(context, true);
   }
 
-  /// Any card or account the purchase was charged to. Recorded only, so the
-  /// user can see later which one it was; it never moves money.
+  /// The wallet the purchase was charged to, picked from the wallets the
+  /// user has set up. Recorded only, so they can see later which one it was;
+  /// it never moves money.
   Widget _paidWithPicker() {
     return StreamBuilder<List<Wallet>>(
       stream: _wallets,
@@ -359,69 +381,50 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
           for (final wallet in snapshot.data ?? const <Wallet>[])
             if (!wallet.archived) wallet,
         ];
-        final selected = _paidWithChoice ?? '';
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            DropdownButtonFormField<String>(
-              key: const Key('installment-paid-with'),
-              initialValue: selected,
-              isExpanded: true,
-              decoration:
-                  dialogFieldDecoration(
-                    context,
-                    'Card or account used',
-                    helper:
-                        'Optional. Only written down, so you can see what it '
-                        'was charged to.',
-                  ).copyWith(
-                    helperMaxLines: 3,
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                  ),
-              items: [
-                const DropdownMenuItem(value: '', child: Text('Not recorded')),
-                for (final wallet in wallets)
-                  DropdownMenuItem(value: wallet.id, child: Text(wallet.name)),
-                const DropdownMenuItem(
-                  value: _otherCard,
-                  child: Text('Another card or account'),
-                ),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  if (value == null || value.isEmpty) {
-                    _paidWithChoice = null;
-                    _paidWithLabel = null;
-                  } else if (value == _otherCard) {
-                    _paidWithChoice = _otherCard;
-                    _paidWithLabel = null;
-                  } else {
+        // Start on the user's first wallet rather than an empty field. If the
+        // one chosen is no longer there, fall back to the first.
+        final chosen =
+            wallets
+                .where((wallet) => wallet.id == _paidWithChoice)
+                .firstOrNull ??
+            wallets.firstOrNull;
+        if (chosen?.id != _paidWithChoice) {
+          _paidWithChoice = chosen?.id;
+          _paidWithLabel = chosen?.name;
+        }
+
+        return DropdownButtonFormField<String>(
+          key: const Key('installment-paid-with'),
+          initialValue: _paidWithChoice,
+          isExpanded: true,
+          decoration:
+              dialogFieldDecoration(
+                context,
+                'Wallet used',
+                helper: wallets.isEmpty
+                    ? 'Add a wallet first, under Accounts.'
+                    : 'Only written down, so you can see which wallet it was '
+                          'charged to.',
+              ).copyWith(
+                helperMaxLines: 3,
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+              ),
+          items: [
+            for (final wallet in wallets)
+              DropdownMenuItem(value: wallet.id, child: Text(wallet.name)),
+          ],
+          onChanged: wallets.isEmpty
+              ? null
+              : (value) {
+                  setState(() {
                     _paidWithChoice = value;
                     _paidWithLabel = wallets
                         .where((wallet) => wallet.id == value)
                         .firstOrNull
                         ?.name;
-                  }
-                });
-              },
-            ),
-            if (_paidWithChoice == _otherCard) ...[
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('installment-paid-with-label'),
-                controller: _paidWithLabelController,
-                textCapitalization: TextCapitalization.words,
-                maxLength: 40,
-                inputFormatters: const [SafeTextFormatter()],
-                decoration: dialogFieldDecoration(
-                  context,
-                  'Card or account',
-                  hint: 'e.g. BPI credit card',
-                ).copyWith(floatingLabelBehavior: FloatingLabelBehavior.always),
-              ),
-            ],
-          ],
+                  });
+                },
         );
       },
     );
@@ -507,6 +510,42 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                     ),
                   ],
                   const SizedBox(height: 16),
+                  // What it is. The description already suggests the kind, so
+                  // this shows the guess and lets it be changed.
+                  DropdownButtonFormField<DebtCategory>(
+                    // Rebuilt as the name changes the guess.
+                    key: ValueKey(_category),
+                    initialValue: _category,
+                    isExpanded: true,
+                    decoration: dialogFieldDecoration(context, 'Kind'),
+                    items: [
+                      for (final category in DebtCategory.installmentKinds)
+                        DropdownMenuItem(
+                          value: category,
+                          child: Text(category.label),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _pickedCategory = value),
+                  ),
+                  if (_category == DebtCategory.other) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      key: const Key('installment-other-kind'),
+                      controller: _otherKindController,
+                      textCapitalization: TextCapitalization.sentences,
+                      maxLength: 30,
+                      inputFormatters: const [SafeTextFormatter()],
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'What kind is it?',
+                        hint: 'e.g. Dental treatment',
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  // Where it was charged: written down only, so the user can
+                  // see later which wallet it was. It never moves money.
                   _paidWithPicker(),
                   const SizedBox(height: 16),
                   AmountField(
@@ -555,37 +594,20 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                     ),
                   ],
                   const SizedBox(height: 16),
-                  DropdownButtonFormField<DebtCategory>(
-                    // Rebuilt as the name changes the guess.
-                    key: ValueKey(_category),
-                    initialValue: _category,
-                    isExpanded: true,
-                    decoration: dialogFieldDecoration(context, 'Kind'),
-                    items: [
-                      for (final category in DebtCategory.installmentKinds)
-                        DropdownMenuItem(
-                          value: category,
-                          child: Text(category.label),
-                        ),
-                    ],
-                    onChanged: (value) =>
-                        setState(() => _pickedCategory = value),
+                  // Worked out, never typed: it fills in as soon as the cash
+                  // price and the months are both there.
+                  AmountField(
+                    key: const Key('installment-each-payment'),
+                    controller: _perPaymentController,
+                    label: 'Each payment',
+                    hint: 'e.g. 2,000',
+                    helper:
+                        'Cash price less any down payment, split over the '
+                        'months.',
+                    alwaysShowHint: true,
+                    enabled: false,
+                    autofocus: false,
                   ),
-                  if (_category == DebtCategory.other) ...[
-                    const SizedBox(height: 16),
-                    TextField(
-                      key: const Key('installment-other-kind'),
-                      controller: _otherKindController,
-                      textCapitalization: TextCapitalization.sentences,
-                      maxLength: 30,
-                      inputFormatters: const [SafeTextFormatter()],
-                      decoration: dialogFieldDecoration(
-                        context,
-                        'What kind is it?',
-                        hint: 'e.g. Dental treatment',
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 16),
                   _SummaryCard(debt: _preview),
                   if (error != null) ...[
@@ -623,10 +645,9 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
   }
 }
 
-/// What the plan comes to, once the amounts are in: how many payments and
-/// what each one is. The shop quoted the price, so nothing is added on top.
-/// It sits under the fields it adds up, and before anything is typed shows
-/// only that saving the plan moves no money.
+/// What the plan comes to, once the amounts are in: the total and when the
+/// last payment falls due. Each payment has its own field above, so this
+/// does not repeat it. The shop quoted the price, so nothing is added on top.
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({required this.debt});
 
@@ -654,36 +675,27 @@ class _SummaryCard extends StatelessWidget {
         children: [
           if (ready) ...[
             Text(
-              '${debt.paymentCount} '
-              '${debt.paymentCount == 1 ? 'payment' : 'payments'} of '
-              '${formatPeso(debt.perPayment)}, '
-              '${debt.frequency.label.toLowerCase()}',
+              'You will pay ${formatPeso(debt.totalPayable)} in total.',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.bold,
                 color: colors.textPrimary,
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'You will pay ${formatPeso(debt.totalPayable)} in total.',
-              style: body,
-            ),
-            if (debt.hasDifferentLastPayment) ...[
-              const SizedBox(height: 4),
+            if (last != null) ...[
+              const SizedBox(height: 6),
               Text(
-                'The last payment is ${formatPeso(debt.finalPayment)}, to '
-                'make the payments add up exactly.',
+                '${debt.paymentCount} '
+                '${debt.paymentCount == 1 ? 'payment' : 'payments'}, the last '
+                'on ${formatShortDate(last)}.',
                 style: body,
               ),
             ],
-            if (last != null) ...[
+            if (debt.hasDifferentLastPayment) ...[
               const SizedBox(height: 4),
               Text(
-                debt.hasDifferentLastPayment
-                    ? 'Last payment ${formatPeso(debt.finalPayment)} on '
-                          '${formatShortDate(last)}'
-                    : 'Last payment ${formatShortDate(last)}',
+                'The last payment is ${formatPeso(debt.finalPayment)}, so the '
+                'payments add up exactly.',
                 style: body,
               ),
             ],

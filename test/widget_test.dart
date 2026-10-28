@@ -10014,10 +10014,15 @@ void main() {
       expect(find.text('I received this money in a wallet'), findsNothing);
       expect(find.text('Received into'), findsNothing);
 
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Phone');
-      await tester.enterText(fields.at(1), '24000');
-      await tester.enterText(fields.at(2), '12');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '24000',
+      );
+      await tester.enterText(find.byKey(const Key('installment-months')), '12');
       await tester.pump();
       expect(
         find.textContaining('Your money does not move until you pay'),
@@ -10051,18 +10056,49 @@ void main() {
       );
       await tester.pump();
 
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Phone');
-      await tester.enterText(fields.at(1), '24000');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '24000',
+      );
       await tester.pump();
 
       // No payments until the months are in.
       expect(find.byKey(const Key('installment-summary')), findsNothing);
-
-      await tester.enterText(fields.at(2), '12');
-      await tester.pump();
       expect(
-        find.text('12 payments of ₱2,000, every month'),
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('installment-each-payment')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        isEmpty,
+      );
+
+      await tester.enterText(find.byKey(const Key('installment-months')), '12');
+      await tester.pump();
+      // The each-payment field fills itself in from the two amounts: ₱24,000
+      // over 12 months.
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('installment-each-payment')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        '2,000',
+      );
+      expect(
+        find.textContaining('12 payments, the last on'),
         findsOneWidget,
         reason: 'payments, worked out',
       );
@@ -10074,11 +10110,12 @@ void main() {
       expect(find.textContaining('a year'), findsNothing);
 
       // Only whole months: no point, no sign, no fourth digit.
-      await tester.enterText(fields.at(2), '-1.2');
-      expect(tester.widget<TextField>(fields.at(2)).controller?.text, '12');
-      await tester.enterText(fields.at(2), '1200');
-      expect(tester.widget<TextField>(fields.at(2)).controller?.text, '120');
-      await tester.enterText(fields.at(2), '12');
+      final months = find.byKey(const Key('installment-months'));
+      await tester.enterText(months, '-1.2');
+      expect(tester.widget<TextField>(months).controller?.text, '12');
+      await tester.enterText(months, '1200');
+      expect(tester.widget<TextField>(months).controller?.text, '120');
+      await tester.enterText(months, '12');
       await tester.pump();
 
       await tester.tap(find.text('Save Installment'));
@@ -10116,15 +10153,17 @@ void main() {
         // Nothing a plan no longer asks for.
         expect(find.text('How often'), findsNothing);
         expect(find.text('First payment'), findsNothing);
-        expect(find.text('Each payment'), findsNothing);
         expect(find.text('How many have you paid already?'), findsNothing);
+        // The each-payment field is there, worked out rather than typed.
+        expect(find.text('Each payment'), findsOneWidget);
         // Grey examples inside the empty fields.
         // Things bought on installment: loans have their own form.
         expect(find.text('e.g. iPhone 15 from Globe'), findsOneWidget);
         expect(find.text('e.g. 12,000'), findsOneWidget);
         expect(find.text('e.g. 12'), findsOneWidget);
-        // The card or account is always offered, though it can be left blank.
-        expect(find.text('Card or account used'), findsOneWidget);
+        expect(find.text('e.g. 2,000'), findsOneWidget);
+        // The wallet is always offered, though it can be left blank.
+        expect(find.text('Wallet used'), findsOneWidget);
         // No peso sign until an amount is typed, so no example looks filled in.
         final fields = tester
             .widgetList<TextField>(find.byType(TextField))
@@ -10159,15 +10198,20 @@ void main() {
       );
       await tester.pump();
 
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Phone');
-      await tester.enterText(fields.at(1), '10000');
-      await tester.enterText(fields.at(2), '3');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '10000',
+      );
+      await tester.enterText(find.byKey(const Key('installment-months')), '3');
       await tester.pump();
 
       // ₱10,000 in 3: two of ₱3,333.33 and a last one of ₱3,333.34, so the
       // payments add up to the price exactly.
-      expect(find.text('3 payments of ₱3,333.33, every month'), findsOneWidget);
+      expect(find.textContaining('3 payments, the last on'), findsOneWidget);
       expect(find.textContaining('You will pay ₱10,000'), findsOne);
       expect(find.textContaining('more than you borrowed'), findsNothing);
       expect(
@@ -10203,15 +10247,20 @@ void main() {
       );
       await tester.pump();
 
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Phone');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
       await tester.tap(find.text('Save Installment'));
       await tester.pump();
 
       expect(find.text('Enter the cash price.'), findsOneWidget);
       expect(saved, isNull);
 
-      await tester.enterText(fields.at(1), '10000');
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '10000',
+      );
       await tester.pump();
       await tester.tap(find.text('Save Installment'));
       await tester.pump();
@@ -10219,7 +10268,7 @@ void main() {
       expect(find.text('Enter how many months.'), findsOneWidget);
       expect(saved, isNull);
 
-      await tester.enterText(fields.at(2), '3');
+      await tester.enterText(find.byKey(const Key('installment-months')), '3');
       await tester.pump();
       await tester.tap(find.text('Save Installment'));
       await tester.pumpAndSettle();

@@ -275,13 +275,15 @@ void main() {
     );
     expect(find.text('Interest (optional)'), findsNothing);
 
-    final fields = find.byType(TextField);
-    await tester.enterText(fields.at(0), 'Phone');
-    await tester.enterText(fields.at(1), '24000');
-    await tester.enterText(fields.at(2), '12');
+    await tester.enterText(
+      find.byKey(const Key('installment-description')),
+      'Phone',
+    );
+    await tester.enterText(find.byKey(const Key('installment-price')), '24000');
+    await tester.enterText(find.byKey(const Key('installment-months')), '12');
     await tester.pump();
 
-    expect(find.text('12 payments of ₱2,000, every month'), findsOneWidget);
+    expect(find.textContaining('You will pay ₱24,000'), findsOneWidget);
     expect(find.textContaining('of each payment is interest'), findsNothing);
 
     // Payments always come from the Bills wallet: there is nothing to pick.
@@ -366,10 +368,12 @@ void main() {
         ),
       ),
     );
-    final fields = find.byType(TextField);
-    await tester.enterText(fields.at(0), 'Dental braces');
-    await tester.enterText(fields.at(1), '2000');
-    await tester.enterText(fields.at(2), '6');
+    await tester.enterText(
+      find.byKey(const Key('installment-description')),
+      'Dental braces',
+    );
+    await tester.enterText(find.byKey(const Key('installment-price')), '2000');
+    await tester.enterText(find.byKey(const Key('installment-months')), '6');
 
     expect(find.text('Notes (optional)'), findsNothing);
     await tester.enterText(

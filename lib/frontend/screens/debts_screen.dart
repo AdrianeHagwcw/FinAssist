@@ -319,7 +319,7 @@ class _InstallmentCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text(
-                'Card or account: ${debt.paidWithLabel}',
+                'Wallet used: ${debt.paidWithLabel}',
                 key: const Key('installment-paid-with-line'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
