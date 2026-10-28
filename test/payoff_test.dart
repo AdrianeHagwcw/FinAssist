@@ -164,7 +164,7 @@ void main() {
     );
   });
 
-  Widget detail(Debt debt, List<BillInstance> payments) => DebtDetailScreen(
+  Widget detail(Debt debt, List<BillInstance> payments) => LoanDetailScreen(
     debt: debt,
     liveDebt: Stream.value(debt),
     payments: Stream.value(payments),

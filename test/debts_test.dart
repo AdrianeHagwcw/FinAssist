@@ -10,7 +10,7 @@ import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/frontend/screens/debts_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
 import 'package:testapp/frontend/widgets/bill_payment_sheet.dart';
-import 'package:testapp/frontend/widgets/debt_form_sheet.dart';
+import 'package:testapp/frontend/widgets/installment_form_sheet.dart';
 import 'package:testapp/frontend/widgets/loan_form_sheet.dart';
 import 'package:testapp/frontend/widgets/wallet_split_picker.dart';
 
@@ -180,20 +180,25 @@ void main() {
     );
 
     Future<void> pumpList(WidgetTester tester, {required bool loans}) async {
+      final debts = Stream.value([
+        saved('Phone', DebtCategory.gadget),
+        saved('SSS loan', DebtCategory.governmentLoan),
+      ]);
       await tester.pumpWidget(
         ChangeNotifierProvider(
           create: (_) => AppSettingsProvider(),
           child: MaterialApp(
             theme: AppTheme.light,
             home: Scaffold(
-              body: DebtsView(
-                loans: loans,
-                debts: Stream.value([
-                  saved('Phone', DebtCategory.gadget),
-                  saved('SSS loan', DebtCategory.governmentLoan),
-                ]),
-                paymentsFor: (_) => Stream.value(const <BillInstance>[]),
-              ),
+              body: loans
+                  ? DebtsView(
+                      debts: debts,
+                      paymentsFor: (_) => Stream.value(const <BillInstance>[]),
+                    )
+                  : InstallmentsView(
+                      debts: debts,
+                      paymentsFor: (_) => Stream.value(const <BillInstance>[]),
+                    ),
             ),
           ),
         ),
@@ -207,11 +212,7 @@ void main() {
       await pumpList(tester, loans: false);
       expect(find.text('Phone'), findsOneWidget);
       expect(find.text('SSS loan'), findsNothing);
-      // Loans saved here before the split are pointed to, not lost.
-      expect(
-        find.text('Money you borrowed is now under Debts.'),
-        findsOneWidget,
-      );
+      expect(find.text('Money you borrowed is now under Debts.'), findsNothing);
       expect(find.text('Add Installment'), findsOneWidget);
     });
 
@@ -224,7 +225,7 @@ void main() {
     });
 
     testWidgets('a down payment comes off the cash price', (tester) async {
-      DebtDraft? saved;
+      InstallmentDraft? saved;
       tester.view.physicalSize = const Size(800, 3200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -235,7 +236,7 @@ void main() {
           child: MaterialApp(
             theme: AppTheme.light,
             home: Scaffold(
-              body: DebtFormSheet(
+              body: InstallmentFormSheet(
                 today: DateTime(2026, 10, 28),
                 onSave: (draft) => saved = draft,
               ),
@@ -275,7 +276,7 @@ void main() {
     testWidgets('the card or account a purchase was charged to is saved', (
       tester,
     ) async {
-      DebtDraft? saved;
+      InstallmentDraft? saved;
       tester.view.physicalSize = const Size(800, 3200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -285,7 +286,7 @@ void main() {
         MaterialApp(
           theme: AppTheme.light,
           home: Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 10, 28),
               wallets: Stream.value([
                 Wallet(
@@ -343,7 +344,7 @@ void main() {
     testWidgets('a card that is not a wallet can be typed instead', (
       tester,
     ) async {
-      DebtDraft? saved;
+      InstallmentDraft? saved;
       tester.view.physicalSize = const Size(800, 3200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -353,7 +354,7 @@ void main() {
         MaterialApp(
           theme: AppTheme.light,
           home: Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 10, 28),
               wallets: Stream.value(const <Wallet>[]),
               onSave: (draft) => saved = draft,
@@ -400,7 +401,7 @@ void main() {
           child: MaterialApp(
             theme: AppTheme.light,
             home: Scaffold(
-              body: DebtsView(
+              body: InstallmentsView(
                 debts: Stream.value([
                   Debt(
                     id: 'd',
@@ -517,7 +518,7 @@ void main() {
         MaterialApp(
           theme: AppTheme.light,
           home: Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 10, 28),
               onSave: (_) {},
               onAddAsDebt: (name) => movedName = name,
@@ -540,7 +541,7 @@ void main() {
   group('the Add Debt form', () {
     Future<void> pumpForm(
       WidgetTester tester,
-      void Function(DebtDraft draft) onSave,
+      void Function(LoanDraft draft) onSave,
     ) async {
       tester.view.physicalSize = const Size(800, 3200);
       tester.view.devicePixelRatio = 1.0;
@@ -580,7 +581,7 @@ void main() {
         tester.widget<Text>(find.byKey(Key(key))).data!;
 
     testWidgets('works out Cash2Go the way Metrobank does', (tester) async {
-      DebtDraft? saved;
+      LoanDraft? saved;
       await pumpForm(tester, (draft) => saved = draft);
       await fill(
         tester,
@@ -635,7 +636,7 @@ void main() {
     });
 
     testWidgets('a bank or lender must give its interest', (tester) async {
-      DebtDraft? saved;
+      LoanDraft? saved;
       await pumpForm(tester, (draft) => saved = draft);
       await fill(tester, name: 'BPI loan', amount: '10000', count: '12');
       expect(find.byKey(const Key('loan-result')), findsNothing);
@@ -650,7 +651,7 @@ void main() {
     });
 
     testWidgets('family can lend without interest', (tester) async {
-      DebtDraft? saved;
+      LoanDraft? saved;
       await pumpForm(tester, (draft) => saved = draft);
       await fill(tester, name: 'Tita Baby', amount: '6000', count: '12');
 
@@ -681,7 +682,7 @@ void main() {
     });
 
     testWidgets('Other loan asks what kind it is', (tester) async {
-      DebtDraft? saved;
+      LoanDraft? saved;
       await pumpForm(tester, (draft) => saved = draft);
       expect(find.byKey(const Key('loan-other-kind')), findsNothing);
 
@@ -703,7 +704,7 @@ void main() {
     testWidgets('SSS and Pag-IBIG charge on what is left to pay', (
       tester,
     ) async {
-      DebtDraft? saved;
+      LoanDraft? saved;
       await pumpForm(tester, (draft) => saved = draft);
       await fill(
         tester,
@@ -733,7 +734,7 @@ void main() {
     testWidgets("no interest on hand: the payment on the papers will do", (
       tester,
     ) async {
-      DebtDraft? saved;
+      LoanDraft? saved;
       await pumpForm(tester, (draft) => saved = draft);
       await fill(tester, name: 'BPI loan', amount: '5000', count: '3');
 

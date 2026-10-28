@@ -41,6 +41,28 @@ class DebtService {
     });
   }
 
+  /// Everything the user is paying off in parts: things bought on
+  /// installment. Borrowed money has [watchLoans].
+  ///
+  /// Both kinds share the collection and the [Debt] class; only the screen
+  /// they are listed on differs.
+  static Stream<List<Debt>> watchInstallments() =>
+      watchDebts().map(_owedOnly(loan: false));
+
+  /// Everything the user borrowed and is paying back. Things bought on
+  /// installment have [watchInstallments].
+  static Stream<List<Debt>> watchLoans() =>
+      watchDebts().map(_owedOnly(loan: true));
+
+  /// Keeps the records of one kind that the user owes.
+  static List<Debt> Function(List<Debt>) _owedOnly({required bool loan}) =>
+      (debts) => [
+        for (final debt in debts)
+          if (debt.direction == DebtDirection.iOwe &&
+              debt.category.isLoan == loan)
+            debt,
+      ];
+
   /// Every debt, read once. Returns cached records while offline.
   static Future<List<Debt>> loadDebts() async {
     final snapshot = await _debts.get();

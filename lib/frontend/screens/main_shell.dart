@@ -220,7 +220,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void _openDebts() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const DebtsScreen(loans: true)),
+      MaterialPageRoute(builder: (_) => const DebtsScreen()),
     );
   }
 
@@ -250,7 +250,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         _openInstallments();
         return;
       case VoiceDestination.debts:
-        _push(const DebtsScreen(loans: true));
+        _push(const DebtsScreen());
         return;
       case VoiceDestination.goals:
         _openGoals();

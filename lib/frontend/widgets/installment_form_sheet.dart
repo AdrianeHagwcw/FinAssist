@@ -19,19 +19,19 @@ import 'loan_form_sheet.dart';
 /// under Debts ([showLoanFormSheet]), which this one hands over to when the
 /// name sounds like a loan.
 ///
-/// Returns which list the new entry went to, or null if nothing was saved,
-/// and confirms the save so the user knows it worked.
+/// Returns whether an installment was saved, and confirms the save so the
+/// user knows it worked.
 ///
 /// [name], [price] and [count] start it filled in, as from Voice Entry; the
 /// user checks them before saving.
-Future<DebtDirection?> showDebtFormSheet(
+Future<bool> showInstallmentFormSheet(
   BuildContext context, {
   String? name,
   double? price,
   int? count,
 }) async {
   String? asDebt;
-  final saved = await showModalBottomSheet<DebtDirection>(
+  final saved = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -39,7 +39,7 @@ Future<DebtDirection?> showDebtFormSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (sheetContext) => DebtFormSheet(
+    builder: (sheetContext) => InstallmentFormSheet(
       initialName: name,
       initialPrice: price,
       initialCount: count,
@@ -53,10 +53,10 @@ Future<DebtDirection?> showDebtFormSheet(
 
   if (asDebt != null && context.mounted) {
     await showLoanFormSheet(context, name: asDebt);
-    return null;
+    return false;
   }
 
-  if (saved != null && context.mounted) {
+  if (saved == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
@@ -66,13 +66,12 @@ Future<DebtDirection?> showDebtFormSheet(
       ),
     );
   }
-  return saved;
+  return saved == true;
 }
 
 /// What the form would save, handed to tests instead of Firestore.
-class DebtDraft {
-  const DebtDraft({
-    required this.direction,
+class InstallmentDraft {
+  const InstallmentDraft({
     required this.name,
     required this.category,
     required this.principal,
@@ -81,48 +80,29 @@ class DebtDraft {
     required this.frequency,
     required this.firstDueDate,
     this.lastPayment = 0,
-    this.movedWalletId,
-    this.note,
     this.paidBefore = 0,
-    this.quotedRate,
-    this.quotedRatePer = RatePeriod.year,
-    this.rateBasis = InterestBasis.wholeAmount,
-    this.fees = 0,
     this.otherKind,
     this.paidWithWalletId,
     this.paidWithLabel,
   });
 
-  final DebtDirection direction;
   final String name;
   final DebtCategory category;
   final double principal;
   final double perPayment;
   final int paymentCount;
 
-  /// The contract's last payment when it differs; zero when it doesn't.
+  /// The last payment when it differs; zero when it doesn't.
   final double lastPayment;
+
+  /// Installments are always monthly, but the plan records it.
   final PaymentFrequency frequency;
 
-  /// First payment for an installment; the promised date for money owed.
-  final DateTime? firstDueDate;
-
-  /// Where borrowed money arrived, or where lent money came from.
-  final String? movedWalletId;
-  final String? note;
+  /// First payment of the plan.
+  final DateTime firstDueDate;
 
   /// Payments made before it was tracked here.
   final int paidBefore;
-
-  /// The rate the lender said they charge, if the user was told.
-  final double? quotedRate;
-  final RatePeriod quotedRatePer;
-
-  /// How a loan's interest is charged.
-  final InterestBasis rateBasis;
-
-  /// Fees taken out of a loan.
-  final double fees;
 
   /// The user's own kind, when they chose Other.
   final String? otherKind;
@@ -134,8 +114,8 @@ class DebtDraft {
   final String? paidWithLabel;
 }
 
-class DebtFormSheet extends StatefulWidget {
-  const DebtFormSheet({
+class InstallmentFormSheet extends StatefulWidget {
+  const InstallmentFormSheet({
     this.initialName,
     this.initialPrice,
     this.initialCount,
@@ -161,13 +141,14 @@ class DebtFormSheet extends StatefulWidget {
   final DateTime? today;
 
   /// Replaces saving. Used by tests.
-  final void Function(DebtDraft draft)? onSave;
+  final void Function(InstallmentDraft draft)? onSave;
 
   @override
-  State<DebtFormSheet> createState() => _DebtFormSheetState();
+  State<InstallmentFormSheet> createState() => _InstallmentFormSheetState();
 }
 
-class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
+class _InstallmentFormSheetState extends State<InstallmentFormSheet>
+    with CheckAfterSave {
   /// Chosen by hand under More options; until then the name decides it,
   /// among the kinds bought on installment. Loans belong under Debts.
   DebtCategory? _pickedCategory;
@@ -351,8 +332,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
         ? cleanText(_paidWithLabelController.text)
         : null;
 
-    final draft = DebtDraft(
-      direction: DebtDirection.iOwe,
+    final draft = InstallmentDraft(
       name: name,
       category: _category,
       principal: _financed,
@@ -382,7 +362,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
         paymentCount: draft.paymentCount,
         lastPayment: draft.lastPayment,
         frequency: draft.frequency,
-        firstDueDate: draft.firstDueDate!,
+        firstDueDate: draft.firstDueDate,
         paidBefore: draft.paidBefore,
         otherKind: draft.otherKind,
         paidWithWalletId: draft.paidWithWalletId,
@@ -390,7 +370,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> with CheckAfterSave {
       );
     }
 
-    Navigator.pop(context, draft.direction);
+    Navigator.pop(context, true);
   }
 
   /// Any card or account the purchase was charged to. Recorded only, so the

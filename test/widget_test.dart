@@ -74,7 +74,7 @@ import 'package:testapp/frontend/widgets/interest_sheet.dart';
 import 'package:testapp/frontend/widgets/savings_form_parts.dart';
 import 'package:testapp/backend/utils/income_sources.dart';
 import 'package:testapp/frontend/widgets/money_text.dart';
-import 'package:testapp/frontend/widgets/debt_form_sheet.dart';
+import 'package:testapp/frontend/widgets/installment_form_sheet.dart';
 import 'package:testapp/frontend/widgets/due_soon_notice.dart';
 import 'package:testapp/frontend/widgets/safe_to_spend_card.dart';
 import 'package:testapp/frontend/widgets/spending_chart.dart';
@@ -9680,7 +9680,7 @@ void main() {
             child: MaterialApp(
               key: UniqueKey(),
               theme: AppTheme.light,
-              home: DebtDetailScreen(
+              home: LoanDetailScreen(
                 debt: debt,
                 liveDebt: Stream.value(debt),
                 payments: Stream.value(const []),
@@ -9770,7 +9770,7 @@ void main() {
           create: (_) => AppSettingsProvider(),
           child: MaterialApp(
             theme: AppTheme.light,
-            home: DebtDetailScreen(
+            home: InstallmentDetailScreen(
               debt: plan,
               liveDebt: Stream.value(plan),
               payments: Stream.value([
@@ -9836,7 +9836,7 @@ void main() {
           create: (_) => AppSettingsProvider(),
           child: MaterialApp(
             theme: AppTheme.light,
-            home: DebtDetailScreen(
+            home: InstallmentDetailScreen(
               debt: plan,
               liveDebt: Stream.value(plan),
               // Only the first month has been opened in the Bill Planner,
@@ -9995,12 +9995,12 @@ void main() {
       tester,
     ) async {
       tall(tester);
-      DebtDraft? saved;
+      InstallmentDraft? saved;
 
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 3, 10),
               onSave: (draft) => saved = draft,
             ),
@@ -10029,23 +10029,20 @@ void main() {
 
       expect(saved?.name, 'Phone');
       expect(saved?.principal, 24000);
-      expect(
-        saved?.movedWalletId,
-        isNull,
-        reason: 'nothing arrives in a wallet from setting up a plan',
-      );
+      // Nothing arrives in a wallet from setting up a plan: there is no
+      // wallet to move money from.
     });
 
     testWidgets('the form works out each payment from the price and months', (
       tester,
     ) async {
       tall(tester);
-      DebtDraft? saved;
+      InstallmentDraft? saved;
 
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 3, 10),
               onSave: (draft) => saved = draft,
             ),
@@ -10090,7 +10087,6 @@ void main() {
       expect(saved?.paymentCount, 12);
       expect(saved?.perPayment, 2000);
       expect(saved?.lastPayment, 0);
-      expect(saved?.direction, DebtDirection.iOwe);
     });
 
     testWidgets(
@@ -10100,7 +10096,10 @@ void main() {
         await tester.pumpWidget(
           app(
             Scaffold(
-              body: DebtFormSheet(today: DateTime(2026, 3, 10), onSave: (_) {}),
+              body: InstallmentFormSheet(
+                today: DateTime(2026, 3, 10),
+                onSave: (_) {},
+              ),
             ),
           ),
         );
@@ -10144,12 +10143,12 @@ void main() {
 
     testWidgets('the last payment takes up the rounding', (tester) async {
       tall(tester);
-      DebtDraft? saved;
+      InstallmentDraft? saved;
 
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 3, 10),
               onSave: (draft) => saved = draft,
             ),
@@ -10188,12 +10187,12 @@ void main() {
 
     testWidgets('a missing price or months blocks the save', (tester) async {
       tall(tester);
-      DebtDraft? saved;
+      InstallmentDraft? saved;
 
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 3, 10),
               onSave: (draft) => saved = draft,
             ),
@@ -10233,7 +10232,7 @@ void main() {
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtsView(
+            body: InstallmentsView(
               debts: Stream.value(const [
                 Debt(
                   id: 'a',
@@ -10263,7 +10262,7 @@ void main() {
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtsView(
+            body: InstallmentsView(
               debts: Stream.value([
                 Debt(
                   id: 'd',

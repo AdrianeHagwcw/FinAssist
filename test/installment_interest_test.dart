@@ -10,12 +10,13 @@ import 'package:testapp/frontend/providers/app_settings_provider.dart';
 import 'package:testapp/frontend/screens/debt_detail_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
 import 'package:testapp/backend/utils/categories.dart';
-import 'package:testapp/frontend/widgets/debt_form_sheet.dart';
+import 'package:testapp/frontend/widgets/installment_form_sheet.dart';
 import 'package:testapp/frontend/widgets/transaction_row.dart';
 
-/// Interest on an installment is what the user pays to borrow: spending, in
-/// its own category, never income. A ₱24,000 phone paid as 12 × ₱2,400 costs
-/// ₱4,800 on top, so ₱400 of every payment is interest.
+/// What borrowing costs is tracked apart from the money borrowed: spending,
+/// in its own category, never income. It belongs to loans. Things bought on
+/// installment are entered at the price the store quoted, so they carry no
+/// interest at all; the phone here is used to check that.
 void main() {
   Debt phone({int paidBefore = 0}) => Debt(
     id: 'd',
@@ -252,11 +253,11 @@ void main() {
   }
 
   testWidgets('the form asks only what a plan needs', (tester) async {
-    DebtDraft? saved;
+    InstallmentDraft? saved;
     await pump(
       tester,
       Scaffold(
-        body: DebtFormSheet(
+        body: InstallmentFormSheet(
           today: DateTime(2026, 10, 26),
           onSave: (draft) => saved = draft,
         ),
@@ -298,7 +299,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(saved?.category, DebtCategory.gadget);
-    expect(saved?.quotedRate, isNull);
     expect(saved?.perPayment, 2000);
     expect(saved?.lastPayment, 0);
   });
@@ -309,7 +309,7 @@ void main() {
     final debt = phone(paidBefore: 3);
     await pump(
       tester,
-      DebtDetailScreen(
+      InstallmentDetailScreen(
         debt: debt,
         liveDebt: Stream.value(debt),
         payments: Stream.value(const []),
@@ -319,7 +319,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('What borrowing costs'), findsNothing);
-    expect(find.byKey(const Key('installment-interest-paid')), findsNothing);
+    expect(find.byKey(const Key('loan-interest-paid')), findsNothing);
     expect(find.text('Price'), findsOneWidget);
   });
 
@@ -358,11 +358,11 @@ void main() {
   testWidgets('Other lets the user name the kind; there are no notes', (
     tester,
   ) async {
-    DebtDraft? saved;
+    InstallmentDraft? saved;
     await pump(
       tester,
       Scaffold(
-        body: DebtFormSheet(
+        body: InstallmentFormSheet(
           today: DateTime(2026, 10, 26),
           onSave: (draft) => saved = draft,
         ),

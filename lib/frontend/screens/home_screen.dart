@@ -184,7 +184,7 @@ class _HomeScreenState extends State<HomeScreen> {
             () => _push(const BillCalendarScreen(initialShowDebts: true)))();
         return;
       case VoiceDestination.debts:
-        _push(const DebtsScreen(loans: true));
+        _push(const DebtsScreen());
         return;
       case VoiceDestination.goals:
         (widget.onOpenGoals ?? () => _push(const GoalsScreen()))();
@@ -469,7 +469,7 @@ class _HomeScreenState extends State<HomeScreen> {
       (
         asset: 'assets/icons/icons8-loan-96.png',
         title: 'Debts',
-        onTap: () => _push(const DebtsScreen(loans: true)),
+        onTap: () => _push(const DebtsScreen()),
       ),
     ];
     final visibleActions = _showAllQuickActions

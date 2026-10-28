@@ -10,9 +10,57 @@ import '../../backend/utils/money_format.dart';
 import '../../backend/utils/text_limits.dart';
 import 'check_after_save.dart';
 import 'choice_grid.dart';
-import 'debt_form_sheet.dart' show DebtDraft;
 import 'dialog_kit.dart';
 import 'item_card.dart' show percentText;
+
+/// What the Debts form would save, handed to tests instead of Firestore.
+class LoanDraft {
+  const LoanDraft({
+    required this.name,
+    required this.category,
+    required this.principal,
+    required this.perPayment,
+    required this.paymentCount,
+    required this.frequency,
+    required this.firstDueDate,
+    this.lastPayment = 0,
+    this.paidBefore = 0,
+    this.quotedRate,
+    this.quotedRatePer = RatePeriod.year,
+    this.rateBasis = InterestBasis.wholeAmount,
+    this.fees = 0,
+    this.otherKind,
+  });
+
+  final String name;
+  final DebtCategory category;
+  final double principal;
+  final double perPayment;
+  final int paymentCount;
+
+  /// The contract's last payment when it differs; zero when it doesn't.
+  final double lastPayment;
+  final PaymentFrequency frequency;
+
+  /// When the first payment is due.
+  final DateTime? firstDueDate;
+
+  /// Payments made before it was tracked here.
+  final int paidBefore;
+
+  /// The rate the lender said they charge, if the user was told.
+  final double? quotedRate;
+  final RatePeriod quotedRatePer;
+
+  /// How the interest is charged.
+  final InterestBasis rateBasis;
+
+  /// Fees taken out of the loan.
+  final double fees;
+
+  /// The user's own kind, when they chose Other.
+  final String? otherKind;
+}
 
 /// Adds money the user borrowed: from a bank or lending company, as cash
 /// from a credit card (like Cash2Go), from SSS, Pag-IBIG or GSIS, or from
@@ -73,7 +121,7 @@ class LoanFormSheet extends StatefulWidget {
   final DateTime? today;
 
   /// Replaces saving. Used by tests.
-  final void Function(DebtDraft draft)? onSave;
+  final void Function(LoanDraft draft)? onSave;
 
   @override
   State<LoanFormSheet> createState() => _LoanFormSheetState();
@@ -309,8 +357,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     final preview = _preview;
     if (_problem != null || preview == null) return;
 
-    final draft = DebtDraft(
-      direction: DebtDirection.iOwe,
+    final draft = LoanDraft(
       name: cleanText(_nameController.text),
       category: _kind,
       principal: preview.principal,
@@ -319,8 +366,6 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       lastPayment: preview.hasDifferentLastPayment ? preview.finalPayment : 0,
       frequency: _frequency,
       firstDueDate: _date,
-      movedWalletId: null,
-      note: null,
       paidBefore: _paidBefore,
       quotedRate: _byPayment ? null : _rate,
       quotedRatePer: _per,

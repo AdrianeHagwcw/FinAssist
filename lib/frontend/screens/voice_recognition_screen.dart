@@ -17,7 +17,7 @@ import '../utils/category_options.dart';
 import '../../backend/utils/money_format.dart';
 import '../widgets/bill_form_sheet.dart';
 import '../widgets/choice_grid.dart';
-import '../widgets/debt_form_sheet.dart';
+import '../widgets/installment_form_sheet.dart';
 import '../widgets/found_details.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/loan_form_sheet.dart';
@@ -325,13 +325,13 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         final price = command.perPayment && amount != null && count != null
             ? amount * count
             : amount;
-        final saved = await showDebtFormSheet(
+        final saved = await showInstallmentFormSheet(
           context,
           name: command.name,
           price: price,
           count: count,
         );
-        _saved(saved != null);
+        _saved(saved);
         return;
       case VoiceCommandType.debt:
         final saved = await showLoanFormSheet(
