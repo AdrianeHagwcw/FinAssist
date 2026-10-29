@@ -11,7 +11,6 @@ import '../../backend/utils/text_limits.dart';
 import 'check_after_save.dart';
 import 'choice_grid.dart';
 import 'dialog_kit.dart';
-import 'item_card.dart' show percentText;
 
 /// What the Debts form would save, handed to tests instead of Firestore.
 class LoanDraft {
@@ -103,6 +102,16 @@ Future<bool> showLoanFormSheet(
 /// government funds charge, and where unregistered lenders operate.
 const _highMonthlyCost = 4.0;
 
+enum _LoanTermUnit {
+  months('Months', 12),
+  years('Years', 1);
+
+  const _LoanTermUnit(this.label, this.monthsPerYear);
+
+  final String label;
+  final int monthsPerYear;
+}
+
 class LoanFormSheet extends StatefulWidget {
   const LoanFormSheet({
     this.name,
@@ -139,7 +148,6 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
   late final _countController = TextEditingController(
     text: widget.count?.toString(),
   );
-  final _feesController = TextEditingController();
   final _statedPaymentController = TextEditingController();
   final _paidBeforeController = TextEditingController();
   final _otherKindController = TextEditingController();
@@ -178,7 +186,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
           ? InterestBasis.remainingBalance
           : InterestBasis.wholeAmount);
   PaymentFrequency _frequency = PaymentFrequency.monthly;
-  bool _showMore = false;
+  _LoanTermUnit _termUnit = _LoanTermUnit.months;
 
   /// The user doesn't know the interest, so they give the payment on their
   /// loan papers instead. What it costs is worked out from that, so nobody
@@ -199,7 +207,6 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     _principalController,
     _rateController,
     _countController,
-    _feesController,
     _statedPaymentController,
     _paidBeforeController,
     _otherKindController,
@@ -222,8 +229,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
 
   double get _principal => _number(_principalController);
   double? get _rate => double.tryParse(_rateController.text.trim());
-  int get _count => int.tryParse(_countController.text.trim()) ?? 0;
-  double get _fees => _number(_feesController);
+  int get _term => int.tryParse(_countController.text.trim()) ?? 0;
+  int get _count =>
+      (_term * _frequency.perYear / _termUnit.monthsPerYear).round();
   double get _statedPayment => _number(_statedPaymentController);
 
   /// The rate counted: blank is no interest, for a lender who need not
@@ -270,7 +278,6 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
         firstDueDate: _date,
         status: DebtStatus.active,
         paidBefore: _paidBefore,
-        fees: _fees,
       );
     }
     final worked = _worked;
@@ -294,7 +301,6 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       quotedRate: _rate,
       quotedRatePer: _per,
       rateBasis: _basis,
-      fees: _fees,
     );
   }
 
@@ -333,13 +339,10 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     if (!_byPayment && rate != null && rate > 100) {
       return 'Enter a rate up to 100%.';
     }
-    if (_count < 1) return 'Enter how many payments.';
+    if (_term < 1) return 'Enter how long you have to pay it off.';
     if (_count > _mostPayments) {
       return 'Up to $_mostPayments payments. Check the number on your loan '
           'papers.';
-    }
-    if (_fees >= _principal) {
-      return 'The fees must be less than the amount borrowed.';
     }
     if (_date == null) return 'Choose when the first payment is due.';
     if (_paidBefore >= _count) {
@@ -370,7 +373,6 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       quotedRate: _byPayment ? null : _rate,
       quotedRatePer: _per,
       rateBasis: _basis,
-      fees: _fees,
       otherKind: _kind == DebtCategory.otherLoan
           ? cleanText(_otherKindController.text)
           : null,
@@ -392,7 +394,6 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
         quotedRate: draft.quotedRate,
         quotedRatePer: draft.quotedRatePer,
         rateBasis: draft.rateBasis,
-        fees: draft.fees,
         otherKind: draft.otherKind,
       );
     }
@@ -448,45 +449,16 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                 style: TextStyle(fontSize: 13, color: colors.textMuted),
               ),
               const SizedBox(height: 16),
-              // First, since it decides what is asked: a bank or lender
-              // must state its interest; family need not.
-              _label(context, 'Who lent it?'),
-              const SizedBox(height: 8),
-              ChoiceGrid<DebtCategory>(
-                options: DebtCategory.loanKinds,
-                selected: _kind,
-                label: (kind) => kind.label,
-                keyOf: (kind) => 'loan-kind-${kind.name}',
-                onPick: (kind) => setState(() => _pickedKind = kind),
-              ),
-              if (_kind == DebtCategory.otherLoan) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  key: const Key('loan-other-kind'),
-                  controller: _otherKindController,
-                  textCapitalization: TextCapitalization.sentences,
-                  maxLength: 30,
-                  inputFormatters: const [SafeTextFormatter()],
-                  decoration:
-                      dialogFieldDecoration(
-                        context,
-                        'What kind of loan?',
-                        hint: 'e.g. Pawnshop, cooperative',
-                      ).copyWith(
-                        floatingLabelBehavior: FloatingLabelBehavior.always,
-                      ),
-                ),
-              ],
-              const SizedBox(height: 16),
               TextField(
                 key: const Key('loan-name'),
                 controller: _nameController,
                 textCapitalization: TextCapitalization.sentences,
                 maxLength: maxItemNameLength,
                 inputFormatters: const [SafeTextFormatter()],
+                onChanged: (_) => setState(() => _pickedKind = null),
                 decoration: dialogFieldDecoration(
                   context,
-                  'Name',
+                  'What is this debt called?',
                   hint: switch (_kind) {
                     DebtCategory.cardCashLoan => 'e.g. Cash2Go',
                     DebtCategory.governmentLoan => 'e.g. SSS salary loan',
@@ -496,6 +468,33 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                   },
                 ).copyWith(floatingLabelBehavior: FloatingLabelBehavior.always),
               ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<DebtCategory>(
+                key: ValueKey('loan-kind-${_kind.name}'),
+                initialValue: _kind,
+                isExpanded: true,
+                decoration: dialogFieldDecoration(context, 'Loan type'),
+                items: [
+                  for (final kind in DebtCategory.loanKinds)
+                    DropdownMenuItem(value: kind, child: Text(kind.label)),
+                ],
+                onChanged: (kind) => setState(() => _pickedKind = kind),
+              ),
+              if (_kind == DebtCategory.otherLoan) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  key: const Key('loan-other-kind'),
+                  controller: _otherKindController,
+                  textCapitalization: TextCapitalization.sentences,
+                  maxLength: 30,
+                  inputFormatters: const [SafeTextFormatter()],
+                  decoration: dialogFieldDecoration(
+                    context,
+                    'What kind of loan?',
+                    hint: 'e.g. Pawnshop, cooperative',
+                  ).copyWith(floatingLabelBehavior: FloatingLabelBehavior.always),
+                ),
+              ],
               const SizedBox(height: 8),
               AmountField(
                 controller: _principalController,
@@ -603,46 +602,69 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                 ),
               ],
               const SizedBox(height: 16),
+              Text(
+                'How long to pay it off?',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: colors.textBody,
+                ),
+              ),
+              const SizedBox(height: 8),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: TextField(
-                      key: const Key('loan-count'),
+                      key: const Key('loan-term'),
                       controller: _countController,
                       keyboardType: TextInputType.number,
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
                         LengthLimitingTextInputFormatter(3),
                       ],
-                      decoration:
-                          dialogFieldDecoration(
-                            context,
-                            'How many payments',
-                            hint: 'e.g. 12',
-                          ).copyWith(
-                            floatingLabelBehavior: FloatingLabelBehavior.always,
-                          ),
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'For how long?',
+                        hint: 'e.g. 12',
+                      ).copyWith(
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: DropdownButtonFormField<PaymentFrequency>(
-                      initialValue: _frequency,
+                    child: DropdownButtonFormField<_LoanTermUnit>(
+                      key: ValueKey('loan-term-unit-${_termUnit.name}'),
+                      initialValue: _termUnit,
                       isExpanded: true,
-                      decoration: dialogFieldDecoration(context, 'How often'),
+                      decoration: dialogFieldDecoration(context, 'Term unit'),
                       items: [
-                        for (final frequency in PaymentFrequency.values)
-                          DropdownMenuItem(
-                            value: frequency,
-                            child: Text(frequency.label),
-                          ),
+                        for (final unit in _LoanTermUnit.values)
+                          DropdownMenuItem(value: unit, child: Text(unit.label)),
                       ],
-                      onChanged: (value) =>
-                          setState(() => _frequency = value ?? _frequency),
+                      onChanged: (unit) => setState(
+                        () => _termUnit = unit ?? _termUnit,
+                      ),
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<PaymentFrequency>(
+                key: ValueKey('loan-frequency-${_frequency.name}'),
+                initialValue: _frequency,
+                isExpanded: true,
+                decoration: dialogFieldDecoration(context, 'How often do you pay?'),
+                items: [
+                  for (final frequency in PaymentFrequency.values)
+                    DropdownMenuItem(
+                      value: frequency,
+                      child: Text(frequency.label),
+                    ),
+                ],
+                onChanged: (value) =>
+                    setState(() => _frequency = value ?? _frequency),
               ),
               const SizedBox(height: 16),
               InkWell(
@@ -693,58 +715,6 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
               if (preview != null) ...[
                 const SizedBox(height: 16),
                 LoanResultCard(debt: preview),
-              ],
-              const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () => setState(() => _showMore = !_showMore),
-                  style: TextButton.styleFrom(
-                    foregroundColor: colors.primaryText,
-                    padding: EdgeInsets.zero,
-                  ),
-                  icon: Icon(_showMore ? Icons.expand_less : Icons.expand_more),
-                  label: Text(
-                    _showMore ? 'Fewer options' : 'More options (optional)',
-                  ),
-                ),
-              ),
-              if (_showMore) ...[
-                const SizedBox(height: 8),
-                AmountField(
-                  key: const Key('loan-fees'),
-                  controller: _feesController,
-                  label: 'Fees taken out',
-                  hint: 'e.g. 250',
-                  helper:
-                      'Fees the lender kept from the money you got, like a '
-                      'processing fee.',
-                  alwaysShowHint: true,
-                  autofocus: false,
-                ),
-                if (!_byPayment) ...[
-                  const SizedBox(height: 16),
-                  AmountField(
-                    key: const Key('loan-stated-payment'),
-                    controller: _statedPaymentController,
-                    label: 'Payment on your loan papers',
-                    hint: 'Same as worked out',
-                    helper:
-                        'Only if your papers show a different amount. That one '
-                        'is used.',
-                    alwaysShowHint: true,
-                    autofocus: false,
-                  ),
-                  if (preview != null && preview.costsMoreThanQuoted) ...[
-                    const SizedBox(height: 10),
-                    DialogNote(
-                      text:
-                          'These payments cost more than '
-                          '${percentText(_rate!)} ${_per.label}. Ask the lender '
-                          'what else is added.',
-                    ),
-                  ],
-                ],
               ],
               if (error != null) ...[
                 const SizedBox(height: 6),

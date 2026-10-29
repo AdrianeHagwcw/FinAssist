@@ -790,7 +790,15 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     final kind = fundingWalletKind(wallet);
 
     if (!_paysOut) {
-      return [Text('$kind · ${formatPeso(wallet.balance)} now', style: note)];
+      final held = goalMoneyInWallet(widget.goals, wallet.id);
+      return [
+        Text(
+          '$kind · ${formatPeso(freeInWallet(wallet, widget.goals))} free',
+          style: note,
+        ),
+        if (held > 0.005)
+          Text('${formatPeso(held)} set aside for goals', style: note),
+      ];
     }
 
     final room = _room(wallet);
@@ -962,12 +970,13 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
                       if (other != row) other.walletId,
                   },
                   disabledLabel: 'Added',
-                  displayBalances: _paysOut
-                      ? {
-                          for (final account in accounts)
-                            account.id: _room(account),
-                        }
-                      : null,
+                  displayBalances: {
+                    for (final account in accounts)
+                      account.id: _paysOut
+                          ? _room(account)
+                          : freeInWallet(account, widget.goals),
+                  },
+                  goals: widget.goals,
                   label: 'Account',
                   onChanged: (id) => _changeAccount(row, id),
                 ),
