@@ -6598,12 +6598,16 @@ void main() {
       );
       await tester.pump();
 
-      await tester.ensureVisible(
-        find.byKey(const Key('service-charge-switch')),
+      // The charge is an input of its own now, optional until typed.
+      expect(
+        find.text('Last time this wallet charged ₱15.'),
+        findsOneWidget,
+        reason: "GCash's usual fee",
       );
-      await tester.tap(find.byKey(const Key('service-charge-switch')));
-      await tester.pumpAndSettle();
-      expect(find.text('15'), findsOneWidget, reason: "GCash's usual fee");
+      final charge = find.byKey(const Key('service-charge-amount'));
+      await tester.ensureVisible(charge);
+      await tester.enterText(charge, '15');
+      await tester.pump();
 
       // ₱1,000 plus the ₱15 fee is more than GCash holds.
       await tester.ensureVisible(find.text('Transfer').last);
