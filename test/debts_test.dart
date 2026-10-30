@@ -586,8 +586,22 @@ void main() {
       if (rate != null) {
         await tester.enterText(find.byKey(const Key('loan-rate')), rate);
       }
-      await tester.enterText(find.byKey(const Key('loan-count')), count);
+      // The term runs in months and pays monthly here, so as many payments
+      // as months.
+      await tester.enterText(find.byKey(const Key('loan-term')), count);
       await tester.pump();
+    }
+
+    /// Picks [kind] in the loan-type dropdown. Every kind is checked to be
+    /// in the menu each time it opens.
+    Future<void> pickKind(WidgetTester tester, DebtCategory kind) async {
+      await tester.tap(find.byType(DropdownButtonFormField<DebtCategory>));
+      await tester.pumpAndSettle();
+      for (final option in DebtCategory.loanKinds) {
+        expect(find.text(option.label), findsWidgets, reason: option.name);
+      }
+      await tester.tap(find.text(kind.label).last);
+      await tester.pumpAndSettle();
     }
 
     String shown(WidgetTester tester, String key) =>
@@ -605,10 +619,7 @@ void main() {
       );
 
       // The kind came from the name, and the rate is per month for it.
-      expect(
-        tester.getSemantics(find.byKey(const Key('loan-kind-cardCashLoan'))),
-        isSemantics(isSelected: true),
-      );
+      expect(find.text('Cash from a credit card'), findsOneWidget);
       expect(shown(tester, 'loan-payment'), '₱1,716.67');
       expect(shown(tester, 'loan-total'), '₱5,150');
       expect(shown(tester, 'loan-interest'), '₱150');
@@ -680,18 +691,19 @@ void main() {
 
     testWidgets('choosing who lent it never moves the choices', (tester) async {
       await pumpForm(tester, (_) {});
-      Rect place(String kind) =>
-          tester.getRect(find.byKey(Key('loan-kind-$kind')));
-      final before = {
-        for (final kind in DebtCategory.loanKinds) kind.name: place(kind.name),
-      };
-
-      await tester.tap(find.byKey(const Key('loan-kind-familyFriend')));
+      // Amount typed first, so a later pick has something to keep.
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Amount borrowed'),
+        '5000',
+      );
       await tester.pump();
 
-      for (final kind in DebtCategory.loanKinds) {
-        expect(place(kind.name), before[kind.name], reason: kind.name);
-      }
+      await pickKind(tester, DebtCategory.familyFriend);
+      expect(find.text('5,000'), findsOneWidget);
+
+      // Picking again offers every kind, and leaves what was typed in.
+      await pickKind(tester, DebtCategory.governmentLoan);
+      expect(find.text('5,000'), findsOneWidget);
     });
 
     testWidgets('Other loan asks what kind it is', (tester) async {
@@ -699,14 +711,15 @@ void main() {
       await pumpForm(tester, (draft) => saved = draft);
       expect(find.byKey(const Key('loan-other-kind')), findsNothing);
 
-      await tester.tap(find.byKey(const Key('loan-kind-otherLoan')));
-      await tester.pump();
+      // The name goes in first: typing it after would re-guess the kind.
+      await fill(tester, name: 'Sangla', amount: '3000', count: '3');
+      await pickKind(tester, DebtCategory.otherLoan);
       expect(find.text('What kind of loan?'), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('loan-other-kind')),
         'Pawnshop',
       );
-      await fill(tester, name: 'Sangla', amount: '3000', count: '3');
+      await tester.pump();
 
       await tester.tap(find.text('Save Debt'));
       await tester.pumpAndSettle();
