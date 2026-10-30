@@ -254,6 +254,11 @@ enum DebtStatus { active, settled }
 
 /// Money owed, in either direction.
 ///
+/// One record holds both things bought on installment and money borrowed:
+/// [DebtCategory.isLoan] says which. They are listed apart in the app
+/// (Installments and Debts), but they share this class and the `debts`
+/// collection, so nothing needs migrating between the two.
+///
 /// For money the user owes, the payments live in the Bill Planner as a bill
 /// schedule with a last due date, so they are paid, part-paid and reminded
 /// about like any other bill, and Safe to Spend already sets them aside. This
@@ -281,6 +286,8 @@ class Debt {
     this.rateBasis = InterestBasis.wholeAmount,
     this.fees = 0,
     this.otherKind,
+    this.paidWithWalletId,
+    this.paidWithLabel,
     this.paidOffAt,
     this.paidOffAmount = 0,
   });
@@ -315,6 +322,8 @@ class Debt {
       rateBasis: InterestBasis.fromName(_asString(map['rateBasis'])),
       fees: _asDouble(map['fees']).abs(),
       otherKind: _asString(map['otherKind']),
+      paidWithWalletId: _asString(map['paidWithWalletId']),
+      paidWithLabel: _asString(map['paidWithLabel']),
       paidOffAt: _asDate(map['paidOffAt']),
       paidOffAmount: _asDouble(map['paidOffAmount']).abs(),
     );
@@ -369,6 +378,14 @@ class Debt {
 
   /// What the user called the kind when they chose Other.
   final String? otherKind;
+
+  /// The wallet the purchase was charged to, for an installment: a card or
+  /// account the user already has. Display only; it never moves money.
+  final String? paidWithWalletId;
+
+  /// The card or account in the user's own words, when it is not one of
+  /// their wallets, such as a credit card they did not add.
+  final String? paidWithLabel;
 
   /// When it was paid off before its schedule ended, and what that last
   /// payment was. Null while it runs its course.
@@ -454,7 +471,12 @@ class Debt {
   /// The part of every peso paid that is interest: [extraCost] out of
   /// [totalPayable]. Every payment carries the same share, so the interest
   /// recorded adds up to [extraCost] once all of them are made.
-  double get interestShare => totalPayable <= 0 ? 0 : extraCost / totalPayable;
+  ///
+  /// Installments carry none in the app: the price the store quoted is the
+  /// whole of what is paid, so this is zero for them. Loans keep their split,
+  /// which early payoff and Reports still use.
+  double get interestShare =>
+      category.isLoan && totalPayable > 0 ? extraCost / totalPayable : 0;
 
   /// The interest inside payment [number] (from 1).
   double interestOf(int number) =>
@@ -640,6 +662,32 @@ double coveringLastPayment(double total, double perPayment, int count) {
   final rest = ((total - perPayment * (count - 1)) * 100).round() / 100;
   return rest > 0 && rest < perPayment - 0.005 ? rest : 0;
 }
+
+/// [total] split into [count] payments for an installment: each rounded to
+/// the centavo, and the last one taking whatever rounding leaves, so the
+/// payments add up to [total] exactly.
+///
+/// ₱10,000 over 3 months is 3 × ₱3,333.33 and a last one of ₱3,333.34.
+({double perPayment, double lastPayment}) installmentPayments({
+  required double total,
+  required int count,
+}) {
+  if (total <= 0 || count < 1) return (perPayment: 0, lastPayment: 0);
+  final each = _centavos(total / count);
+  return (perPayment: each, lastPayment: _centavos(total - each * (count - 1)));
+}
+
+/// [day] moved [months] months, keeping its day where the month is long
+/// enough and taking the month's last day where it is not: 31 January one
+/// month on is 28 or 29 February.
+DateTime addMonthsClamped(DateTime day, int months) {
+  final target = DateTime(day.year, day.month + months, 1);
+  final lastDay = DateTime(target.year, target.month + 1, 0).day;
+  return DateTime(target.year, target.month, math.min(day.day, lastDay));
+}
+
+/// The first payment of a plan started on [day]: the same day next month.
+DateTime nextMonthSameDay(DateTime day) => addMonthsClamped(day, 1);
 
 /// Where an installment stands, worked out from its bill occurrences.
 class DebtProgress {

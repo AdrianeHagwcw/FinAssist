@@ -166,8 +166,8 @@ String reminderTimingText(ReminderKind kind, int times) {
     },
     ReminderKind.interest =>
       'On the 1st after each account pays interest, at 9 AM. Skipped if you '
-          'already added it. Each January 1, the interest your installments '
-          'cost the year before.',
+          'already added it. Each January 1, the interest your loans cost the '
+          'year before.',
   };
 }
 
@@ -588,10 +588,11 @@ List<PlannedReminder> planReminders({
     }
   }
 
-  // Installments: on January 1, what the year's payments cost in interest,
-  // the yearly figure an accountant would give. Only payments really
-  // recorded count, and recording one plans this again, so the figure is
-  // the year's own by the time it comes.
+  // Loans: on January 1, what the year's payments cost in interest, the
+  // yearly figure an accountant would give. Only payments really recorded
+  // count, and recording one plans this again, so the figure is the year's
+  // own by the time it comes. Installments no longer carry interest, so
+  // their payments have nothing to report here.
   if (settings.isOn(ReminderKind.interest)) {
     final year = today.year;
     final byInstallment = <String, double>{};
@@ -615,9 +616,9 @@ List<PlannedReminder> planReminders({
           body: largest.length == 1
               ? '${formatPeso(total)} of your ${largest.first.key} payments '
                     'was interest. Tap to see what it has cost.'
-              : '${formatPeso(total)} of your installment payments was '
+              : '${formatPeso(total)} of your loan payments was '
                     'interest: ${[for (final e in largest.take(3)) '${e.key} ${formatPeso(e.value)}'].join(', ')}.',
-          payload: 'installments',
+          payload: 'debts',
         ),
       );
     }

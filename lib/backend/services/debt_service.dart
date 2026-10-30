@@ -41,12 +41,32 @@ class DebtService {
     });
   }
 
+  /// Everything the user is paying off in parts: things bought on
+  /// installment. Borrowed money has [watchLoans].
+  ///
+  /// Both kinds share the collection and the [Debt] class; only the screen
+  /// they are listed on differs.
+  static Stream<List<Debt>> watchInstallments() =>
+      watchDebts().map(_owedOnly(loan: false));
+
+  /// Everything the user borrowed and is paying back. Things bought on
+  /// installment have [watchInstallments].
+  static Stream<List<Debt>> watchLoans() =>
+      watchDebts().map(_owedOnly(loan: true));
+
+  /// Keeps the records of one kind that the user owes.
+  static List<Debt> Function(List<Debt>) _owedOnly({required bool loan}) =>
+      (debts) => [
+        for (final debt in debts)
+          if (debt.direction == DebtDirection.iOwe &&
+              debt.category.isLoan == loan)
+            debt,
+      ];
+
   /// Every debt, read once. Returns cached records while offline.
   static Future<List<Debt>> loadDebts() async {
     final snapshot = await _debts.get();
-    return [
-      for (final doc in snapshot.docs) Debt.fromMap(doc.id, doc.data()),
-    ];
+    return [for (final doc in snapshot.docs) Debt.fromMap(doc.id, doc.data())];
   }
 
   static Stream<Debt?> watchDebt(String id) {
@@ -80,6 +100,8 @@ class DebtService {
     InterestBasis rateBasis = InterestBasis.wholeAmount,
     double fees = 0,
     String? otherKind,
+    String? paidWithWalletId,
+    String? paidWithLabel,
   }) {
     final batch = _firestore.batch();
     final debt = _debts.doc();
@@ -101,6 +123,8 @@ class DebtService {
       // Fees count toward what borrowing costs, so toward the interest
       // recorded in each payment.
       fees: fees,
+      paidWithWalletId: _noteOrNull(paidWithWalletId),
+      paidWithLabel: _noteOrNull(paidWithLabel),
     );
     final lastDue = terms.lastDueDate!;
 
@@ -128,6 +152,10 @@ class DebtService {
         'rateBasis': rateBasis.name,
       },
       if (fees > 0) 'fees': fees,
+      if (paidWithWalletId != null && paidWithWalletId.trim().isNotEmpty)
+        'paidWithWalletId': paidWithWalletId.trim(),
+      if (paidWithLabel != null && paidWithLabel.trim().isNotEmpty)
+        'paidWithLabel': paidWithLabel.trim(),
       'createdAt': FieldValue.serverTimestamp(),
     });
 
@@ -151,9 +179,12 @@ class DebtService {
     return debt.id;
   }
 
-  /// Gives installments saved before interest was kept apart the same split
-  /// as new ones, so every account's Reports show what borrowing cost. Each
-  /// is done once; offline, it waits for the next start.
+  /// Gives loans saved before interest was kept apart the same split as new
+  /// ones, so every account's Reports show what borrowing cost. Each is done
+  /// once; offline, it waits for the next start.
+  ///
+  /// Installments are left as they are: they no longer carry interest, so
+  /// filling theirs now would wipe the interest saved on older ones.
   static Future<void> fillInterestShares() async {
     try {
       final snapshot = await _debts.get();
@@ -161,6 +192,7 @@ class DebtService {
         final debt = Debt.fromMap(doc.id, doc.data());
         final billId = debt.billId;
         if (debt.direction != DebtDirection.iOwe || billId == null) continue;
+        if (!debt.category.isLoan) continue;
         await BillService.fillInterestShare(billId, debt.interestShare);
       }
     } on FirebaseException catch (error) {

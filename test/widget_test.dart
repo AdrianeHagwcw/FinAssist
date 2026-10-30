@@ -74,7 +74,7 @@ import 'package:testapp/frontend/widgets/interest_sheet.dart';
 import 'package:testapp/frontend/widgets/savings_form_parts.dart';
 import 'package:testapp/backend/utils/income_sources.dart';
 import 'package:testapp/frontend/widgets/money_text.dart';
-import 'package:testapp/frontend/widgets/debt_form_sheet.dart';
+import 'package:testapp/frontend/widgets/installment_form_sheet.dart';
 import 'package:testapp/frontend/widgets/due_soon_notice.dart';
 import 'package:testapp/frontend/widgets/safe_to_spend_card.dart';
 import 'package:testapp/frontend/widgets/spending_chart.dart';
@@ -6598,12 +6598,16 @@ void main() {
       );
       await tester.pump();
 
-      await tester.ensureVisible(
-        find.byKey(const Key('service-charge-switch')),
+      // The charge is an input of its own now, optional until typed.
+      expect(
+        find.text('Last time this wallet charged ₱15.'),
+        findsOneWidget,
+        reason: "GCash's usual fee",
       );
-      await tester.tap(find.byKey(const Key('service-charge-switch')));
-      await tester.pumpAndSettle();
-      expect(find.text('15'), findsOneWidget, reason: "GCash's usual fee");
+      final charge = find.byKey(const Key('service-charge-amount'));
+      await tester.ensureVisible(charge);
+      await tester.enterText(charge, '15');
+      await tester.pump();
 
       // ₱1,000 plus the ₱15 fee is more than GCash holds.
       await tester.ensureVisible(find.text('Transfer').last);
@@ -9680,7 +9684,7 @@ void main() {
             child: MaterialApp(
               key: UniqueKey(),
               theme: AppTheme.light,
-              home: DebtDetailScreen(
+              home: LoanDetailScreen(
                 debt: debt,
                 liveDebt: Stream.value(debt),
                 payments: Stream.value(const []),
@@ -9770,7 +9774,7 @@ void main() {
           create: (_) => AppSettingsProvider(),
           child: MaterialApp(
             theme: AppTheme.light,
-            home: DebtDetailScreen(
+            home: InstallmentDetailScreen(
               debt: plan,
               liveDebt: Stream.value(plan),
               payments: Stream.value([
@@ -9836,7 +9840,7 @@ void main() {
           create: (_) => AppSettingsProvider(),
           child: MaterialApp(
             theme: AppTheme.light,
-            home: DebtDetailScreen(
+            home: InstallmentDetailScreen(
               debt: plan,
               liveDebt: Stream.value(plan),
               // Only the first month has been opened in the Bill Planner,
@@ -9995,12 +9999,12 @@ void main() {
       tester,
     ) async {
       tall(tester);
-      DebtDraft? saved;
+      InstallmentDraft? saved;
 
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 3, 10),
               onSave: (draft) => saved = draft,
             ),
@@ -10014,10 +10018,15 @@ void main() {
       expect(find.text('I received this money in a wallet'), findsNothing);
       expect(find.text('Received into'), findsNothing);
 
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Phone');
-      await tester.enterText(fields.at(1), '24000');
-      await tester.enterText(fields.at(2), '2400');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '24000',
+      );
+      await tester.enterText(find.byKey(const Key('installment-months')), '12');
       await tester.pump();
       expect(
         find.textContaining('Your money does not move until you pay'),
@@ -10028,23 +10037,21 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(saved?.name, 'Phone');
-      expect(
-        saved?.movedWalletId,
-        isNull,
-        reason: 'nothing arrives in a wallet from setting up a plan',
-      );
+      expect(saved?.principal, 24000);
+      // Nothing arrives in a wallet from setting up a plan: there is no
+      // wallet to move money from.
     });
 
-    testWidgets('the form works out payments and the extra cost', (
+    testWidgets('the form works out each payment from the price and months', (
       tester,
     ) async {
       tall(tester);
-      DebtDraft? saved;
+      InstallmentDraft? saved;
 
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 3, 10),
               onSave: (draft) => saved = draft,
             ),
@@ -10053,42 +10060,74 @@ void main() {
       );
       await tester.pump();
 
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Phone');
-      await tester.enterText(fields.at(1), '24000');
-      await tester.enterText(fields.at(2), '2400');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '24000',
+      );
       await tester.pump();
 
+      // No payments until the months are in.
+      expect(find.byKey(const Key('installment-summary')), findsNothing);
       expect(
-        find.text('10 payments of ₱2,400, every month'),
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('installment-each-payment')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        isEmpty,
+      );
+
+      await tester.enterText(find.byKey(const Key('installment-months')), '12');
+      await tester.pump();
+      // The each-payment field fills itself in from the two amounts: ₱24,000
+      // over 12 months.
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('installment-each-payment')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        '2,000',
+      );
+      expect(
+        find.textContaining('12 payments, the last on'),
         findsOneWidget,
         reason: 'payments, worked out',
       );
       expect(find.textContaining('You will pay ₱24,000'), findsOne);
+      // The store quoted the price, so nothing is added on top.
+      expect(find.textContaining('more than you borrowed'), findsNothing);
+      expect(find.textContaining('is interest'), findsNothing);
+      // And no interest rate to disclose.
+      expect(find.textContaining('a year'), findsNothing);
 
-      await tester.enterText(fields.at(3), '12');
-      await tester.pump();
-      expect(
-        find.textContaining('₱4,800 more than you borrowed (20%)'),
-        findsOneWidget,
-      );
-      // And what that really costs as a rate, as lenders must disclose.
-      expect(find.textContaining('a month, or 35% a year'), findsOneWidget);
-
-      // Only whole payments: no point, no sign, no fourth digit.
-      await tester.enterText(fields.at(3), '-1.2');
-      expect(tester.widget<TextField>(fields.at(3)).controller?.text, '12');
-      await tester.enterText(fields.at(3), '1200');
-      expect(tester.widget<TextField>(fields.at(3)).controller?.text, '120');
-      await tester.enterText(fields.at(3), '12');
+      // Only whole months: no point, no sign, no fourth digit.
+      final months = find.byKey(const Key('installment-months'));
+      await tester.enterText(months, '-1.2');
+      expect(tester.widget<TextField>(months).controller?.text, '12');
+      await tester.enterText(months, '1200');
+      expect(tester.widget<TextField>(months).controller?.text, '120');
+      await tester.enterText(months, '12');
       await tester.pump();
 
       await tester.tap(find.text('Save Installment'));
       await tester.pumpAndSettle();
 
       expect(saved?.paymentCount, 12);
-      expect(saved?.perPayment, 2400);
-      expect(saved?.direction, DebtDirection.iOwe);
+      expect(saved?.perPayment, 2000);
+      expect(saved?.lastPayment, 0);
     });
 
     testWidgets(
@@ -10098,45 +10137,48 @@ void main() {
         await tester.pumpWidget(
           app(
             Scaffold(
-              body: DebtFormSheet(today: DateTime(2026, 3, 10), onSave: (_) {}),
+              body: InstallmentFormSheet(
+                today: DateTime(2026, 3, 10),
+                onSave: (_) {},
+              ),
             ),
           ),
         );
         await tester.pump();
 
-        // Only what every plan has: the rest waits under More options.
+        // Only what every plan has.
         expect(find.text('Interest (optional)'), findsNothing);
-        // The rare and the optional start folded away, so the first look at
-        // the form is the plan itself and nothing else.
+        // The rare and the optional are not asked at all.
         expect(find.text('Last payment (optional)'), findsNothing);
         expect(find.text('Notes (optional)'), findsNothing);
-        expect(find.text('More options (optional)'), findsOneWidget);
+        // No fold: every field the plan needs is on the form.
+        expect(find.text('More options (optional)'), findsNothing);
+        expect(find.text('Fewer options'), findsNothing);
+        // Nothing a plan no longer asks for.
+        expect(find.text('How often'), findsNothing);
+        expect(find.text('First payment'), findsNothing);
+        expect(find.text('How many have you paid already?'), findsNothing);
+        // The each-payment field is there, worked out rather than typed.
+        expect(find.text('Each payment'), findsOneWidget);
         // Grey examples inside the empty fields.
         // Things bought on installment: loans have their own form.
-        expect(find.text('e.g. Phone, Aircon'), findsOneWidget);
+        expect(find.text('e.g. iPhone 15 from Globe'), findsOneWidget);
         expect(find.text('e.g. 12,000'), findsOneWidget);
-        expect(find.text('e.g. 1,500'), findsOneWidget);
         expect(find.text('e.g. 12'), findsOneWidget);
-        expect(
-          find.text('Shows how much more you pay than paying in full.'),
-          findsOneWidget,
-        );
+        expect(find.text('e.g. 2,000'), findsOneWidget);
+        // The wallet is always offered, though it can be left blank.
+        expect(find.text('Wallet used'), findsOneWidget);
         // No peso sign until an amount is typed, so no example looks filled in.
         final fields = tester
             .widgetList<TextField>(find.byType(TextField))
             .toList();
-        expect(fields[1].decoration?.prefixText, isNull, reason: 'borrowed');
-        expect(
-          fields[2].decoration?.prefixText,
-          isNull,
-          reason: 'each payment',
-        );
-        await tester.enterText(find.byType(TextField).at(2), '1500');
+        expect(fields[1].decoration?.prefixText, isNull, reason: 'price');
+        await tester.enterText(find.byType(TextField).at(1), '1500');
         await tester.pump();
         expect(
           tester
               .widgetList<TextField>(find.byType(TextField))
-              .elementAt(2)
+              .elementAt(1)
               .decoration
               ?.prefixText,
           '₱ ',
@@ -10144,14 +10186,14 @@ void main() {
       },
     );
 
-    testWidgets('the contract decides the last payment', (tester) async {
+    testWidgets('the last payment takes up the rounding', (tester) async {
       tall(tester);
-      DebtDraft? saved;
+      InstallmentDraft? saved;
 
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 3, 10),
               onSave: (draft) => saved = draft,
             ),
@@ -10160,57 +10202,47 @@ void main() {
       );
       await tester.pump();
 
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Loan');
-      await tester.enterText(fields.at(1), '10000');
-      await tester.enterText(fields.at(2), '3000');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '10000',
+      );
+      await tester.enterText(find.byKey(const Key('installment-months')), '3');
       await tester.pump();
 
-      // No count given: pay exactly what was borrowed, the last one smaller.
-      expect(
-        find.text('4 payments of ₱3,000, every month'),
-        findsOneWidget,
-        reason: 'payments, worked out',
-      );
+      // ₱10,000 in 3: two of ₱3,333.33 and a last one of ₱3,333.34, so the
+      // payments add up to the price exactly.
+      expect(find.textContaining('3 payments, the last on'), findsOneWidget);
       expect(find.textContaining('You will pay ₱10,000'), findsOne);
       expect(find.textContaining('more than you borrowed'), findsNothing);
-      expect(find.textContaining('Last payment ₱1,000 on'), findsOneWidget);
-
-      // A count from the contract keeps every payment the same.
-      await tester.enterText(fields.at(3), '4');
-      await tester.pump();
-      expect(find.textContaining('You will pay ₱12,000'), findsOne);
-      expect(find.textContaining('₱2,000 more than you borrowed'), findsOne);
-
-      // Unless the contract's last payment is typed in, which is rare
-      // enough to live under More options.
-      await tester.tap(find.text('More options (optional)'));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const Key('installment-last-payment')),
-        '1000',
+      expect(
+        find.textContaining('The last payment is ₱3,333.34'),
+        findsOneWidget,
       );
-      await tester.pump();
-      expect(find.textContaining('You will pay ₱10,000'), findsOne);
 
       await tester.ensureVisible(find.text('Save Installment'));
       await tester.tap(find.text('Save Installment'));
       await tester.pumpAndSettle();
-      expect(saved?.paymentCount, 4);
-      expect(saved?.perPayment, 3000);
-      expect(saved?.lastPayment, 1000);
+      expect(saved?.paymentCount, 3);
+      expect(saved?.perPayment, 3333.33);
+      expect(saved?.lastPayment, 3333.34);
+      expect(
+        saved!.perPayment * (saved!.paymentCount - 1) + saved!.lastPayment,
+        closeTo(10000, 0.001),
+      );
     });
 
-    testWidgets('payments that cannot cover the loan are refused', (
-      tester,
-    ) async {
+    testWidgets('a missing price or months blocks the save', (tester) async {
       tall(tester);
-      DebtDraft? saved;
+      InstallmentDraft? saved;
 
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtFormSheet(
+            body: InstallmentFormSheet(
               today: DateTime(2026, 3, 10),
               onSave: (draft) => saved = draft,
             ),
@@ -10219,16 +10251,32 @@ void main() {
       );
       await tester.pump();
 
-      final fields = find.byType(TextField);
-      await tester.enterText(fields.at(0), 'Loan');
-      await tester.enterText(fields.at(1), '10000');
-      await tester.enterText(fields.at(2), '500');
-      await tester.enterText(fields.at(3), '6');
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
       await tester.tap(find.text('Save Installment'));
       await tester.pump();
 
-      expect(find.textContaining('less than the ₱10,000'), findsOneWidget);
+      expect(find.text('Enter the cash price.'), findsOneWidget);
       expect(saved, isNull);
+
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '10000',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Save Installment'));
+      await tester.pump();
+
+      expect(find.text('Enter how many months.'), findsOneWidget);
+      expect(saved, isNull);
+
+      await tester.enterText(find.byKey(const Key('installment-months')), '3');
+      await tester.pump();
+      await tester.tap(find.text('Save Installment'));
+      await tester.pumpAndSettle();
+      expect(saved, isNotNull);
     });
 
     testWidgets('lending records made before it was dropped are not listed', (
@@ -10239,7 +10287,7 @@ void main() {
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtsView(
+            body: InstallmentsView(
               debts: Stream.value(const [
                 Debt(
                   id: 'a',
@@ -10269,7 +10317,7 @@ void main() {
       await tester.pumpWidget(
         app(
           Scaffold(
-            body: DebtsView(
+            body: InstallmentsView(
               debts: Stream.value([
                 Debt(
                   id: 'd',

@@ -84,14 +84,10 @@ class _TransferSheetState extends State<TransferSheet>
       widget.wallets ?? WalletService.watchWallets();
 
   final _formKey = GlobalKey<FormState>();
-  final _noteController = TextEditingController();
-
-  /// Whether the bank or e-wallet charged for this transfer, and how much.
-  bool _charged = false;
   final _chargeController = TextEditingController();
 
-  double get _charge =>
-      ServiceChargeField.amountOf(on: _charged, controller: _chargeController);
+  /// The charge as typed, or zero while it is blank or not an amount.
+  double get _charge => ServiceChargeField.amountOf(_chargeController);
 
   late String? _fromId = widget.initialFromWalletId;
 
@@ -113,7 +109,6 @@ class _TransferSheetState extends State<TransferSheet>
 
   @override
   void dispose() {
-    _noteController.dispose();
     _chargeController.dispose();
     super.dispose();
   }
@@ -130,9 +125,6 @@ class _TransferSheetState extends State<TransferSheet>
     );
     if (into != null) return into;
     if (_total <= 0) return 'Choose where it goes, then enter how much.';
-    if (_charged && _charge <= 0) {
-      return 'Enter the service charge, or turn it off.';
-    }
 
     // The service charge comes out of the same wallet, so it counts too.
     final charge = _charge;
@@ -166,10 +158,10 @@ class _TransferSheetState extends State<TransferSheet>
       WalletService.recordTransfers(
         fromWalletId: source.id,
         to: _to,
-        note: _noteController.text,
         serviceCharge: charge,
       );
-      // The bank charges the same next time, so it is filled in then.
+      // This wallet usually charges the same again, so its fee is kept to
+      // remind on the next transfer.
       if (charge > 0 && source.serviceCharge != charge) {
         WalletService.rememberServiceCharge(source.id, charge);
       }
@@ -278,32 +270,12 @@ class _TransferSheetState extends State<TransferSheet>
                       ),
                       const SizedBox(height: 8),
                       ServiceChargeField(
-                        on: _charged,
                         controller: _chargeController,
-                        onChanged: (on) => setState(() {
-                          _charged = on;
-                          // What this wallet charged last time.
-                          final last = source?.serviceCharge;
-                          if (on &&
-                              last != null &&
-                              _chargeController.text.trim().isEmpty) {
-                            _chargeController.text = formatAmountInput(last);
-                          }
-                        }),
+                        // What this wallet charged last time, told here
+                        // rather than filled in.
+                        lastFee: source?.serviceCharge,
                       ),
                       const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _noteController,
-                        textCapitalization: TextCapitalization.sentences,
-                        maxLength: 60,
-                        decoration: InputDecoration(
-                          labelText: 'Note (optional)',
-                          hintText: 'e.g. cashed in at the store',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
                       if (error != null) ...[
                         Text(
                           error,

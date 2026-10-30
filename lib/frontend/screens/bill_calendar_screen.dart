@@ -180,7 +180,7 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
       ),
       // No toggle: Quick Actions already opens Bill Planner and Debts
       // separately, and the title says which one you are on.
-      body: _showDebts ? const DebtsView() : _buildBills(),
+      body: _showDebts ? const InstallmentsView() : _buildBills(),
     );
   }
 

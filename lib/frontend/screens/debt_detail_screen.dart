@@ -18,9 +18,33 @@ import '../widgets/money_text.dart';
 import '../widgets/payoff_sheet.dart';
 import 'bill_calendar_screen.dart';
 
-/// One installment or one amount owed to the user.
-class DebtDetailScreen extends StatefulWidget {
-  const DebtDetailScreen({
+/// One installment's page: its payments, what is paid, and the statement.
+class InstallmentDetailScreen extends _DebtDetailScreenBase {
+  const InstallmentDetailScreen({
+    required super.debt,
+    super.liveDebt,
+    super.payments,
+    super.wallets,
+    super.key,
+  });
+}
+
+/// One borrowed amount's page: what it costs, its payments, and the
+/// statement.
+class LoanDetailScreen extends _DebtDetailScreenBase {
+  const LoanDetailScreen({
+    required super.debt,
+    super.liveDebt,
+    super.payments,
+    super.wallets,
+    super.key,
+  });
+}
+
+/// What both pages share: the live record, its payments, the wallets, and
+/// the wording that follows whether it is a loan.
+class _DebtDetailScreenBase extends StatefulWidget {
+  const _DebtDetailScreenBase({
     required this.debt,
     this.liveDebt,
     this.payments,
@@ -36,10 +60,10 @@ class DebtDetailScreen extends StatefulWidget {
   final Stream<List<Wallet>>? wallets;
 
   @override
-  State<DebtDetailScreen> createState() => _DebtDetailScreenState();
+  State<_DebtDetailScreenBase> createState() => _DebtDetailScreenState();
 }
 
-class _DebtDetailScreenState extends State<DebtDetailScreen> {
+class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
   late final Stream<Debt?> _debt =
       widget.liveDebt ?? DebtService.watchDebt(widget.debt.id);
 
@@ -130,19 +154,15 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
               ),
             ],
           ),
-          body: _InstallmentBody(
-            debt: debt,
-            payments: _payments,
-            wallets: _wallets,
-          ),
+          body: _DetailBody(debt: debt, payments: _payments, wallets: _wallets),
         );
       },
     );
   }
 }
 
-class _InstallmentBody extends StatelessWidget {
-  const _InstallmentBody({
+class _DetailBody extends StatelessWidget {
+  const _DetailBody({
     required this.debt,
     required this.payments,
     required this.wallets,
@@ -224,9 +244,30 @@ class _InstallmentBody extends StatelessWidget {
                     style: TextStyle(fontSize: 13, color: colors.textBody),
                   ),
                   const Divider(height: 28),
-                  _Line('Borrowed', formatPeso(debt.principal)),
+                  _Line(
+                    debt.category.isLoan ? 'Borrowed' : 'Price',
+                    formatPeso(debt.principal),
+                  ),
                   _Line(debt.frequency.eachLabel, formatPeso(debt.perPayment)),
-                  if (debt.extraCost > 0)
+                  if (debt.paidWithWalletId != null ||
+                      debt.paidWithLabel != null)
+                    StreamBuilder<List<Wallet>>(
+                      stream: wallets,
+                      builder: (context, snapshot) {
+                        final charged = [
+                          for (final wallet
+                              in snapshot.data ?? const <Wallet>[])
+                            if (wallet.id == debt.paidWithWalletId) wallet,
+                        ].firstOrNull;
+                        return _Line(
+                          'Wallet used',
+                          charged?.name ??
+                              debt.paidWithLabel ??
+                              debt.paidWithWalletId!,
+                        );
+                      },
+                    ),
+                  if (debt.category.isLoan && debt.extraCost > 0)
                     _Line(
                       'More than you borrowed',
                       '${formatPeso(debt.extraCost)} '
@@ -252,8 +293,16 @@ class _InstallmentBody extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            _CostOfBorrowing(debt: debt, wallets: wallets, paid: progress.paid),
-            const SizedBox(height: 16),
+            // Interest belongs to borrowed money. An installment's price is
+            // the whole of what is paid, so there is no cost to disclose.
+            if (debt.category.isLoan) ...[
+              _CostOfBorrowing(
+                debt: debt,
+                wallets: wallets,
+                paid: progress.paid,
+              ),
+              const SizedBox(height: 16),
+            ],
             if (!progress.isPaidOff) ...[
               SizedBox(
                 width: double.infinity,
@@ -418,7 +467,7 @@ class _CostOfBorrowing extends StatelessWidget {
     final body = TextStyle(fontSize: 13, height: 1.4, color: colors.textBody);
 
     return Container(
-      key: const Key('installment-cost'),
+      key: const Key('loan-cost'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: colors.card,
@@ -474,7 +523,7 @@ class _CostOfBorrowing extends StatelessWidget {
               '${formatPeso(debt.interestOf(1))} of each payment is interest. '
               'Paid so far: '
               '${formatPeso(interestPartOf(paid, debt.interestShare))}.',
-              key: const Key('installment-interest-paid'),
+              key: const Key('loan-interest-paid'),
               style: body,
             ),
           ],

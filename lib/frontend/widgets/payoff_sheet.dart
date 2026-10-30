@@ -174,11 +174,20 @@ class _PayoffSheetState extends State<PayoffSheet>
   }
 
   /// Where the money goes, in one sentence: what is still owed of the
-  /// money borrowed, and interest; or a discount when it is less.
+  /// money borrowed, and interest; or a discount when it is less. An
+  /// installment carries no interest, so its payments are all there is.
   String? _breakdown() {
     final amount = _amount;
     if (amount <= 0) return null;
     final debt = widget.debt;
+    if (!debt.category.isLoan) {
+      final left = widget.progress.remaining;
+      if (amount < left - 0.005) {
+        return "That's ${formatPeso(left - amount)} less than what is left "
+            'on the plan: they gave you a discount.';
+      }
+      return 'All of it goes to the payments left: no interest.';
+    }
     final left = debt.loanLeft(widget.progress.paid);
     final split = debt.payoffSplit(amount, widget.progress.paid);
     if (split.interest > 0.005) {
@@ -262,9 +271,11 @@ class _PayoffSheetState extends State<PayoffSheet>
                     controller: _amountController,
                     label: 'Amount you paid to finish it',
                     hint: 'e.g. 13,500',
-                    helper:
-                        'What the lender or store asked for. It can be less '
-                        "than what's left if they took off some interest.",
+                    helper: widget.debt.category.isLoan
+                        ? 'What the lender or store asked for. It can be less '
+                              "than what's left if they took off some interest."
+                        : 'What the store asked for. It can be less than what '
+                              'is left if they gave a discount.',
                     alwaysShowHint: true,
                     autofocus: false,
                   ),

@@ -253,7 +253,7 @@ void main() {
     });
     test('installment explanation works without loading private figures', () {
       final reply = answerChat('Anong formula ng hulog?', records: null);
-      expect(reply.text, contains('last payment'));
+      expect(reply.text, contains('the last one takes'));
       expect(reply.text, contains('Part payments'));
       expect(reply.text, isNot(contains('Safe to Spend')));
     });
