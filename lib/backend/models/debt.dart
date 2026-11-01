@@ -752,6 +752,100 @@ class DebtProgress {
       total <= 0 ? 0 : (paid / total).clamp(0.0, 1.0).toDouble();
 }
 
+/// A payment of a plan that is still waiting, held between finding it and
+/// paying it. The Bill Planner may never have opened its month, so no
+/// occurrence need exist yet; the amount is then the plan's own.
+class DebtNextPayment {
+  const DebtNextPayment({
+    required this.number,
+    required this.due,
+    required this.scheduledAmount,
+    required this.instance,
+  });
+
+  /// Its place in the plan, from 1. The payments made before the plan was
+  /// tracked take the first places, as the statement counts them.
+  final int number;
+
+  /// When it falls due.
+  final DateTime due;
+
+  /// What the plan asks for this payment, before anything was part-paid or
+  /// carried into it.
+  final double scheduledAmount;
+
+  /// The occurrence to pay against, or null when the month has not been
+  /// opened in the Bill Planner and no record stands for it yet.
+  final BillInstance? instance;
+
+  /// What is owed on it: what is left of the occurrence once part-payments
+  /// and anything carried over are counted, otherwise what the plan asks.
+  double get amount {
+    final owed = instance?.remaining;
+    if (owed != null && owed > 0.005) return owed;
+    return scheduledAmount;
+  }
+}
+
+/// The first payment of [debt] that is neither paid, skipped, moved on, nor
+/// covered by the payments made before it was tracked, from the plan's
+/// [instances] (its own occurrences only, the early-payoff one left out).
+///
+/// Null when nothing waits — every number of the plan is settled.
+DebtNextPayment? nextUnpaidPayment(
+  Debt debt,
+  Iterable<BillInstance> instances,
+) {
+  final first = debt.firstDueDate;
+  final known = [...instances];
+
+  if (first == null) {
+    // Without a start date there is no schedule to lay out, so the
+    // occurrences that exist are the whole of what is known, as the
+    // statement reads them: the earliest one still owed is next, numbered
+    // by its place among them.
+    final ordered = [...known]..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    for (final (index, instance) in ordered.indexed) {
+      if (instance.isSettled) continue;
+      return DebtNextPayment(
+        number: index + 1,
+        due: instance.dueDate,
+        scheduledAmount: instance.amount,
+        instance: instance,
+      );
+    }
+    return null;
+  }
+
+  for (var number = 1; number <= debt.paymentCount; number++) {
+    // The payments made before the plan was tracked were paid already, and
+    // no bill stands for them.
+    if (number <= debt.paidBefore) continue;
+    final due = debt.dueDateOf(number);
+    if (due == null) continue;
+    final instance = _occurrenceOn(known, due);
+    if (instance != null && instance.isSettled) continue;
+    return DebtNextPayment(
+      number: number,
+      due: due,
+      scheduledAmount: debt.amountOf(number),
+      instance: instance,
+    );
+  }
+  return null;
+}
+
+/// The occurrence of one bill that falls due on [due]'s day, or null.
+BillInstance? _occurrenceOn(Iterable<BillInstance> instances, DateTime due) {
+  for (final instance in instances) {
+    final date = instance.dueDate;
+    if (date.year == due.year && date.month == due.month && date.day == due.day) {
+      return instance;
+    }
+  }
+  return null;
+}
+
 /// [value] as a percent, to one decimal while it is small: "2.9%", "35%".
 String roundedPercent(double value) {
   final rounded = value >= 10
@@ -767,3 +861,122 @@ String roundedPercent(double value) {
 String costRateText(Debt debt) =>
     'That works out to about ${roundedPercent(debt.monthlyCostPercent!)} a '
     'month, or ${roundedPercent(debt.yearlyCostPercent!)} a year.';
+
+/// One payment of an edited installment plan, and what the edit does to it.
+class InstallmentPaymentEdit {
+  /// The payment as the edited plan now asks for it: [amount], [name] and
+  /// [interestShare] written over what is stored. A payment whose money had
+  /// moved forward into a later one is owed it again when [reopenCarry] is
+  /// set, because that later payment is being taken away.
+  const InstallmentPaymentEdit.change({
+    required this.instance,
+    required this.amount,
+    required this.name,
+    required this.interestShare,
+    this.reopenCarry = false,
+  }) : removes = false;
+
+  /// A payment the shortened plan no longer reaches, which is taken away.
+  const InstallmentPaymentEdit.remove(this.instance)
+      : removes = true,
+        amount = 0,
+        name = '',
+        interestShare = 0,
+        reopenCarry = false;
+
+  /// The payment as it stands now, dated as it is.
+  final BillInstance instance;
+
+  /// Whether the payment is being taken away rather than written.
+  final bool removes;
+
+  final double amount;
+  final String name;
+  final double interestShare;
+  final bool reopenCarry;
+}
+
+/// How an edited installment plan reshapes the payments already worked out
+/// for it, when nothing has been paid on it yet.
+///
+/// Editing changes what is still owed: the plan's name, what each payment
+/// asks for, and how many payments there are. Every payment is dated from
+/// the plan's own first due date, so a payment's number is how many months
+/// on it falls, and [Debt.amountOf] says what it asks for. A number the
+/// shortened plan no longer reaches is taken away, and anything a taken-away
+/// payment was carrying goes back to the payment it came from, which is
+/// owed it again.
+///
+/// Returns only the payments the edit changes; those the plan still asks
+/// for in the same amount are left exactly as they are.
+List<InstallmentPaymentEdit> recalculateInstallmentPayments({
+  required Debt terms,
+  required List<BillInstance> instances,
+}) {
+  final first = terms.firstDueDate;
+  if (first == null) return const [];
+
+  // Oldest first, and what the shortened plan no longer reaches is worked
+  // out first of all: a payment that carried its money forward points at a
+  // later payment, so it must know that one is going before it is looked at.
+  final ordered = [...instances]
+    ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+
+  final removedIds = <String>{};
+  for (final instance in ordered) {
+    final number = _paymentNumberOn(first, instance.dueDate);
+    if (number != null && number > terms.paymentCount) {
+      removedIds.add(instance.id);
+    }
+  }
+
+  final edits = <InstallmentPaymentEdit>[];
+  for (final instance in ordered) {
+    // Taken away already, or not dated from this plan at all, in which case
+    // it is left exactly as it stands.
+    if (removedIds.contains(instance.id)) {
+      edits.add(InstallmentPaymentEdit.remove(instance));
+      continue;
+    }
+    final number = _paymentNumberOn(first, instance.dueDate);
+    if (number == null) continue;
+
+    // What this payment asks for: the plan's own amount for its number,
+    // with whatever an earlier payment left unpaid carried into it.
+    final amount = terms.amountOf(number) + instance.carriedOver;
+    final carriedInto = instance.carriedInto;
+    final reopen = carriedInto != null && removedIds.contains(carriedInto);
+
+    final unchanged = (amount - instance.amount).abs() <= 0.005 &&
+        instance.name == terms.name &&
+        (instance.interestShare - terms.interestShare).abs() <= 0.005 &&
+        !reopen;
+    if (unchanged) continue;
+
+    edits.add(
+      InstallmentPaymentEdit.change(
+        instance: instance,
+        amount: amount,
+        name: terms.name,
+        interestShare: terms.interestShare,
+        reopenCarry: reopen,
+      ),
+    );
+  }
+
+  return edits;
+}
+
+/// The number of the payment due on [due], counted from a plan whose first
+/// payment is due on [first], or null when [due] is not one of its dates.
+///
+/// Monthly dates keep their day where the month allows, so a payment due on
+/// the 31st lands on the 28th of February: [Debt.dueDateOf] clamps the same
+/// way, and a date that does not line up is not this plan's.
+int? _paymentNumberOn(DateTime first, DateTime due) {
+  final months = (due.year - first.year) * 12 + (due.month - first.month);
+  if (months < 0) return null;
+  final lands = addMonthsClamped(first, months);
+  if (lands.day != due.day) return null;
+  return months + 1;
+}

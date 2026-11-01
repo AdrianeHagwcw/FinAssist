@@ -96,7 +96,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Open the installment or debt and tap Paid it off early. Enter the amount the store or lender asked for and the wallet it came from. The payments left are taken off your Bill Planner. If it was a mistake, tap Undo paying it off.',
+                'Open the debt and tap Paid it off early. Enter the amount the lender asked for and the wallet it came from. The payments left are taken off your Bill Planner. If it was a mistake, tap Undo paying it off. An installment is finished by paying its payments ahead instead.',
               ),
             ),
           ],

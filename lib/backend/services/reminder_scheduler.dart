@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
+import '../models/bill.dart';
+import '../models/debt.dart';
 import '../models/goal.dart';
 import '../models/wallet.dart';
 import '../models/onboarding_data.dart';
@@ -13,6 +15,7 @@ import '../models/reminder.dart';
 import 'allocation_service.dart';
 import 'bill_service.dart';
 import 'budget_service.dart';
+import 'debt_service.dart';
 import 'firestore_write.dart';
 import 'goal_service.dart';
 import 'reminder_service.dart';
@@ -89,6 +92,8 @@ class ReminderScheduler {
   List<Wallet> _wallets = const [];
   List<AllocationCycle> _cycles = const [];
   List<AppTransaction> _transactions = const [];
+  List<Bill> _schedules = const [];
+  List<Debt> _debts = const [];
 
   void start() {
     if (_running) return;
@@ -113,9 +118,12 @@ class ReminderScheduler {
     listen(BudgetService.watchRecentCycles(), (cycles) => _cycles = cycles);
     listen(WalletService.watchTransactions(), (t) => _transactions = t);
     // Adding, editing or skipping a bill doesn't make a transaction.
-    listen(BillService.watchBills(), (_) {});
+    listen(BillService.watchBills(), (schedules) => _schedules = schedules);
     listen(BillService.watchInstances(now.year, now.month), (_) {});
     listen(BillService.watchInstances(next.year, next.month), (_) {});
+    // Which debts are installments and which are loans, for the bill
+    // reminders' titles.
+    listen(DebtService.watchDebts(), (debts) => _debts = debts);
   }
 
   /// Plans again soon. Several changes close together plan only once.
@@ -142,6 +150,8 @@ class ReminderScheduler {
       final planned = planReminders(
         settings: settings,
         bills: bills,
+        schedules: _schedules,
+        debts: _debts,
         goals: _goals,
         wallets: _wallets,
         cycles: _cycles,

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/bill.dart';
 import '../models/debt.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
@@ -179,6 +180,142 @@ class DebtService {
     return debt.id;
   }
 
+  /// Rewrites an installment the user corrected, as one batch: its terms,
+  /// its schedule, and every payment the change reaches, so the statement
+  /// reads right the moment it is saved. What each payment asks for is
+  /// worked out again from the new terms, and a payment the plan no longer
+  /// reaches is taken away.
+  ///
+  /// Returns false, writing nothing, once a payment has been made on it in
+  /// any way: from then the plan is a record of what was agreed, and
+  /// changing it would rewrite what was paid.
+  static Future<bool> updateInstallment({
+    required Debt from,
+    required String name,
+    required DebtCategory category,
+    required double principal,
+    required double perPayment,
+    required int paymentCount,
+    double lastPayment = 0,
+    String? otherKind,
+    String? paidWithWalletId,
+    String? paidWithLabel,
+  }) async {
+    final billId = from.billId;
+    if (billId == null) return false;
+
+    // The lock is read from what is stored, not from the copy the screen was
+    // opened with: a payment could have been made while the form was being
+    // filled in.
+    final doc = await _debts.doc(from.id).get();
+    if (!doc.exists) return false;
+    final stored = Debt.fromMap(doc.id, doc.data());
+    if (stored.category.isLoan || stored.paidBefore > 0) return false;
+    if (stored.paidOffEarly || stored.status == DebtStatus.settled) {
+      return false;
+    }
+    // The payments are counted by the months they fall in, so only a plan
+    // paid monthly is worked out this way. Installments always are.
+    if (stored.frequency != PaymentFrequency.monthly) return false;
+
+    final instances = await BillService.loadInstancesForBill(billId);
+    for (final instance in instances) {
+      if (instance.amountPaid > 0 || instance.paymentIds.isNotEmpty) {
+        return false;
+      }
+      if (instance.status == BillStatus.paid) return false;
+    }
+
+    // The dates stay as they were agreed: only what is owed on them, and
+    // how many of them there are, can be corrected.
+    final firstDueDate = stored.firstDueDate;
+    if (firstDueDate == null) return false;
+
+    final terms = Debt(
+      id: stored.id,
+      direction: stored.direction,
+      name: name,
+      category: category,
+      principal: principal,
+      status: stored.status,
+      perPayment: perPayment,
+      paymentCount: paymentCount,
+      lastPayment: lastPayment,
+      frequency: stored.frequency,
+      firstDueDate: firstDueDate,
+      billId: billId,
+      paidBefore: stored.paidBefore,
+      otherKind: otherKind,
+      paidWithWalletId: paidWithWalletId,
+      paidWithLabel: paidWithLabel,
+    );
+    final lastDue = terms.lastDueDate;
+    if (lastDue == null) return false;
+
+    final batch = _firestore.batch();
+
+    // Written one field at a time, with the ones that no longer apply set to
+    // nothing, so an earlier answer can't be left over on the record.
+    batch.set(
+      _debts.doc(stored.id),
+      {
+        'name': name.trim(),
+        'category': category.name,
+        'principal': principal,
+        'perPayment': perPayment,
+        'paymentCount': paymentCount,
+        'lastPayment': terms.hasDifferentLastPayment ? terms.finalPayment : null,
+        'otherKind': _noteOrNull(otherKind),
+        'paidWithWalletId': _noteOrNull(paidWithWalletId),
+        'paidWithLabel': _noteOrNull(paidWithLabel),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    BillService.addInstallmentUpdateToBatch(
+      batch,
+      billId: billId,
+      name: name,
+      amount: perPayment,
+      firstDueDate: firstDueDate,
+      recurrence: stored.frequency.recurrence,
+      endDate: lastDue,
+      lastAmount: terms.hasDifferentLastPayment ? terms.finalPayment : null,
+      interestShare: terms.interestShare,
+    );
+
+    for (final edit in recalculateInstallmentPayments(
+      terms: terms,
+      instances: instances,
+    )) {
+      final reference = BillService.instanceReference(edit.instance.id);
+      if (edit.removes) {
+        batch.delete(reference);
+        continue;
+      }
+
+      // Only what the edit changes, so anything recorded on the payment
+      // already is left exactly as it is.
+      batch.set(
+        reference,
+        {
+          'amount': edit.amount,
+          'name': edit.name,
+          'interestShare': edit.interestShare,
+          // Money a removed payment was carrying is owed again by the
+          // payment it came from.
+          if (edit.reopenCarry) 'carriedInto': null,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
+    commitFirestoreWrite(batch.commit(), 'update installment');
+    return true;
+  }
+
   /// Gives loans saved before interest was kept apart the same split as new
   /// ones, so every account's Reports show what borrowing cost. Each is done
   /// once; offline, it waits for the next start.
@@ -248,6 +385,59 @@ class DebtService {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     commitFirestoreWrite(batch.commit(), 'pay off early');
+  }
+
+  /// The payment of [debt] still waiting to be paid: the first one neither
+  /// settled nor covered by the payments made before it was tracked, with
+  /// its occurrence ensured when the Bill Planner has not opened that month
+  /// yet. Null when nothing waits.
+  static Future<DebtNextPayment?> loadNextUnpaidPayment(Debt debt) async {
+    final billId = debt.billId;
+    if (billId == null) return null;
+
+    // The early-payoff record is not one of the plan's payments; the
+    // statement leaves it out for the same reason.
+    final payoffId = BillService.payoffInstanceId(billId);
+    final occurrences = [
+      for (final instance
+          in await BillService.loadInstancesForBill(billId))
+        if (instance.id != payoffId) instance,
+    ];
+
+    final waiting = nextUnpaidPayment(debt, occurrences);
+    if (waiting == null) return null;
+
+    var instance = waiting.instance;
+    if (instance == null) {
+      // The month was never opened in the Bill Planner, so no record stands
+      // for the payment. The planner makes them the same way when a month
+      // is opened: one for this bill, and nothing changes for the others.
+      final monthTaken = occurrences.any(
+        (occurrence) =>
+            occurrence.dueDate.year == waiting.due.year &&
+            occurrence.dueDate.month == waiting.due.month,
+      );
+      if (monthTaken) return null;
+
+      final bill = await BillService.loadBill(billId);
+      if (bill == null) return null;
+      await BillService.ensureInstances(
+        bills: [bill],
+        year: waiting.due.year,
+        month: waiting.due.month,
+      );
+      instance = await BillService.loadInstance(
+        billInstanceId(billId, waiting.due),
+      );
+      if (instance == null) return null;
+    }
+
+    return DebtNextPayment(
+      number: waiting.number,
+      due: instance.dueDate,
+      scheduledAmount: waiting.scheduledAmount,
+      instance: instance,
+    );
   }
 
   /// Takes back a payoff made by mistake: the money returns to its wallets

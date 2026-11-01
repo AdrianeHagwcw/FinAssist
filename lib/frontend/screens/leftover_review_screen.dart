@@ -509,12 +509,19 @@ class _LeftoverReviewScreenState extends State<LeftoverReviewScreen>
             ),
           ),
           const SizedBox(height: 8),
-          TextButton(
-            // "Later" is its own answer: the decision is marked pending and
-            // the reminder stays on Home until it is made.
-            onPressed: () => _resolve(LeftoverDecision.pending, 0, 0),
-            style: cancelTextStyle(context),
-            child: const Text('Decide later'),
+          // "Later" is its own answer: the decision is marked pending and
+          // the reminder stays on Home until it is made. It is a real button
+          // like Cancel in Add Expense, because it answers the question too.
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => _resolve(LeftoverDecision.pending, 0, 0),
+              style: dangerButtonStyle(),
+              child: const Text(
+                'Decide later',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
           ),
         ],
       ),

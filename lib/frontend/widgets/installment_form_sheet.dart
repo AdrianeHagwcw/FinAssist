@@ -13,7 +13,9 @@ import '../theme/app_colors.dart';
 import '../utils/amount_input_formatter.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
+import 'goal_funding_picker.dart' show fundingWalletKind;
 import 'loan_form_sheet.dart';
+import 'wallet_split_picker.dart' show isCashOnHand;
 
 /// Adds something bought on installment: a phone, an appliance, a credit
 /// card installment, Buy now, pay later. Borrowed money has its own form
@@ -23,6 +25,10 @@ import 'loan_form_sheet.dart';
 /// Returns whether an installment was saved, and confirms the save so the
 /// user knows it worked.
 ///
+/// [existing] reopens it to correct a plan, which is only possible until a
+/// payment has been made on it. It then saves through
+/// [DebtService.updateInstallment], which works every payment out again.
+///
 /// [name], [price] and [count] start it filled in, as from Voice Entry; the
 /// user checks them before saving.
 Future<bool> showInstallmentFormSheet(
@@ -30,6 +36,7 @@ Future<bool> showInstallmentFormSheet(
   String? name,
   double? price,
   int? count,
+  Debt? existing,
 }) async {
   String? asDebt;
   final saved = await showModalBottomSheet<bool>(
@@ -59,9 +66,11 @@ Future<bool> showInstallmentFormSheet(
 
   if (saved == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
-          'Installment saved. Its payments are in your Bill Planner.',
+          existing == null
+              ? 'Installment saved. Its payments are in your Bill Planner.'
+              : 'Installment updated. Its payments were worked out again.',
         ),
         backgroundColor: appConfirmGreen,
       ),
@@ -117,6 +126,7 @@ class InstallmentFormSheet extends StatefulWidget {
     this.initialName,
     this.initialPrice,
     this.initialCount,
+    this.existing,
     this.wallets,
     this.today,
     this.onSave,
@@ -128,6 +138,11 @@ class InstallmentFormSheet extends StatefulWidget {
   final String? initialName;
   final double? initialPrice;
   final int? initialCount;
+
+  /// A plan already saved, to correct. Filled in from it, saved through
+  /// [DebtService.updateInstallment], and only until a payment has been
+  /// made on it.
+  final Debt? existing;
 
   /// The cards and accounts to choose from. Empty in tests unless given.
   final Stream<List<Wallet>>? wallets;
@@ -167,23 +182,31 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
   /// Installments are always paid once a month.
   static const _frequency = PaymentFrequency.monthly;
 
+  /// Whether it is open on a plan already saved, to correct it.
+  bool get _editing => widget.existing != null;
+
   late final DateTime _today = widget.today ?? DateTime.now();
 
-  late final _nameController = TextEditingController(text: widget.initialName);
+  late final _nameController = TextEditingController(
+    text: widget.existing?.name ?? widget.initialName,
+  );
   late final _principalController = TextEditingController(
-    text: _amountText(widget.initialPrice),
+    text: _amountText(widget.initialPrice ?? widget.existing?.principal),
   );
   late final _countController = TextEditingController(
-    text: widget.initialCount?.toString(),
+    text: (widget.initialCount ?? widget.existing?.paymentCount)?.toString(),
   );
   final _downController = TextEditingController();
   final _perPaymentController = TextEditingController();
-  final _otherKindController = TextEditingController();
+  late final _otherKindController = TextEditingController(
+    text: widget.existing?.otherKind,
+  );
 
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? const Stream.empty();
 
-  /// The wallet picked for "Wallet used", or null.
+  /// The wallet picked for "Wallet used", or null. Editing a plan keeps the
+  /// one it was saved with until another is picked.
   String? _paidWithChoice;
 
   /// Its name, written down with the plan so the card can show it.
@@ -195,6 +218,11 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
   @override
   void initState() {
     super.initState();
+    // Editing a plan starts it as it was saved, so nothing is lost by
+    // opening it just to look.
+    _pickedCategory = widget.existing?.category;
+    _paidWithChoice = widget.existing?.paidWithWalletId;
+    _paidWithLabel = widget.existing?.paidWithLabel;
     // The summary card follows every keystroke, and the name picks the kind.
     for (final controller in [
       _nameController,
@@ -278,9 +306,14 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
   bool get _hasDifferentLastPayment =>
       _paymentCount > 1 && (_lastPayment - _perPayment).abs() > 0.005;
 
-  /// The next payment falls due on the same day next month, or the month's
-  /// last day where it is shorter.
-  DateTime get _nextDueDate => nextMonthSameDay(_today);
+  /// The plan starts the day the form is filled in: the installment is
+  /// already happening, and writing it down here is how the tracking begins.
+  /// Every payment after this first one falls due on the same day of the
+  /// month, the month's last day where that month is shorter.
+  ///
+  /// Editing a plan keeps the date it was saved with: its payments are
+  /// already laid out from it, and only what is owed on them can change.
+  DateTime get _firstDueDate => widget.existing?.firstDueDate ?? _today;
 
   Debt get _preview => Debt(
     id: '',
@@ -292,7 +325,7 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
     paymentCount: _paymentCount,
     lastPayment: _hasDifferentLastPayment ? _lastPayment : 0,
     frequency: _frequency,
-    firstDueDate: _nextDueDate,
+    firstDueDate: _firstDueDate,
     status: DebtStatus.active,
   );
 
@@ -327,7 +360,7 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
   /// slip such as 1200 for 12 is caught.
   static const _mostPayments = 360;
 
-  void _save() {
+  Future<void> _save() async {
     markTriedToSave();
     if (_problem() != null) return;
 
@@ -341,7 +374,7 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       paymentCount: _paymentCount,
       lastPayment: _hasDifferentLastPayment ? _lastPayment : 0,
       frequency: _frequency,
-      firstDueDate: _nextDueDate,
+      firstDueDate: _firstDueDate,
       otherKind: _category == DebtCategory.other
           ? cleanText(_otherKindController.text)
           : null,
@@ -349,9 +382,11 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       paidWithLabel: _paidWithLabel,
     );
 
+    final existing = widget.existing;
+
     if (widget.onSave != null) {
       widget.onSave!(draft);
-    } else {
+    } else if (existing == null) {
       DebtService.addInstallment(
         name: draft.name,
         category: draft.category,
@@ -365,14 +400,46 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
         paidWithWalletId: draft.paidWithWalletId,
         paidWithLabel: draft.paidWithLabel,
       );
+    } else {
+      // Worked out again from what was changed. It can still be refused if a
+      // payment was made while the form was open, and then nothing is
+      // written: from that point the plan is a record of what was agreed.
+      final saved = await DebtService.updateInstallment(
+        from: existing,
+        name: draft.name,
+        category: draft.category,
+        principal: draft.principal,
+        perPayment: draft.perPayment,
+        paymentCount: draft.paymentCount,
+        lastPayment: draft.lastPayment,
+        otherKind: draft.otherKind,
+        paidWithWalletId: draft.paidWithWalletId,
+        paidWithLabel: draft.paidWithLabel,
+      );
+
+      if (!mounted) return;
+      if (!saved) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'A payment has already been made on this plan, so it can no '
+              'longer be edited.',
+            ),
+            backgroundColor: appDangerRed,
+          ),
+        );
+      }
+      Navigator.pop(context, saved);
+      return;
     }
 
     Navigator.pop(context, true);
   }
 
-  /// The wallet the purchase was charged to, picked from the wallets the
-  /// user has set up. Recorded only, so they can see later which one it was;
-  /// it never moves money.
+  /// The wallet the purchase was charged to, picked the way paying always
+  /// looks: Cash on Hand or Cash in Bank first, then the wallets under it,
+  /// as any sheet that moves money asks. Recorded only, so they can see
+  /// later which one it was; it never moves money.
   Widget _paidWithPicker() {
     return StreamBuilder<List<Wallet>>(
       stream: _wallets,
@@ -381,52 +448,220 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
           for (final wallet in snapshot.data ?? const <Wallet>[])
             if (!wallet.archived) wallet,
         ];
+        final colors = context.appColors;
 
         // Start on the user's first wallet rather than an empty field. If the
-        // one chosen is no longer there, fall back to the first.
+        // one chosen is no longer there, fall back to the first. A list with
+        // nothing in it leaves the choice as it stands, so a plan being
+        // edited keeps the wallet it was saved with rather than losing it.
         final chosen =
             wallets
                 .where((wallet) => wallet.id == _paidWithChoice)
                 .firstOrNull ??
             wallets.firstOrNull;
-        if (chosen?.id != _paidWithChoice) {
+        if (chosen?.id != _paidWithChoice && wallets.isNotEmpty) {
           _paidWithChoice = chosen?.id;
           _paidWithLabel = chosen?.name;
         }
 
-        return DropdownButtonFormField<String>(
-          key: const Key('installment-paid-with'),
-          initialValue: _paidWithChoice,
-          isExpanded: true,
-          decoration:
-              dialogFieldDecoration(
-                context,
+        if (wallets.isEmpty) {
+          return Column(
+            key: const Key('installment-paid-with'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
                 'Wallet used',
-                helper: wallets.isEmpty
-                    ? 'Add a wallet first, under Accounts.'
-                    : 'Only written down, so you can see which wallet it was '
-                          'charged to.',
-              ).copyWith(
-                helperMaxLines: 3,
-                floatingLabelBehavior: FloatingLabelBehavior.always,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: colors.textPrimary,
+                ),
               ),
-          items: [
-            for (final wallet in wallets)
-              DropdownMenuItem(value: wallet.id, child: Text(wallet.name)),
+              const SizedBox(height: 10),
+              const DialogNote(text: 'Add a wallet first, under Accounts.'),
+            ],
+          );
+        }
+
+        final cashWallets = [
+          for (final wallet in wallets)
+            if (isCashOnHand(wallet)) wallet,
+        ];
+        final bankWallets = [
+          for (final wallet in wallets)
+            if (!isCashOnHand(wallet)) wallet,
+        ];
+        // The group of the wallet now chosen is the one showing. Jumping to
+        // the other group takes its first wallet, as the list always had one
+        // ready; the cards under it can change that.
+        final current = chosen ?? wallets.first;
+        final showingBank = !isCashOnHand(current);
+        final group = showingBank ? bankWallets : cashWallets;
+
+        void pick(Wallet wallet) {
+          setState(() {
+            _paidWithChoice = wallet.id;
+            _paidWithLabel = wallet.name;
+          });
+        }
+
+        Widget groupTile({required bool bank}) {
+          final walletsThere = bank ? bankWallets : cashWallets;
+          final picked = showingBank == bank;
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: walletsThere.isEmpty
+                  ? null
+                  : () {
+                      if (walletsThere.any(
+                        (wallet) => wallet.id == current.id,
+                      )) {
+                        return;
+                      }
+                      pick(walletsThere.first);
+                    },
+              child: Container(
+                key: Key('installment-paid-with-${bank ? 'bank' : 'cash'}'),
+                constraints: const BoxConstraints(minHeight: 76),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: picked ? colors.primaryTint : colors.pageBackground,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: picked ? colors.primaryText : colors.border,
+                    width: picked ? 1.5 : 1,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset(
+                      bank
+                          ? WalletType.bank.iconAsset
+                          : WalletType.cash.iconAsset,
+                      width: 26,
+                      height: 26,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      bank ? 'Cash in Bank' : 'Cash on Hand',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: picked
+                            ? FontWeight.bold
+                            : FontWeight.w600,
+                        color: walletsThere.isEmpty
+                            ? colors.textBody.withValues(alpha: 0.45)
+                            : colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Column(
+          key: const Key('installment-paid-with'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Wallet used',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  groupTile(bank: false),
+                  const SizedBox(width: 8),
+                  groupTile(bank: true),
+                ],
+              ),
+            ),
+            for (final wallet in group)
+              _paidWithCard(context, wallet, picked: wallet.id == current.id),
+            const SizedBox(height: 10),
+            Text(
+              'Only written down, so you can see which wallet it was '
+              'charged to.',
+              style: TextStyle(fontSize: 12, color: colors.textMuted),
+            ),
           ],
-          onChanged: wallets.isEmpty
-              ? null
-              : (value) {
-                  setState(() {
-                    _paidWithChoice = value;
-                    _paidWithLabel = wallets
-                        .where((wallet) => wallet.id == value)
-                        .firstOrNull
-                        ?.name;
-                  });
-                },
         );
       },
+    );
+  }
+
+  /// One wallet to charge the purchase to, shown like the paying-from cards
+  /// everywhere: its icon, its name, and its kind with its balance.
+  Widget _paidWithCard(
+    BuildContext context,
+    Wallet wallet, {
+    required bool picked,
+  }) {
+    final colors = context.appColors;
+    final pickedStyle = picked
+        ? BoxDecoration(
+            color: colors.primaryTint,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: colors.primaryText, width: 1.5),
+          )
+        : BoxDecoration(
+            color: colors.pageBackground,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: colors.border),
+          );
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _paidWithChoice = wallet.id;
+          _paidWithLabel = wallet.name;
+        });
+      },
+      child: Container(
+        key: ValueKey('installment-paid-with-wallet-${wallet.id}'),
+        margin: const EdgeInsets.only(top: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: pickedStyle,
+        child: Row(
+          children: [
+            Image.asset(wallet.iconAsset, width: 28, height: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    wallet.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    '${fundingWalletKind(wallet)} · '
+                    '${formatPeso(wallet.balance)} balance',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -469,12 +704,26 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Add Installment',
+                    _editing ? 'Edit Installment' : 'Add Installment',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: colors.textPrimary,
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Said up front, so a wrong entry is fixed here rather
+                  // than the plan being deleted and added again.
+                  DialogNote(
+                    key: const Key('installment-edit-note'),
+                    text:
+                        'You can fix this plan any time before a payment is '
+                        'made on it${_editing
+                            ? ' — every payment is worked out again from '
+                                  'what you change'
+                            : ' — its payments are worked out from what you '
+                                  'enter'}. Once a payment has been made on '
+                        'it, it can no longer be edited.',
                   ),
                   const SizedBox(height: 16),
                   TextField(
@@ -626,9 +875,9 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                     child: ElevatedButton(
                       onPressed: _save,
                       style: confirmButtonStyle(),
-                      child: const Text(
-                        'Save Installment',
-                        style: TextStyle(
+                      child: Text(
+                        _editing ? 'Save Changes' : 'Save Installment',
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),

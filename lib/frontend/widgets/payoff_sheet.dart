@@ -12,6 +12,7 @@ import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
+import 'goal_funding_picker.dart' show fundingWalletKind;
 import 'wallet_picker.dart';
 import 'wallet_split_picker.dart';
 
@@ -107,8 +108,32 @@ class _PayoffSheetState extends State<PayoffSheet>
   double get _amount =>
       double.tryParse(_amountController.text.trim().replaceAll(',', '')) ?? 0;
 
+  /// The wallet the installment was charged to, or null when it is not in
+  /// the accounts, or there never was one. It takes no rising: when it is
+  /// there, this sheet charges it and asks nothing else.
+  Wallet? _designated(List<Wallet> wallets) {
+    final id = widget.debt.paidWithWalletId;
+    if (id == null) return null;
+    return wallets
+        .where((wallet) => wallet.id == id && !wallet.archived)
+        .firstOrNull;
+  }
+
   String? _problem(List<Wallet> wallets) {
     if (!isRecordableAmount(_amount)) return minimumAmountError;
+    final designated = _designated(wallets);
+    if (designated != null) {
+      final room = splitRoom(SplitPurpose.paying, designated, heldGoals);
+      if (_amount > room + 0.005) {
+        return splitRoomMessage(
+          designated,
+          amount: _amount,
+          room: room,
+          goals: heldGoals,
+        );
+      }
+      return null;
+    }
     return walletSplitProblem(
       purpose: SplitPurpose.paying,
       amounts: _amounts,
@@ -138,7 +163,7 @@ class _PayoffSheetState extends State<PayoffSheet>
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Mark ${widget.debt.name} as fully paid?'),
+        title: Text('Pay ${widget.debt.name} off early?'),
         content: Text(
           '${formatPeso(_amount)} comes out of your wallets'
           '${left > 0 ? ', and the ${left == 1 ? 'payment' : '$left payments'} left ${left == 1 ? 'is' : 'are'} taken off the Bill Planner' : ''}. '
@@ -153,17 +178,21 @@ class _PayoffSheetState extends State<PayoffSheet>
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: confirmTextStyle(context),
-            child: const Text('Mark as paid'),
+            child: const Text('Pay it off early'),
           ),
         ],
       ),
     );
     if (ok != true || !mounted) return;
 
+    final designated = _designated(wallets);
     final parts = [
-      for (final entry in _amounts.entries)
-        if (entry.value > 0)
-          BillPaymentPart(walletId: entry.key, amount: entry.value),
+      if (designated != null)
+        BillPaymentPart(walletId: designated.id, amount: _amount)
+      else
+        for (final entry in _amounts.entries)
+          if (entry.value > 0)
+            BillPaymentPart(walletId: entry.key, amount: entry.value),
     ];
     if (widget.onPayOff != null) {
       widget.onPayOff!(parts, _date);
@@ -171,6 +200,58 @@ class _PayoffSheetState extends State<PayoffSheet>
       DebtService.payOffEarly(debt: widget.debt, parts: parts, date: _date);
     }
     if (mounted) Navigator.pop(context, true);
+  }
+
+  /// What the charge lands in, shown the way the paying-from cards always
+  /// look: kind, and what is free in it now.
+  Widget _designatedCard(BuildContext context, Wallet wallet) {
+    final colors = context.appColors;
+    final room = splitRoom(SplitPurpose.paying, wallet, heldGoals);
+    final held = goalMoneyInWallet(heldGoals, wallet.id);
+    final kind = fundingWalletKind(wallet);
+    final note = TextStyle(fontSize: 12, color: colors.textBody);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.pageBackground,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.border),
+      ),
+      child: Row(
+        children: [
+          Image.asset(wallet.iconAsset, width: 28, height: 28),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  wallet.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                if (wallet.hasRecordedBalance) ...[
+                  Text('$kind · ${formatPeso(room)} available', style: note),
+                  if (held > 0.005)
+                    Text('${formatPeso(held)} set aside for goals', style: note),
+                ] else
+                  Text(
+                    '$kind · No balance recorded, so nothing can come '
+                    'from it.',
+                    style: note,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Where the money goes, in one sentence: what is still owed of the
@@ -302,17 +383,34 @@ class _PayoffSheetState extends State<PayoffSheet>
                     ),
                   ),
                   const SizedBox(height: 20),
-                  WalletSplitPicker(
-                    key: const ValueKey('payoff-from'),
-                    wallets: wallets,
-                    goals: heldGoals,
-                    purpose: SplitPurpose.paying,
-                    target: _amount,
-                    matchTarget: true,
-                    // Like any bill: from cash on hand or the bank, not both.
-                    allowBoth: false,
-                    onChanged: (amounts) => setState(() => _amounts = amounts),
-                  ),
+                  if (_designated(wallets) != null) ...[
+                    Text(
+                      'Paying from',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _designatedCard(context, _designated(wallets)!),
+                    const SizedBox(height: 8),
+                    Text(
+                      'The wallet this installment was charged to. To pay '
+                      'from somewhere else, pay it in the Bill Planner.',
+                      style: TextStyle(fontSize: 12, color: colors.textMuted),
+                    ),
+                  ] else
+                    WalletSplitPicker(
+                      key: const ValueKey('payoff-from'),
+                      wallets: wallets,
+                      goals: heldGoals,
+                      purpose: SplitPurpose.paying,
+                      target: _amount,
+                      matchTarget: true,
+                      // Like any bill: from cash on hand or the bank, not both.
+                      allowBoth: false,
+                      onChanged: (amounts) => setState(() => _amounts = amounts),
+                    ),
                   if (error != null) ...[
                     const SizedBox(height: 12),
                     Text(
@@ -333,7 +431,7 @@ class _PayoffSheetState extends State<PayoffSheet>
                       onPressed: () => _confirm(wallets),
                       style: confirmButtonStyle(),
                       child: const Text(
-                        'Mark as fully paid',
+                        'Pay it off early',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,

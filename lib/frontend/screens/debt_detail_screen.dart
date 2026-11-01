@@ -11,8 +11,10 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
+import '../widgets/advance_payment_sheet.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/dialog_kit.dart';
+import '../widgets/installment_form_sheet.dart';
 import '../widgets/item_card.dart';
 import '../widgets/money_text.dart';
 import '../widgets/payoff_sheet.dart';
@@ -108,8 +110,8 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
       title: 'Delete ${debt.name}?',
       message:
           'Its unpaid payments are removed from your Bill Planner. Payments '
-          'you already made stay, because that money really left your '
-          'wallet.',
+          'you already made stay: that money really left your wallets, and '
+          'deleting does not put it back.',
       action: 'Delete',
     );
     if (!ok) return;
@@ -117,6 +119,23 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
     await DebtService.deleteDebt(debt);
     if (mounted) Navigator.pop(context);
   }
+
+  /// Whether the plan can still be corrected. Installments only, and only
+  /// until a payment has been made on any part of it: from then it is the
+  /// record of what was agreed, so it stays as it is.
+  ///
+  /// Counted the same way the statement counts it, so what this offers is
+  /// exactly what the payments on the page say.
+  bool _editable(Debt debt, List<BillInstance> instances) {
+    if (debt.category.isLoan) return false;
+    if (debt.paidOffEarly || debt.status == DebtStatus.settled) return false;
+    return DebtProgress.of(debt, instances).paymentsMade == 0;
+  }
+
+  /// Corrects the plan, which the form refuses if a payment was made while
+  /// it was open.
+  Future<void> _edit(Debt debt) =>
+      showInstallmentFormSheet(context, existing: debt);
 
   @override
   Widget build(BuildContext context) {
@@ -127,34 +146,68 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
       builder: (context, snapshot) {
         final debt = snapshot.data ?? widget.debt;
 
-        return Scaffold(
-          backgroundColor: colors.pageBackground,
-          appBar: AppBar(
-            title: Text(
-              debt.name,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            backgroundColor: appPrimaryBlue,
-            foregroundColor: Colors.white,
-            elevation: 0,
-            actions: [
-              PopupMenuButton<String>(
-                tooltip: 'Options',
-                onSelected: (value) {
-                  if (value == 'delete') _delete(debt);
-                },
-                itemBuilder: (context) => [
-                  menuItem(
-                    value: 'delete',
-                    label: 'Delete',
-                    icon: Icons.delete_outline,
-                    color: dangerColorOn(context),
+        // Read once, here, and handed down: the menu needs the payments to
+        // know whether the plan can still be edited, and the page below
+        // shows them. One stream is listened to once, so it is not opened
+        // a second time for the menu.
+        return StreamBuilder<List<BillInstance>>(
+          stream: _payments,
+          builder: (context, payments) {
+            final instances = [...?payments.data]
+              ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+            final editable = _editable(debt, instances);
+
+            return Scaffold(
+              backgroundColor: colors.pageBackground,
+              appBar: AppBar(
+                title: Text(
+                  debt.name,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                backgroundColor: appPrimaryBlue,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                actions: [
+                  PopupMenuButton<String>(
+                    tooltip: 'Options',
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'edit':
+                          _edit(debt);
+                        case 'delete':
+                          _delete(debt);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      // Blue, the way opening something is, because it
+                      // changes what is there rather than taking it away.
+                      if (editable)
+                        menuItem(
+                          value: 'edit',
+                          label: 'Edit',
+                          icon: Icons.edit_outlined,
+                          color: appPrimaryBlue,
+                        ),
+                      menuItem(
+                        value: 'delete',
+                        label: 'Delete',
+                        icon: Icons.delete_outline,
+                        color: dangerColorOn(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-          body: _DetailBody(debt: debt, payments: _payments, wallets: _wallets),
+              body: _DetailBody(
+                debt: debt,
+                instances: instances,
+                wallets: _wallets,
+              ),
+            );
+          },
         );
       },
     );
@@ -164,243 +217,258 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
 class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.debt,
-    required this.payments,
+    required this.instances,
     required this.wallets,
   });
 
   final Debt debt;
-  final Stream<List<BillInstance>> payments;
+
+  /// The payments of the plan, oldest first, as the page reads them. Read
+  /// once by the screen above, which needs them too.
+  final List<BillInstance> instances;
+
   final Stream<List<Wallet>> wallets;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final progress = DebtProgress.of(debt, instances);
+    final last = debt.lastDueDate;
 
-    return StreamBuilder<List<BillInstance>>(
-      stream: payments,
-      builder: (context, snapshot) {
-        final instances = [...?snapshot.data]
-          ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
-        final progress = DebtProgress.of(debt, instances);
-        final last = debt.lastDueDate;
-
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: colors.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: colors.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    debt.paidOffEarly
-                        ? 'Paid off early · ${formatShortDate(debt.paidOffAt!)}'
-                        : progress.isPaidOff
-                        ? 'Paid off'
-                        : 'Still to pay',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: context.appColors.textMuted,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  MoneyText(
-                    progress.remaining,
-                    style: TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: LinearProgressIndicator(
-                      value: progress.fraction,
-                      minHeight: 10,
-                      backgroundColor: colors.track,
-                      valueColor: AlwaysStoppedAnimation(
-                        progress.isPaidOff
-                            ? confirmColorOn(context)
-                            : appPrimaryBlue,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    debt.paidOffEarly
-                        ? '${formatPeso(progress.paid)} paid in all, the last '
-                              '${formatPeso(debt.paidOffAmount)} to finish it '
-                              'early'
-                        : '${formatPeso(progress.paid)} of '
-                              '${formatPeso(progress.total)} paid · '
-                              '${progress.paymentsLeft} of ${debt.paymentCount} '
-                              'payments left',
-                    style: TextStyle(fontSize: 13, color: colors.textBody),
-                  ),
-                  const Divider(height: 28),
-                  _Line(
-                    debt.category.isLoan ? 'Borrowed' : 'Price',
-                    formatPeso(debt.principal),
-                  ),
-                  _Line(debt.frequency.eachLabel, formatPeso(debt.perPayment)),
-                  if (debt.paidWithWalletId != null ||
-                      debt.paidWithLabel != null)
-                    StreamBuilder<List<Wallet>>(
-                      stream: wallets,
-                      builder: (context, snapshot) {
-                        final charged = [
-                          for (final wallet
-                              in snapshot.data ?? const <Wallet>[])
-                            if (wallet.id == debt.paidWithWalletId) wallet,
-                        ].firstOrNull;
-                        return _Line(
-                          'Wallet used',
-                          charged?.name ??
-                              debt.paidWithLabel ??
-                              debt.paidWithWalletId!,
-                        );
-                      },
-                    ),
-                  if (debt.category.isLoan && debt.extraCost > 0)
-                    _Line(
-                      'More than you borrowed',
-                      '${formatPeso(debt.extraCost)} '
-                          '(${roundedPercent(debt.extraCostPercent)})',
-                    ),
-                  if (debt.paidBefore > 0)
-                    _Line(
-                      'Paid before FinAssist',
-                      debt.paidBefore == 1
-                          ? '1 payment'
-                          : '${debt.paidBefore} payments',
-                    ),
-                  if (last != null)
-                    _Line(
-                      'Last payment',
-                      debt.hasDifferentLastPayment
-                          ? '${formatPeso(debt.finalPayment)} on '
-                                '${formatShortDate(last)}'
-                          : formatShortDate(last),
-                    ),
-                  if (debt.note != null) _Line('Notes', debt.note!),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Interest belongs to borrowed money. An installment's price is
-            // the whole of what is paid, so there is no cost to disclose.
-            if (debt.category.isLoan) ...[
-              _CostOfBorrowing(
-                debt: debt,
-                wallets: wallets,
-                paid: progress.paid,
-              ),
-              const SizedBox(height: 16),
-            ],
-            if (!progress.isPaidOff) ...[
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const BillCalendarScreen(),
-                    ),
-                  ),
-                  style: openButtonStyle(),
-                  icon: const Icon(Icons.calendar_month),
-                  label: const Text(
-                    'Pay in Bill Planner',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                'Each payment is a bill, so you pay it, part-pay it, and '
-                'choose the wallet there.',
-                textAlign: TextAlign.center,
+                debt.paidOffEarly
+                    ? 'Paid off early · ${formatShortDate(debt.paidOffAt!)}'
+                    : progress.isPaidOff
+                    ? 'Paid off'
+                    : 'Still to pay',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   color: context.appColors.textMuted,
                 ),
               ),
-              // Finished before its schedule: one payment closes it.
-              if (debt.billId != null) ...[
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    key: const Key('payoff-open'),
-                    onPressed: () => showPayoffSheet(
-                      context,
-                      debt: debt,
-                      progress: progress,
-                    ),
-                    style: openOutlineStyle(context, height: 52),
-                    child: const Text(
-                      'Paid it off early',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+              const SizedBox(height: 6),
+              MoneyText(
+                progress.remaining,
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 14),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: progress.fraction,
+                  minHeight: 10,
+                  backgroundColor: colors.track,
+                  valueColor: AlwaysStoppedAnimation(
+                    progress.isPaidOff
+                        ? confirmColorOn(context)
+                        : appPrimaryBlue,
                   ),
                 ),
-              ],
-            ] else if (debt.paidOffEarly)
+              ),
+              const SizedBox(height: 10),
+              Text(
+                debt.paidOffEarly
+                    ? '${formatPeso(progress.paid)} paid in all, the last '
+                          '${formatPeso(debt.paidOffAmount)} to finish it '
+                          'early'
+                    : '${formatPeso(progress.paid)} of '
+                          '${formatPeso(progress.total)} paid · '
+                          '${progress.paymentsLeft} of ${debt.paymentCount} '
+                          'payments left',
+                style: TextStyle(fontSize: 13, color: colors.textBody),
+              ),
+              const Divider(height: 28),
+              _Line(
+                debt.category.isLoan ? 'Borrowed' : 'Price',
+                formatPeso(debt.principal),
+              ),
+              _Line(debt.frequency.eachLabel, formatPeso(debt.perPayment)),
+              if (debt.paidWithWalletId != null || debt.paidWithLabel != null)
+                StreamBuilder<List<Wallet>>(
+                  stream: wallets,
+                  builder: (context, snapshot) {
+                    final charged = [
+                      for (final wallet in snapshot.data ?? const <Wallet>[])
+                        if (wallet.id == debt.paidWithWalletId) wallet,
+                    ].firstOrNull;
+                    return _Line(
+                      'Wallet used',
+                      charged?.name ??
+                          debt.paidWithLabel ??
+                          debt.paidWithWalletId!,
+                    );
+                  },
+                ),
+              if (debt.category.isLoan && debt.extraCost > 0)
+                _Line(
+                  'More than you borrowed',
+                  '${formatPeso(debt.extraCost)} '
+                      '(${roundedPercent(debt.extraCostPercent)})',
+                ),
+              if (debt.paidBefore > 0)
+                _Line(
+                  'Paid before FinAssist',
+                  debt.paidBefore == 1
+                      ? '1 payment'
+                      : '${debt.paidBefore} payments',
+                ),
+              if (last != null)
+                _Line(
+                  'Last payment',
+                  debt.hasDifferentLastPayment
+                      ? '${formatPeso(debt.finalPayment)} on '
+                            '${formatShortDate(last)}'
+                      : formatShortDate(last),
+                ),
+              if (debt.note != null) _Line('Notes', debt.note!),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Interest belongs to borrowed money. An installment's price is
+        // the whole of what is paid, so there is no cost to disclose.
+        if (debt.category.isLoan) ...[
+          _CostOfBorrowing(debt: debt, wallets: wallets, paid: progress.paid),
+          const SizedBox(height: 16),
+        ],
+        if (!progress.isPaidOff) ...[
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BillCalendarScreen(),
+                ),
+              ),
+              style: openButtonStyle(),
+              icon: const Icon(Icons.calendar_month),
+              label: const Text(
+                'Pay in Bill Planner',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Each payment is a bill, so you pay it, part-pay it, and '
+            'choose the wallet there.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
+          ),
+          // Paying ahead of schedule: an installment pays its next
+          // payment in advance from the wallet it was charged to; a loan
+          // has no such wallet, so it is closed by paying it off early.
+          if (debt.billId != null) ...[
+            // Paying the next payment ahead of its date, from the wallet
+            // the installment named. Loans are never named one.
+            if (debt.paidWithWalletId != null) ...[
+              const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton(
-                  key: const Key('payoff-undo'),
-                  onPressed: () => _undoPayoff(context, debt),
-                  style: dangerOutlineStyle(context, height: 52),
+                child: ElevatedButton(
+                  key: const Key('advance-open'),
+                  onPressed: () => _payInAdvance(context, debt),
+                  style: openButtonStyle(),
                   child: const Text(
-                    'Undo paying it off',
+                    'Pay in advance',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
-            const SizedBox(height: 22),
-            Text(
-              'Statement of account',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: colors.textPrimary,
+            ],
+            if (debt.category.isLoan) ...[
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  key: const Key('payoff-open'),
+                  onPressed: () =>
+                      showPayoffSheet(context, debt: debt, progress: progress),
+                  style: openButtonStyle(),
+                  child: const Text(
+                    'Paid it off early',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              'Every payment, what you have paid on it, and what is left to '
-              'pay after it.',
-              style: TextStyle(
-                fontSize: 12,
-                color: context.appColors.textMuted,
-              ),
-            ),
-            const SizedBox(height: 12),
-            // The plan's own dates are enough to list every payment; only
-            // one with no start date waits for its bills.
-            if (instances.isEmpty && debt.firstDueDate == null)
-              Text(
-                'Payments appear here once their month is opened in the Bill '
-                'Planner.',
-                style: TextStyle(color: context.appColors.textMuted),
-              )
-            else
-              ..._statementRows(context, debt, instances, progress),
+            ],
           ],
-        );
-      },
+        ] else if (debt.paidOffEarly)
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              key: const Key('payoff-undo'),
+              onPressed: () => _undoPayoff(context, debt),
+              style: dangerOutlineStyle(context, height: 52),
+              child: const Text(
+                'Undo paying it off',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        const SizedBox(height: 22),
+        Text(
+          'Statement of account',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: colors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'Every payment, what you have paid on it, and what is left to '
+          'pay after it.',
+          style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
+        ),
+        const SizedBox(height: 12),
+        // The plan's own dates are enough to list every payment; only
+        // one with no start date waits for its bills.
+        if (instances.isEmpty && debt.firstDueDate == null)
+          Text(
+            'Payments appear here once their month is opened in the Bill '
+            'Planner.',
+            style: TextStyle(color: context.appColors.textMuted),
+          )
+        else
+          ..._statementRows(context, debt, instances, progress),
+      ],
     );
   }
+}
+
+/// Opens the paying-ahead sheet: it finds the payment waiting, and shows
+/// what it came to when there is one.
+Future<void> _payInAdvance(BuildContext context, Debt debt) async {
+  final next = await DebtService.loadNextUnpaidPayment(debt);
+  if (!context.mounted) return;
+  if (next == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Nothing is waiting to be paid in advance.'),
+      ),
+    );
+    return;
+  }
+  await showAdvancePaymentSheet(context, debt: debt, next: next);
 }
 
 /// Asks, then takes back a payoff made by mistake.

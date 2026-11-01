@@ -1,6 +1,7 @@
 import 'allocation.dart';
 import 'app_transaction.dart';
 import 'bill.dart';
+import 'debt.dart';
 import 'goal.dart';
 import 'wallet.dart';
 import 'onboarding_data.dart';
@@ -243,9 +244,17 @@ const int maxPlannedReminders = 60;
 ///
 /// Planned again whenever the data changes, so paying a bill or reaching a
 /// goal simply leaves its reminders out of the next plan.
+///
+/// The payments of installments and debts ride the bill reminders too.
+/// Pass the bill [schedules] and the [debts] they belong to so a morning
+/// where they fall due counts them apart by the form each came from:
+/// "1 bill & 1 installment due today", instead of calling every one of
+/// them a bill.
 List<PlannedReminder> planReminders({
   required ReminderSettings settings,
   required List<BillInstance> bills,
+  List<Bill> schedules = const [],
+  List<Debt> debts = const [],
   required List<Goal> goals,
   required List<AllocationCycle> cycles,
   List<Wallet> wallets = const [],
@@ -270,6 +279,24 @@ List<PlannedReminder> planReminders({
   if (settings.isOn(ReminderKind.bills)) {
     final daysBefore = billReminderDays[settings.timesFor(ReminderKind.bills)]!;
     final byDay = <DateTime, List<(BillInstance, int)>>{};
+
+    // Which schedules are the payments of a debt rather than a plain bill,
+    // and which of those debts are borrowed money rather than a thing
+    // bought in parts. The bill knows the debt it belongs to; only the
+    // debt knows which of the two forms saved it — the installment form
+    // asks no interest, the debt form does.
+    final debtIdBySchedule = <String, String>{};
+    for (final schedule in schedules) {
+      final debtId = schedule.debtId;
+      if (debtId != null) debtIdBySchedule[schedule.id] = debtId;
+    }
+    final loanDebtIds = {
+      for (final debt in debts) if (debt.category.isLoan) debt.id,
+    };
+
+    // "1 installment", "3 installments": for the title.
+    String counted(int howMany, String one, String several) =>
+        '$howMany ${howMany == 1 ? one : several}';
 
     for (final bill in bills) {
       if (bill.isSettled || bill.remaining <= 0) continue;
@@ -316,14 +343,39 @@ List<PlannedReminder> planReminders({
               : '${bill.name} ${formatPeso(bill.remaining)} '
                     '(${_whenDue(before)})',
       ];
+
+      // The title counts the group under the word the user knows each by,
+      // the form it came from: a bill set up in the planner, a thing bought
+      // in parts (the Add Installment form), or money borrowed — "debt",
+      // the Add Debt form's word. "2 bills & 1 installment due today"
+      // reads better than calling the phone's payment a bill.
+      var plain = 0;
+      var installment = 0;
+      var debt = 0;
+      for (final (bill, _) in due) {
+        final debtId = debtIdBySchedule[bill.billId];
+        if (debtId == null) {
+          plain++;
+        } else if (loanDebtIds.contains(debtId)) {
+          debt++;
+        } else {
+          installment++;
+        }
+      }
+      final what = [
+        if (plain > 0) counted(plain, 'bill', 'bills'),
+        if (installment > 0)
+          counted(installment, 'installment', 'installments'),
+        if (debt > 0) counted(debt, 'debt', 'debts'),
+      ].join(' & ');
       add(
         PlannedReminder(
           kind: ReminderKind.bills,
           key: 'bills:${day.year}-${day.month}-${day.day}',
           at: at(day, morningHour),
           title: sameDay
-              ? '${due.length} bills due ${_whenDue(due.first.$2)}'
-              : '${due.length} bills to pay soon',
+              ? '$what due ${_whenDue(due.first.$2)}'
+              : '$what to pay soon',
           body: '${_listNames(names)}. Tap to see them.',
           payload: 'bills',
         ),

@@ -74,12 +74,27 @@ void main() {
   testWidgets('the working ends on what is left today', (tester) async {
     await pump(tester, const SafeToSpendWorking(today));
 
-    expect(find.text('Money in your wallets'), findsOneWidget);
+    // ₱10,000 is already after the ₱150 spent, so the receipt opens with
+    // what the wallets held before it and takes the spending off again as
+    // a plain minus.
+    expect(
+      find.text('In your wallets before what you spent today'),
+      findsOneWidget,
+    );
+    expect(find.text('₱10,150'), findsOneWidget);
+    expect(find.text('What you spent today'), findsOneWidget);
+    expect(find.text('− ₱150'), findsOneWidget);
     expect(find.text('Bills still to pay'), findsOneWidget);
+    expect(find.text('− ₱4,000'), findsOneWidget);
+    // Left is the money actually still there: ₱10,000 less the bills, with
+    // the ₱150 spent today counted only once.
+    expect(find.text('Left through the end of this month'), findsOneWidget);
+    expect(find.text('₱6,000'), findsOneWidget);
     expect(
       find.text(
-        "That is ₱615 a day for the 10 days left this month. You've spent "
-        '₱150 today, so ₱465 is left.',
+        'Counting from where today began, your plan is ₱6,150 for the 10 '
+        'days left this month: ₱615 a day. You\'ve spent ₱150 today, so '
+        '₱465 is left.',
       ),
       findsOneWidget,
     );
