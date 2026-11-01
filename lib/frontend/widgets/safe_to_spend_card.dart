@@ -105,14 +105,13 @@ class SafeToSpendCard extends StatefulWidget {
   State<SafeToSpendCard> createState() => _SafeToSpendCardState();
 }
 
-/// One line of the working behind Safe to Spend: a label, and the amount
-/// being added or taken off.
+/// One line of the working behind Safe to Spend: a label, and the amount,
+/// with a minus in front of money taken off.
 class _Working extends StatelessWidget {
   const _Working(
     this.label,
     this.amount, {
     this.take = false,
-    this.add = false,
     this.strong = false,
   });
 
@@ -121,10 +120,6 @@ class _Working extends StatelessWidget {
 
   /// Shown with a minus, because it is money the user cannot spend.
   final bool take;
-
-  /// Shown with a plus: money already spent today is added back before the
-  /// day's share is worked out.
-  final bool add;
   final bool strong;
 
   @override
@@ -147,11 +142,7 @@ class _Working extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Text(
-            '${take
-                ? '− '
-                : add
-                ? '+ '
-                : ''}${formatPeso(amount)}',
+            '${take ? '− ' : ''}${formatPeso(amount)}',
             style: TextStyle(
               fontWeight: strong ? FontWeight.bold : FontWeight.w600,
               color: colors.textPrimary,
@@ -528,20 +519,29 @@ class SafeToSpendWorking extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _Working('Money in your wallets', s.walletBalance),
-        if (s.spentToday > 0)
-          _Working('What you spent today', s.spentToday, add: true),
+        // The wallets figure is already after today's spending, so the
+        // receipt opens with the balance as it stood before that money left
+        // and takes it off on the next line: a plain subtraction, rather
+        // than the spend being added back into a total.
+        if (s.spentToday > 0) ...[
+          _Working(
+            'In your wallets before what you spent today',
+            s.walletBalance + s.spentToday,
+          ),
+          _Working('What you spent today', s.spentToday, take: true),
+        ] else
+          _Working('Money in your wallets', s.walletBalance),
         if (s.billsDue > 0)
           _Working('Bills still to pay', s.billsDue, take: true),
         if (s.goalSavings > 0)
           _Working('Saved for your goals', s.goalSavings, take: true),
         if (takesSomeOff) ...[
           const Divider(height: 22),
-          // Named for the stretch it covers, so it is not read as what can
-          // be spent today.
+          // What is really still there to spend: today's spending has
+          // already gone, so it is only subtracted once, on the line above.
           _Working(
             'Left through the end of this month',
-            s.spendableThisPeriod,
+            s.moneyLeftNow,
             strong: true,
           ),
         ] else if (s.walletBalance > 0) ...[
@@ -560,8 +560,14 @@ class SafeToSpendWorking extends StatelessWidget {
               ? 'Once you add income or a wallet balance, this shows how '
                     'much of it you can spend each day through the end of '
                     'this month.'
-              : 'That is ${formatPeso(s.recommendedDailyLimit)} a day for '
-                    'the $days left this month.$_today',
+              : s.spentToday > 0
+                  ? 'Counting from where today began, your plan is '
+                        '${formatPeso(s.spendableThisPeriod)} for the $days '
+                        'left this month: ${formatPeso(
+                          s.recommendedDailyLimit,
+                        )} a day.$_today'
+                  : 'That is ${formatPeso(s.recommendedDailyLimit)} a day '
+                        'for the $days left this month.$_today',
           style: const TextStyle(height: 1.45),
         ),
       ],

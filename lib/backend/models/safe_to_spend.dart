@@ -251,6 +251,23 @@ class SafeToSpend {
         : availableFromPlan;
   }
 
+  /// What is genuinely left to spend right now: the wallets less the bills
+  /// and goals spoken for, and no more than the period plan has remaining.
+  ///
+  /// Today's spending is not taken off here, because it has already left the
+  /// wallets — which is the opposite of [spendableThisPeriod], that adds it
+  /// back so the plan can be measured from the start of today.
+  double get moneyLeftNow {
+    final inWallets = walletBalance - billsDue - goalSavings;
+    final fromWallet = inWallets > 0 ? inWallets : 0.0;
+    final budget = periodBudget;
+    if (budget == null) return fromWallet;
+
+    final planLeft = budget - periodSpent;
+    final fromPlan = planLeft > 0 ? planLeft : 0.0;
+    return fromWallet < fromPlan ? fromWallet : fromPlan;
+  }
+
   /// The period's spendable money shared evenly over the days left, capped at
   /// the per-day amount in the user's configured period budget.
   double get recommendedDailyLimit {

@@ -8,12 +8,17 @@ import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/frontend/providers/app_settings_provider.dart';
 import 'package:testapp/frontend/screens/debt_detail_screen.dart';
 import 'package:testapp/backend/services/bill_service.dart';
+import 'package:testapp/frontend/theme/app_buttons.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
 import 'package:testapp/frontend/widgets/payoff_sheet.dart';
 
 /// Juan borrowed ₱20,000 to pay back as 12 payments of ₱2,000: ₱24,000 in
 /// all, ₱4,000 of it interest. 5 are paid.
-Debt loan({DateTime? paidOffAt, double paidOffAmount = 0}) => Debt(
+Debt loan({
+  DateTime? paidOffAt,
+  double paidOffAmount = 0,
+  String? paidWithWalletId,
+}) => Debt(
   id: 'juan',
   direction: DebtDirection.iOwe,
   name: 'Personal loan',
@@ -27,6 +32,7 @@ Debt loan({DateTime? paidOffAt, double paidOffAmount = 0}) => Debt(
   status: paidOffAt == null ? DebtStatus.active : DebtStatus.settled,
   paidOffAt: paidOffAt,
   paidOffAmount: paidOffAmount,
+  paidWithWalletId: paidWithWalletId,
 );
 
 final payoff = BillInstance(
@@ -49,6 +55,17 @@ const cash = Wallet(
   receivesIncome: false,
   archived: false,
   sortOrder: 0,
+);
+
+const gcash = Wallet(
+  id: 'gcash',
+  name: 'GCash',
+  type: WalletType.gcash,
+  balance: 5000,
+  startingBalance: 5000,
+  receivesIncome: false,
+  archived: false,
+  sortOrder: 1,
 );
 
 Future<void> pump(WidgetTester tester, Widget child) async {
@@ -130,13 +147,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('payoff-button')));
     await tester.pumpAndSettle();
-    expect(find.text('Mark Personal loan as fully paid?'), findsOneWidget);
+    expect(find.text('Pay Personal loan off early?'), findsOneWidget);
     expect(
       find.textContaining('the 7 payments left are taken off the Bill Planner'),
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Mark as paid'));
+    // The dialog's answer, not the sheet's own button showing behind it.
+    await tester.tap(
+      find.widgetWithText(TextButton, 'Pay it off early'),
+    );
     await tester.pumpAndSettle();
     expect(paid, [13500]);
     expect(on, DateTime(2026, 10, 28));
@@ -164,6 +184,75 @@ void main() {
     );
   });
 
+  testWidgets('an installment that named its wallet pays only from it', (
+    tester,
+  ) async {
+    List<String>? from;
+    await pump(
+      tester,
+      Scaffold(
+        body: PayoffSheet(
+          debt: loan(paidWithWalletId: 'gcash'),
+          progress: DebtProgress.of(loan(paidWithWalletId: 'gcash'), const []),
+          today: DateTime(2026, 10, 28),
+          wallets: Stream.value(const [cash, gcash]),
+          goals: Stream.value(const []),
+          onPayOff: (parts, _) =>
+              from = [for (final part in parts) part.walletId],
+        ),
+      ),
+    );
+
+    // The question is not asked again: the wallet is already known, and only
+    // it is shown, with what it has free.
+    expect(find.text('Where are you paying from?'), findsNothing);
+    expect(find.text('Paying from'), findsOneWidget);
+    expect(find.text('GCash'), findsOneWidget);
+    expect(find.textContaining('₱5,000 available'), findsOneWidget);
+    // The other wallet is not offered as a choice.
+    expect(find.text('Cash'), findsNothing);
+
+    // The plan asks for the ₱14,000 left, but GCash only holds ₱5,000, so
+    // it refuses until the amount fits what the wallet has.
+    await tester.tap(find.byKey(const Key('payoff-button')));
+    await tester.pump();
+    expect(find.byKey(const Key('payoff-error')), findsOneWidget);
+    expect(find.text('Pay Personal loan off early?'), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('payoff-amount')), '5000');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('payoff-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Pay Personal loan off early?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Pay it off early'));
+    await tester.pumpAndSettle();
+    expect(from, ['gcash']);
+  });
+
+  testWidgets('the named wallet is checked before the payoff goes through', (
+    tester,
+  ) async {
+    // GCash has ₱5,000; the payoff asks for the ₱14,000 left on the plan.
+    await pump(
+      tester,
+      Scaffold(
+        body: PayoffSheet(
+          debt: loan(paidWithWalletId: 'gcash'),
+          progress: DebtProgress.of(loan(paidWithWalletId: 'gcash'), const []),
+          today: DateTime(2026, 10, 28),
+          wallets: Stream.value(const [cash, gcash]),
+          goals: Stream.value(const []),
+          onPayOff: (_, _) {},
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('payoff-button')));
+    await tester.pump();
+    expect(find.byKey(const Key('payoff-error')), findsOneWidget);
+    expect(find.text('Pay Personal loan off early?'), findsNothing);
+  });
+
   Widget detail(Debt debt, List<BillInstance> payments) => LoanDetailScreen(
     debt: debt,
     liveDebt: Stream.value(debt),
@@ -171,11 +260,96 @@ void main() {
     wallets: Stream.value(const [cash]),
   );
 
+  /// A phone bought on installment: ₱48,000 in 12 payments of ₱4,000, charged
+  /// to Cash when it was set up.
+  Debt installment({String? paidWithWalletId}) => Debt(
+    id: 'phone',
+    direction: DebtDirection.iOwe,
+    name: 'iPhone 15',
+    category: DebtCategory.gadget,
+    principal: 48000,
+    perPayment: 4000,
+    paymentCount: 12,
+    firstDueDate: DateTime(2026, 6, 10),
+    billId: 'bill',
+    paidWithWalletId: paidWithWalletId,
+    paidWithLabel: paidWithWalletId == null ? null : 'Cash',
+    status: DebtStatus.active,
+  );
+
+  testWidgets('paying in advance is offered only to an installment that '
+      'named its wallet', (tester) async {
+    // A loan: no wallet is ever named at setup, so it keeps the payoff
+    // button and pays early in the Bill Planner.
+    await pump(tester, detail(loan(), const []));
+    expect(find.byKey(const Key('advance-open')), findsNothing);
+    expect(find.byKey(const Key('payoff-open')), findsOneWidget);
+
+    // An installment that never named a wallet (made before this existed).
+    await pump(
+      tester,
+      InstallmentDetailScreen(
+        key: const Key('unnamed'),
+        debt: installment(),
+        liveDebt: Stream.value(installment()),
+        payments: Stream.value(const []),
+        wallets: Stream.value(const [cash]),
+      ),
+    );
+    expect(find.byKey(const Key('advance-open')), findsNothing);
+    // The payoff button is not on installments at all: they are finished by
+    // paying the payments ahead, not in one go.
+    expect(find.byKey(const Key('payoff-open')), findsNothing);
+    expect(find.text('Paid it off early'), findsNothing);
+
+    // One that did: the next payment can be paid ahead of time.
+    final named = installment(paidWithWalletId: 'cash');
+    await pump(
+      tester,
+      InstallmentDetailScreen(
+        key: const Key('named'),
+        debt: named,
+        liveDebt: Stream.value(named),
+        payments: Stream.value(const []),
+        wallets: Stream.value(const [cash]),
+      ),
+    );
+    expect(find.byKey(const Key('advance-open')), findsOneWidget);
+    expect(find.byKey(const Key('payoff-open')), findsNothing);
+    // It only opens the sheet, so it is blue like the other openers.
+    final fill = tester
+        .widget<ElevatedButton>(find.byKey(const Key('advance-open')))
+        .style
+        ?.backgroundColor
+        ?.resolve(const <WidgetState>{});
+    expect(fill, appPrimaryBlue);
+  });
+
   testWidgets('a debt being paid offers to pay it off early', (tester) async {
     await pump(tester, detail(loan(), const []));
     expect(find.text('Pay in Bill Planner'), findsOneWidget);
     expect(find.byKey(const Key('payoff-open')), findsOneWidget);
     expect(find.byKey(const Key('payoff-undo')), findsNothing);
+
+    // Both of them only open something, so they read the same solid blue
+    // ("Pay in Bill Planner" is an ElevatedButton.icon, whose widget type is
+    // its own private one, so it is reached through its label instead of
+    // by type).
+    Color? fillOf(ButtonStyle? style) =>
+        style?.backgroundColor?.resolve(const <WidgetState>{});
+    final payoffFill = fillOf(
+      tester.widget<ElevatedButton>(find.byKey(const Key('payoff-open'))).style,
+    );
+    final plannerFill = fillOf(
+      tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.text('Pay in Bill Planner'),
+          matching: find.byWidgetPredicate((w) => w is ElevatedButton),
+        ),
+      ).style,
+    );
+    expect(payoffFill, appPrimaryBlue);
+    expect(plannerFill, appPrimaryBlue);
   });
 
   testWidgets('paid off early: says so, lists it, and can be undone', (
@@ -206,5 +380,81 @@ void main() {
     expect(find.text('Undo paying it off?'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
+  });
+
+  group('deleting an installment', () {
+    Future<void> openDelete(WidgetTester tester, {bool dark = false}) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: dark ? AppTheme.dark : AppTheme.light,
+            home: detail(loan(), const []),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+    }
+
+    Color? actionColor(WidgetTester tester, String label) {
+      final button = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text(label),
+          matching: find.byWidgetPredicate((w) => w is TextButton),
+        ),
+      );
+      return button.style?.foregroundColor?.resolve(const <WidgetState>{});
+    }
+
+    testWidgets('says the money does not come back', (tester) async {
+      await openDelete(tester);
+
+      expect(find.text('Delete Personal loan?'), findsOneWidget);
+      // The distinction, said outright: paid payments stay because the
+      // money left, and deleting is not a refund.
+      expect(
+        find.text(
+          'Its unpaid payments are removed from your Bill Planner. Payments '
+          'you already made stay: that money really left your wallets, and '
+          'deleting does not put it back.',
+        ),
+        findsOneWidget,
+      );
+      // Delete is red; Cancel is red too, like every button that stops or
+      // undoes something.
+      expect(actionColor(tester, 'Delete'), appDangerRed);
+      expect(actionColor(tester, 'Cancel'), appDangerRed);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('reads the same, in its dark colours', (tester) async {
+      await openDelete(tester, dark: true);
+
+      expect(
+        find.text(
+          'Its unpaid payments are removed from your Bill Planner. Payments '
+          'you already made stay: that money really left your wallets, and '
+          'deleting does not put it back.',
+        ),
+        findsOneWidget,
+      );
+      // Lightened red, so it stays readable on the dark background.
+      expect(actionColor(tester, 'Delete'), const Color(0xFFEF5350));
+      expect(actionColor(tester, 'Cancel'), const Color(0xFFEF5350));
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+    });
   });
 }

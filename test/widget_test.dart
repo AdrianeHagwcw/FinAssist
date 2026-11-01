@@ -8381,6 +8381,45 @@ void main() {
       expect(s.usedFraction, closeTo(1 / 3, 0.001));
     });
 
+    test("what's left counts today's spending only once", () {
+      // The ₱60 spent has already left the wallets, so what is really left
+      // is the balance less the bills and goals held back — never the
+      // balance less them all over again.
+      const s = SafeToSpend(
+        walletBalance: 100,
+        billsDue: 20,
+        goalSavings: 10,
+        spentToday: 60,
+        daysLeft: 10,
+      );
+
+      expect(s.moneyLeftNow, 70);
+      // The day's plan is still measured from where today began, so the
+      // daily figure counts the ₱60 back in and today's share is checked
+      // against it.
+      expect(s.spendableThisPeriod, 130);
+      expect(s.recommendedDailyLimit, 13);
+      expect(s.leftToday, -47);
+      expect(s.isOverLimit, isTrue);
+    });
+
+    test("what's left follows a period plan when the plan is tighter", () {
+      // ₱9,500 in the wallets, but the period plan only has ₱2,500 of its
+      // ₱3,000 budget left, so the plan is what is really left to spend.
+      const s = SafeToSpend(
+        walletBalance: 9500,
+        billsDue: 0,
+        spentToday: 100,
+        daysLeft: 10,
+        periodBudget: 3000,
+        periodSpent: 500,
+        periodLengthDays: 15,
+      );
+
+      expect(s.moneyLeftNow, 2500);
+      expect(s.spendableThisPeriod, 2600);
+    });
+
     test('going past the day\'s limit reads as over', () {
       // The balance already dropped by the 1,350 spent, so it is added back
       // before sharing: 3,650 + 1,350 = 5,000 over five days is 1,000 a day.
@@ -10233,6 +10272,43 @@ void main() {
         saved!.perPayment * (saved!.paymentCount - 1) + saved!.lastPayment,
         closeTo(10000, 0.001),
       );
+    });
+
+    testWidgets('the plan starts on the day the form is filled', (tester) async {
+      tall(tester);
+      InstallmentDraft? saved;
+
+      await tester.pumpWidget(
+        app(
+          Scaffold(
+            body: InstallmentFormSheet(
+              today: DateTime(2026, 3, 10),
+              onSave: (draft) => saved = draft,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.byKey(const Key('installment-description')),
+        'Phone',
+      );
+      await tester.enterText(
+        find.byKey(const Key('installment-price')),
+        '24000',
+      );
+      await tester.enterText(find.byKey(const Key('installment-months')), '3');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Save Installment'));
+      await tester.tap(find.text('Save Installment'));
+      await tester.pumpAndSettle();
+
+      // What is being tracked starts when it is written down: the first
+      // payment falls due that day, not a month later. The ones after keep
+      // the same day of the month from there.
+      expect(saved?.firstDueDate, DateTime(2026, 3, 10));
+      expect(saved?.paymentCount, 3);
     });
 
     testWidgets('a missing price or months blocks the save', (tester) async {
@@ -13106,6 +13182,8 @@ void main() {
     List<PlannedReminder> plan(
       ReminderSettings settings, {
       List<BillInstance> bills = const [],
+      List<Bill> schedules = const [],
+      List<Debt> debts = const [],
       List<Goal> goals = const [],
       List<AllocationCycle> cycles = const [],
       List<AppTransaction> transactions = const [],
@@ -13115,6 +13193,8 @@ void main() {
     }) => planReminders(
       settings: settings,
       bills: bills,
+      schedules: schedules,
+      debts: debts,
       goals: goals,
       wallets: wallets,
       cycles: cycles,
@@ -13305,6 +13385,92 @@ void main() {
         'Rent ₱5,000 (today) and Internet ₱1,200 (in 3 days). Tap to see '
         'them.',
       );
+    });
+
+    test('installment and debt payments are not called bills in the title', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.payBills]),
+      );
+      final now = DateTime(2026, 9, 20, 10);
+
+      // The schedule the planner holds for each one. A debt's payment has
+      // its debtId; a plain bill has none.
+      Bill schedule(String name, String? debtId) => Bill(
+        id: 'b-$name',
+        name: name,
+        amount: 1000,
+        category: 'Bills',
+        firstDueDate: DateTime(2026, 9, 30),
+        recurrence: BillRecurrence.monthly,
+        debtId: debtId,
+      );
+      Debt debt(String id, DebtCategory category) => Debt(
+        id: id,
+        direction: DebtDirection.iOwe,
+        name: id,
+        category: category,
+        principal: 24000,
+        perPayment: 2400,
+        paymentCount: 12,
+        firstDueDate: DateTime(2026, 9, 30),
+        status: DebtStatus.active,
+      );
+      final debts = [
+        debt('d-phone', DebtCategory.gadget),
+        debt('d-utang', DebtCategory.personalLoan),
+      ];
+
+      // One of each kind, all due at once.
+      final together = plan(
+        settings,
+        now: now,
+        only: ReminderKind.bills,
+        bills: [
+          bill('Electric', DateTime(2026, 9, 30)),
+          bill('Phone', DateTime(2026, 9, 30), amount: 2400),
+          bill('Utang', DateTime(2026, 9, 30), amount: 5600),
+        ],
+        schedules: [
+          schedule('Electric', null),
+          schedule('Phone', 'd-phone'),
+          schedule('Utang', 'd-utang'),
+        ],
+        debts: debts,
+      ).where((r) => r.at.day == 30).single;
+      expect(together.title, '1 bill & 1 installment & 1 debt due today');
+      expect(together.payload, 'bills');
+
+      // Different due dates meeting on one morning read the same way,
+      // with what is left of each one still in the body.
+      final staggered = plan(
+        settings,
+        now: now,
+        only: ReminderKind.bills,
+        bills: [
+          bill('Electric', DateTime(2026, 9, 25)),
+          bill('Phone', DateTime(2026, 9, 28), amount: 2400),
+        ],
+        schedules: [schedule('Electric', null), schedule('Phone', 'd-phone')],
+        debts: debts,
+      ).where((r) => r.at.day == 25).single;
+      expect(staggered.title, '1 bill & 1 installment to pay soon');
+
+      // Only installments due together carry the word by themselves.
+      final bothOnPlan = plan(
+        settings,
+        now: now,
+        only: ReminderKind.bills,
+        bills: [
+          bill('Phone', DateTime(2026, 9, 30), amount: 2400),
+          bill('Tv', DateTime(2026, 9, 30), amount: 1600),
+        ],
+        schedules: [
+          schedule('Phone', 'd-phone'),
+          schedule('Tv', 'd-tv'),
+        ],
+        debts: [...debts, debt('d-tv', DebtCategory.gadget)],
+      ).where((r) => r.at.day == 30).single;
+      expect(bothOnPlan.title, '2 installments due today');
     });
 
     test('nothing is planned while reminders are off', () {

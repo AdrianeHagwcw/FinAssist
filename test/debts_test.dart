@@ -330,10 +330,17 @@ void main() {
       );
       await tester.pump();
 
-      // Always shown, even though it is optional.
+      // Always shown, even though it is optional, and asked the way paying
+      // always looks: which side of the money first.
       expect(find.text('Wallet used'), findsOneWidget);
+      expect(find.byKey(const Key('installment-paid-with-cash')), findsOneWidget);
+      expect(find.byKey(const Key('installment-paid-with-bank')), findsOneWidget);
       // The first wallet is already chosen, so the field is never blank.
-      expect(find.text('Cash on Hand'), findsOneWidget);
+      expect(
+        find.byKey(const Key('installment-paid-with-wallet-cash')),
+        findsOneWidget,
+      );
+
       await tester.enterText(
         find.byKey(const Key('installment-description')),
         'iPhone 15',
@@ -343,12 +350,18 @@ void main() {
         '48000',
       );
       await tester.enterText(find.byKey(const Key('installment-months')), '12');
-      await tester.tap(find.byKey(const Key('installment-paid-with')));
+
+      // Cash in Bank opens the accounts under it; the cash wallets are not
+      // listed there, and nothing else is offered to pick.
+      await tester.tap(find.byKey(const Key('installment-paid-with-bank')));
       await tester.pumpAndSettle();
-      // Only the wallets the user set up: nothing else to pick.
       expect(find.text('Not recorded'), findsNothing);
       expect(find.text('Another card or account'), findsNothing);
-      await tester.tap(find.text('BPI Savings').last);
+      expect(
+        find.byKey(const Key('installment-paid-with-wallet-cash')),
+        findsNothing,
+      );
+      await tester.tap(find.byKey(const Key('installment-paid-with-wallet-bank')));
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(find.text('Save Installment'));

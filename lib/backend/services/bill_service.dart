@@ -109,6 +109,12 @@ class BillService {
     });
   }
 
+  /// Reads one bill schedule once, or null when it is gone.
+  static Future<Bill?> loadBill(String billId) async {
+    final doc = await _bills.doc(billId).get();
+    return doc.exists ? Bill.fromMap(doc.id, doc.data()) : null;
+  }
+
   /// Reads one month's occurrences once. Returns cached data while offline.
   static Future<List<BillInstance>> loadInstances(int year, int month) async {
     final snapshot = await _instances
@@ -232,6 +238,52 @@ class BillService {
       'update bill',
     );
   }
+
+  /// Rewrites an installment's schedule to match the terms it was edited to,
+  /// in the caller's batch: the name, what each payment asks for, and where
+  /// the plan's dates run to. Only these are written, so everything else on
+  /// the schedule stays as it is, and the payments already made keep their
+  /// own dates.
+  static void addInstallmentUpdateToBatch(
+    WriteBatch batch, {
+    required String billId,
+    required String name,
+    required double amount,
+    required DateTime firstDueDate,
+    required BillRecurrence recurrence,
+    required DateTime endDate,
+    double? lastAmount,
+    double interestShare = 0,
+  }) {
+    final trimmedName = name.trim();
+
+    batch.set(
+      _bills.doc(billId),
+      <String, dynamic>{
+        'name': trimmedName.isEmpty ? 'Bill' : trimmedName,
+        'amount': amount.abs(),
+        'firstDueDate': Timestamp.fromDate(
+          DateTime(firstDueDate.year, firstDueDate.month, firstDueDate.day),
+        ),
+        'recurrence': recurrence.name,
+        'endDate': Timestamp.fromDate(
+          DateTime(endDate.year, endDate.month, endDate.day),
+        ),
+        // Set when the last payment differs, and taken away when it no
+        // longer does, so an earlier plan's last payment can't be left over.
+        'lastAmount': lastAmount ?? FieldValue.delete(),
+        'interestShare': interestShare,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  /// One worked-out payment of a bill, for callers rewriting or taking away
+  /// the payments in their own batch.
+  static DocumentReference<Map<String, dynamic>> instanceReference(
+    String instanceId,
+  ) => _instances.doc(instanceId);
 
   static Map<String, dynamic> _billData({
     required String name,
@@ -572,9 +624,11 @@ class BillService {
   /// Every part, every fee, the bill's status and each wallet's balance go
   /// in one batch: a bill is never left half recorded, and each wallet
   /// changes once. Parts adding up to less than is owed are a part payment.
+  /// [date] is when it was paid, today by default.
   static void payInstance({
     required BillInstance instance,
     required List<BillPaymentPart> parts,
+    DateTime? date,
   }) {
     final batch = _firestore.batch();
     final deltas = <String, double>{};
@@ -582,6 +636,7 @@ class BillService {
       batch,
       instance: instance,
       parts: parts,
+      date: date,
       collectDeltasInto: deltas,
     );
     WalletService.applyDeltasToBatch(batch, deltas);
