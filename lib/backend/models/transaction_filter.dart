@@ -89,6 +89,7 @@ class TransactionFilter {
     if (search != null &&
         search.isNotEmpty &&
         ![
+          transaction.title,
           transaction.label,
           transaction.note ?? '',
           transaction.type.label,

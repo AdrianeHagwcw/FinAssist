@@ -431,6 +431,21 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     limits: widget.limits,
   );
 
+  /// Whether every account has been listed at least once, so a row the
+  /// user takes off stays off instead of being put back on the next build.
+  bool _listedAllAccounts = false;
+
+  /// Every account with a row of its own: all of them at once, never one
+  /// by one, so Cash in Bank shows what Cash on Hand shows — every wallet
+  /// the user has, with the amount left to them to fill in.
+  void _listAllAccounts() {
+    final listed = {for (final row in _accountRows) row.walletId};
+    for (final wallet in _accountWallets) {
+      if (listed.add(wallet.id)) _accountRows.add(_newRow(wallet.id));
+    }
+    _listedAllAccounts = true;
+  }
+
   @override
   void didUpdateWidget(WalletSplitPicker old) {
     super.didUpdateWidget(old);
@@ -620,11 +635,11 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     // Tapping the chosen option again takes it back.
     setState(() {
       _option = _option == option ? null : option;
-      // The first account is ready to fill in, saving a tap.
-      final first = _nextAccount;
-      if (_option?.showsBank == true && _accountRows.isEmpty && first != null) {
-        _accountRows.add(_newRow(first.id));
-      }
+      if (_option?.showsBank != true) return;
+      // Cash in Bank lists every account at once, the same way every cash
+      // wallet is listed: what the money can come from is seen in one look,
+      // instead of added one by one.
+      _listAllAccounts();
     });
     _prefill();
     _emit();
@@ -679,6 +694,14 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     }
 
     final option = _option;
+    // A form opened straight on Cash in Bank (one being edited, with an
+    // account already in it) lists every account, the same as tapping the
+    // tile does. Here rather than in initState, because the wallets may
+    // still be loading on the first build — and only once, so a row the
+    // user takes off stays off.
+    if (option?.showsBank == true && !_listedAllAccounts) {
+      _listAllAccounts();
+    }
     final amounts = _amounts;
 
     Widget groupTitle(String text) => Padding(

@@ -873,6 +873,7 @@ class WalletService {
     String? billInstanceId,
     String? debtId,
     double interest = 0,
+    bool installmentPayment = false,
   }) {
     if (!amount.isFinite || amount <= 0) {
       throw ArgumentError.value(amount, 'amount', 'Must be greater than zero.');
@@ -905,6 +906,7 @@ class WalletService {
       'billInstanceId': billInstanceId,
       'debtId': debtId,
       if (interest > 0) 'interest': interest,
+      if (installmentPayment) 'installmentPayment': true,
       'createdAt': FieldValue.serverTimestamp(),
     });
 

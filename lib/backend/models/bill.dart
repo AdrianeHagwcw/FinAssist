@@ -285,6 +285,7 @@ class BillInstance {
     this.paymentIds = const [],
     this.walletId,
     this.carriedInto,
+    this.debtId,
     this.interestShare = 0,
   });
 
@@ -305,6 +306,7 @@ class BillInstance {
       paymentIds: _asStringList(map['paymentIds']),
       walletId: _asString(map['walletId']),
       carriedInto: _asString(map['carriedInto']),
+      debtId: _asString(map['debtId']),
       interestShare: _shareOf(map['interestShare']),
     );
   }
@@ -333,6 +335,13 @@ class BillInstance {
   /// The occurrence this one's unpaid part was carried into. The money is
   /// then owed there, not here, so it is never counted twice.
   final String? carriedInto;
+
+  /// Copied from the [Bill.debtId] of the schedule this came from: the loan
+  /// or installment plan it is a payment of, or null for a bill of its own.
+  ///
+  /// What a payment of this is called follows from it, so every payment of
+  /// one plan reads the same way wherever it is recorded.
+  final String? debtId;
 
   /// Copied from the installment's [Bill.interestShare]: how much of a
   /// payment on this is interest.

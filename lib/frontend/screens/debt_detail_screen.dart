@@ -11,14 +11,15 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
-import '../widgets/advance_payment_sheet.dart';
+import '../../backend/utils/ph_time.dart';
+import '../widgets/debt_payment_flow.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/dialog_kit.dart';
+import '../widgets/due_soon_notice.dart';
 import '../widgets/installment_form_sheet.dart';
 import '../widgets/item_card.dart';
 import '../widgets/money_text.dart';
 import '../widgets/payoff_sheet.dart';
-import 'bill_calendar_screen.dart';
 
 /// One installment's page: its payments, what is paid, and the statement.
 class InstallmentDetailScreen extends _DebtDetailScreenBase {
@@ -27,6 +28,7 @@ class InstallmentDetailScreen extends _DebtDetailScreenBase {
     super.liveDebt,
     super.payments,
     super.wallets,
+    super.today,
     super.key,
   });
 }
@@ -39,6 +41,7 @@ class LoanDetailScreen extends _DebtDetailScreenBase {
     super.liveDebt,
     super.payments,
     super.wallets,
+    super.today,
     super.key,
   });
 }
@@ -51,6 +54,7 @@ class _DebtDetailScreenBase extends StatefulWidget {
     this.liveDebt,
     this.payments,
     this.wallets,
+    this.today,
     super.key,
   });
 
@@ -60,6 +64,10 @@ class _DebtDetailScreenBase extends StatefulWidget {
   final Stream<Debt?>? liveDebt;
   final Stream<List<BillInstance>>? payments;
   final Stream<List<Wallet>>? wallets;
+
+  /// The day this page is read on, which decides whether a payment is due
+  /// yet. Philippine time by default; tests set it.
+  final DateTime? today;
 
   @override
   State<_DebtDetailScreenBase> createState() => _DebtDetailScreenState();
@@ -205,6 +213,7 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
                 debt: debt,
                 instances: instances,
                 wallets: _wallets,
+                today: widget.today ?? philippineNow(),
               ),
             );
           },
@@ -219,6 +228,7 @@ class _DetailBody extends StatelessWidget {
     required this.debt,
     required this.instances,
     required this.wallets,
+    required this.today,
   });
 
   final Debt debt;
@@ -229,11 +239,36 @@ class _DetailBody extends StatelessWidget {
 
   final Stream<List<Wallet>> wallets;
 
+  /// The day the page is read on, Philippine time.
+  final DateTime today;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final progress = DebtProgress.of(debt, instances);
     final last = debt.lastDueDate;
+    // What Pay Now takes, read the same way the button below acts on it, so
+    // what the page says and what pressing it does can never disagree: the
+    // payment waiting that falls due this month, or that fell due earlier
+    // and is still owed, from the plan's own dates — there even for a month
+    // the Bill Planner has not opened yet. Null once this month's due is
+    // paid: what waits then belongs to next month, which is what paying
+    // ahead of the schedule is for.
+    final pay = PayNowState.read(debt, instances, today);
+    final next = pay.next;
+    final owing = pay.owesThisMonth ? next : null;
+    final canPayAhead = pay.canPayAhead;
+    final fallsDueThisMonth = pay.fallsDueThisMonth;
+    final payNowNote = owing != null
+        ? 'Payment ${owing.number} of ${debt.paymentCount} is '
+              '${DueSoonNotice.whenLabel(owing.due, today)}. Pay it from the '
+              'wallet you want.'
+        : fallsDueThisMonth
+        ? canPayAhead
+              ? 'This month\'s due is paid. What comes next can be paid '
+                    'ahead of its date.'
+              : 'This month\'s due is paid.'
+        : 'Nothing falls due this month.';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
@@ -349,27 +384,26 @@ class _DetailBody extends StatelessWidget {
           const SizedBox(height: 16),
         ],
         if (!progress.isPaidOff) ...[
+          // This month's due, always here: Pay Now takes it whenever it is
+          // pressed, and so it stands above paying ahead of the schedule,
+          // which is only for what comes after it. Green, the way
+          // committing money is, where opening something is blue.
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const BillCalendarScreen(),
-                ),
-              ),
-              style: openButtonStyle(),
-              icon: const Icon(Icons.calendar_month),
-              label: const Text(
-                'Pay in Bill Planner',
+            child: ElevatedButton(
+              key: const Key('pay-now'),
+              onPressed: () =>
+                  payDebtNow(context, debt, instances: instances, today: today),
+              style: confirmButtonStyle(),
+              child: const Text(
+                'Pay Now',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Each payment is a bill, so you pay it, part-pay it, and '
-            'choose the wallet there.',
+            payNowNote,
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
           ),
@@ -378,14 +412,21 @@ class _DetailBody extends StatelessWidget {
           // has no such wallet, so it is closed by paying it off early.
           if (debt.billId != null) ...[
             // Paying the next payment ahead of its date, from the wallet
-            // the installment named. Loans are never named one.
-            if (debt.paidWithWalletId != null) ...[
+            // the installment named. Only once this month's due is paid, so
+            // "in advance" never takes the place of the one owed now. Loans
+            // are never named one.
+            if (canPayAhead) ...[
               const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   key: const Key('advance-open'),
-                  onPressed: () => _payInAdvance(context, debt),
+                  onPressed: () => payDebtInAdvance(
+                    context,
+                    debt,
+                    instances: instances,
+                    today: today,
+                  ),
                   style: openButtonStyle(),
                   child: const Text(
                     'Pay in advance',
@@ -453,22 +494,6 @@ class _DetailBody extends StatelessWidget {
       ],
     );
   }
-}
-
-/// Opens the paying-ahead sheet: it finds the payment waiting, and shows
-/// what it came to when there is one.
-Future<void> _payInAdvance(BuildContext context, Debt debt) async {
-  final next = await DebtService.loadNextUnpaidPayment(debt);
-  if (!context.mounted) return;
-  if (next == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Nothing is waiting to be paid in advance.'),
-      ),
-    );
-    return;
-  }
-  await showAdvancePaymentSheet(context, debt: debt, next: next);
 }
 
 /// Asks, then takes back a payoff made by mistake.

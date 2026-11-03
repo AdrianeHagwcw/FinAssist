@@ -6725,6 +6725,38 @@ void main() {
       expect(find.text('Pay ₱3,000'), findsOneWidget);
     });
 
+    testWidgets('Cash in Bank lists every account at once, like cash does', (
+      tester,
+    ) async {
+      final bpi = Wallet(
+        id: 'w3',
+        name: 'BPI',
+        type: WalletType.bank,
+        balance: 4000,
+        startingBalance: 4000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+      );
+      await pumpSheet(tester, wallets: [cash, gcash, bpi]);
+
+      await tester.tap(find.text('Cash in Bank'));
+      await tester.pumpAndSettle();
+
+      // Every account is there to pay from in one look, the way every cash
+      // wallet is — none of them waiting behind an Add account button.
+      expect(find.byKey(const Key('pay-from-w2')), findsOneWidget);
+      expect(find.byKey(const Key('pay-from-w3')), findsOneWidget);
+      expect(find.text('Add account'), findsNothing);
+
+      // Cash on Hand still lists its own wallets the same way.
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('pay-from-w1')), findsOneWidget);
+      expect(find.byKey(const Key('pay-from-w2')), findsNothing);
+      expect(find.byKey(const Key('pay-from-w3')), findsNothing);
+    });
+
     testWidgets('starts empty when paying only part of it', (tester) async {
       await pumpSheet(tester, payInFull: false);
       await tester.tap(find.text('Cash on Hand'));
@@ -9485,11 +9517,8 @@ void main() {
       );
       await tester.pump();
 
-      // Both records are offered, not just the first one.
+      // Both records are offered at once, not just the first one.
       await tester.tap(find.text('Cash in Bank'));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Add account'));
-      await tester.tap(find.text('Add account'));
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -9904,8 +9933,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // All twelve, not the one bill that happens to exist.
-      expect(find.textContaining('Payment 1 of 12'), findsOneWidget);
+      // All twelve, not the one bill that happens to exist. Matched on the
+      // whole row, because Pay Now's note above names the payment waiting
+      // as well.
+      expect(find.text('Payment 1 of 12 · Jan 31, 2026'), findsOneWidget);
       expect(find.textContaining('Payment 12 of 12'), findsOneWidget);
 
       // The dates come from the plan itself, keeping the 31st where the
@@ -10274,7 +10305,9 @@ void main() {
       );
     });
 
-    testWidgets('the plan starts on the day the form is filled', (tester) async {
+    testWidgets('the plan starts on the day the form is filled', (
+      tester,
+    ) async {
       tall(tester);
       InstallmentDraft? saved;
 
@@ -11208,7 +11241,7 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('Cash on Hand shows cash; Cash in Bank adds accounts', (
+    testWidgets('Cash on Hand shows cash; Cash in Bank shows every account', (
       tester,
     ) async {
       await pumpFundingForm(tester, onSave: (_) {});
@@ -11227,16 +11260,14 @@ void main() {
       expect(find.byKey(const Key('goal-funding-bpi')), findsNothing);
       expect(find.text('Cash earns no interest.'), findsOneWidget);
 
-      // The first account is ready to fill in; the rest are added.
+      // Every account is there at once, the same way every cash wallet is:
+      // none of them waiting behind an Add account button.
       await choose(tester, 'Cash in Bank');
       expect(find.byKey(const Key('goal-funding-cash')), findsNothing);
       expect(find.byKey(const Key('goal-funding-bpi')), findsOneWidget);
-      expect(find.byKey(const Key('goal-funding-gcash')), findsNothing);
+      expect(find.byKey(const Key('goal-funding-gcash')), findsOneWidget);
       expect(find.text('Bank · ₱8,000 available'), findsOneWidget);
       expect(find.text('3% interest a year'), findsOneWidget);
-
-      await choose(tester, 'Add account');
-      expect(find.byKey(const Key('goal-funding-gcash')), findsOneWidget);
       expect(find.text('GCash · ₱3,000 available'), findsOneWidget);
       expect(find.text('No yearly interest rate recorded.'), findsOneWidget);
       // Every account is in, so there is nothing left to add.
@@ -11256,7 +11287,6 @@ void main() {
 
       await enterFunding(tester, 'cash', '2000');
       await enterFunding(tester, 'bpi', '5000');
-      await choose(tester, 'Add account');
       await enterFunding(tester, 'gcash', '3000');
 
       expect(find.text('Total set aside'), findsOneWidget);
@@ -11356,7 +11386,6 @@ void main() {
       await tester.enterText(find.byType(TextField).at(1), '9000');
       await enterFunding(tester, 'cash', '5000');
       await enterFunding(tester, 'bpi', '2000');
-      await choose(tester, 'Add account');
       await enterFunding(tester, 'gcash', '3000');
       await tester.tap(find.text('Save Goal'));
       await tester.pump();
@@ -11397,8 +11426,7 @@ void main() {
       await tester.enterText(find.byType(TextField).at(1), '50000');
 
       await choose(tester, 'Cash in Bank');
-      await choose(tester, 'Add account');
-      await choose(tester, 'Add account');
+      // Every account is listed at once, so there is nothing to add.
       expect(find.text('Add account'), findsNothing);
       await enterFunding(tester, 'bpi', '8000');
       await enterFunding(tester, 'maya', '15000');
@@ -11513,7 +11541,6 @@ void main() {
       expect(find.textContaining('Fix the amount in red'), findsNothing);
       expect(find.text('Total set aside'), findsOneWidget);
 
-      await choose(tester, 'Add account');
       await enterFunding(tester, 'gcash', '5000');
       expect(
         find.text('Only ₱3,000 in GCash is free to set aside.'),
@@ -13464,10 +13491,7 @@ void main() {
           bill('Phone', DateTime(2026, 9, 30), amount: 2400),
           bill('Tv', DateTime(2026, 9, 30), amount: 1600),
         ],
-        schedules: [
-          schedule('Phone', 'd-phone'),
-          schedule('Tv', 'd-tv'),
-        ],
+        schedules: [schedule('Phone', 'd-phone'), schedule('Tv', 'd-tv')],
         debts: [...debts, debt('d-tv', DebtCategory.gadget)],
       ).where((r) => r.at.day == 30).single;
       expect(bothOnPlan.title, '2 installments due today');

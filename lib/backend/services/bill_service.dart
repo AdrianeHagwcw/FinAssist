@@ -257,26 +257,22 @@ class BillService {
   }) {
     final trimmedName = name.trim();
 
-    batch.set(
-      _bills.doc(billId),
-      <String, dynamic>{
-        'name': trimmedName.isEmpty ? 'Bill' : trimmedName,
-        'amount': amount.abs(),
-        'firstDueDate': Timestamp.fromDate(
-          DateTime(firstDueDate.year, firstDueDate.month, firstDueDate.day),
-        ),
-        'recurrence': recurrence.name,
-        'endDate': Timestamp.fromDate(
-          DateTime(endDate.year, endDate.month, endDate.day),
-        ),
-        // Set when the last payment differs, and taken away when it no
-        // longer does, so an earlier plan's last payment can't be left over.
-        'lastAmount': lastAmount ?? FieldValue.delete(),
-        'interestShare': interestShare,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_bills.doc(billId), <String, dynamic>{
+      'name': trimmedName.isEmpty ? 'Bill' : trimmedName,
+      'amount': amount.abs(),
+      'firstDueDate': Timestamp.fromDate(
+        DateTime(firstDueDate.year, firstDueDate.month, firstDueDate.day),
+      ),
+      'recurrence': recurrence.name,
+      'endDate': Timestamp.fromDate(
+        DateTime(endDate.year, endDate.month, endDate.day),
+      ),
+      // Set when the last payment differs, and taken away when it no
+      // longer does, so an earlier plan's last payment can't be left over.
+      'lastAmount': lastAmount ?? FieldValue.delete(),
+      'interestShare': interestShare,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// One worked-out payment of a bill, for callers rewriting or taking away
@@ -521,7 +517,9 @@ class BillService {
   ///
   /// Safe to call every time the month is opened: ids come from the bill and
   /// the due date, and anything already there is left exactly as it is, so a
-  /// payment can never be overwritten by a later visit.
+  /// payment can never be overwritten by a later visit. The only thing filled
+  /// in on an occurrence already there is the plan it belongs to, which
+  /// earlier months were made without.
   static Future<int> ensureInstances({
     required List<Bill> bills,
     required int year,
@@ -563,6 +561,7 @@ class BillService {
         'carriedOver': occurrence.carried,
         'paymentIds': <String>[],
         'walletId': bill.walletId,
+        if (bill.debtId != null) 'debtId': bill.debtId,
         if (bill.interestShare > 0) 'interestShare': bill.interestShare,
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -582,7 +581,22 @@ class BillService {
       closed++;
     }
 
-    if (created + closed > 0) {
+    // Occurrences made before their schedule said which plan it is a payment
+    // of. Written in now, so paying one reads the same way everywhere as a
+    // payment recorded after the plan was remembered.
+    final planOf = {
+      for (final bill in bills)
+        if (bill.debtId != null) bill.id: bill.debtId,
+    };
+    var filled = 0;
+    for (final instance in monthInstances) {
+      final debtId = planOf[instance.billId];
+      if (debtId == null || instance.debtId != null) continue;
+      batch.update(_instances.doc(instance.id), {'debtId': debtId});
+      filled++;
+    }
+
+    if (created + closed + filled > 0) {
       commitFirestoreWrite(batch.commit(), 'add bill dates');
     }
 
@@ -721,6 +735,9 @@ class BillService {
       date: date,
       collectDeltasInto: collectDeltasInto,
       billInstanceId: instance.id,
+      // What the row calls it: a payment of the plan behind the bill, not
+      // the bill category it is counted under in Reports.
+      installmentPayment: instance.debtId != null,
       // An installment's interest is kept apart inside the same payment, so
       // Reports can show what borrowing cost.
       interest: instance.interestIn(amount),

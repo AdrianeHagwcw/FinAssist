@@ -22,6 +22,7 @@ Future<bool> showAdvancePaymentSheet(
   BuildContext context, {
   required Debt debt,
   required DebtNextPayment next,
+  Stream<List<Wallet>>? wallets,
 }) async {
   final recorded = await showModalBottomSheet<bool>(
     context: context,
@@ -31,7 +32,8 @@ Future<bool> showAdvancePaymentSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) => AdvancePaymentSheet(debt: debt, next: next),
+    builder: (context) =>
+        AdvancePaymentSheet(debt: debt, next: next, wallets: wallets),
   );
   if (recorded == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -175,9 +177,7 @@ class _AdvancePaymentSheetState extends State<AdvancePaymentSheet>
     );
     if (ok != true || !mounted) return;
 
-    final parts = [
-      BillPaymentPart(walletId: wallet.id, amount: _amount),
-    ];
+    final parts = [BillPaymentPart(walletId: wallet.id, amount: _amount)];
     final instance = widget.next.instance;
     if (instance == null) return;
     if (widget.onPay != null) {
@@ -258,7 +258,8 @@ class _AdvancePaymentSheetState extends State<AdvancePaymentSheet>
                     controller: _amountController,
                     label: 'Amount you will pay',
                     hint: 'e.g. 2,000',
-                    helper: 'What your latest statement asks for. It can be '
+                    helper:
+                        'What your latest statement asks for. It can be '
                         'less; what is left stays owed on this payment.',
                     alwaysShowHint: true,
                     autofocus: false,
@@ -306,7 +307,8 @@ class _AdvancePaymentSheetState extends State<AdvancePaymentSheet>
                   const SizedBox(height: 10),
                   if (wallet == null) ...[
                     const DialogNote(
-                      text: 'The wallet this installment was charged to is '
+                      text:
+                          'The wallet this installment was charged to is '
                           'not in Accounts any more. Pay this payment in the '
                           'Bill Planner instead.',
                     ),

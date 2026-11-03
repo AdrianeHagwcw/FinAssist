@@ -154,9 +154,7 @@ void main() {
     );
 
     // The dialog's answer, not the sheet's own button showing behind it.
-    await tester.tap(
-      find.widgetWithText(TextButton, 'Pay it off early'),
-    );
+    await tester.tap(find.widgetWithText(TextButton, 'Pay it off early'));
     await tester.pumpAndSettle();
     expect(paid, [13500]);
     expect(on, DateTime(2026, 10, 28));
@@ -294,6 +292,7 @@ void main() {
         liveDebt: Stream.value(installment()),
         payments: Stream.value(const []),
         wallets: Stream.value(const [cash]),
+        today: DateTime(2026, 6, 15),
       ),
     );
     expect(find.byKey(const Key('advance-open')), findsNothing);
@@ -302,7 +301,8 @@ void main() {
     expect(find.byKey(const Key('payoff-open')), findsNothing);
     expect(find.text('Paid it off early'), findsNothing);
 
-    // One that did: the next payment can be paid ahead of time.
+    // One that did, with June's payment made: what waits is July's, ahead
+    // of its date, so paying ahead is what is on offer.
     final named = installment(paidWithWalletId: 'cash');
     await pump(
       tester,
@@ -310,8 +310,20 @@ void main() {
         key: const Key('named'),
         debt: named,
         liveDebt: Stream.value(named),
-        payments: Stream.value(const []),
+        payments: Stream.value([
+          BillInstance(
+            id: 'i2026-6',
+            billId: 'bill',
+            name: 'iPhone 15',
+            amount: 4000,
+            category: 'Bills',
+            dueDate: DateTime(2026, 6, 10),
+            status: BillStatus.paid,
+            amountPaid: 4000,
+          ),
+        ]),
         wallets: Stream.value(const [cash]),
+        today: DateTime(2026, 6, 15),
       ),
     );
     expect(find.byKey(const Key('advance-open')), findsOneWidget);
@@ -327,29 +339,16 @@ void main() {
 
   testWidgets('a debt being paid offers to pay it off early', (tester) async {
     await pump(tester, detail(loan(), const []));
-    expect(find.text('Pay in Bill Planner'), findsOneWidget);
     expect(find.byKey(const Key('payoff-open')), findsOneWidget);
     expect(find.byKey(const Key('payoff-undo')), findsNothing);
 
-    // Both of them only open something, so they read the same solid blue
-    // ("Pay in Bill Planner" is an ElevatedButton.icon, whose widget type is
-    // its own private one, so it is reached through its label instead of
-    // by type).
+    // It only opens something, so it is blue like the other openers.
     Color? fillOf(ButtonStyle? style) =>
         style?.backgroundColor?.resolve(const <WidgetState>{});
     final payoffFill = fillOf(
       tester.widget<ElevatedButton>(find.byKey(const Key('payoff-open'))).style,
     );
-    final plannerFill = fillOf(
-      tester.widget<ElevatedButton>(
-        find.ancestor(
-          of: find.text('Pay in Bill Planner'),
-          matching: find.byWidgetPredicate((w) => w is ElevatedButton),
-        ),
-      ).style,
-    );
     expect(payoffFill, appPrimaryBlue);
-    expect(plannerFill, appPrimaryBlue);
   });
 
   testWidgets('paid off early: says so, lists it, and can be undone', (

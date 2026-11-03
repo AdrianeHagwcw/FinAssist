@@ -30,6 +30,10 @@ enum TransactionType {
   }
 }
 
+/// What a payment of a loan or an installment plan reads as in a list of
+/// transactions, instead of the bill category it is counted under.
+const String installmentPaymentLabel = 'Payment of installment payable';
+
 /// One entry in `users/{uid}/transactions`: an expense, an income, or a
 /// transfer between two wallets.
 ///
@@ -49,6 +53,7 @@ class AppTransaction {
     this.billInstanceId,
     this.debtId,
     this.interest = 0,
+    this.installmentPayment = false,
   });
 
   /// Reads a stored transaction document.
@@ -78,6 +83,7 @@ class AppTransaction {
       billInstanceId: _asString(map['billInstanceId']),
       debtId: _asString(map['debtId']),
       interest: _asDouble(map['interest']).abs(),
+      installmentPayment: map['installmentPayment'] == true,
     );
   }
 
@@ -125,6 +131,20 @@ class AppTransaction {
   /// own category, the way an accountant splits a loan payment into the
   /// amount paid back and the interest. Zero for everything else.
   final double interest;
+
+  /// True when this expense paid one scheduled payment of a loan or an
+  /// installment plan.
+  ///
+  /// The money leaves the same wallet for the same amount either way, and
+  /// Reports still counts it under its [label]; only what a list calls it
+  /// changes, because "Bills" says nothing about which bill was paid.
+  final bool installmentPayment;
+
+  bool get isInstallmentPayment => installmentPayment;
+
+  /// What a list calls this transaction: what it paid, rather than the
+  /// category it is grouped under.
+  String get title => installmentPayment ? installmentPaymentLabel : label;
 
   /// Where this expense's money went, by category: the payment under its
   /// own label, and any interest in it under Interest. Together they add up

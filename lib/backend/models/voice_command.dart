@@ -23,7 +23,9 @@ enum VoiceDestination {
 }
 
 /// What a voice command does. Everything but [navigation] opens the app's
-/// own form with what was said filled in; the user checks it and saves.
+/// own screen: a form filled in with what was said, or — for paying a plan
+/// — that plan's own paying screen. The user checks it before anything is
+/// saved.
 enum VoiceCommandType {
   expense,
   income,
@@ -34,6 +36,15 @@ enum VoiceCommandType {
   debt,
   wallet,
   navigation,
+
+  /// Takes this month's due of an installment or loan: Pay Now's own
+  /// screens, with the plan found from what was said or the only one there
+  /// is.
+  payNow,
+
+  /// Takes the next payment of an installment ahead of its date: paying in
+  /// advance's own screens.
+  payInAdvance,
 }
 
 class VoiceCommand {
@@ -55,7 +66,8 @@ class VoiceCommand {
   final String? incomeSource;
   final VoiceDestination? destination;
 
-  /// What to call the new bill, goal, installment, debt or wallet, as said.
+  /// What to call the new bill, goal, installment, debt or wallet — or the
+  /// plan being paid, as in "pay the iPhone installment" — as said.
   final String? name;
 
   /// The wallets a transfer is from and to, as said.
@@ -131,8 +143,42 @@ VoiceCommand interpretVoiceCommand(
   // the same words with "open" or alone go to the section.
   final wantsForm = !opening && (adding || amount != null);
   String? nameAfter() => _nameFrom(forAmount);
-  // Paying one is done in the Bill Planner, so it is marked paid there.
+  // Paying: a bill is marked paid in the Bill Planner; the installment or
+  // loan itself is taken on its own page, where Pay Now and paying in
+  // advance live.
   final paying = _has(text, _payVerbs);
+  final forPlan = _has(text, _installmentWords) || _has(text, _debtWords);
+  final noBill = !_has(text, _billWords);
+
+  // Paying ahead of the plan's own dates, said on its own or of the plan:
+  // "pay in advance", "hulog nang maaga", "bayad next month". Checked
+  // before paying now, which the same phrase can contain. The short
+  // "when" words only count said of paying or of the plan, and adding a
+  // plan that starts next month is still the form rather than a payment.
+  if (!opening &&
+      noBill &&
+      (!adding || paying) &&
+      (_has(text, _advanceWords) ||
+          ((paying || forPlan) &&
+              (forPlan || amount == null) &&
+              _has(text, _aheadWhen)))) {
+    return command(VoiceCommandType.payInAdvance, name: nameAfter());
+  }
+  // Paying the plan itself: said of the plan, or as the Pay Now button is
+  // called — "pay now", "bayad ngayon". Bills are never meant here, so a
+  // bill word sends it on to the Bill Planner below.
+  if (!opening && noBill && paying && forPlan) {
+    return command(VoiceCommandType.payNow, name: nameAfter());
+  }
+  if (!opening && noBill && _has(text, _nowPay)) {
+    return command(VoiceCommandType.payNow, name: nameAfter());
+  }
+  // "Bayad na", "nagbayad na ako" said on its own: what Pay Now says when
+  // the month's due is already taken — but only with no amount of its
+  // own, which makes it an expense being recorded.
+  if (!opening && noBill && amount == null && _has(text, _alreadyPaid)) {
+    return command(VoiceCommandType.payNow, name: nameAfter());
+  }
 
   if (_has(text, _moveVerbs)) {
     final (from, to) = _walletsIn(text);
@@ -173,13 +219,11 @@ VoiceCommand interpretVoiceCommand(
   }
 
   if (_has(text, _installmentWords)) {
-    if (paying) return open(VoiceDestination.bills);
     return wantsForm
         ? command(VoiceCommandType.installment, name: nameAfter())
         : open(VoiceDestination.installments);
   }
   if (_has(text, _debtWords)) {
-    if (paying) return open(VoiceDestination.bills);
     return wantsForm
         ? command(VoiceCommandType.debt, name: nameAfter())
         : open(VoiceDestination.debts);
@@ -287,7 +331,48 @@ const _spendVerbs =
 
 const _payVerbs =
     r'pay|paid|paying|bayad|magbayad|nagbayad|binayaran|bayaran|babayaran|'
-    r'naghulog|maghulog|ihulog|naghuhulog|maghuhulog';
+    r'hulog|naghulog|maghulog|ihulog|naghuhulog|maghuhulog|'
+    r'settle|settled|settling|isettle|nag settle|mag settle';
+
+/// Paying a plan ahead of its own dates: "pay in advance", "hulog nang
+/// maaga", "hulog sa susunod na buwan", and the Taglish mixes of the two.
+const _advanceWords =
+    r'in advance|pay ahead|paying ahead|pay next month|advance payment|'
+    r'payments in advance|early payment|early payments|prepay|prepaying|'
+    r'advance na|ahead na|'
+    r'hulog ahead|bayad ahead|hulog nang maaga|hulog ng maaga|'
+    r'maghulog nang maaga|naghulog nang maaga|bayaran nang maaga|'
+    r'bayad nang maaga|magbayad nang maaga|maagang hulog|maagang bayad|'
+    r'hulog sa susunod na buwan|bayad sa susunod na buwan|'
+    r'bayaran sa susunod na buwan|sa susunod na hulog';
+
+/// The same thing said of when rather than in full phrases: "early",
+/// "maaga", "next month", "susunod na buwan" — said of paying or of the
+/// plan, so an expense or income naming a month is never taken for one.
+const _aheadWhen =
+    r'early|earlier|maaga|next month|susunod na buwan|susunod na buwanan';
+
+/// The Pay Now button's own words, which say the plan is meant even
+/// without naming it: "pay now", "bayad ngayon", "bayaran na", "hulugan
+/// mo na".
+/// The Pay Now button's own words, which say the plan is meant even
+/// without naming it: "pay now", "bayad ngayon", "bayaran na", "hulugan
+/// mo na".
+const _nowPay =
+    r'pay now|pay today|pay na|pay it now|pay that now|pay natin|'
+    r'bayad ngayon|bayaran ngayon|magbayad ngayon|'
+    r'hulog ngayon|ihulog ngayon|maghulog ngayon|'
+    r'bayaran na|bayaran ko na|bayaran mo na|bayaran natin|'
+    r'hulugan na|hulugan mo|hulugan ko|hulugan natin|hulugan niyo|'
+    r'hulog na|hulog ko na|hulog mo na|hulog natin|'
+    r'ihulog na|maghulog na|naghulog na';
+
+/// "I already paid" said on its own: Pay Now's "already paid" screen.
+/// With an amount and no plan named it is an expense being recorded
+/// instead — "nagbayad na ako ng 500 sa jeep" — so the amount holds it
+/// back until the plan's own words bring it here.
+const _alreadyPaid =
+    r'paid na|bayad na|bayad ko na|bayad mo na|nagbayad na|binayaran na';
 
 const _moveVerbs =
     r'transfer|move|moved|ilipat|lipat|maglipat|inilipat|nilipat|'
@@ -307,7 +392,7 @@ const _savingsWords =
 const _installmentWords =
     r'installment|installments|instalment|instalments|hulugan|hulog|'
     r'hinuhulugan|hinulugan|inhulugan|hulugang|naghulog|maghulog|ihulog|'
-    r'naghuhulog|maghuhulog';
+    r'naghuhulog|maghuhulog|amortization|amortizations|amortisation';
 const _debtWords =
     r'debt|debts|loan|loans|utang|utangan|nangutang|umutang|inutang|'
     r'humiram|hiniram|borrowed|borrow|mangutang|uutang';
@@ -480,6 +565,13 @@ const _notName = {
   'linggo', 'lingguhan', 'taon', 'beses', 'gusto', 'kong', 'pa', 'din',
   'rin', 'naman', 'tapos', 'isang', 'halaga', 'nagkakahalaga',
   'iadd', 'irecord',
+  // Paying a plan, so those words are never taken for what it is called
+  'pay', 'paid', 'paying', 'now', 'today', 'ngayon', 'kaagad', 'agad',
+  'advance', 'ahead', 'next', 'susunod', 'maaga', 'bayaran', 'magbayad',
+  'nagbayad', 'binayaran', 'maghulog', 'naghulog', 'ihulog', 'naghuhulog',
+  'maghuhulog', 'settle', 'settled', 'settling', 'isettle', 'early',
+  'earlier', 'amortization', 'amortizations', 'amortisation', 'natin',
+  'namin', 'niyo', 'nyo', 'tayo',
 };
 
 /// What the bill, goal, installment, debt or wallet is called: what was

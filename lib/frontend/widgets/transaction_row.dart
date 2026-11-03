@@ -95,7 +95,7 @@ class TransactionRow extends StatelessWidget {
     final title = t.type == TransactionType.transfer
         ? '${walletNameFor(wallets, t.walletId)} → '
               '${walletNameFor(wallets, t.toWalletId)}'
-        : t.label;
+        : t.title;
 
     final details = [
       direction.label,
