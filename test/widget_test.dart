@@ -21,7 +21,6 @@ import 'package:testapp/backend/models/reminder.dart';
 import 'package:testapp/backend/models/finance_snapshot.dart';
 import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/backend/services/bill_service.dart';
-import 'package:testapp/backend/services/budget_service.dart';
 import 'package:testapp/backend/models/transaction_filter.dart';
 import 'package:testapp/backend/models/transfer_direction.dart';
 import 'package:testapp/frontend/providers/app_settings_provider.dart';
@@ -35,7 +34,6 @@ import 'package:testapp/frontend/screens/financial_setup_screen.dart';
 import 'package:testapp/frontend/screens/forgot_password_screen.dart';
 import 'package:testapp/frontend/screens/goals_screen.dart';
 import 'package:testapp/frontend/screens/income_waterfall_screen.dart';
-import 'package:testapp/frontend/screens/leftover_review_screen.dart';
 import 'package:testapp/frontend/screens/login_screen.dart';
 import 'package:testapp/frontend/screens/main_shell.dart';
 import 'package:testapp/frontend/screens/home_screen.dart';
@@ -1731,7 +1729,6 @@ void main() {
         settings: const ReminderSettings(enabled: true, priorities: []),
         bills: const [],
         goals: const [],
-        cycles: const [],
         wallets: [timeDeposit],
         transactions: const [],
         now: DateTime(2026, 12, 30),
@@ -3672,14 +3669,10 @@ void main() {
         find.text('What should we remind you about most?'),
         findsOneWidget,
       );
-      for (final count in [
-        '4 reminders',
-        '3 reminders',
-        '2 reminders',
-        '1 reminder',
-      ]) {
+      for (final count in ['4 reminders', '3 reminders', '2 reminders']) {
         expect(find.text(count), findsOneWidget, reason: count);
       }
+      expect(find.text('1 reminder'), findsNothing);
 
       // The first priority can't move up; moving it down swaps it.
       final moveUp = find.byTooltip('Move "Pay bills on time" up');
@@ -8306,7 +8299,6 @@ void main() {
       expect(period.start, DateTime(2026, 2, 1));
       expect(period.end, DateTime(2026, 3, 1));
       expect(period.daysLeft(DateTime(2026, 2, 28)), 1);
-      expect(period.isLastDay(DateTime(2026, 2, 28)), isTrue);
     });
   });
 
@@ -8536,52 +8528,18 @@ void main() {
     });
   });
 
-  group('leftover review', () {
-    AllocationCycle cycle({
-      double remaining = 2000,
-      DateTime? receivedAt,
-      LeftoverDecision? decision,
-    }) {
-      return AllocationCycle(
-        id: 'c',
-        income: 5000,
-        remaining: remaining,
-        receivedAt: receivedAt ?? DateTime(2026, 3, 1),
-        source: 'Allowance',
-        decision: decision,
-      );
-    }
-
-    test('is due on the last day of the month, not before', () {
-      final cycles = [cycle()];
-
-      expect(cycleAwaitingReview(cycles, now: DateTime(2026, 3, 30)), isNull);
-      expect(
-        cycleAwaitingReview(cycles, now: DateTime(2026, 3, 31)),
-        isNotNull,
-      );
-    });
-
-    test('a decided leftover is not asked about again, a deferred one is', () {
-      final late = DateTime(2026, 4, 5);
-
-      expect(
-        cycleAwaitingReview([
-          cycle(decision: LeftoverDecision.saved),
-        ], now: late),
-        isNull,
-      );
-      expect(
-        cycleAwaitingReview([
-          cycle(decision: LeftoverDecision.pending),
-        ], now: late),
-        isNotNull,
-      );
-    });
-
+  group('a month in Cash Inflows', () {
     test("what is left is the month's money in less its money out", () {
       final months = monthFlows(
-        [cycle()],
+        [
+          AllocationCycle(
+            id: 'c',
+            income: 5000,
+            remaining: 2000,
+            receivedAt: DateTime(2026, 3, 1),
+            source: 'Allowance',
+          ),
+        ],
         [
           AppTransaction(
             id: 'in',
@@ -8614,191 +8572,6 @@ void main() {
       // April has no money in, so only March is an inflow month.
       expect(months, hasLength(1));
       expect(months.single.left, 1300);
-      expect(months.single.leftToDecide, 1300);
-    });
-
-    Future<void> pumpReview(
-      WidgetTester tester, {
-      required void Function(LeftoverDecision, double, double) onResolve,
-      void Function(LeftoverSaving saving)? onSaving,
-      List<Goal> goals = const [
-        Goal(
-          id: 'trip',
-          name: 'Trip',
-          targetAmount: 10000,
-          savedAmount: 0,
-          priority: 0,
-          status: GoalStatus.active,
-        ),
-      ],
-    }) async {
-      tester.view.physicalSize = const Size(700, 1800);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      await tester.pumpWidget(
-        ChangeNotifierProvider(
-          create: (_) => AppSettingsProvider(),
-          child: MaterialApp(
-            theme: AppTheme.light,
-            home: LeftoverReviewScreen(
-              cycle: cycle(),
-              leftover: 1000,
-              periodEnd: DateTime(2026, 3, 16),
-              onResolve: onResolve,
-              onSaving: onSaving,
-              wallets: Stream.value([
-                Wallet(
-                  id: 'w',
-                  name: 'Cash',
-                  type: WalletType.cash,
-                  balance: 5000,
-                  startingBalance: 5000,
-                  receivesIncome: true,
-                  archived: false,
-                  sortOrder: 0,
-                ),
-              ]),
-              goals: Stream.value(goals),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-    }
-
-    Future<void> fromCash(WidgetTester tester) async {
-      await tester.ensureVisible(find.text('Cash on Hand'));
-      await tester.tap(find.text('Cash on Hand'));
-      await tester.pumpAndSettle();
-    }
-
-    testWidgets('asks for a choice before confirming', (tester) async {
-      LeftoverDecision? decided;
-      await pumpReview(tester, onResolve: (d, _, _) => decided = d);
-
-      await tester.tap(find.text('Confirm'));
-      await tester.pump();
-
-      expect(find.text('Choose what to do with it first.'), findsOneWidget);
-      expect(decided, isNull);
-
-      // Choosing is the fix, so the message goes with it.
-      await tester.tap(find.text('Save it'));
-      await tester.pump();
-      expect(find.text('Choose what to do with it first.'), findsNothing);
-      expect(decided, isNull);
-    });
-
-    testWidgets('saving records the whole amount, where it went', (
-      tester,
-    ) async {
-      LeftoverDecision? decided;
-      double? saved;
-      LeftoverSaving? saving;
-      await pumpReview(
-        tester,
-        onResolve: (d, s, _) {
-          decided = d;
-          saved = s;
-        },
-        onSaving: (value) => saving = value,
-      );
-
-      await tester.tap(find.text('Save it'));
-      await tester.pumpAndSettle();
-      // Toward the goal, and it stays in the cash it is in.
-      expect(find.text('Goal: Trip'), findsOneWidget);
-      await fromCash(tester);
-      await tester.ensureVisible(find.text('Confirm'));
-      await tester.tap(find.text('Confirm'));
-      await tester.pumpAndSettle();
-
-      expect(decided, LeftoverDecision.saved);
-      expect(saved, 1000);
-      expect(saving?.goal?.id, 'trip');
-      expect(saving?.from, {'w': 1000});
-    });
-
-    testWidgets('with no goal or savings account, saving says what to add', (
-      tester,
-    ) async {
-      LeftoverDecision? decided;
-      await pumpReview(
-        tester,
-        goals: const [],
-        onResolve: (d, _, _) => decided = d,
-      );
-
-      await tester.tap(find.text('Save it'));
-      await tester.pump();
-      await tester.tap(find.text('Confirm'));
-      await tester.pump();
-
-      expect(
-        find.text(
-          'To save it, first add a goal in Goals or a savings account in '
-          'Savings.',
-        ),
-        findsOneWidget,
-      );
-      expect(decided, isNull);
-    });
-
-    testWidgets('a split must add up to the leftover', (tester) async {
-      LeftoverDecision? decided;
-      await pumpReview(tester, onResolve: (d, _, _) => decided = d);
-
-      await tester.tap(find.text('Split it'));
-      await tester.pump();
-      await tester.enterText(find.byType(TextField).first, '800');
-      await tester.tap(find.text('Confirm'));
-      await tester.pump();
-
-      expect(find.textContaining('must add up to ₱1,000'), findsOneWidget);
-      expect(decided, isNull);
-
-      // Gone as soon as they add up, before Confirm is tapped again.
-      await tester.enterText(find.byType(TextField).at(1), '200');
-      await tester.pump();
-      expect(find.textContaining('must add up to'), findsNothing);
-      await fromCash(tester);
-      await tester.ensureVisible(find.text('Confirm'));
-      await tester.tap(find.text('Confirm'));
-      await tester.pumpAndSettle();
-
-      expect(decided, LeftoverDecision.split);
-    });
-
-    testWidgets('a split typed with commas is read', (tester) async {
-      double? saved;
-      await pumpReview(tester, onResolve: (_, s, _) => saved = s);
-
-      await tester.tap(find.text('Split it'));
-      await tester.pump();
-      // Typed as 1000, shown as 1,000.
-      await tester.enterText(find.byType(TextField).first, '1000');
-      await tester.enterText(find.byType(TextField).at(1), '0');
-      await tester.pump();
-      await fromCash(tester);
-      await tester.ensureVisible(find.text('Confirm'));
-      await tester.tap(find.text('Confirm'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Enter both amounts.'), findsNothing);
-      expect(saved, 1000);
-    });
-
-    testWidgets('deciding later leaves it pending', (tester) async {
-      LeftoverDecision? decided;
-      await pumpReview(tester, onResolve: (d, _, _) => decided = d);
-
-      await tester.tap(find.text('Decide later'));
-      await tester.pumpAndSettle();
-
-      expect(decided, LeftoverDecision.pending);
     });
   });
 
@@ -13212,7 +12985,6 @@ void main() {
       List<Bill> schedules = const [],
       List<Debt> debts = const [],
       List<Goal> goals = const [],
-      List<AllocationCycle> cycles = const [],
       List<AppTransaction> transactions = const [],
       List<Wallet> wallets = const [],
       required DateTime now,
@@ -13224,7 +12996,6 @@ void main() {
       debts: debts,
       goals: goals,
       wallets: wallets,
-      cycles: cycles,
       transactions: transactions,
       now: now,
     ).where((r) => only == null || r.kind == only).toList();
@@ -13233,22 +13004,20 @@ void main() {
       final settings = ReminderSettings.fromProfile(
         profile([
           FinancialPriority.trackSpending,
-          FinancialPriority.generalSavings,
           FinancialPriority.payBills,
           FinancialPriority.saveForGoal,
         ]),
       );
-      // #1 gets 4, #2 gets 3, #3 gets 2, #4 gets 1.
+      // #1 gets 4, #2 gets 3, #3 gets 2.
       expect(settings.timesFor(ReminderKind.dailyLog), 4);
-      expect(settings.timesFor(ReminderKind.leftover), 3);
-      expect(settings.timesFor(ReminderKind.bills), 2);
-      expect(settings.timesFor(ReminderKind.goals), 1);
-      // Even #4 gets one, so every reminder starts on.
+      expect(settings.timesFor(ReminderKind.bills), 3);
+      expect(settings.timesFor(ReminderKind.goals), 2);
+      // Even #3 gets two, so every reminder starts on.
       for (final kind in ReminderKind.values) {
         expect(settings.isOn(kind), isTrue, reason: kind.name);
       }
       expect(reminderCountText(1), '4 reminders');
-      expect(reminderCountText(4), '1 reminder');
+      expect(reminderCountText(3), '2 reminders');
     });
 
     test('re-ranking changes the counts, not what was switched off', () {
@@ -13290,17 +13059,15 @@ void main() {
           FinancialPriority.trackSpending,
           FinancialPriority.payBills,
           FinancialPriority.saveForGoal,
-          FinancialPriority.generalSavings,
         ],
         reason: 'missing priorities go last, unknown ones are ignored',
       );
     });
 
-    test('bills get 4, 3, 2 or 1 reminders by rank, at 9 AM', () {
+    test('bills get 4, 3 or 2 reminders by rank, at 9 AM', () {
       ReminderSettings billsAt(int place) {
         final order = [
           FinancialPriority.saveForGoal,
-          FinancialPriority.generalSavings,
           FinancialPriority.trackSpending,
         ]..insert(place - 1, FinancialPriority.payBills);
         return ReminderSettings.fromProfile(profile(order));
@@ -13333,11 +13100,10 @@ void main() {
         'Internet is due tomorrow @ 9/24 9h',
         'Internet is due today @ 9/25 9h',
       ]);
-      expect(times(4), ['Internet is due today @ 9/25 9h']);
 
       final single = plan(
-        billsAt(4),
-        now: now,
+        billsAt(3),
+        now: DateTime(2026, 9, 24, 10),
         bills: internet,
         only: ReminderKind.bills,
       ).single;
@@ -13636,17 +13402,9 @@ void main() {
       expect(
         goalTimes(const [
           FinancialPriority.payBills,
-          FinancialPriority.generalSavings,
-        ]),
-        2,
-      );
-      expect(
-        goalTimes(const [
-          FinancialPriority.payBills,
-          FinancialPriority.generalSavings,
           FinancialPriority.trackSpending,
         ]),
-        1,
+        2,
       );
     });
 
@@ -14164,7 +13922,7 @@ void main() {
         reason: 'an emptied record has nothing to come due',
       );
     });
-    test('logging comes 4, 3, 2 or 1 times a week by rank', () {
+    test('logging comes 4, 3 or 2 times a week by rank', () {
       // Friday, Sep 18, 2026.
       final now = DateTime(2026, 9, 18, 13);
       List<int> days(List<FinancialPriority> order, {bool logged = false}) => [
@@ -14194,69 +13952,15 @@ void main() {
         21,
         23,
       ]);
-      // #4: Sundays only.
-      expect(days(const []), [20]);
-      final one = plan(
+      // #3, last: Wednesdays and Sundays.
+      expect(days(const []), [20, 23]);
+      final first = plan(
         ReminderSettings.fromProfile(profile(const [])),
         now: now,
         only: ReminderKind.dailyLog,
-      ).single;
-      expect(one.at, DateTime(2026, 9, 20, 20));
-      expect(one.title, 'Time to log your spending');
-    });
-
-    test('the leftover question comes as the month ends', () {
-      final settings = ReminderSettings.fromProfile(
-        profile(const [FinancialPriority.generalSavings]),
-      );
-      final cycle = AllocationCycle(
-        id: 'c',
-        income: 5000,
-        remaining: 3000,
-        receivedAt: DateTime(2026, 9, 1),
-        source: 'Allowance',
-      );
-
-      // Leftover money is #1, so 4: 3 days before the month ends, the night
-      // before, the morning of the 1st, and 2 days after.
-      final ending = plan(
-        settings,
-        now: DateTime(2026, 9, 18),
-        cycles: [cycle],
-        only: ReminderKind.leftover,
-      );
-      expect(ending.map((r) => r.at), [
-        DateTime(2026, 9, 28, 19),
-        DateTime(2026, 9, 30, 19),
-        DateTime(2026, 10, 1, 9),
-        DateTime(2026, 10, 3, 9),
-      ]);
-      expect(ending[1].title, 'This month ends tomorrow');
-      expect(ending.every((r) => r.payload == 'leftover'), isTrue);
-
-      final stillWaiting = plan(
-        settings,
-        now: DateTime(2026, 10, 2, 12),
-        cycles: [cycle],
-        only: ReminderKind.leftover,
-      );
-      expect(stillWaiting.single.at, DateTime(2026, 10, 3, 9));
-      expect(stillWaiting.single.title, 'Last reminder: your leftover');
-
-      // At #4, only the night before.
-      final last = plan(
-        ReminderSettings.fromProfile(
-          profile(const [
-            FinancialPriority.payBills,
-            FinancialPriority.saveForGoal,
-            FinancialPriority.trackSpending,
-          ]),
-        ),
-        now: DateTime(2026, 9, 18),
-        cycles: [cycle],
-        only: ReminderKind.leftover,
-      );
-      expect(last.single.at, DateTime(2026, 9, 30, 19));
+      ).first;
+      expect(first.at, DateTime(2026, 9, 20, 20));
+      expect(first.title, 'Time to log your spending');
     });
 
     test('only the usual pay starts a new pay period', () {
@@ -14422,7 +14126,6 @@ void main() {
       const order = [
         FinancialPriority.payBills,
         FinancialPriority.saveForGoal,
-        FinancialPriority.generalSavings,
         FinancialPriority.trackSpending,
       ];
 
@@ -14436,7 +14139,7 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.text('"Just track my spending" is #4 for you: 1 reminder.'),
+          find.text('"Just track my spending" is #3 for you: 2 reminders.'),
           findsOneWidget,
         );
         // Each card says when, for the count it gets.
@@ -14446,10 +14149,13 @@ void main() {
           ),
           findsOneWidget,
         );
-        expect(find.text('Sundays at 8 PM.'), findsOneWidget);
+        expect(find.text('Wednesday and Sunday at 8 PM.'), findsOneWidget);
         // Each rank shows what it is worth; no separate days-before choice.
         expect(find.text('4 reminders'), findsOneWidget);
-        expect(find.text('1 reminder'), findsOneWidget);
+        expect(find.text('2 reminders'), findsOneWidget);
+        // Nothing left that no reminder follows.
+        expect(find.text('Build general savings'), findsNothing);
+        expect(find.text('Leftover money'), findsNothing);
         expect(find.text('3 days before'), findsNothing);
       });
 
@@ -14464,9 +14170,8 @@ void main() {
         await tester.tap(find.byTooltip('Move "Just track my spending" up'));
         expect(saved, [
           FinancialPriority.payBills,
-          FinancialPriority.saveForGoal,
           FinancialPriority.trackSpending,
-          FinancialPriority.generalSavings,
+          FinancialPriority.saveForGoal,
         ]);
       });
 
@@ -14483,9 +14188,9 @@ void main() {
         expect(find.text("Turned off. You won't get these."), findsOneWidget);
 
         final switches = find.byType(Switch);
-        // Master, bills, goals, leftover, logging.
+        // Master, bills, goals, logging, interest.
         await tester.tap(switches.at(2));
-        await tester.tap(switches.at(4));
+        await tester.tap(switches.at(3));
         expect(calls, ['goals=false', 'dailyLog=null']);
       });
 

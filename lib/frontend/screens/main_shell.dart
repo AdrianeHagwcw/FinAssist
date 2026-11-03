@@ -185,7 +185,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // Loans keep their interest, so the year's figure opens Debts.
       _openDebts();
     } else {
-      // The leftover notice waits on Home.
+      // Anything else, like a leftover reminder from an older version,
+      // opens Home.
       _selectTab(_homeIndex);
     }
   }

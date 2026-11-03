@@ -1,4 +1,3 @@
-import 'allocation.dart';
 import 'app_transaction.dart';
 import 'bill.dart';
 import 'debt.dart';
@@ -12,7 +11,6 @@ import '../utils/money_format.dart';
 enum ReminderKind {
   bills,
   goals,
-  leftover,
   dailyLog,
 
   /// Interest a bank or e-wallet may have paid, to check and add.
@@ -26,11 +24,11 @@ enum ReminderKind {
   }
 }
 
-/// How many reminders each rank gets: #1 four, #2 three, #3 two, #4 one.
+/// How many reminders each rank gets: #1 four, #2 three, #3 two.
 /// Whatever the user puts in a place gets that many, so every rank matters.
-const List<int> remindersByRank = [4, 3, 2, 1];
+const List<int> remindersByRank = [4, 3, 2];
 
-/// "4 reminders" for #1, down to "1 reminder" for #4.
+/// "4 reminders" for #1, down to "2 reminders" for #3.
 String reminderCountText(int rank) {
   final times = rank >= 1 && rank <= remindersByRank.length
       ? remindersByRank[rank - 1]
@@ -88,7 +86,7 @@ class ReminderSettings {
     return index < 0 ? priorities.length : index;
   }
 
-  /// Whether a reminder is on. Each starts on, since even #4 gets one; the
+  /// Whether a reminder is on. Each starts on, since even #3 gets two; the
   /// user can still switch any of them off.
   bool isOn(ReminderKind kind) => overrides[kind] ?? true;
 
@@ -108,7 +106,6 @@ class ReminderSettings {
       ReminderKind.interest => null,
       ReminderKind.bills => FinancialPriority.payBills,
       ReminderKind.goals => FinancialPriority.saveForGoal,
-      ReminderKind.leftover => FinancialPriority.generalSavings,
       ReminderKind.dailyLog => FinancialPriority.trackSpending,
     };
   }
@@ -146,18 +143,6 @@ String reminderTimingText(ReminderKind kind, int times) {
       3 => "On each saving day, then 1 and 3 days after if you haven't saved.",
       2 => "On each saving day, then 3 days after if you haven't saved.",
       _ => 'On each saving day, at 9 AM.',
-    },
-    ReminderKind.leftover => switch (times) {
-      4 =>
-        '3 days and 1 day before the end of the month, then on it and 2 days '
-            "after if you haven't decided.",
-      3 =>
-        'The night before the month ends, then on it and 2 days after '
-            "if you haven't decided.",
-      2 =>
-        "The night before the month ends, then on it if you haven't "
-            'decided.',
-      _ => 'The night before the month ends.',
     },
     ReminderKind.dailyLog => switch (times) {
       4 => 'Monday, Wednesday, Friday and Sunday at 8 PM.',
@@ -213,8 +198,7 @@ class PlannedReminder {
   final String title;
   final String body;
 
-  /// What tapping it opens: `bill:<id>`, `goal:<id>`, `income`, `leftover`
-  /// or `log`.
+  /// What tapping it opens: `bill:<id>`, `goal:<id>`, `income` or `log`.
   final String payload;
 
   /// A notification id that stays the same for the same reminder.
@@ -230,10 +214,9 @@ class PlannedReminder {
   }
 }
 
-/// Hours reminders go out at: bills and goals in the morning, the leftover
-/// question before dinner, and the logging nudge once the day is mostly done.
+/// Hours reminders go out at: bills and goals in the morning, and the logging
+/// nudge once the day is mostly done.
 const int morningHour = 9;
-const int leftoverHour = 19;
 const int eveningHour = 20;
 
 /// Android keeps a limited number of scheduled alarms per app. Well under it,
@@ -256,7 +239,6 @@ List<PlannedReminder> planReminders({
   List<Bill> schedules = const [],
   List<Debt> debts = const [],
   required List<Goal> goals,
-  required List<AllocationCycle> cycles,
   List<Wallet> wallets = const [],
   required List<AppTransaction> transactions,
   required DateTime now,
@@ -291,7 +273,8 @@ List<PlannedReminder> planReminders({
       if (debtId != null) debtIdBySchedule[schedule.id] = debtId;
     }
     final loanDebtIds = {
-      for (final debt in debts) if (debt.category.isLoan) debt.id,
+      for (final debt in debts)
+        if (debt.category.isLoan) debt.id,
     };
 
     // "1 installment", "3 installments": for the title.
@@ -673,79 +656,6 @@ List<PlannedReminder> planReminders({
           payload: 'debts',
         ),
       );
-    }
-  }
-
-  // Leftover: around the end of each pay period still undecided. The night
-  // before the next pay always; the ranking adds payday morning, 2 days
-  // after, then a heads-up 3 days before. Deciding silences the rest.
-  if (settings.isOn(ReminderKind.leftover) && cycles.isNotEmpty) {
-    final times = settings.timesFor(ReminderKind.leftover);
-    final newest = cycles.reduce(
-      (a, b) => a.receivedAt.isAfter(b.receivedAt) ? a : b,
-    );
-    final waiting = cycleAwaitingReview(cycles, now: now);
-    final undecided = {?waiting, if (!newest.isResolved) newest};
-
-    for (final cycle in undecided) {
-      final end = periodOf(cycle).end;
-      final nextPay = DateTime(end.year, end.month, end.day);
-      final source = cycle.source.toLowerCase();
-
-      if (times >= 4) {
-        add(
-          PlannedReminder(
-            kind: ReminderKind.leftover,
-            key: 'leftover:${cycle.id}:3-before',
-            at: at(nextPay.subtract(const Duration(days: 3)), leftoverHour),
-            title: '3 days until month end',
-            body:
-                'See what is left of your $source and plan to save it or '
-                'spend it.',
-            payload: 'leftover',
-          ),
-        );
-      }
-      add(
-        PlannedReminder(
-          kind: ReminderKind.leftover,
-          key: 'leftover:${cycle.id}',
-          at: at(nextPay.subtract(const Duration(days: 1)), leftoverHour),
-          title: 'This month ends tomorrow',
-          body:
-              'See what is left of your $source and choose to save it or '
-              'spend it.',
-          payload: 'leftover',
-        ),
-      );
-      if (times >= 2) {
-        add(
-          PlannedReminder(
-            kind: ReminderKind.leftover,
-            key: 'leftover-pending:${cycle.id}',
-            at: at(nextPay, morningHour),
-            title: 'Your leftover is still waiting',
-            body:
-                'Decide whether to save or spend what was left of your '
-                '$source.',
-            payload: 'leftover',
-          ),
-        );
-      }
-      if (times >= 3) {
-        add(
-          PlannedReminder(
-            kind: ReminderKind.leftover,
-            key: 'leftover-pending:${cycle.id}:last',
-            at: at(nextPay.add(const Duration(days: 2)), morningHour),
-            title: 'Last reminder: your leftover',
-            body:
-                'What was left of your $source is still undecided. Save it '
-                'or spend it.',
-            payload: 'leftover',
-          ),
-        );
-      }
     }
   }
 

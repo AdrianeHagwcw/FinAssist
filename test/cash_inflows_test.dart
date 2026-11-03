@@ -15,8 +15,6 @@ AllocationCycle planned(
   DateTime at, {
   double amount = 1000,
   double toGoal = 0,
-  LeftoverDecision? decision,
-  double saved = 0,
 }) => AllocationCycle(
   id: id,
   income: amount,
@@ -24,8 +22,6 @@ AllocationCycle planned(
   remaining: amount - toGoal,
   receivedAt: at,
   source: id,
-  decision: decision,
-  savedAmount: saved,
 );
 
 AppTransaction record(
@@ -106,22 +102,13 @@ void main() {
       expect(months.single.month, DateTime(2026, 11));
     });
 
-    test('goal money already saved is not offered again at month end', () {
+    test('goal money stays part of what is left', () {
       final october = monthFlows(
         [planned('Salary', DateTime(2026, 10, 1), toGoal: 300)],
         [record('in', TransactionType.income, 1000, DateTime(2026, 10, 1))],
       ).single;
       expect(october.left, 1000);
-      expect(october.leftToDecide, 700);
-    });
-
-    test('the decision waits for the month to end', () {
-      final october = monthFlows(
-        [planned('Salary', DateTime(2026, 10, 1))],
-        [record('in', TransactionType.income, 1000, DateTime(2026, 10, 1))],
-      ).single;
-      expect(october.awaitingDecision(DateTime(2026, 10, 20)), isFalse);
-      expect(october.awaitingDecision(DateTime(2026, 10, 31)), isTrue);
+      expect(october.keptForGoals, 300);
     });
   });
 
@@ -130,8 +117,6 @@ void main() {
       WidgetTester tester, {
       required List<AllocationCycle> cycles,
       required List<AppTransaction> transactions,
-      DateTime? today,
-      void Function(AllocationCycle, double, DateTime)? onReview,
     }) async {
       tester.view.physicalSize = const Size(420, 2600);
       tester.view.devicePixelRatio = 1.0;
@@ -143,10 +128,8 @@ void main() {
           child: MaterialApp(
             theme: AppTheme.light,
             home: HistoryScreen(
-              today: today ?? DateTime(2026, 10, 28),
               cycles: Stream.value(cycles),
               transactions: Stream.value(transactions),
-              onReview: onReview,
               wallets: Stream.value(const [
                 Wallet(
                   id: 'cash',
@@ -206,36 +189,12 @@ void main() {
       expect(find.textContaining('Decide what to do'), findsNothing);
     });
 
-    testWidgets('at month end, one decision for the month', (tester) async {
-      AllocationCycle? decidedOn;
-      double? left;
+    testWidgets('a month that is over shows one Left, with no question', (
+      tester,
+    ) async {
       await pump(
         tester,
-        cycles: [planned('Salary', DateTime(2026, 10, 27))],
-        transactions: october,
-        today: DateTime(2026, 10, 31),
-        onReview: (cycle, amount, _) {
-          decidedOn = cycle;
-          left = amount;
-        },
-      );
-
-      await tester.tap(find.byKey(const Key('decide-2026-10')));
-      expect(decidedOn?.id, 'Salary');
-      expect(left, 892);
-    });
-
-    testWidgets('a decided month says what was done', (tester) async {
-      await pump(
-        tester,
-        cycles: [
-          planned(
-            'Salary',
-            DateTime(2026, 9, 2),
-            decision: LeftoverDecision.saved,
-            saved: 500,
-          ),
-        ],
+        cycles: [planned('Salary', DateTime(2026, 9, 2), toGoal: 200)],
         transactions: [
           record(
             'in',
@@ -247,7 +206,25 @@ void main() {
         ],
       );
 
-      expect(find.text('You saved ₱500 of what was left.'), findsOneWidget);
+      expect(find.text('₱1,000'), findsOneWidget);
+      expect(find.text('₱200 of this is for your goals.'), findsOneWidget);
+      expect(find.textContaining('Decide'), findsNothing);
+    });
+
+    testWidgets('goal money more than what is left is not called part of it', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        cycles: [planned('Salary', DateTime(2026, 9, 2), toGoal: 500)],
+        transactions: [
+          record('in', TransactionType.income, 1000, DateTime(2026, 9, 2)),
+          record('rent', TransactionType.expense, 800, DateTime(2026, 9, 3)),
+        ],
+      );
+
+      expect(find.text('₱200'), findsOneWidget);
+      expect(find.textContaining('for your goals'), findsNothing);
     });
 
     testWidgets('a long month shows its first expenses, then all', (

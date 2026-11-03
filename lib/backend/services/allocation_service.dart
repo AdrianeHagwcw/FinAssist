@@ -213,7 +213,7 @@ class AllocationService {
       receivedAt: receivedAt,
       earlier: recentCycles,
     );
-    // The wallet most of it went into, where a leftover is taken from.
+    // The wallet most of it went into.
     final mainWallet = incomeByWallet.entries
         .reduce((a, b) => b.value > a.value ? b : a)
         .key;

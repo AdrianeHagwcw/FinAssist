@@ -24,10 +24,6 @@ class PayPeriod {
     final days = end.difference(today).inDays;
     return days < 1 ? 1 : days;
   }
-
-  /// Whether this is the last day of the period, when the leftover review is
-  /// due.
-  bool isLastDay(DateTime now) => daysLeft(now) <= 1;
 }
 
 /// The pay period [now] falls in, for an onboarding income frequency.

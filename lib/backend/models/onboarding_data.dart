@@ -6,7 +6,6 @@ import 'wallet.dart';
 enum FinancialPriority {
   payBills('Pay bills on time'),
   saveForGoal('Save toward a goal'),
-  generalSavings('Build general savings'),
   trackSpending('Just track my spending');
 
   const FinancialPriority(this.label);

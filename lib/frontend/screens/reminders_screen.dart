@@ -124,7 +124,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
               _Heading(
                 'What should we remind you about most?',
                 'The higher it is, the more reminders it gets: #1 gets 4, '
-                    '#2 gets 3, #3 gets 2 and #4 gets 1.',
+                    '#2 gets 3 and #3 gets 2.',
               ),
               _Card(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -316,7 +316,6 @@ class _KindCard extends StatelessWidget {
   static String titleOf(ReminderKind kind) => switch (kind) {
     ReminderKind.bills => 'Bills due',
     ReminderKind.goals => 'Saving plans',
-    ReminderKind.leftover => 'Leftover money',
     ReminderKind.dailyLog => 'Log your spending',
     ReminderKind.interest => 'Interest paid',
   };

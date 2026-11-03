@@ -94,10 +94,10 @@ class SafeToSpendCard extends StatefulWidget {
 
   /// False on Home, which shows the total balance instead: only what
   /// [belowCard] builds is shown, from the same inputs (bills due soon,
-  /// matured savings, the leftover question).
+  /// matured savings).
   final bool showFigure;
 
-  /// Shown below the card with the same inputs, such as the leftover notice.
+  /// Shown below the card with the same inputs, such as bills due soon.
   final Widget Function(BuildContext context, SafeToSpendInputs inputs)?
   belowCard;
 
@@ -561,13 +561,11 @@ class SafeToSpendWorking extends StatelessWidget {
                     'much of it you can spend each day through the end of '
                     'this month.'
               : s.spentToday > 0
-                  ? 'Counting from where today began, your plan is '
-                        '${formatPeso(s.spendableThisPeriod)} for the $days '
-                        'left this month: ${formatPeso(
-                          s.recommendedDailyLimit,
-                        )} a day.$_today'
-                  : 'That is ${formatPeso(s.recommendedDailyLimit)} a day '
-                        'for the $days left this month.$_today',
+              ? 'Counting from where today began, your plan is '
+                    '${formatPeso(s.spendableThisPeriod)} for the $days '
+                    'left this month: ${formatPeso(s.recommendedDailyLimit)} a day.$_today'
+              : 'That is ${formatPeso(s.recommendedDailyLimit)} a day '
+                    'for the $days left this month.$_today',
           style: const TextStyle(height: 1.45),
         ),
       ],

@@ -62,11 +62,11 @@ class HelpScreen extends StatelessWidget {
           ],
         ),
         ExpansionTile(
-          title: Text('How do I review money left from earlier income?'),
+          title: Text('Where do I see what was left each month?'),
           children: [
             ListTile(
               title: Text(
-                'Open Cash Inflows from the light bulb at the top of Transactions, or from Settings, then Needs review. Choose Review leftover to save, keep for spending or split it. You can also decide later.',
+                'Open Cash Inflows from the light bulb at the top of Transactions, or from Settings, then Your money. Each month shows what came in, what went out, and what was left. To put some of it aside, add it to a goal or move it to a savings account.',
               ),
             ),
           ],
