@@ -3,10 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../backend/models/bill.dart';
+import '../../backend/models/debt.dart';
 import '../../backend/models/goal.dart';
 import '../../backend/models/voice_command.dart';
 import '../../backend/models/wallet.dart';
 import '../providers/app_settings_provider.dart';
+import '../../backend/services/bill_service.dart';
+import '../../backend/services/debt_service.dart';
 import '../../backend/services/goal_service.dart';
 import '../../backend/services/speech_input.dart';
 import '../../backend/services/wallet_service.dart';
@@ -15,12 +19,15 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/category_options.dart';
 import '../../backend/utils/money_format.dart';
+import '../../backend/utils/ph_time.dart';
 import '../widgets/bill_form_sheet.dart';
 import '../widgets/choice_grid.dart';
+import '../widgets/debt_payment_flow.dart';
 import '../widgets/installment_form_sheet.dart';
 import '../widgets/found_details.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/loan_form_sheet.dart';
+import '../widgets/mini_notice.dart';
 import '../widgets/transfer_sheet.dart';
 import '../widgets/wallet_form_sheet.dart';
 import 'add_expense_screen.dart';
@@ -36,6 +43,9 @@ class VoiceRecognitionScreen extends StatefulWidget {
     this.input,
     this.wallets,
     this.goals,
+    this.debts,
+    this.payments,
+    this.today,
     this.onNavigate,
     this.onSaved,
     this.incomeScreenBuilder,
@@ -51,6 +61,12 @@ class VoiceRecognitionScreen extends StatefulWidget {
   /// Replaces the live wallets and goals the forms use. Used by tests.
   final Stream<List<Wallet>>? wallets;
   final Stream<List<Goal>>? goals;
+
+  /// Replaces the live installments and loans, their payments, and the day
+  /// those are read on. Used by tests, which can't load Firebase.
+  final Stream<List<Debt>>? debts;
+  final Stream<List<BillInstance>>? payments;
+  final DateTime? today;
 
   /// Lets the app shell switch tabs or open another section.
   final ValueChanged<VoiceDestination>? onNavigate;
@@ -363,6 +379,10 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
           then: VoiceDestination.wallet,
         );
         return;
+      case VoiceCommandType.payNow:
+      case VoiceCommandType.payInAdvance:
+        await _payFromVoice(command);
+        return;
       case VoiceCommandType.navigation:
         final destination = command.destination;
         final onNavigate = widget.onNavigate;
@@ -379,6 +399,135 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
           onNavigate(destination);
         });
     }
+  }
+
+  /// Pays the plan the command means: the one it names, the one there is,
+  /// or one picked from a list — then straight into the screens Pay Now and
+  /// paying in advance open, with what the plan owes read first. A payment
+  /// recorded here leaves Voice Entry the way a saved form does.
+  Future<void> _payFromVoice(VoiceCommand command) async {
+    final debts = await (widget.debts?.first ?? DebtService.loadDebts());
+    if (!mounted) return;
+
+    final candidates = [
+      for (final debt in debts)
+        if (debt.billId != null &&
+            debt.status == DebtStatus.active &&
+            !debt.paidOffEarly)
+          debt,
+    ];
+    final debt = await _planToPay(candidates, command);
+    if (debt == null || !mounted) return;
+
+    final instances =
+        await (widget.payments?.first ??
+            BillService.loadInstancesForBill(debt.billId!));
+    if (!mounted) return;
+
+    final today = widget.today ?? philippineNow();
+    final recorded = command.type == VoiceCommandType.payInAdvance
+        ? await payDebtInAdvance(
+            context,
+            debt,
+            instances: instances,
+            today: today,
+            wallets: widget.wallets,
+          )
+        : await payDebtNow(
+            context,
+            debt,
+            instances: instances,
+            today: today,
+            wallets: widget.wallets,
+          );
+    if (recorded && mounted) _saved(true);
+  }
+
+  /// Which plan to pay: the one [command] names, the only one there is, or
+  /// a list to pick from when several fit. Null when there is none to pay,
+  /// the name matches none, or the user backs out of the list.
+  Future<Debt?> _planToPay(List<Debt> candidates, VoiceCommand command) async {
+    if (candidates.isEmpty) {
+      final ahead = command.type == VoiceCommandType.payInAdvance;
+      await showMiniNotice(
+        context,
+        icon: Icons.info_outline,
+        good: false,
+        title: ahead ? 'Nothing to pay in advance' : 'No installment to pay',
+        message: ahead
+            ? 'You have no installment to pay ahead of its date.'
+            : 'You have no installment or loan waiting for a payment.',
+      );
+      return null;
+    }
+
+    final said = command.name?.toLowerCase();
+    if (said != null) {
+      final matches = [
+        for (final debt in candidates)
+          if (debt.name.toLowerCase().contains(said)) debt,
+      ];
+      if (matches.length == 1) return matches.single;
+      if (matches.isEmpty) {
+        await showMiniNotice(
+          context,
+          icon: Icons.info_outline,
+          good: false,
+          title: 'No installment by that name',
+          message:
+              'None of your installments or loans is called '
+              '"${command.name}". Try again with another name.',
+        );
+        return null;
+      }
+      return _pickPlan(matches);
+    }
+
+    if (candidates.length == 1) return candidates.single;
+    return _pickPlan(candidates);
+  }
+
+  /// Which of several plans to pay, when the command named none. Null when
+  /// the user backs out without choosing.
+  Future<Debt?> _pickPlan(List<Debt> debts) {
+    return showModalBottomSheet<Debt>(
+      context: context,
+      useSafeArea: true,
+      backgroundColor: context.appColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => Padding(
+        key: const Key('voice-pay-pick'),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Which one to pay?',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: sheetContext.appColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            for (final debt in debts)
+              ListTile(
+                key: Key('voice-pay-${debt.id}'),
+                title: Text(debt.name),
+                subtitle: Text(
+                  '${debt.paymentCount} payments of '
+                  '${formatPeso(debt.perPayment)}',
+                ),
+                onTap: () => Navigator.pop(sheetContext, debt),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -563,6 +712,16 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
           title: 'Add a wallet',
           rows: [('Name', command.name), ('Money in it now', amount)],
         );
+      case VoiceCommandType.payNow:
+        return _CommandDetails(
+          title: 'Pay this month\'s due?',
+          rows: [(null, command.name ?? 'Your installment or loan')],
+        );
+      case VoiceCommandType.payInAdvance:
+        return _CommandDetails(
+          title: 'Pay the next payment in advance?',
+          rows: [(null, command.name ?? 'Your installment')],
+        );
       case VoiceCommandType.navigation:
         return _CommandDetails(
           title: command.destination == VoiceDestination.scanReceipt
@@ -634,6 +793,12 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
           VoiceCommandType.expense =>
             'Use This starts a new expense from what you said. You check '
                 'everything before saving.',
+          VoiceCommandType.payNow =>
+            'Continue opens Pay Now for ${command.name ?? 'your installment'}. '
+                'You check the amount and wallets before anything is saved.',
+          VoiceCommandType.payInAdvance =>
+            'Continue opens paying the next payment ahead of its date. '
+                'You check everything before it is saved.',
           VoiceCommandType.navigation =>
             command.destination == VoiceDestination.scanReceipt
                 ? 'Choose Yes to open the scanner, or No to cancel.'
@@ -848,6 +1013,7 @@ class _Example extends StatelessWidget {
                     '“Sweldo 15,000”',
                     '“Ilipat ang 500 sa GCash”',
                     '“Magdagdag ng bill Meralco 2,500”',
+                    '“Bayaran ang hulugan”',
                     '“Buksan ang utang”',
                   ]
                 : const [
@@ -855,6 +1021,7 @@ class _Example extends StatelessWidget {
                     '“Add salary 500”',
                     '“Transfer 500 from GCash to BDO”',
                     '“Add bill Meralco 2,500”',
+                    '“Pay my installment now”',
                     '“Open installments”',
                   ])
           Padding(

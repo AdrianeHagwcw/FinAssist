@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:testapp/frontend/widgets/transfer_sheet.dart';
+import 'package:testapp/backend/models/bill.dart';
+import 'package:testapp/backend/models/debt.dart';
 import 'package:testapp/backend/models/wallet.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +21,8 @@ import 'package:testapp/frontend/screens/ocr_screen.dart';
 import 'package:testapp/frontend/screens/voice_recognition_screen.dart';
 import 'package:testapp/backend/services/receipt_reader.dart';
 import 'package:testapp/backend/services/speech_input.dart';
+import 'package:testapp/frontend/widgets/advance_payment_sheet.dart';
+import 'package:testapp/frontend/widgets/bill_payment_sheet.dart';
 
 /// Stands in for the camera and the text reading.
 class FakeReader extends ReceiptReader {
@@ -146,6 +150,68 @@ String fieldText(WidgetTester tester, String hint) {
   );
   return field.controller!.text;
 }
+
+/// A phone bought on installment: ₱48,000 in 12 payments of ₱4,000, charged
+/// to Cash, the first falling due Jun 10, 2026.
+Debt phonePlan() => Debt(
+  id: 'phone',
+  direction: DebtDirection.iOwe,
+  name: 'iPhone 15',
+  category: DebtCategory.gadget,
+  principal: 48000,
+  perPayment: 4000,
+  paymentCount: 12,
+  firstDueDate: DateTime(2026, 6, 10),
+  billId: 'bill',
+  paidWithWalletId: 'cash',
+  paidWithLabel: 'Cash',
+  status: DebtStatus.active,
+);
+
+/// Another plan of the same shape, so a command that names none has two
+/// to choose between.
+Debt laptopPlan() => Debt(
+  id: 'laptop',
+  direction: DebtDirection.iOwe,
+  name: 'Laptop',
+  category: DebtCategory.gadget,
+  principal: 24000,
+  perPayment: 2000,
+  paymentCount: 12,
+  firstDueDate: DateTime(2026, 6, 10),
+  billId: 'laptop-bill',
+  paidWithWalletId: 'cash',
+  paidWithLabel: 'Cash',
+  status: DebtStatus.active,
+);
+
+/// One payment of the phone plan, waiting or made.
+BillInstance occurrence(
+  DateTime due, {
+  double paid = 0,
+  BillStatus status = BillStatus.unpaid,
+}) => BillInstance(
+  id: 'i${due.year}-${due.month}',
+  billId: 'bill',
+  name: 'iPhone 15',
+  amount: 4000,
+  category: 'Bills',
+  dueDate: due,
+  status: status,
+  amountPaid: paid,
+  debtId: 'phone',
+);
+
+const voiceCash = Wallet(
+  id: 'cash',
+  name: 'Cash',
+  type: WalletType.cash,
+  balance: 20000,
+  startingBalance: 20000,
+  receivesIncome: false,
+  archived: false,
+  sortOrder: 0,
+);
 
 void main() {
   group('Scan Receipt', () {
@@ -1091,6 +1157,200 @@ void main() {
       expect(find.text("Voice entry isn't available"), findsOneWidget);
       expect(find.textContaining('Speech Services by Google'), findsOneWidget);
       expect(find.textContaining('error'), findsNothing, reason: 'no codes');
+    });
+
+    group('paying an installment', () {
+      /// Hears [words], then ends the listen the way letting go does.
+      Future<void> said(
+        WidgetTester tester,
+        FakeSpeech speech,
+        String words,
+      ) async {
+        speech.hear!(words);
+        await tester.pump();
+        speech.end!(null);
+        await tester.pump();
+      }
+
+      /// Voice Entry with the plans of [debts] and their payments standing
+      /// in for Firestore, read on Jun 15, 2026.
+      Future<void> openVoice(
+        WidgetTester tester,
+        FakeSpeech speech, {
+        required List<Debt> debts,
+        List<BillInstance> payments = const [],
+      }) async {
+        await pumpScreen(
+          tester,
+          VoiceRecognitionScreen(
+            autoStart: true,
+            input: speech,
+            debts: Stream.value(debts),
+            payments: Stream.value(payments),
+            wallets: Stream.value(const [voiceCash]),
+            today: DateTime(2026, 6, 15),
+          ),
+        );
+        await tester.pump();
+      }
+
+      testWidgets('a Tagalog command opens Pay Now\'s own screen after the '
+          'confirmation', (tester) async {
+        final speech = FakeSpeech();
+        await openVoice(
+          tester,
+          speech,
+          debts: [phonePlan()],
+          payments: [occurrence(DateTime(2026, 6, 10))],
+        );
+
+        await said(tester, speech, 'bayaran ang hulugan');
+
+        // What will happen is shown first, the way every command is.
+        expect(find.text('Pay this month\'s due?'), findsOneWidget);
+        expect(find.text('Your installment or loan'), findsOneWidget);
+        expect(
+          find.textContaining('Pay Now for your installment'),
+          findsOneWidget,
+        );
+        expect(find.text('Continue'), findsOneWidget);
+
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // The paying screen itself, not just the confirmation: the due is
+        // there to be taken, from the wallets the money is in.
+        expect(find.byType(BillPaymentSheet), findsOneWidget);
+        expect(find.textContaining('still owing'), findsOneWidget);
+        expect(find.text('Where are you paying from?'), findsOneWidget);
+      });
+
+      testWidgets('already paid says so, with the way on to paying ahead', (
+        tester,
+      ) async {
+        final speech = FakeSpeech();
+        await openVoice(
+          tester,
+          speech,
+          debts: [phonePlan()],
+          payments: [
+            occurrence(
+              DateTime(2026, 6, 10),
+              paid: 4000,
+              status: BillStatus.paid,
+            ),
+            occurrence(DateTime(2026, 7, 10)),
+          ],
+        );
+
+        await said(tester, speech, 'pay my installment now');
+        expect(find.text('Pay this month\'s due?'), findsOneWidget);
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // The small screen says what is already done rather than opening
+        // the sheet, with the one button going on to paying ahead.
+        expect(find.byType(BillPaymentSheet), findsNothing);
+        expect(find.byKey(const Key('mini-notice')), findsOneWidget);
+        expect(find.text('This month\'s due is already paid'), findsOneWidget);
+        expect(find.byKey(const Key('mini-notice-action')), findsOneWidget);
+        expect(find.byKey(const Key('mini-notice-back')), findsOneWidget);
+      });
+
+      testWidgets('paying ahead opens the paying-ahead screen', (tester) async {
+        final speech = FakeSpeech();
+        await openVoice(
+          tester,
+          speech,
+          debts: [phonePlan()],
+          payments: [
+            occurrence(
+              DateTime(2026, 6, 10),
+              paid: 4000,
+              status: BillStatus.paid,
+            ),
+            occurrence(DateTime(2026, 7, 10)),
+          ],
+        );
+
+        await said(tester, speech, 'hulog nang maaga');
+
+        expect(find.text('Pay the next payment in advance?'), findsOneWidget);
+        expect(find.text('Your installment'), findsOneWidget);
+
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AdvancePaymentSheet), findsOneWidget);
+      });
+
+      testWidgets('asks which one when none was named and there are two', (
+        tester,
+      ) async {
+        final speech = FakeSpeech();
+        await openVoice(
+          tester,
+          speech,
+          debts: [phonePlan(), laptopPlan()],
+          payments: [occurrence(DateTime(2026, 6, 10))],
+        );
+
+        await said(tester, speech, 'bayaran ang hulugan');
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // Both plans are listed; nothing was recorded without picking one.
+        expect(find.byKey(const Key('voice-pay-pick')), findsOneWidget);
+        expect(find.text('Which one to pay?'), findsOneWidget);
+        expect(find.text('iPhone 15'), findsOneWidget);
+        expect(find.text('Laptop'), findsOneWidget);
+        expect(find.byType(BillPaymentSheet), findsNothing);
+
+        await tester.tap(find.byKey(const Key('voice-pay-laptop')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('voice-pay-pick')), findsNothing);
+        expect(find.byType(BillPaymentSheet), findsOneWidget);
+      });
+
+      testWidgets('the plan named in the command is the one paid', (
+        tester,
+      ) async {
+        final speech = FakeSpeech();
+        await openVoice(
+          tester,
+          speech,
+          debts: [phonePlan(), laptopPlan()],
+          payments: [occurrence(DateTime(2026, 6, 10))],
+        );
+
+        await said(tester, speech, 'pay the laptop installment');
+        expect(find.text('Laptop'), findsOneWidget);
+
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // Named, so no list to pick from.
+        expect(find.byKey(const Key('voice-pay-pick')), findsNothing);
+        expect(find.byType(BillPaymentSheet), findsOneWidget);
+      });
+
+      testWidgets('says so when there is no installment to pay', (
+        tester,
+      ) async {
+        final speech = FakeSpeech();
+        await openVoice(tester, speech, debts: const []);
+
+        await said(tester, speech, 'pay my installment now');
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('mini-notice')), findsOneWidget);
+        expect(find.text('No installment to pay'), findsOneWidget);
+        // Nothing to act on: only the arrow leaves.
+        expect(find.byKey(const Key('mini-notice-action')), findsNothing);
+        expect(find.byKey(const Key('mini-notice-back')), findsOneWidget);
+      });
     });
 
     group('listening, replaying what Android sent', () {

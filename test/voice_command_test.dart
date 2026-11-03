@@ -97,13 +97,8 @@ void main() {
       }
     });
 
-    test('paying a bill, installment or debt goes to the Bill Planner', () {
-      for (final words in [
-        'pay my bills',
-        'paid meralco bill 2500',
-        'nagbayad ako ng hulugan sa phone 1500',
-        'bayad utang 500',
-      ]) {
+    test('paying a bill goes to the Bill Planner', () {
+      for (final words in ['pay my bills', 'paid meralco bill 2500']) {
         final command = heard(words);
         expect(command.type, VoiceCommandType.navigation, reason: words);
         expect(command.destination, VoiceDestination.bills, reason: words);
@@ -113,6 +108,86 @@ void main() {
     test('money for a goal goes to Goals, where the goal is picked', () {
       final command = heard('add 500 to my laptop goal');
       expect(command.destination, VoiceDestination.goals);
+    });
+  });
+
+  group('paying an installment or loan', () {
+    test('this month\'s due, in English, Tagalog or both', () {
+      const paying = [
+        'pay my installment now',
+        'pay the iphone installment',
+        'pay ko na yung installment',
+        'bayaran ang hulugan',
+        'magbayad ng hulugan ngayon',
+        'hulog ngayon',
+        'bayad utang 500',
+        'nagbayad ako ng hulugan sa phone 1500',
+        'pay now',
+      ];
+      for (final words in paying) {
+        final command = heard(words);
+        expect(command.type, VoiceCommandType.payNow, reason: words);
+      }
+
+      // The plan named is carried through, so the right one is paid.
+      expect(heard('pay the iphone installment').name, 'Iphone');
+      expect(heard('bayaran ang hulugan ni iphone').name, 'Iphone');
+    });
+
+    test('ahead of its date, in English, Tagalog or both', () {
+      const ahead = [
+        'pay my installment in advance',
+        'pay ahead',
+        'pay in advance yung hulugan',
+        'hulog nang maaga',
+        'bayaran nang maaga ang hulugan',
+        'hulog sa susunod na buwan',
+        'advance na bayad',
+        'pay my installment early',
+        'settle the loan early',
+        'pay early',
+        'hulog maaga',
+        'bayad next month',
+        'pay installment next month',
+        'hulog susunod na buwan',
+        'pay in advance',
+        'prepay my installment',
+      ];
+      for (final words in ahead) {
+        final command = heard(words);
+        expect(command.type, VoiceCommandType.payInAdvance, reason: words);
+      }
+
+      expect(heard('pay the iphone installment in advance').name, 'Iphone');
+      expect(heard('hulog maaga ang iphone').name, 'Iphone');
+    });
+
+    test('the short "when" words are only about paying the plan', () {
+      // An expense naming a month or the word early is still spending.
+      expect(heard('grocery 1500 next month').type, VoiceCommandType.expense);
+      expect(heard('early bird promo 200').type, VoiceCommandType.expense);
+      // Adding a plan that starts next month is still the form.
+      expect(
+        heard('add installment phone 1500 starting next month').type,
+        VoiceCommandType.installment,
+      );
+    });
+
+    test('adding one is still the form, not a payment', () {
+      for (final words in [
+        'add installment phone 1500 a month 12 months',
+        'hulugan ng cellphone 15000 12 na buwan',
+      ]) {
+        final command = heard(words);
+        expect(command.type, VoiceCommandType.installment, reason: words);
+      }
+      for (final words in [
+        'add loan from bdo 50000',
+        'may utang ako sa sss 20000 24 months',
+      ]) {
+        final command = heard(words);
+        expect(command.type, VoiceCommandType.debt, reason: words);
+      }
     });
   });
 
