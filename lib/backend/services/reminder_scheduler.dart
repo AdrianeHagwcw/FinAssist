@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
 import '../models/debt.dart';
@@ -14,7 +13,6 @@ import '../models/onboarding_data.dart';
 import '../models/reminder.dart';
 import 'allocation_service.dart';
 import 'bill_service.dart';
-import 'budget_service.dart';
 import 'debt_service.dart';
 import 'firestore_write.dart';
 import 'goal_service.dart';
@@ -90,7 +88,6 @@ class ReminderScheduler {
   Map<String, dynamic>? _profile;
   List<Goal> _goals = const [];
   List<Wallet> _wallets = const [];
-  List<AllocationCycle> _cycles = const [];
   List<AppTransaction> _transactions = const [];
   List<Bill> _schedules = const [];
   List<Debt> _debts = const [];
@@ -115,7 +112,6 @@ class ReminderScheduler {
     listen(UserProfileService.watchProfile(), (s) => _profile = s.data());
     listen(GoalService.watchGoals(), (goals) => _goals = goals);
     listen(WalletService.watchWallets(), (wallets) => _wallets = wallets);
-    listen(BudgetService.watchRecentCycles(), (cycles) => _cycles = cycles);
     listen(WalletService.watchTransactions(), (t) => _transactions = t);
     // Adding, editing or skipping a bill doesn't make a transaction.
     listen(BillService.watchBills(), (schedules) => _schedules = schedules);
@@ -154,7 +150,6 @@ class ReminderScheduler {
         debts: _debts,
         goals: _goals,
         wallets: _wallets,
-        cycles: _cycles,
         transactions: _transactions,
         now: now,
       );

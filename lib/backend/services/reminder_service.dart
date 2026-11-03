@@ -26,7 +26,7 @@ class ReminderService {
   static const _channel = AndroidNotificationDetails(
     'reminders',
     'Reminders',
-    channelDescription: 'Bills due, saving plans and leftover money.',
+    channelDescription: 'Bills due, saving plans and logging your spending.',
     importance: Importance.high,
     priority: Priority.high,
     icon: 'ic_notification',

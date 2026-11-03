@@ -1119,7 +1119,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
         const SizedBox(height: 8),
         _subtitle(
           'The higher it is, the more reminders it gets: #1 gets 4, #2 gets '
-          '3, #3 gets 2 and #4 gets 1. You can change it later in Settings.',
+          '3 and #3 gets 2. You can change it later in Settings.',
         ),
         const SizedBox(height: 16),
         _subtitle('Use the arrows, or hold and drag, to move them.'),

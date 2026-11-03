@@ -163,25 +163,6 @@ List<BillInstance> outstandingBills(
   return outstanding;
 }
 
-/// What the user decided about the money left at the end of a pay period.
-enum LeftoverDecision {
-  saved('Saved'),
-  spent('Used for spending'),
-  split('Split'),
-  pending('Decide later');
-
-  const LeftoverDecision(this.label);
-
-  final String label;
-
-  static LeftoverDecision? fromName(String? name) {
-    for (final decision in LeftoverDecision.values) {
-      if (decision.name == name) return decision;
-    }
-    return null;
-  }
-}
-
 /// One time income came in and was allocated, as saved by the waterfall.
 class AllocationCycle {
   const AllocationCycle({
@@ -191,9 +172,6 @@ class AllocationCycle {
     required this.receivedAt,
     required this.source,
     this.walletId,
-    this.decision,
-    this.savedAmount = 0,
-    this.spentAmount = 0,
     this.toBills = 0,
     this.toGoal = 0,
     this.goalName,
@@ -212,13 +190,6 @@ class AllocationCycle {
       receivedAt: received is Timestamp ? received.toDate() : DateTime.now(),
       source: map['source'] is String ? map['source'] as String : 'Income',
       walletId: map['walletId'] is String ? map['walletId'] as String : null,
-      decision: LeftoverDecision.fromName(
-        map['leftoverDecision'] is String
-            ? map['leftoverDecision'] as String
-            : null,
-      ),
-      savedAmount: _asDouble(map['leftoverSaved']),
-      spentAmount: _asDouble(map['leftoverSpent']),
       toBills: _asDouble(map['toBills']),
       toGoal: _asDouble(map['toGoal']),
       goalName: map['goalName'] is String ? map['goalName'] as String : null,
@@ -239,20 +210,11 @@ class AllocationCycle {
   final DateTime receivedAt;
   final String source;
   final String? walletId;
-
-  /// Null until the leftover review has been seen.
-  final LeftoverDecision? decision;
-  final double savedAmount;
-  final double spentAmount;
   final double toBills;
   final double toGoal;
   final String? goalName;
   final DateTime? periodStart;
   final DateTime? periodEnd;
-
-  /// A decision was made. "Decide later" doesn't count: it is still open.
-  bool get isResolved =>
-      decision != null && decision != LeftoverDecision.pending;
 
   static double _asDouble(Object? value) => value is num ? value.toDouble() : 0;
 }
@@ -263,25 +225,6 @@ class AllocationCycle {
 /// By the Philippine calendar, as every other month in the app.
 PayPeriod periodOf(AllocationCycle cycle) =>
     payPeriodFor(null, now: philippineTime(cycle.receivedAt));
-
-/// The newest cycle whose period is on its last day or already over and whose
-/// leftover hasn't been decided, or null when nothing is waiting.
-AllocationCycle? cycleAwaitingReview(
-  Iterable<AllocationCycle> cycles, {
-  required DateTime now,
-}) {
-  final newestFirst = cycles.toList()
-    ..sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
-
-  for (final cycle in newestFirst) {
-    if (cycle.isResolved) continue;
-
-    final period = periodOf(cycle);
-    if (period.isLastDay(now) || !now.isBefore(period.end)) return cycle;
-  }
-
-  return null;
-}
 
 /// Income that says nothing about when pay comes.
 const _oneOffSources = {'Gift', 'Sold Something', 'Refund'};

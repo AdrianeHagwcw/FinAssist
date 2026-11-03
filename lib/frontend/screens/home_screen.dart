@@ -2,7 +2,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../backend/models/cycle_history.dart';
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/bill.dart';
 import '../../backend/models/dashboard_tip.dart';
@@ -43,7 +42,6 @@ import 'categories_screen.dart';
 import 'goals_screen.dart';
 import 'help_screen.dart';
 import 'income_waterfall_screen.dart';
-import 'leftover_review_screen.dart';
 import 'ocr_screen.dart';
 import 'profile_screen.dart';
 import 'reminders_screen.dart';
@@ -313,9 +311,8 @@ class _HomeScreenState extends State<HomeScreen> {
           goals: goals ?? const [],
           safeToSpend: _safeToSpend,
         ),
-        // Bills due soon, matured savings and the leftover question, worked
-        // out from the same inputs as Safe to Spend, whose figure Home no
-        // longer shows.
+        // Bills due soon and matured savings, worked out from the same
+        // inputs as Safe to Spend, whose figure Home no longer shows.
         widget.safeToSpend ??
             SafeToSpendCard(
               key: ValueKey(_refreshKey),
@@ -500,9 +497,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Offers the leftover review once a pay period is on its last day and
-  /// what was left of it hasn't been decided.
-  /// Bills due soon, then the leftover decision when one is waiting.
+  /// Bills due soon, then savings that have come due.
   Widget _belowCard(BuildContext context, SafeToSpendInputs inputs) {
     // Kept for the tip above, which is built before this runs.
     if (!identical(_bills, inputs.bills)) {
@@ -531,35 +526,7 @@ class _HomeScreenState extends State<HomeScreen> {
           today: inputs.now,
           onAnswered: () => setState(() => _refreshKey++),
         ),
-        _leftoverNotice(context, inputs),
       ],
-    );
-  }
-
-  Widget _leftoverNotice(BuildContext context, SafeToSpendInputs inputs) {
-    // The newest month that is over with what is left still undecided: what
-    // came in less what went out, from the actual records.
-    final now = philippineNow();
-    final month = monthFlows(
-      inputs.cycles,
-      inputs.transactions,
-    ).where((flow) => flow.awaitingDecision(now)).firstOrNull;
-    if (month == null || month.leftToDecide <= 0) {
-      return const SizedBox.shrink();
-    }
-    final undecided = newestCycles(month.undecided);
-
-    return LeftoverNotice(
-      cycle: undecided.first,
-      leftover: month.leftToDecide,
-      onReview: () => _push(
-        LeftoverReviewScreen(
-          cycle: undecided.first,
-          leftover: month.leftToDecide,
-          periodEnd: month.period.end,
-          others: undecided.skip(1).toList(),
-        ),
-      ),
     );
   }
 }

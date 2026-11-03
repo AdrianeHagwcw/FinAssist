@@ -20,7 +20,6 @@ import 'package:testapp/frontend/screens/add_expense_screen.dart';
 import 'package:testapp/frontend/screens/categories_screen.dart';
 import 'package:testapp/frontend/screens/history_screen.dart';
 import 'package:testapp/frontend/screens/income_waterfall_screen.dart';
-import 'package:testapp/frontend/screens/leftover_review_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
 import 'package:testapp/backend/utils/categories.dart';
 import 'package:testapp/backend/utils/date_format.dart';
@@ -95,20 +94,16 @@ Future<void> scrollTo(
   await tester.pumpAndSettle();
 }
 
-AllocationCycle cycle(String id, DateTime date, {LeftoverDecision? decision}) =>
-    AllocationCycle(
-      id: id,
-      income: 18000,
-      toBills: 6000,
-      toGoal: 2000,
-      remaining: 10000,
-      goalName: 'Emergency fund',
-      receivedAt: date,
-      source: id,
-      decision: decision,
-      savedAmount: decision == LeftoverDecision.saved ? 3000 : 0,
-      spentAmount: decision == LeftoverDecision.spent ? 3000 : 0,
-    );
+AllocationCycle cycle(String id, DateTime date) => AllocationCycle(
+  id: id,
+  income: 18000,
+  toBills: 6000,
+  toGoal: 2000,
+  remaining: 10000,
+  goalName: 'Emergency fund',
+  receivedAt: date,
+  source: id,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -271,16 +266,13 @@ void main() {
 
   for (final dark in [false, true]) {
     testWidgets(
-      'history lists months newest first and opens a finished month ($dark)',
+      'history lists months newest first, each with what was left ($dark)',
       (tester) async {
-        AllocationCycle? reviewed;
-        double? amount;
         final old = cycle('August salary', DateTime(2026, 8, 1));
         final current = cycle('September salary', DateTime(2026, 9, 15));
         await pumpScreen(
           tester,
           HistoryScreen(
-            today: DateTime(2026, 9, 18),
             profile: Stream.value({'incomeFrequency': 'Monthly'}),
             wallets: Stream.value(const []),
             transactions: Stream.value([
@@ -295,41 +287,24 @@ void main() {
               ),
             ]),
             cycles: Stream.value([old, current]),
-            onReview: (c, left, _) {
-              reviewed = c;
-              amount = left;
-            },
           ),
           dark: dark,
         );
         final september = tester.getTopLeft(find.text('Sep 2026')).dy;
         final august = tester.getTopLeft(find.text('Aug 2026')).dy;
         expect(september, lessThan(august));
-        // September is still under way: nothing to decide yet.
-        expect(find.byKey(const Key('decide-2026-9')), findsNothing);
         await capture(tester, dark ? 'history-dark' : 'history-light');
-        await scrollTo(tester, find.byKey(const Key('decide-2026-8')));
-        await capture(
-          tester,
-          dark ? 'history-review-dark' : 'history-review-light',
-        );
-        await tester.tap(find.byKey(const Key('decide-2026-8')));
-        expect(reviewed?.id, old.id);
-        // ₱18,000 in, ₱1,200 out, less the ₱2,000 already kept for a goal.
-        expect(amount, 14800);
+        // August, over: ₱18,000 in, ₱1,200 out. Only the figure, no question.
+        await scrollTo(tester, find.text('₱16,800'));
+        expect(find.text('₱2,000 of this is for your goals.'), findsWidgets);
+        expect(find.textContaining('Decide'), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );
   }
 
-  testWidgets('a decided month says what was done, and respects masking', (
-    tester,
-  ) async {
-    final july = cycle(
-      'July',
-      DateTime(2026, 7, 1),
-      decision: LeftoverDecision.saved,
-    );
+  testWidgets('the goal note respects masking', (tester) async {
+    final july = cycle('July', DateTime(2026, 7, 1));
     final settings = AppSettingsProvider()..toggleAmountsMasked();
     await pumpScreen(
       tester,
@@ -341,11 +316,10 @@ void main() {
       ),
       settings: settings,
     );
-    expect(find.textContaining('Decide what to do'), findsNothing);
-    expect(find.text('You saved ₱3,000 of what was left.'), findsNothing);
+    expect(find.text('₱2,000 of this is for your goals.'), findsNothing);
     settings.toggleAmountsMasked();
     await tester.pumpAndSettle();
-    expect(find.text('You saved ₱3,000 of what was left.'), findsOneWidget);
+    expect(find.text('₱2,000 of this is for your goals.'), findsOneWidget);
   });
 
   testWidgets('history has distinct empty and failed states', (tester) async {
@@ -568,65 +542,6 @@ void main() {
     );
   });
 
-  testWidgets('leftover review requires a choice and confirmation', (
-    tester,
-  ) async {
-    var writes = 0;
-    await pumpScreen(
-      tester,
-      LeftoverReviewScreen(
-        cycle: cycle('Salary', DateTime(2026, 8, 1)),
-        leftover: 1000,
-        periodEnd: DateTime(2026, 9, 1),
-        // A goal to save it toward, and the cash it is in.
-        wallets: Stream.value(const [
-          Wallet(
-            id: 'cash',
-            name: 'Cash',
-            type: WalletType.cash,
-            balance: 5000,
-            startingBalance: 5000,
-            receivesIncome: true,
-            archived: false,
-            sortOrder: 0,
-          ),
-        ]),
-        goals: Stream.value(const [
-          Goal(
-            id: 'trip',
-            name: 'Trip',
-            targetAmount: 10000,
-            savedAmount: 0,
-            priority: 0,
-            status: GoalStatus.active,
-          ),
-        ]),
-        onResolve: (decision, saved, spent) {
-          writes++;
-          expect(decision, LeftoverDecision.saved);
-          expect(saved, 1000);
-          expect(spent, 0);
-        },
-      ),
-    );
-    await tester.pump();
-    expect(writes, 0);
-    await tester.ensureVisible(find.text('Save it'));
-    await tester.tap(find.text('Save it'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Cash on Hand'));
-    await tester.tap(find.text('Cash on Hand'));
-    await tester.pumpAndSettle();
-    // The wallet's card pushes Confirm further down the list.
-    await tester.scrollUntilVisible(
-      find.text('Confirm'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.text('Confirm'));
-    expect(writes, 1);
-  });
-
   testWidgets('history handles small screens and large text in dark mode', (
     tester,
   ) async {
@@ -648,10 +563,7 @@ void main() {
       width: 320,
       textScale: 1.5,
     );
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('decide-2026-7')),
-      250,
-    );
+    await tester.scrollUntilVisible(find.byKey(const Key('month-2026-7')), 250);
     expect(tester.takeException(), isNull);
   });
 }

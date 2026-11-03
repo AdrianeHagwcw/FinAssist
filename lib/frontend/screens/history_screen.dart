@@ -19,29 +19,20 @@ import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/money_text.dart';
 import '../widgets/transaction_row.dart' show walletNameFor;
-import 'leftover_review_screen.dart';
 
 /// Cash Inflows: month by month, what actually came in, what actually went
-/// out, and what is left, from the user's own records only. At a month's
-/// end, the user decides what to do with what is left.
+/// out, and what is left, from the user's own records only.
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({
     this.cycles,
     this.transactions,
     this.profile,
-    this.today,
-    this.onReview,
     this.wallets,
     super.key,
   });
   final Stream<List<AllocationCycle>>? cycles;
   final Stream<List<AppTransaction>>? transactions;
   final Stream<Map<String, dynamic>?>? profile;
-  final DateTime? today;
-
-  /// Replaces opening the month-end decision: the income it is recorded on,
-  /// what is left, and the day after the month. Used by tests.
-  final void Function(AllocationCycle, double, DateTime)? onReview;
 
   /// Replaces the live wallets the rows name. Used by tests.
   final Stream<List<Wallet>>? wallets;
@@ -60,27 +51,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   /// Months whose Money out list is open in full.
   final _expanded = <DateTime>{};
-
-  void _decide(MonthFlow month) {
-    final undecided = newestCycles(month.undecided);
-    if (undecided.isEmpty) return;
-    final end = month.period.end;
-    if (widget.onReview != null) {
-      widget.onReview!(undecided.first, month.leftToDecide, end);
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => LeftoverReviewScreen(
-          cycle: undecided.first,
-          leftover: month.leftToDecide,
-          periodEnd: end,
-          others: undecided.skip(1).toList(),
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -136,7 +106,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             'Use + to add income. Every month you get money shows up here: what came in, what went out, and what was left.',
       );
     }
-    final now = widget.today ?? philippineNow();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
@@ -150,13 +119,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
         for (final month in months) ...[
           _MonthSection(
             flow: month,
-            now: now,
             wallets: wallets,
             expanded: _expanded.contains(month.month),
             onToggle: () => setState(() {
               if (!_expanded.remove(month.month)) _expanded.add(month.month);
             }),
-            onDecide: () => _decide(month),
           ),
           const SizedBox(height: 20),
         ],
@@ -165,24 +132,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 }
 
-/// One month: its totals and the decision about what is left, then every
-/// income and every expense recorded in it.
+/// One month: its totals and what is left, then every income and every
+/// expense recorded in it.
 class _MonthSection extends StatelessWidget {
   const _MonthSection({
     required this.flow,
-    required this.now,
     required this.wallets,
     required this.expanded,
     required this.onToggle,
-    required this.onDecide,
   });
 
   final MonthFlow flow;
-  final DateTime now;
   final List<Wallet> wallets;
   final bool expanded;
   final VoidCallback onToggle;
-  final VoidCallback onDecide;
 
   /// Expenses shown before Show all.
   static const _firstFew = 5;
@@ -197,7 +160,6 @@ class _MonthSection extends StatelessWidget {
     final outShown = expanded || flow.moneyOut.length <= _firstFew
         ? flow.moneyOut
         : flow.moneyOut.take(_firstFew).toList();
-    final decision = flow.decision;
 
     String subtitle(AppTransaction t) => [
       formatShortDate(philippineTime(t.date)),
@@ -255,40 +217,15 @@ class _MonthSection extends StatelessWidget {
                   'More went out than came in this month.',
                   style: TextStyle(fontSize: 12, color: colors.textMuted),
                 ),
-              if (flow.awaitingDecision(now) && flow.leftToDecide > 0) ...[
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  key: Key('decide-$key'),
-                  onPressed: onDecide,
-                  style: openButtonStyle(height: 48),
-                  icon: const Icon(Icons.arrow_forward, size: 18),
-                  label: Text(
-                    'Decide what to do with '
-                    '${formatPeso(flow.leftToDecide, masked: masked)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
+              // Only when the goal money fits in what is left, so the note
+              // never names more than the figure above it.
+              if (flow.keptForGoals > 0.005 &&
+                  flow.keptForGoals <= flow.left + 0.005)
+                Text(
+                  '${formatPeso(flow.keptForGoals, masked: masked)} of this '
+                  'is for your goals.',
+                  style: TextStyle(fontSize: 12, color: colors.textMuted),
                 ),
-                if (flow.keptForGoals > 0.005) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Not counting ${formatPeso(flow.keptForGoals, masked: masked)} '
-                    'already saved for goals.',
-                    style: TextStyle(fontSize: 12, color: colors.textMuted),
-                  ),
-                ],
-              ] else if (flow.isDecided && decision != null) ...[
-                const SizedBox(height: 8),
-                Text(switch (decision.decision) {
-                  LeftoverDecision.saved =>
-                    'You saved ${formatPeso(decision.savedAmount, masked: masked)} '
-                        'of what was left.',
-                  LeftoverDecision.split =>
-                    'You saved ${formatPeso(decision.savedAmount, masked: masked)} '
-                        'and kept ${formatPeso(decision.spentAmount, masked: masked)} '
-                        'for spending.',
-                  _ => 'You kept what was left for spending.',
-                }, style: TextStyle(fontSize: 13, color: colors.textBody)),
-              ],
             ],
           ),
         ),
