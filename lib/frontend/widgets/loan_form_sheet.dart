@@ -27,6 +27,7 @@ class LoanDraft {
     this.interestChargedPer,
     this.loanDuration,
     this.loanDurationUnit,
+    this.loanStartDate,
     this.balanceBasedSchedule = true,
     this.otherKind,
   });
@@ -46,6 +47,7 @@ class LoanDraft {
   final PaymentFrequency? interestChargedPer;
   final int? loanDuration;
   final String? loanDurationUnit;
+  final DateTime? loanStartDate;
   final bool balanceBasedSchedule;
   final String? otherKind;
 }
@@ -116,6 +118,8 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     _today.month + 1,
     _today.day,
   );
+  DateTime? _loanStartDate;
+
   late final _nameController = TextEditingController(text: widget.name);
   late final _balanceController = TextEditingController(
     text: widget.amount == null ? '' : formatAmountInput(widget.amount!),
@@ -263,19 +267,29 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
           : _interestChargedPer,
       loanDuration: _duration,
       loanDurationUnit: _duration == null ? null : _durationUnit.name,
+      loanStartDate: _loanStartDate,
       balanceBasedSchedule: true,
     );
   }
 
-  Future<void> _pickNextPaymentDate() async {
+  Future<void> _pickDate({required bool loanStart}) async {
+    final initial = loanStart
+        ? (_loanStartDate ?? _today)
+        : (_nextPaymentDate ?? _today);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _nextPaymentDate ?? _today,
+      initialDate: initial,
       firstDate: DateTime(_today.year - 100),
       lastDate: DateTime(_today.year + 50),
     );
     if (picked == null) return;
-    setState(() => _nextPaymentDate = picked);
+    setState(() {
+      if (loanStart) {
+        _loanStartDate = picked;
+      } else {
+        _nextPaymentDate = picked;
+      }
+    });
   }
 
   static const _mostPayments = 36500;
@@ -341,6 +355,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
           : _interestChargedPer,
       loanDuration: _duration,
       loanDurationUnit: _duration == null ? null : _durationUnit.name,
+      loanStartDate: _loanStartDate,
       balanceBasedSchedule: true,
       otherKind: _kind == DebtCategory.otherLoan
           ? cleanText(_otherKindController.text)
@@ -363,6 +378,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
         interestChargedPer: draft.interestChargedPer,
         loanDuration: draft.loanDuration,
         loanDurationUnit: draft.loanDurationUnit,
+        loanStartDate: draft.loanStartDate,
         balanceBasedSchedule: draft.balanceBasedSchedule,
         otherKind: draft.otherKind,
       );
@@ -509,7 +525,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                 context,
                 label: 'Next payment date',
                 date: _nextPaymentDate,
-                onTap: _pickNextPaymentDate,
+                onTap: () => _pickDate(loanStart: false),
               ),
               const SizedBox(height: 12),
               Theme(
@@ -631,6 +647,13 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    _dateField(
+                      context,
+                      label: 'Loan start date',
+                      date: _loanStartDate,
+                      onTap: () => _pickDate(loanStart: true),
                     ),
                   ],
                 ),
