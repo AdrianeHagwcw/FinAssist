@@ -300,7 +300,12 @@ class _BillFormSheetState extends State<BillFormSheet> with CheckAfterSave {
                     'Does this repeat?',
                   ),
                   items: [
-                    for (final recurrence in BillRecurrence.values)
+                    for (final recurrence in BillRecurrence.values.where(
+                      (recurrence) =>
+                          (recurrence != BillRecurrence.daily &&
+                              recurrence != BillRecurrence.semiAnnual) ||
+                          recurrence == _recurrence,
+                    ))
                       DropdownMenuItem(
                         value: recurrence,
                         child: Text(recurrence.label),

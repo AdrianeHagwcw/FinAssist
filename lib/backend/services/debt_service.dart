@@ -8,6 +8,8 @@ import 'bill_service.dart';
 import 'firestore_write.dart';
 import 'wallet_service.dart';
 
+enum FixedInterestChargeResult { recorded, alreadyRecorded, unavailable }
+
 /// Reads and writes installments, loans, and money owed to the user.
 class DebtService {
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
@@ -98,7 +100,15 @@ class DebtService {
     int paidBefore = 0,
     double? quotedRate,
     RatePeriod quotedRatePer = RatePeriod.year,
+    String? interestPeriod,
     InterestBasis rateBasis = InterestBasis.wholeAmount,
+    double? originalPrincipal,
+    int? loanDuration,
+    String? loanDurationUnit,
+    DateTime? loanStartDate,
+    bool balanceBasedSchedule = false,
+    double? fixedInterestAmount,
+    PaymentFrequency? interestChargedPer,
     double fees = 0,
     String? otherKind,
     String? paidWithWalletId,
@@ -128,6 +138,32 @@ class DebtService {
       paidWithLabel: _noteOrNull(paidWithLabel),
     );
     final lastDue = terms.lastDueDate!;
+    final optionalDetails = <String, dynamic>{};
+    if (quotedRate != null) {
+      optionalDetails.addAll({
+        'quotedRate': quotedRate,
+        'quotedRatePer': quotedRatePer.name,
+        'rateBasis': rateBasis.name,
+      });
+      if (interestPeriod != null) {
+        optionalDetails['interestPeriod'] = interestPeriod;
+      }
+    }
+    if (originalPrincipal != null) {
+      optionalDetails['originalPrincipal'] = originalPrincipal;
+    }
+    if (loanDuration != null) optionalDetails['loanDuration'] = loanDuration;
+    if (loanDurationUnit != null) {
+      optionalDetails['loanDurationUnit'] = loanDurationUnit;
+    }
+    if (loanStartDate != null) {
+      optionalDetails['loanStartDate'] = Timestamp.fromDate(loanStartDate);
+    }
+    if (balanceBasedSchedule) optionalDetails['balanceBasedSchedule'] = true;
+    if (fixedInterestAmount != null && interestChargedPer != null) {
+      optionalDetails['fixedInterestAmount'] = fixedInterestAmount;
+      optionalDetails['interestChargedPer'] = interestChargedPer.name;
+    }
 
     batch.set(debt, {
       'direction': DebtDirection.iOwe.name,
@@ -147,11 +183,7 @@ class DebtService {
               category == DebtCategory.otherLoan) &&
           (otherKind ?? '').trim().isNotEmpty)
         'otherKind': otherKind!.trim(),
-      if (quotedRate != null) ...{
-        'quotedRate': quotedRate,
-        'quotedRatePer': quotedRatePer.name,
-        'rateBasis': rateBasis.name,
-      },
+      ...optionalDetails,
       if (fees > 0) 'fees': fees,
       if (paidWithWalletId != null && paidWithWalletId.trim().isNotEmpty)
         'paidWithWalletId': paidWithWalletId.trim(),
@@ -178,6 +210,60 @@ class DebtService {
 
     commitFirestoreWrite(batch.commit(), 'add installment');
     return debt.id;
+  }
+
+  /// Records a lender-confirmed fixed interest charge once for the selected
+  /// period. This never runs automatically and never changes a wallet or the
+  /// payment schedule. The unique period document makes concurrent taps safe.
+  static Future<FixedInterestChargeResult> recordFixedInterestCharge({
+    required Debt debt,
+    required DateTime date,
+  }) async {
+    final debtReference = _debts.doc(debt.id);
+    return _firestore.runTransaction((transaction) async {
+      final debtSnapshot = await transaction.get(debtReference);
+      if (!debtSnapshot.exists) return FixedInterestChargeResult.unavailable;
+
+      final stored = Debt.fromMap(debtSnapshot.id, debtSnapshot.data());
+      final amount = stored.fixedInterestAmount;
+      final period = stored.interestChargedPer;
+      if (stored.status != DebtStatus.active ||
+          stored.direction != DebtDirection.iOwe ||
+          amount == null ||
+          !amount.isFinite ||
+          amount <= 0 ||
+          period == null) {
+        return FixedInterestChargeResult.unavailable;
+      }
+
+      final periodKey = fixedInterestPeriodKey(
+        date,
+        period,
+        anchor: stored.loanStartDate ?? stored.firstDueDate,
+      );
+      final chargeReference = debtReference
+          .collection('interestCharges')
+          .doc(periodKey);
+      final previousCharge = await transaction.get(chargeReference);
+      if (previousCharge.exists) {
+        return FixedInterestChargeResult.alreadyRecorded;
+      }
+
+      transaction.set(chargeReference, {
+        'amount': amount,
+        'period': period.name,
+        'periodKey': periodKey,
+        'chargedAt': Timestamp.fromDate(
+          DateTime(date.year, date.month, date.day),
+        ),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      transaction.update(debtReference, {
+        'accruedInterest': stored.accruedInterest + amount,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return FixedInterestChargeResult.recorded;
+    });
   }
 
   /// Rewrites an installment the user corrected, as one batch: its terms,
@@ -256,22 +342,18 @@ class DebtService {
 
     // Written one field at a time, with the ones that no longer apply set to
     // nothing, so an earlier answer can't be left over on the record.
-    batch.set(
-      _debts.doc(stored.id),
-      {
-        'name': name.trim(),
-        'category': category.name,
-        'principal': principal,
-        'perPayment': perPayment,
-        'paymentCount': paymentCount,
-        'lastPayment': terms.hasDifferentLastPayment ? terms.finalPayment : null,
-        'otherKind': _noteOrNull(otherKind),
-        'paidWithWalletId': _noteOrNull(paidWithWalletId),
-        'paidWithLabel': _noteOrNull(paidWithLabel),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_debts.doc(stored.id), {
+      'name': name.trim(),
+      'category': category.name,
+      'principal': principal,
+      'perPayment': perPayment,
+      'paymentCount': paymentCount,
+      'lastPayment': terms.hasDifferentLastPayment ? terms.finalPayment : null,
+      'otherKind': _noteOrNull(otherKind),
+      'paidWithWalletId': _noteOrNull(paidWithWalletId),
+      'paidWithLabel': _noteOrNull(paidWithLabel),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
 
     BillService.addInstallmentUpdateToBatch(
       batch,
@@ -297,19 +379,15 @@ class DebtService {
 
       // Only what the edit changes, so anything recorded on the payment
       // already is left exactly as it is.
-      batch.set(
-        reference,
-        {
-          'amount': edit.amount,
-          'name': edit.name,
-          'interestShare': edit.interestShare,
-          // Money a removed payment was carrying is owed again by the
-          // payment it came from.
-          if (edit.reopenCarry) 'carriedInto': null,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      batch.set(reference, {
+        'amount': edit.amount,
+        'name': edit.name,
+        'interestShare': edit.interestShare,
+        // Money a removed payment was carrying is owed again by the
+        // payment it came from.
+        if (edit.reopenCarry) 'carriedInto': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     }
 
     commitFirestoreWrite(batch.commit(), 'update installment');
@@ -345,7 +423,19 @@ class DebtService {
     final billId = debt.billId;
     if (billId != null) await BillService.deleteBill(billId);
 
-    commitFirestoreWrite(_debts.doc(debt.id).delete(), 'delete debt');
+    final reference = _debts.doc(debt.id);
+    final charges = await reference.collection('interestCharges').get();
+    // Firestore batches are limited to 500 writes. A daily-interest debt can
+    // accumulate more charge records than that over its lifetime.
+    for (var start = 0; start < charges.docs.length; start += 400) {
+      final batch = _firestore.batch();
+      for (final charge in charges.docs.skip(start).take(400)) {
+        batch.delete(charge.reference);
+      }
+      await batch.commit();
+    }
+    final batch = _firestore.batch()..delete(reference);
+    commitFirestoreWrite(batch.commit(), 'delete debt');
   }
 
   /// Closes an installment or debt paid off before its schedule ended. The
@@ -399,8 +489,7 @@ class DebtService {
     // statement leaves it out for the same reason.
     final payoffId = BillService.payoffInstanceId(billId);
     final occurrences = [
-      for (final instance
-          in await BillService.loadInstancesForBill(billId))
+      for (final instance in await BillService.loadInstancesForBill(billId))
         if (instance.id != payoffId) instance,
     ];
 

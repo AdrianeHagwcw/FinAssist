@@ -721,6 +721,14 @@ ${responseLanguage == null ? '' : 'Write the explanation entirely in ${responseL
               'category': debt.category.name,
               'status': debt.status.name,
               'principal': debt.principal,
+              'accruedInterest': debt.accruedInterest,
+              'scheduledTotalIncludingAccruedInterest':
+                  debt.totalWithAccruedInterest,
+              if (debt.fixedInterestAmount != null &&
+                  debt.interestChargedPer != null) ...{
+                'fixedInterestAmount': debt.fixedInterestAmount,
+                'interestChargedPer': debt.interestChargedPer!.name,
+              },
               'perPayment': debt.perPayment,
               'paymentCount': debt.paymentCount,
               'totalPayable': debt.totalPayable,

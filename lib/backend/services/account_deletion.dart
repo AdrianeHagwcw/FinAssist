@@ -77,7 +77,18 @@ class AccountDeletion {
       final records = <DocumentReference<Map<String, dynamic>>>[];
       for (final name in collections) {
         final snapshot = await profile.collection(name).get(fromServer);
-        records.addAll(snapshot.docs.map((doc) => doc.reference));
+        if (name == 'debts') {
+          for (final debt in snapshot.docs) {
+            final charges = await debt.reference
+                .collection('interestCharges')
+                .get(fromServer);
+            records
+              ..addAll(charges.docs.map((charge) => charge.reference))
+              ..add(debt.reference);
+          }
+        } else {
+          records.addAll(snapshot.docs.map((doc) => doc.reference));
+        }
       }
       final goals = await profile.collection('goals').get(fromServer);
       for (final goal in goals.docs) {

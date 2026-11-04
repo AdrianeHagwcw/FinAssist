@@ -331,9 +331,21 @@ class _DetailBody extends StatelessWidget {
               ),
               const Divider(height: 28),
               _Line(
-                debt.category.isLoan ? 'Borrowed' : 'Price',
+                debt.balanceBasedSchedule
+                    ? 'Principal at setup'
+                    : debt.category.isLoan
+                    ? 'Borrowed'
+                    : 'Price',
                 formatPeso(debt.principal),
               ),
+              if (debt.balanceBasedSchedule) ...[
+                _Line(
+                  'Outstanding principal',
+                  formatPeso(debt.loanLeft(progress.paid)),
+                ),
+                _Line('Accrued interest', formatPeso(debt.accruedInterest)),
+                _Line('Total amount due', formatPeso(progress.remaining)),
+              ],
               _Line(debt.frequency.eachLabel, formatPeso(debt.perPayment)),
               if (debt.paidWithWalletId != null || debt.paidWithLabel != null)
                 StreamBuilder<List<Wallet>>(
@@ -382,6 +394,22 @@ class _DetailBody extends StatelessWidget {
         if (debt.category.isLoan) ...[
           _CostOfBorrowing(debt: debt, wallets: wallets, paid: progress.paid),
           const SizedBox(height: 16),
+        ],
+        if (debt.fixedInterestAmount != null &&
+            debt.interestChargedPer != null &&
+            debt.status == DebtStatus.active) ...[
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const Key('record-fixed-interest'),
+              onPressed: () =>
+                  _recordFixedInterestCharge(context, debt: debt, date: today),
+              style: openButtonStyle(),
+              icon: const Icon(Icons.add_card_outlined),
+              label: const Text('Record interest charge'),
+            ),
+          ),
+          const SizedBox(height: 12),
         ],
         if (!progress.isPaidOff) ...[
           // This month's due, always here: Pay Now takes it whenever it is
@@ -522,6 +550,56 @@ Future<void> _undoPayoff(BuildContext context, Debt debt) async {
   if (ok == true) await DebtService.undoPayOff(debt);
 }
 
+/// Records interest only after the user confirms the lender charged it.
+/// Nothing is accrued just by reading the debt screen.
+Future<void> _recordFixedInterestCharge(
+  BuildContext context, {
+  required Debt debt,
+  required DateTime date,
+}) async {
+  final amount = debt.fixedInterestAmount;
+  final period = debt.interestChargedPer;
+  if (amount == null || period == null) return;
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Record interest charge?'),
+      content: Text(
+        'Add ${formatPeso(amount)} for the ${period.label.toLowerCase()} '
+        'period dated ${formatShortDate(date)} to accrued interest? This '
+        'does not move money or change your payment schedule.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Record charge'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  final result = await DebtService.recordFixedInterestCharge(
+    debt: debt,
+    date: date,
+  );
+  if (!context.mounted) return;
+  final message = switch (result) {
+    FixedInterestChargeResult.recorded =>
+      '${formatPeso(amount)} interest recorded. No money moved.',
+    FixedInterestChargeResult.alreadyRecorded =>
+      'Interest for this period was already recorded.',
+    FixedInterestChargeResult.unavailable =>
+      'This interest charge could not be recorded.',
+  };
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+}
+
 /// What borrowing costs, the way a lender has to disclose it: the extra in
 /// pesos and as a share of what was borrowed, the true rate a month and a
 /// year, the rate the user was told, and how it compares with what their
@@ -580,7 +658,9 @@ class _CostOfBorrowing extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                'What borrowing costs',
+                debt.balanceBasedSchedule
+                    ? 'Loan details'
+                    : 'What borrowing costs',
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
@@ -590,7 +670,45 @@ class _CostOfBorrowing extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          if (debt.extraCost <= 0)
+          if (debt.balanceBasedSchedule)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Balance when added: ${formatPeso(debt.principal)}.',
+                  style: body,
+                ),
+                if (debt.originalPrincipal != null)
+                  Text(
+                    'Original loan amount: ${formatPeso(debt.originalPrincipal!)}.',
+                    style: body,
+                  ),
+                if (debt.loanDuration != null)
+                  Text(
+                    'Loan duration: ${debt.loanDuration} '
+                    '${debt.loanDurationUnit == 'years' ? 'years' : 'months'}.',
+                    style: body,
+                  ),
+                if (debt.loanStartDate != null)
+                  Text(
+                    'Loan start date: ${formatShortDate(debt.loanStartDate!)}.',
+                    style: body,
+                  ),
+                if (debt.fixedInterestAmount != null &&
+                    debt.interestChargedPer != null)
+                  Text(
+                    'Fixed interest: ${formatPeso(debt.fixedInterestAmount!)} '
+                    '${debt.interestChargedPer!.label.toLowerCase()}.',
+                    style: body,
+                  ),
+                Text(
+                  'Interest is added only when you record a lender charge. '
+                  'It is kept separate from principal.',
+                  style: body,
+                ),
+              ],
+            )
+          else if (debt.extraCost <= 0)
             Text(
               'Nothing extra: you pay back exactly what you borrowed.',
               style: body,
@@ -623,10 +741,12 @@ class _CostOfBorrowing extends StatelessWidget {
           if (quoted != null) ...[
             const SizedBox(height: 4),
             Text(
-              'Interest they told you: ${percentText(quoted)} '
-              '${debt.quotedRatePer.label}'
-              // How a loan's interest is charged changes what the rate means.
-              '${debt.category.isLoan ? ', ${debt.rateBasis.inSentence}' : ''}.',
+              debt.interestPeriod == null
+                  ? 'Interest they told you: ${percentText(quoted)} '
+                        '${debt.quotedRatePer.label}'
+                        '${debt.category.isLoan ? ', ${debt.rateBasis.inSentence}' : ''}.'
+                  : 'Interest rate they told you: ${percentText(quoted)} '
+                        '${_interestPeriodLabel(debt.interestPeriod!)}.',
               style: body,
             ),
             if (debt.costsMoreThanQuoted) ...[
@@ -637,7 +757,7 @@ class _CostOfBorrowing extends StatelessWidget {
                     '${debt.quotedRatePer.label}. Ask the store or lender '
                     'what else is added, such as fees.',
               ),
-            ] else if (debt.extraCost > 0) ...[
+            ] else if (debt.extraCost > 0 && debt.interestPeriod == null) ...[
               const SizedBox(height: 4),
               Text(
                 'Interest that stays the same every payment costs more than '
@@ -900,6 +1020,14 @@ BillInstance? _instanceOn(List<BillInstance> instances, DateTime day) {
   }
   return null;
 }
+
+String _interestPeriodLabel(String period) => switch (period) {
+  'day' => 'daily',
+  'week' => 'weekly',
+  'month' => 'monthly',
+  'year' => 'annually',
+  _ => period,
+};
 
 class _Line extends StatelessWidget {
   const _Line(this.label, this.value);

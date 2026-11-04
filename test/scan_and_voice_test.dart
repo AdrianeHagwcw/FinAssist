@@ -23,6 +23,7 @@ import 'package:testapp/backend/services/receipt_reader.dart';
 import 'package:testapp/backend/services/speech_input.dart';
 import 'package:testapp/frontend/widgets/advance_payment_sheet.dart';
 import 'package:testapp/frontend/widgets/bill_payment_sheet.dart';
+import 'package:testapp/frontend/widgets/loan_form_sheet.dart';
 
 /// Stands in for the camera and the text reading.
 class FakeReader extends ReceiptReader {
@@ -650,6 +651,13 @@ void main() {
   });
 
   group('Voice Entry', () {
+    test('add debt and add utang start the debt form command', () {
+      for (final words in ['add debt', 'add utang']) {
+        final command = interpretVoiceCommand(words, categories: const []);
+        expect(command.type, VoiceCommandType.debt, reason: words);
+      }
+    });
+
     test('recognizes navigation commands for the available app sections', () {
       const commands = <(String, VoiceDestination)>[
         ('go home', VoiceDestination.home),
@@ -838,6 +846,26 @@ void main() {
       expect(find.text('Add an installment'), findsOneWidget);
       expect(find.text('Phone'), findsOneWidget);
       expect(find.text('You fill this in next'), findsNWidgets(2));
+    });
+
+    testWidgets('saying add utang opens the Add Debt form', (tester) async {
+      final speech = FakeSpeech();
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(autoStart: true, input: speech),
+      );
+      await tester.pump();
+      speech.hear!('add utang');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Add a debt'), findsOneWidget);
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LoanFormSheet), findsOneWidget);
+      expect(find.text('Add Debt'), findsOneWidget);
     });
 
     testWidgets('a transfer fills in the wallets that were named', (

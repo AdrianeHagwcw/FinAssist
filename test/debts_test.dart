@@ -53,6 +53,58 @@ LoanPayments work(
 )!;
 
 void main() {
+  test('loan payment frequencies map to matching bill dates', () {
+    expect(PaymentFrequency.daily.recurrence, BillRecurrence.daily);
+    expect(PaymentFrequency.quarterly.recurrence, BillRecurrence.quarterly);
+    expect(PaymentFrequency.semiAnnual.recurrence, BillRecurrence.semiAnnual);
+    expect(PaymentFrequency.annually.recurrence, BillRecurrence.yearly);
+    expect(
+      lastDueDateFor(DateTime(2026, 1, 5), BillRecurrence.daily, 3),
+      DateTime(2026, 1, 7),
+    );
+    expect(
+      lastDueDateFor(DateTime(2026, 1, 5), BillRecurrence.semiAnnual, 3),
+      DateTime(2027, 1, 5),
+    );
+    expect(
+      fixedInterestPeriodKey(DateTime(2026, 5, 2), PaymentFrequency.monthly),
+      fixedInterestPeriodKey(DateTime(2026, 5, 29), PaymentFrequency.monthly),
+    );
+    expect(
+      fixedInterestPeriodKey(DateTime(2026, 5, 2), PaymentFrequency.weekly),
+      fixedInterestPeriodKey(DateTime(2026, 5, 3), PaymentFrequency.weekly),
+    );
+    expect(
+      fixedInterestPeriodKey(DateTime(2026, 1, 10), PaymentFrequency.annually),
+      fixedInterestPeriodKey(DateTime(2026, 12, 10), PaymentFrequency.annually),
+    );
+  });
+
+  test('older debt records default safely without optional loan details', () {
+    final debt = Debt.fromMap('older', {
+      'direction': 'iOwe',
+      'name': 'Old loan',
+      'category': 'personalLoan',
+      'principal': 5000,
+      'status': 'active',
+      'perPayment': 1000,
+      'paymentCount': 5,
+      'quotedRate': 1.5,
+      'quotedRatePer': 'month',
+    });
+
+    expect(debt.principal, 5000);
+    expect(debt.frequency, PaymentFrequency.monthly);
+    expect(debt.originalPrincipal, isNull);
+    expect(debt.interestPeriod, isNull);
+    expect(debt.loanDuration, isNull);
+    expect(debt.loanStartDate, isNull);
+    expect(debt.balanceBasedSchedule, isFalse);
+    expect(debt.fixedInterestAmount, isNull);
+    expect(debt.interestChargedPer, isNull);
+    expect(debt.accruedInterest, 0);
+  });
+
   group('working out a loan from its rate', () {
     test("Metrobank's Cash2Go calculator: ₱5,000 at 1% a month for 3", () {
       final payments = work(5000, 1, RatePeriod.month, 3);
@@ -333,8 +385,14 @@ void main() {
       // Always shown, even though it is optional, and asked the way paying
       // always looks: which side of the money first.
       expect(find.text('Wallet used'), findsOneWidget);
-      expect(find.byKey(const Key('installment-paid-with-cash')), findsOneWidget);
-      expect(find.byKey(const Key('installment-paid-with-bank')), findsOneWidget);
+      expect(
+        find.byKey(const Key('installment-paid-with-cash')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('installment-paid-with-bank')),
+        findsOneWidget,
+      );
       // The first wallet is already chosen, so the field is never blank.
       expect(
         find.byKey(const Key('installment-paid-with-wallet-cash')),
@@ -361,7 +419,9 @@ void main() {
         find.byKey(const Key('installment-paid-with-wallet-cash')),
         findsNothing,
       );
-      await tester.tap(find.byKey(const Key('installment-paid-with-wallet-bank')));
+      await tester.tap(
+        find.byKey(const Key('installment-paid-with-wallet-bank')),
+      );
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(find.text('Save Installment'));
@@ -584,234 +644,192 @@ void main() {
       await tester.pump();
     }
 
-    Future<void> fill(
-      WidgetTester tester, {
-      required String name,
-      required String amount,
-      String? rate,
-      required String count,
-    }) async {
-      await tester.enterText(find.byKey(const Key('loan-name')), name);
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Amount borrowed'),
-        amount,
-      );
-      if (rate != null) {
-        await tester.enterText(find.byKey(const Key('loan-rate')), rate);
-      }
-      // The term runs in months and pays monthly here, so as many payments
-      // as months.
-      await tester.enterText(find.byKey(const Key('loan-term')), count);
-      await tester.pump();
-    }
-
-    /// Picks [kind] in the loan-type dropdown. Every kind is checked to be
-    /// in the menu each time it opens.
-    Future<void> pickKind(WidgetTester tester, DebtCategory kind) async {
-      await tester.tap(find.byType(DropdownButtonFormField<DebtCategory>));
-      await tester.pumpAndSettle();
-      for (final option in DebtCategory.loanKinds) {
-        expect(find.text(option.label), findsWidgets, reason: option.name);
-      }
-      await tester.tap(find.text(kind.label).last);
-      await tester.pumpAndSettle();
-    }
-
-    String shown(WidgetTester tester, String key) =>
-        tester.widget<Text>(find.byKey(Key(key))).data!;
-
-    testWidgets('works out Cash2Go the way Metrobank does', (tester) async {
+    testWidgets('saves required details without optional loan information', (
+      tester,
+    ) async {
       LoanDraft? saved;
       await pumpForm(tester, (draft) => saved = draft);
-      await fill(
-        tester,
-        name: 'Cash2Go',
-        amount: '5000',
-        rate: '1',
-        count: '3',
-      );
+      await tester.enterText(find.byKey(const Key('loan-name')), 'BPI loan');
+      await tester.enterText(find.byKey(const Key('loan-balance')), '15000');
+      await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
+      await tester.pump();
 
-      // The kind came from the name, and the rate is per month for it.
-      expect(find.text('Cash from a credit card'), findsOneWidget);
-      expect(shown(tester, 'loan-payment'), '₱1,716.67');
-      expect(shown(tester, 'loan-total'), '₱5,150');
-      expect(shown(tester, 'loan-interest'), '₱150');
-      expect(shown(tester, 'loan-true-cost'), '17.9%');
+      expect(find.text('Additional Loan Details (Optional)'), findsOneWidget);
+      expect(find.byKey(const Key('loan-rate')), findsNothing);
+      await tester.tap(find.byKey(const Key('loan-additional-details')));
+      await tester.pumpAndSettle();
+      expect(find.text('Loan start date'), findsNothing);
+      await tester.tap(find.text('Save Debt'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.name, 'BPI loan');
+      expect(saved?.principal, 15000);
+      expect(saved?.perPayment, 1000);
+      expect(saved?.paymentCount, 15);
+      expect(saved?.frequency, PaymentFrequency.monthly);
+      expect(saved?.firstDueDate, DateTime(2026, 11, 28));
+      expect(saved?.fixedInterestAmount, isNull);
+      expect(saved?.interestChargedPer, isNull);
+      expect(saved?.balanceBasedSchedule, isTrue);
+    });
+
+    testWidgets('estimates duration from the balance and payment', (
+      tester,
+    ) async {
+      await pumpForm(tester, (_) {});
+      await tester.enterText(find.byKey(const Key('loan-balance')), '15000');
+      await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
+      await tester.tap(find.byKey(const Key('loan-additional-details')));
+      await tester.pumpAndSettle();
+
+      final durationField = tester.widget<TextField>(
+        find.byKey(const Key('loan-duration')),
+      );
+      expect(durationField.controller?.text, '15');
       expect(
-        find.text('The last one is ₱1,716.66, from rounding.'),
+        find.text('Estimated from your balance, payment, and frequency.'),
         findsOneWidget,
       );
 
-      await tester.tap(find.text('Save Debt'));
-      await tester.pumpAndSettle();
-      expect(saved?.category, DebtCategory.cardCashLoan);
-      expect(saved?.perPayment, 1716.67);
-      expect(saved?.lastPayment, 1716.66);
-      expect(saved?.quotedRate, 1);
-      expect(saved?.quotedRatePer, RatePeriod.month);
+      await tester.enterText(find.byKey(const Key('loan-payment')), '500');
+      await tester.pump();
+      expect(durationField.controller?.text, '30');
     });
 
-    testWidgets('20% for the whole loan on ₱5,600 over 12', (tester) async {
+    testWidgets('keeps a duration the user edits', (tester) async {
       await pumpForm(tester, (_) {});
-      await fill(
-        tester,
-        name: 'Personal loan',
-        amount: '5600',
-        rate: '20',
-        count: '12',
-      );
-      await tester.tap(
-        find.byKey(const ValueKey('loan-rate-per-RatePeriod.month')),
-      );
+      await tester.enterText(find.byKey(const Key('loan-balance')), '15000');
+      await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
+      await tester.tap(find.byKey(const Key('loan-additional-details')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Once (whole loan)').last);
-      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('loan-duration')), '20');
+      await tester.enterText(find.byKey(const Key('loan-payment')), '500');
+      await tester.pump();
 
-      expect(shown(tester, 'loan-payment'), '₱560');
-      expect(shown(tester, 'loan-interest'), '₱1,120');
-      expect(shown(tester, 'loan-true-cost'), '35.1%');
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('loan-duration')))
+            .controller
+            ?.text,
+        '20',
+      );
     });
 
-    testWidgets('a bank or lender must give its interest', (tester) async {
+    testWidgets('saves optional details and a supported payment frequency', (
+      tester,
+    ) async {
       LoanDraft? saved;
       await pumpForm(tester, (draft) => saved = draft);
-      await fill(tester, name: 'BPI loan', amount: '10000', count: '12');
-      expect(find.byKey(const Key('loan-result')), findsNothing);
+      await tester.enterText(find.byKey(const Key('loan-name')), 'Tita Baby');
+      await tester.enterText(find.byKey(const Key('loan-balance')), '10000');
+      await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
 
+      await tester.tap(find.byKey(const Key('loan-additional-details')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('loan-fixed-interest')),
+        '180',
+      );
+      await tester.enterText(find.byKey(const Key('loan-duration')), '10');
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('loan-interest-charged-per-none')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Every month').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save Debt'));
+      await tester.pumpAndSettle();
+      expect(saved?.principal, 10000);
+      expect(saved?.frequency, PaymentFrequency.monthly);
+      expect(saved?.paymentCount, 10);
+      expect(saved?.fixedInterestAmount, 180);
+      expect(saved?.interestChargedPer, PaymentFrequency.monthly);
+      expect(saved?.loanDuration, 10);
+    });
+
+    test('a recorded fixed charge is separate from principal payments', () {
+      final debt = Debt(
+        id: 'fixed',
+        direction: DebtDirection.iOwe,
+        name: 'Personal loan',
+        category: DebtCategory.personalLoan,
+        principal: 12000,
+        perPayment: 1000,
+        paymentCount: 12,
+        frequency: PaymentFrequency.monthly,
+        firstDueDate: DateTime(2026, 5, 1),
+        status: DebtStatus.active,
+        balanceBasedSchedule: true,
+        fixedInterestAmount: 180,
+        interestChargedPer: PaymentFrequency.monthly,
+        accruedInterest: 180,
+      );
+      final paid = BillInstance(
+        id: 'paid-month',
+        billId: 'bill',
+        debtId: debt.id,
+        name: debt.name,
+        amount: 1000,
+        amountPaid: 1000,
+        category: 'Bills',
+        dueDate: DateTime(2026, 5, 1),
+        status: BillStatus.paid,
+      );
+
+      final beforePayment = DebtProgress.of(debt, const []);
+      final afterPayment = DebtProgress.of(debt, [paid]);
+      expect(beforePayment.total, 12180);
+      expect(beforePayment.remaining, 12180);
+      expect(afterPayment.remaining, 11180);
+      expect(debt.loanLeft(afterPayment.paid), 11000);
+      expect(debt.interestShare, 0);
+    });
+
+    testWidgets('supports daily payment schedules', (tester) async {
+      LoanDraft? saved;
+      await pumpForm(tester, (draft) => saved = draft);
+      await tester.enterText(find.byKey(const Key('loan-name')), 'Quick loan');
+      await tester.enterText(find.byKey(const Key('loan-balance')), '5000');
+      await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
+      await tester.tap(find.byKey(const ValueKey('loan-frequency-monthly')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Every day').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save Debt'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.frequency, PaymentFrequency.daily);
+      expect(saved?.frequency.recurrence, BillRecurrence.daily);
+      expect(saved?.paymentCount, 5);
+    });
+
+    testWidgets('retains the loan source choices', (tester) async {
+      await pumpForm(tester, (_) {});
+      await tester.tap(find.byType(DropdownButtonFormField<DebtCategory>));
+      await tester.pumpAndSettle();
+      for (final kind in DebtCategory.loanKinds) {
+        expect(find.text(kind.label), findsWidgets, reason: kind.name);
+      }
+      await tester.tap(find.text(DebtCategory.otherLoan.label).last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('loan-other-kind')), findsOneWidget);
+    });
+
+    testWidgets('requires a positive balance and payment amount', (
+      tester,
+    ) async {
+      LoanDraft? saved;
+      await pumpForm(tester, (draft) => saved = draft);
+      await tester.enterText(find.byKey(const Key('loan-name')), 'BPI loan');
       await tester.tap(find.text('Save Debt'));
       await tester.pump();
       expect(
-        find.textContaining('Enter the interest from your loan papers'),
+        find.text('Enter a remaining balance above zero.'),
         findsOneWidget,
       );
       expect(saved, isNull);
-    });
-
-    testWidgets('family can lend without interest', (tester) async {
-      LoanDraft? saved;
-      await pumpForm(tester, (draft) => saved = draft);
-      await fill(tester, name: 'Tita Baby', amount: '6000', count: '12');
-
-      expect(find.text('Interest (optional)'), findsOneWidget);
-      expect(shown(tester, 'loan-payment'), '₱500');
-      expect(find.byKey(const Key('loan-true-cost')), findsNothing);
-
-      await tester.tap(find.text('Save Debt'));
-      await tester.pumpAndSettle();
-      expect(saved?.category, DebtCategory.familyFriend);
-      expect(saved?.quotedRate, isNull);
-    });
-
-    testWidgets('choosing who lent it never moves the choices', (tester) async {
-      await pumpForm(tester, (_) {});
-      // Amount typed first, so a later pick has something to keep.
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Amount borrowed'),
-        '5000',
-      );
-      await tester.pump();
-
-      await pickKind(tester, DebtCategory.familyFriend);
-      expect(find.text('5,000'), findsOneWidget);
-
-      // Picking again offers every kind, and leaves what was typed in.
-      await pickKind(tester, DebtCategory.governmentLoan);
-      expect(find.text('5,000'), findsOneWidget);
-    });
-
-    testWidgets('Other loan asks what kind it is', (tester) async {
-      LoanDraft? saved;
-      await pumpForm(tester, (draft) => saved = draft);
-      expect(find.byKey(const Key('loan-other-kind')), findsNothing);
-
-      // The name goes in first: typing it after would re-guess the kind.
-      await fill(tester, name: 'Sangla', amount: '3000', count: '3');
-      await pickKind(tester, DebtCategory.otherLoan);
-      expect(find.text('What kind of loan?'), findsOneWidget);
-      await tester.enterText(
-        find.byKey(const Key('loan-other-kind')),
-        'Pawnshop',
-      );
-      await tester.pump();
-
-      await tester.tap(find.text('Save Debt'));
-      await tester.pumpAndSettle();
-      expect(saved?.category, DebtCategory.otherLoan);
-      expect(saved?.otherKind, 'Pawnshop');
-    });
-
-    testWidgets('SSS and Pag-IBIG charge on what is left to pay', (
-      tester,
-    ) async {
-      LoanDraft? saved;
-      await pumpForm(tester, (draft) => saved = draft);
-      await fill(
-        tester,
-        name: 'SSS salary loan',
-        amount: '20000',
-        rate: '10',
-        count: '24',
-      );
-
-      // A year's rate, on what is left: the lender's own way.
-      expect(find.text('How does the interest work?'), findsOneWidget);
-      expect(
-        tester.getSemantics(
-          find.byKey(const Key('loan-basis-remainingBalance')),
-        ),
-        isSemantics(isSelected: true),
-      );
-      await tester.tap(find.text('Save Debt'));
-      await tester.pumpAndSettle();
-      expect(saved?.category, DebtCategory.governmentLoan);
-      expect(saved?.quotedRatePer, RatePeriod.year);
-      expect(saved?.rateBasis, InterestBasis.remainingBalance);
-      // ₱20,000 at 10% a year on what is left, over 24 months.
-      expect(saved?.perPayment, closeTo(922.90, 0.01));
-    });
-
-    testWidgets("no interest on hand: the payment on the papers will do", (
-      tester,
-    ) async {
-      LoanDraft? saved;
-      await pumpForm(tester, (draft) => saved = draft);
-      await fill(tester, name: 'BPI loan', amount: '5000', count: '3');
-
-      await tester.tap(
-        find.text("Don't know the interest? Enter the payment instead"),
-      );
-      await tester.pump();
-      expect(find.byKey(const Key('loan-rate')), findsNothing);
-      await tester.enterText(
-        find.byKey(const Key('loan-payment-papers')),
-        '1716.67',
-      );
-      await tester.pump();
-
-      // What it costs comes from the payments alone.
-      expect(shown(tester, 'loan-payment'), '₱1,716.67');
-      expect(shown(tester, 'loan-true-cost'), '17.9%');
-
-      await tester.tap(find.text('Save Debt'));
-      await tester.pumpAndSettle();
-      expect(saved?.perPayment, 1716.67);
-      expect(saved?.quotedRate, isNull);
-    });
-
-    testWidgets('a very costly loan gets a gentle warning', (tester) async {
-      await pumpForm(tester, (_) {});
-      await fill(
-        tester,
-        name: 'Lending app',
-        amount: '10000',
-        rate: '10',
-        count: '6',
-      );
-      expect(find.byKey(const Key('loan-high-cost')), findsOneWidget);
-      expect(
-        find.textContaining('registered with the government'),
-        findsOneWidget,
-      );
     });
   });
 }

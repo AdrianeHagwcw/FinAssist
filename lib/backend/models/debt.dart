@@ -153,12 +153,16 @@ DebtCategory? guessDebtCategory(String name) {
   return null;
 }
 
-/// How often an installment is paid. Kept to what installments actually use.
+/// How often a loan or installment payment is due.
 enum PaymentFrequency {
-  monthly('Every month', BillRecurrence.monthly),
+  daily('Every day', BillRecurrence.daily),
+  weekly('Every week', BillRecurrence.weekly),
+  fortnightly('Every two weeks', BillRecurrence.fortnightly),
   semiMonthly('Twice a month', BillRecurrence.semiMonthly),
-  fortnightly('Every 2 weeks', BillRecurrence.fortnightly),
-  weekly('Every week', BillRecurrence.weekly);
+  monthly('Every month', BillRecurrence.monthly),
+  quarterly('Every 3 months', BillRecurrence.quarterly),
+  semiAnnual('Every 6 months', BillRecurrence.semiAnnual),
+  annually('Every year', BillRecurrence.yearly);
 
   const PaymentFrequency(this.label, this.recurrence);
 
@@ -168,14 +172,19 @@ enum PaymentFrequency {
   /// How many payments fall in a year, to turn a rate per payment into a
   /// rate a year.
   int get perYear => switch (this) {
+    PaymentFrequency.daily => 365,
     PaymentFrequency.monthly => 12,
     PaymentFrequency.semiMonthly => 24,
     PaymentFrequency.fortnightly => 26,
     PaymentFrequency.weekly => 52,
+    PaymentFrequency.quarterly => 4,
+    PaymentFrequency.semiAnnual => 2,
+    PaymentFrequency.annually => 1,
   };
 
   /// Under one payment's amount: "Each month", or "Twice a month".
   String get eachLabel => switch (this) {
+    PaymentFrequency.daily => 'Each day',
     PaymentFrequency.monthly => 'Each month',
     PaymentFrequency.weekly => 'Each week',
     _ => label,
@@ -188,8 +197,52 @@ enum PaymentFrequency {
       );
 }
 
-/// What a rate the lender quoted is counted per.
+/// A stable key for one lender interest period, used to make recording an
+/// interest charge idempotent. Calendar periods follow calendar boundaries;
+/// fortnightly periods use the loan start or next payment date as their anchor.
+String fixedInterestPeriodKey(
+  DateTime date,
+  PaymentFrequency period, {
+  DateTime? anchor,
+}) {
+  final day = DateTime.utc(date.year, date.month, date.day);
+  String keyDate(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}'
+      '${value.month.toString().padLeft(2, '0')}'
+      '${value.day.toString().padLeft(2, '0')}';
+
+  switch (period) {
+    case PaymentFrequency.daily:
+      return 'daily-${keyDate(day)}';
+    case PaymentFrequency.weekly:
+      final start = day.subtract(Duration(days: day.weekday - 1));
+      return 'weekly-${keyDate(start)}';
+    case PaymentFrequency.fortnightly:
+      final first = anchor == null
+          ? day.subtract(Duration(days: day.weekday - 1))
+          : DateTime.utc(anchor.year, anchor.month, anchor.day);
+      final days = day.difference(first).inDays;
+      final step = (days / 14).floor();
+      final start = first.add(Duration(days: step * 14));
+      return 'fortnightly-${keyDate(start)}';
+    case PaymentFrequency.semiMonthly:
+      return 'semiMonthly-${day.year}-${day.month.toString().padLeft(2, '0')}'
+          '-${day.day <= 15 ? 1 : 2}';
+    case PaymentFrequency.monthly:
+      return 'monthly-${day.year}-${day.month.toString().padLeft(2, '0')}';
+    case PaymentFrequency.quarterly:
+      return 'quarterly-${day.year}-Q${((day.month - 1) ~/ 3) + 1}';
+    case PaymentFrequency.semiAnnual:
+      return 'semiAnnual-${day.year}-${day.month <= 6 ? 1 : 2}';
+    case PaymentFrequency.annually:
+      return 'annually-${day.year}';
+  }
+}
+
+/// What period a lender's quoted rate is counted over.
 enum RatePeriod {
+  day('a day'),
+  week('a week'),
   month('a month'),
   year('a year'),
 
@@ -203,6 +256,8 @@ enum RatePeriod {
 
   /// As a choice on its own, under "Charged".
   String get choiceLabel => switch (this) {
+    RatePeriod.day => 'Every day',
+    RatePeriod.week => 'Every week',
     RatePeriod.month => 'Every month',
     RatePeriod.year => 'Every year',
     RatePeriod.wholeLoan => 'Once (whole loan)',
@@ -283,7 +338,16 @@ class Debt {
     this.paidBefore = 0,
     this.quotedRate,
     this.quotedRatePer = RatePeriod.month,
+    this.interestPeriod,
     this.rateBasis = InterestBasis.wholeAmount,
+    this.originalPrincipal,
+    this.loanDuration,
+    this.loanDurationUnit,
+    this.loanStartDate,
+    this.balanceBasedSchedule = false,
+    this.fixedInterestAmount,
+    this.interestChargedPer,
+    this.accruedInterest = 0,
     this.fees = 0,
     this.otherKind,
     this.paidWithWalletId,
@@ -319,7 +383,24 @@ class Debt {
           ? (map['quotedRate'] as num).toDouble().abs()
           : null,
       quotedRatePer: RatePeriod.fromName(_asString(map['quotedRatePer'])),
+      interestPeriod: _asString(map['interestPeriod']),
       rateBasis: InterestBasis.fromName(_asString(map['rateBasis'])),
+      originalPrincipal: map['originalPrincipal'] is num
+          ? (map['originalPrincipal'] as num).toDouble().abs()
+          : null,
+      loanDuration: map['loanDuration'] is num
+          ? (map['loanDuration'] as num).toInt().abs()
+          : null,
+      loanDurationUnit: _asString(map['loanDurationUnit']),
+      loanStartDate: _asDate(map['loanStartDate']),
+      balanceBasedSchedule: map['balanceBasedSchedule'] == true,
+      fixedInterestAmount: map['fixedInterestAmount'] is num
+          ? (map['fixedInterestAmount'] as num).toDouble().abs()
+          : null,
+      interestChargedPer: map['interestChargedPer'] is String
+          ? PaymentFrequency.fromName(map['interestChargedPer'] as String)
+          : null,
+      accruedInterest: _asDouble(map['accruedInterest']).abs(),
       fees: _asDouble(map['fees']).abs(),
       otherKind: _asString(map['otherKind']),
       paidWithWalletId: _asString(map['paidWithWalletId']),
@@ -336,7 +417,8 @@ class Debt {
   final String name;
   final DebtCategory category;
 
-  /// The amount borrowed or lent.
+  /// The principal tracked for this record. New debt entries use the
+  /// remaining balance here; the original amount is optional metadata.
   final double principal;
 
   // ------------------------------------------------ money the user owes
@@ -362,6 +444,22 @@ class Debt {
   /// (Truth in Lending Act, RA 3765), so it is asked for, never required.
   final double? quotedRate;
   final RatePeriod quotedRatePer;
+  final String? interestPeriod;
+
+  /// Optional original amount and contract details entered by the user.
+  final double? originalPrincipal;
+  final int? loanDuration;
+  final String? loanDurationUnit;
+  final DateTime? loanStartDate;
+  final bool balanceBasedSchedule;
+
+  /// Fixed monetary interest per [interestChargedPer], when the lender
+  /// charges it. It is never derived from the principal.
+  final double? fixedInterestAmount;
+  final PaymentFrequency? interestChargedPer;
+
+  /// Interest the user explicitly recorded as charged and still unpaid.
+  final double accruedInterest;
 
   /// How the quoted rate is charged.
   final InterestBasis rateBasis;
@@ -443,6 +541,9 @@ class Debt {
   /// usual payments, then the last one.
   double get totalPayable =>
       paymentCount < 1 ? 0 : perPayment * (paymentCount - 1) + finalPayment;
+
+  /// The scheduled amount plus interest charges explicitly recorded so far.
+  double get totalWithAccruedInterest => totalPayable + accruedInterest;
 
   /// What borrowing costs on top of what the user got: interest, and any
   /// [fees] taken out. This is shown instead of an interest rate: most
@@ -548,8 +649,13 @@ class Debt {
   /// Fees the user told us about are not counted as a surprise.
   bool get costsMoreThanQuoted {
     final quoted = quotedRate;
-    if (quoted == null || paymentCount < 1) return false;
+    if (quoted == null || paymentCount < 1 || interestPeriod != null) {
+      return false;
+    }
+    final years = paymentCount / frequency.perYear;
     final allowed = switch (quotedRatePer) {
+      RatePeriod.day => principal * quoted * 365 * years / 100,
+      RatePeriod.week => principal * quoted * 52 * years / 100,
       RatePeriod.month => principal * quoted / 100 * termMonths,
       RatePeriod.year => principal * quoted / 12 / 100 * termMonths,
       RatePeriod.wholeLoan => principal * quoted / 100,
@@ -572,8 +678,8 @@ class Debt {
       value is Timestamp ? value.toDate() : null;
 }
 
-/// A loan's payments worked out from the rate the lender quoted, the way
-/// lenders work them out. Each payment is rounded to the centavo and the
+/// A loan's payments worked out from the rate the lender quoted and the
+/// interest basis. Each payment is rounded to the centavo and the
 /// last one takes up what rounding left over, as on a loan statement.
 class LoanPayments {
   const LoanPayments({
@@ -593,8 +699,8 @@ class LoanPayments {
 
 double _centavos(double amount) => (amount * 100).round() / 100;
 
-/// The payments on [principal] at [rate] percent [per] month, year or for
-/// the whole loan, charged on [basis], in [count] payments [frequency].
+/// The payments on [principal] at [rate] percent [per] day, week, month, year
+/// or for the whole loan, charged on [basis], in [count] payments [frequency].
 /// Null when there is nothing to work out yet.
 ///
 /// On the whole amount (add-on): ₱5,000 at 1% a month for 3 months is
@@ -614,6 +720,10 @@ LoanPayments? loanPayments({
 
   if (basis == InterestBasis.wholeAmount || per == RatePeriod.wholeLoan) {
     final interest = switch (per) {
+      RatePeriod.day =>
+        principal * rate / 100 * count * 365 / frequency.perYear,
+      RatePeriod.week =>
+        principal * rate / 100 * count * 52 / frequency.perYear,
       RatePeriod.month => principal * rate / 100 * months,
       RatePeriod.year => principal * rate / 12 / 100 * months,
       RatePeriod.wholeLoan => principal * rate / 100,
@@ -629,7 +739,13 @@ LoanPayments? loanPayments({
   }
 
   // On what's left to pay: the rate for one payment's stretch of time.
-  final yearly = per == RatePeriod.month ? rate * 12 : rate;
+  final yearly = switch (per) {
+    RatePeriod.day => rate * 365,
+    RatePeriod.week => rate * 52,
+    RatePeriod.month => rate * 12,
+    RatePeriod.year => rate,
+    RatePeriod.wholeLoan => 0,
+  };
   final periodic = yearly / 100 / frequency.perYear;
   final exact = periodic == 0
       ? principal / count
@@ -726,7 +842,7 @@ class DebtProgress {
     return DebtProgress(
       paid: paid,
       paymentsMade: made,
-      total: debt.totalPayable,
+      total: debt.totalWithAccruedInterest,
       paymentCount: debt.paymentCount,
     );
   }
@@ -839,7 +955,9 @@ DebtNextPayment? nextUnpaidPayment(
 BillInstance? _occurrenceOn(Iterable<BillInstance> instances, DateTime due) {
   for (final instance in instances) {
     final date = instance.dueDate;
-    if (date.year == due.year && date.month == due.month && date.day == due.day) {
+    if (date.year == due.year &&
+        date.month == due.month &&
+        date.day == due.day) {
       return instance;
     }
   }
@@ -878,11 +996,11 @@ class InstallmentPaymentEdit {
 
   /// A payment the shortened plan no longer reaches, which is taken away.
   const InstallmentPaymentEdit.remove(this.instance)
-      : removes = true,
-        amount = 0,
-        name = '',
-        interestShare = 0,
-        reopenCarry = false;
+    : removes = true,
+      amount = 0,
+      name = '',
+      interestShare = 0,
+      reopenCarry = false;
 
   /// The payment as it stands now, dated as it is.
   final BillInstance instance;
@@ -947,7 +1065,8 @@ List<InstallmentPaymentEdit> recalculateInstallmentPayments({
     final carriedInto = instance.carriedInto;
     final reopen = carriedInto != null && removedIds.contains(carriedInto);
 
-    final unchanged = (amount - instance.amount).abs() <= 0.005 &&
+    final unchanged =
+        (amount - instance.amount).abs() <= 0.005 &&
         instance.name == terms.name &&
         (instance.interestShare - terms.interestShare).abs() <= 0.005 &&
         !reopen;

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// How often a bill comes back.
 enum BillRecurrence {
   once('One time', 'Happens once, on the due date.'),
+  daily('Every day', 'Falls due every day.'),
   weekly('Every week', 'Falls due on the same weekday each week.'),
   fortnightly(
     'Every 2 weeks',
@@ -16,6 +17,7 @@ enum BillRecurrence {
   ),
   monthly('Every month', 'Falls due on the same date each month.'),
   quarterly('Every 3 months', 'Falls due every third month.'),
+  semiAnnual('Every 6 months', 'Falls due every sixth month.'),
   yearly('Every year', 'Falls due once a year, on the same date.');
 
   const BillRecurrence(this.label, this.explanation);
@@ -171,6 +173,9 @@ class Bill {
       case BillRecurrence.once:
         return first.year == year && first.month == month ? [first] : const [];
 
+      case BillRecurrence.daily:
+        return _everyNDays(first, monthStart, monthEnd, 1);
+
       case BillRecurrence.weekly:
         return _everyNDays(first, monthStart, monthEnd, 7);
 
@@ -185,6 +190,9 @@ class Bill {
 
       case BillRecurrence.quarterly:
         return _repeatEveryMonths(first, year, month, 3);
+
+      case BillRecurrence.semiAnnual:
+        return _repeatEveryMonths(first, year, month, 6);
 
       case BillRecurrence.yearly:
         return _repeatEveryMonths(first, year, month, 12);
@@ -430,6 +438,8 @@ DateTime lastDueDateFor(
   switch (recurrence) {
     case BillRecurrence.once:
       return first;
+    case BillRecurrence.daily:
+      return DateTime(first.year, first.month, first.day + steps);
     case BillRecurrence.weekly:
       return DateTime(first.year, first.month, first.day + 7 * steps);
     case BillRecurrence.fortnightly:
@@ -444,6 +454,8 @@ DateTime lastDueDateFor(
       return _addMonths(first, steps);
     case BillRecurrence.quarterly:
       return _addMonths(first, 3 * steps);
+    case BillRecurrence.semiAnnual:
+      return _addMonths(first, 6 * steps);
     case BillRecurrence.yearly:
       return _addMonths(first, 12 * steps);
   }

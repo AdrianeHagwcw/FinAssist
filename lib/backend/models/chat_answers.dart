@@ -2234,10 +2234,14 @@ String _aboutDebt(Debt debt, bool fil) {
 String _often(PaymentFrequency frequency, bool fil) => !fil
     ? frequency.label.toLowerCase()
     : switch (frequency) {
+        PaymentFrequency.daily => 'kada araw',
         PaymentFrequency.monthly => 'buwan-buwan',
         PaymentFrequency.semiMonthly => 'dalawang beses kada buwan',
         PaymentFrequency.fortnightly => 'kada 2 linggo',
         PaymentFrequency.weekly => 'linggo-linggo',
+        PaymentFrequency.quarterly => 'kada 3 buwan',
+        PaymentFrequency.semiAnnual => 'kada 6 buwan',
+        PaymentFrequency.annually => 'taun-taon',
       };
 
 ChatReply _income(String text, FinanceSnapshot records, bool fil) {
