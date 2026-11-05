@@ -456,7 +456,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         title: ahead ? 'Nothing to pay in advance' : 'No installment to pay',
         message: ahead
             ? 'You have no installment to pay ahead of its date.'
-            : 'You have no installment or loan waiting for a payment.',
+            : 'You have no installment or debt waiting for a payment.',
       );
       return null;
     }
@@ -475,7 +475,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
           good: false,
           title: 'No installment by that name',
           message:
-              'None of your installments or loans is called '
+              'None of your installments or debts is called '
               '"${command.name}". Try again with another name.',
         );
         return null;
@@ -715,7 +715,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
       case VoiceCommandType.payNow:
         return _CommandDetails(
           title: 'Pay this month\'s due?',
-          rows: [(null, command.name ?? 'Your installment or loan')],
+          rows: [(null, command.name ?? 'Your installment or debt')],
         );
       case VoiceCommandType.payInAdvance:
         return _CommandDetails(
@@ -1023,6 +1023,7 @@ class _Example extends StatelessWidget {
                     '“Add bill Meralco 2,500”',
                     '“Pay my installment now”',
                     '“Open installments”',
+                    '“Open debts”',
                   ])
           Padding(
             padding: const EdgeInsets.only(bottom: 4),

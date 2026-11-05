@@ -659,7 +659,7 @@ class _CostOfBorrowing extends StatelessWidget {
               const SizedBox(width: 10),
               Text(
                 debt.balanceBasedSchedule
-                    ? 'Loan details'
+                    ? 'Debt details'
                     : 'What borrowing costs',
                 style: TextStyle(
                   fontSize: 15,
@@ -680,18 +680,18 @@ class _CostOfBorrowing extends StatelessWidget {
                 ),
                 if (debt.originalPrincipal != null)
                   Text(
-                    'Original loan amount: ${formatPeso(debt.originalPrincipal!)}.',
+                    'Original debt amount: ${formatPeso(debt.originalPrincipal!)}.',
                     style: body,
                   ),
                 if (debt.loanDuration != null)
                   Text(
-                    'Loan duration: ${debt.loanDuration} '
+                    'Debt duration: ${debt.loanDuration} '
                     '${debt.loanDurationUnit == 'years' ? 'years' : 'months'}.',
                     style: body,
                   ),
                 if (debt.loanStartDate != null)
                   Text(
-                    'Loan start date: ${formatShortDate(debt.loanStartDate!)}.',
+                    'Debt start date: ${formatShortDate(debt.loanStartDate!)}.',
                     style: body,
                   ),
                 if (debt.fixedInterestAmount != null &&

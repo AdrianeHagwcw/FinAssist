@@ -372,8 +372,6 @@ void main() {
                 showFigure: false,
                 wallets: Stream.value(const [cash]),
                 transactions: transactions.stream,
-                profile: Stream.value(const <String, dynamic>{}),
-                cycles: Stream.value(const []),
                 goals: Stream.value(const []),
                 billSchedules: Stream.value(const []),
                 loadBills: () async => outstanding,

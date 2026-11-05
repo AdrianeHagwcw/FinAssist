@@ -147,6 +147,10 @@ class _HomeScreenState extends State<HomeScreen> {
       a != null &&
       a.walletBalance == b.walletBalance &&
       a.billsDue == b.billsDue &&
+      a.installmentsDue == b.installmentsDue &&
+      a.debtsDue == b.debtsDue &&
+      a.billsUnknown == b.billsUnknown &&
+      a.billsOutOfDate == b.billsOutOfDate &&
       a.goalSavings == b.goalSavings &&
       a.spentToday == b.spentToday &&
       a.daysLeft == b.daysLeft;

@@ -28,10 +28,11 @@ class AllocationService {
         .collection('allocationCycles');
   }
 
-  /// The bills to offer when money comes in: last month's that are still
-  /// open, and this month's and next month's.
+  /// The bills to offer when money comes in: everything still unpaid or
+  /// partly paid, however long ago it fell due, plus this month's and next
+  /// month's.
   ///
-  /// This and next month are filled in first, because a bill's occurrences
+  /// This month and next are filled in first, because a bill's occurrences
   /// only exist once someone has opened that month on the calendar.
   static Future<List<BillInstance>> loadOutstandingBills({
     DateTime? now,
@@ -39,13 +40,10 @@ class AllocationService {
     final today = now ?? DateTime.now();
     final bills = await BillService.loadBills();
 
-    final months = [
-      DateTime(today.year, today.month - 1),
+    for (final month in [
       DateTime(today.year, today.month),
       DateTime(today.year, today.month + 1),
-    ];
-
-    for (final month in months.skip(1)) {
+    ]) {
       await BillService.ensureInstances(
         bills: bills,
         year: month.year,
@@ -54,12 +52,7 @@ class AllocationService {
       );
     }
 
-    final instances = <BillInstance>[];
-    for (final month in months) {
-      instances.addAll(
-        await BillService.loadInstances(month.year, month.month),
-      );
-    }
+    final instances = await BillService.loadUnsettledInstances();
 
     return outstandingBills(instances, now: today);
   }

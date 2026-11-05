@@ -193,6 +193,20 @@ void main() {
       expect(paid.single.carried, 0);
     });
 
+    test('only recent unpaid bills stay in the outstanding list', () {
+      final stale = occurrence('rent', DateTime(2026, 7, 31));
+      final lastMonth = occurrence('rent', DateTime(2026, 8, 1));
+      final thisMonth = occurrence('rent', DateTime(2026, 9, 4));
+
+      final outstanding = outstandingBills([
+        stale,
+        lastMonth,
+        thisMonth,
+      ], now: DateTime(2026, 9, 5));
+
+      expect(outstanding, [lastMonth, thisMonth]);
+    });
+
     test('bills carried before the fix are closed now', () {
       final august = occurrence('internet', DateTime(2026, 8, 25));
       final september = occurrence(

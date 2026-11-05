@@ -116,7 +116,7 @@ String _tag(AppTransaction entry, CsvLookups lookups) {
     }
     return 'Bill payment';
   }
-  if (entry.isDebtMovement) return 'Loan';
+  if (entry.isDebtMovement) return 'Debt';
   return 'Regular';
 }
 

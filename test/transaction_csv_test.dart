@@ -244,7 +244,7 @@ void main() {
 
       expect(tagOf(entry()), 'Regular');
       expect(tagOf(entry(billInstanceId: 'b1')), 'Bill payment');
-      expect(tagOf(entry(debtId: 'd1')), 'Loan');
+      expect(tagOf(entry(debtId: 'd1')), 'Debt');
       expect(tagOf(entry(isLegacy: true)), 'Old record');
       expect(
         tagOf(entry(isLegacy: true, billInstanceId: 'b1', debtId: 'd1')),

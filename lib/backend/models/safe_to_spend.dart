@@ -186,6 +186,39 @@ double billsDueBefore(Iterable<BillInstance> instances, DateTime periodEnd) {
   return total;
 }
 
+/// [billsDueBefore], split by what each payment is for: a bill of its own, an
+/// installment, or a debt.
+///
+/// [planIsLoan] maps every plan's id to whether it is borrowed money
+/// ([DebtCategory.isLoan]). A payment whose plan isn't known counts as a bill
+/// of its own, so the three parts always add up to the whole.
+({double bills, double installments, double debts}) splitBillsDue(
+  Iterable<BillInstance> instances,
+  DateTime periodEnd,
+  Map<String, bool> planIsLoan,
+) {
+  var bills = 0.0;
+  var installments = 0.0;
+  var debts = 0.0;
+
+  for (final instance in instances) {
+    if (instance.isSettled) continue;
+    if (!instance.dueDate.isBefore(periodEnd)) continue;
+
+    final owed = instance.remaining;
+    final plan = instance.debtId == null ? null : planIsLoan[instance.debtId];
+    if (plan == null) {
+      bills += owed;
+    } else if (plan) {
+      debts += owed;
+    } else {
+      installments += owed;
+    }
+  }
+
+  return (bills: bills, installments: installments, debts: debts);
+}
+
 /// Today's safe-to-spend figure and how it was reached.
 class SafeToSpend {
   const SafeToSpend({
@@ -194,6 +227,10 @@ class SafeToSpend {
     required this.spentToday,
     required this.daysLeft,
     this.goalSavings = 0,
+    this.installmentsDue,
+    this.debtsDue,
+    this.billsUnknown = false,
+    this.billsOutOfDate = false,
     this.periodBudget,
     this.periodSpent = 0,
     this.periodLengthDays,
@@ -205,6 +242,35 @@ class SafeToSpend {
   /// Owed on bills before the period ends. Bills are paid straight from
   /// the wallets, so all of it is held back from spending.
   final double billsDue;
+
+  /// How much of [billsDue] is an installment payment. Null when the plans
+  /// behind the bills aren't known, and [billsDue] is then shown as one total.
+  final double? installmentsDue;
+
+  /// How much of [billsDue] is a debt payment. Null when the plans behind the
+  /// bills aren't known.
+  final double? debtsDue;
+
+  /// Bills couldn't be read and none were known, so [billsDue] leaves them
+  /// out. Said quietly on the card rather than passing the figure off as whole.
+  final bool billsUnknown;
+
+  /// The last read of bills failed, so [billsDue] is from an earlier read and
+  /// may have changed since.
+  final bool billsOutOfDate;
+
+  /// The part of [billsDue] that is neither an installment nor a debt.
+  double get billsOnlyDue {
+    final installments = installmentsDue;
+    final debts = debtsDue;
+    if (installments == null || debts == null) return billsDue;
+
+    final bills = billsDue - installments - debts;
+    return bills > 0 ? bills : 0;
+  }
+
+  /// Whether [billsDue] can be shown as bills, installments and debts.
+  bool get hasBillBreakdown => installmentsDue != null && debtsDue != null;
 
   /// Money set aside for goals, which stays in the wallets but isn't
   /// spendable.

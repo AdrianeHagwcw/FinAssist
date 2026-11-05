@@ -137,11 +137,13 @@ class AllocationPlan {
   }
 }
 
-/// The bills worth asking about when money comes in: anything not settled,
-/// overdue or falling due within [horizonDays], soonest first.
+/// The bills worth asking about when money comes in: anything not settled
+/// since the start of last month and falling due within [horizonDays],
+/// soonest first.
 ///
 /// A bill due two months out isn't offered, because paying it now would tie up
-/// money the user may need before then.
+/// money the user may need before then. Older overdue instances are left out
+/// so they don't keep reducing Safe to Spend indefinitely.
 List<BillInstance> outstandingBills(
   Iterable<BillInstance> instances, {
   DateTime? now,
@@ -149,13 +151,15 @@ List<BillInstance> outstandingBills(
 }) {
   final today = now ?? DateTime.now();
   final horizon = DateTime(today.year, today.month, today.day + horizonDays);
+  final notOlderThanLastMonth = DateTime(today.year, today.month - 1, 1);
 
   final outstanding = instances
       .where(
         (instance) =>
             !instance.isSettled &&
             instance.remaining > 0 &&
-            !instance.dueDate.isAfter(horizon),
+            !instance.dueDate.isAfter(horizon) &&
+            !instance.dueDate.isBefore(notOlderThanLastMonth),
       )
       .toList();
 

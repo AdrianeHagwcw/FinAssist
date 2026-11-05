@@ -438,14 +438,14 @@ class _InOutStrip extends StatelessWidget {
             Row(
               children: [
                 // Plain text colors: this money isn't earned or spent.
-                figure('Loans in', loans.moneyIn, colors.textPrimary),
+                figure('Debt in', loans.moneyIn, colors.textPrimary),
                 Container(
                   width: 1,
                   height: 34,
                   color: colors.border,
                   margin: const EdgeInsets.symmetric(horizontal: 12),
                 ),
-                figure('Loans out', loans.moneyOut, colors.textPrimary),
+                figure('Debt out', loans.moneyOut, colors.textPrimary),
               ],
             ),
             const SizedBox(height: 8),

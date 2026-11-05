@@ -8316,6 +8316,71 @@ void main() {
       expect(s.leftToday, 700);
     });
 
+    test('bills split into bills, installments and debts', () {
+      final split = splitBillsDue(
+        [
+          BillInstance(
+            id: 'rent',
+            billId: 'rent',
+            name: 'Rent',
+            amount: 3000,
+            category: 'Bills',
+            dueDate: DateTime(2026, 3, 25),
+            status: BillStatus.unpaid,
+          ),
+          BillInstance(
+            id: 'phone',
+            billId: 'phone',
+            name: 'Phone',
+            amount: 2000,
+            category: 'Installments',
+            dueDate: DateTime(2026, 3, 20),
+            status: BillStatus.unpaid,
+            debtId: 'phone',
+          ),
+          BillInstance(
+            id: 'sss',
+            billId: 'sss',
+            name: 'SSS',
+            amount: 1500,
+            category: 'Debts',
+            dueDate: DateTime(2026, 2, 20),
+            status: BillStatus.partial,
+            amountPaid: 500,
+            debtId: 'sss',
+          ),
+          // Already paid, so not owed.
+          BillInstance(
+            id: 'paid',
+            billId: 'paid',
+            name: 'Paid',
+            amount: 900,
+            category: 'Bills',
+            dueDate: DateTime(2026, 3, 10),
+            status: BillStatus.paid,
+            amountPaid: 900,
+          ),
+          // Next month's, not counted yet.
+          BillInstance(
+            id: 'next',
+            billId: 'next',
+            name: 'Next',
+            amount: 700,
+            category: 'Bills',
+            dueDate: DateTime(2026, 4, 5),
+            status: BillStatus.unpaid,
+          ),
+        ],
+        DateTime(2026, 4, 1),
+        {'phone': false, 'sss': true},
+      );
+
+      expect(split.bills, 3000);
+      expect(split.installments, 2000);
+      // ₱1,500 less the ₱500 already paid.
+      expect(split.debts, 1000);
+    });
+
     test('period budget is shared across days and reduces as spent', () {
       const s = SafeToSpend(
         walletBalance: 10000,
@@ -8590,7 +8655,6 @@ void main() {
     testWidgets('uses the spendable wallet balance with four days left', (
       tester,
     ) async {
-      final payday = DateTime(2026, 3, 16, 10);
       // March 28 to 31.
       final today = DateTime(2026, 3, 28, 10);
 
@@ -8604,26 +8668,6 @@ void main() {
                 today: today,
                 wallets: Stream.value([cash]),
                 transactions: Stream.value(const []),
-                profile: Stream.value({
-                  'incomeFrequency': 'Semi-monthly',
-                  'incomeSource': 'Salary',
-                  // The period is counted from the payday on the profile.
-                  'lastPaydayAt': Timestamp.fromDate(payday),
-                  'plannedAllocations': {
-                    'bills': 5000,
-                    'savings': 2000,
-                    'others': 3000,
-                  },
-                }),
-                cycles: Stream.value([
-                  AllocationCycle(
-                    id: 'pay',
-                    income: 10000,
-                    remaining: 10000,
-                    receivedAt: payday,
-                    source: 'Salary',
-                  ),
-                ]),
                 loadBills: () async => const [],
                 goals: Stream.value(const []),
                 billSchedules: Stream.value(const []),
@@ -8638,6 +8682,187 @@ void main() {
 
       expect(find.text('4 days left this month'), findsOneWidget);
       expect(find.text('of ₱1,450 daily limit'), findsOneWidget);
+    });
+
+    testWidgets('the working splits bills, installments and debts', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SafeToSpendCard(
+                today: DateTime(2026, 3, 22, 10),
+                wallets: Stream.value([cash]),
+                transactions: Stream.value(const []),
+                loadBills: () async => [
+                  BillInstance(
+                    id: 'rent',
+                    billId: 'rent',
+                    name: 'Rent',
+                    amount: 3000,
+                    category: 'Bills',
+                    dueDate: DateTime(2026, 3, 25),
+                    status: BillStatus.unpaid,
+                  ),
+                  BillInstance(
+                    id: 'phone',
+                    billId: 'phone',
+                    name: 'Phone',
+                    amount: 2000,
+                    category: 'Installments',
+                    dueDate: DateTime(2026, 3, 20),
+                    status: BillStatus.unpaid,
+                    debtId: 'phone',
+                  ),
+                  BillInstance(
+                    id: 'sss',
+                    billId: 'sss',
+                    name: 'SSS',
+                    amount: 1500,
+                    category: 'Debts',
+                    dueDate: DateTime(2026, 3, 1),
+                    status: BillStatus.partial,
+                    amountPaid: 500,
+                    debtId: 'sss',
+                  ),
+                ],
+                loadDebts: () async => const [
+                  Debt(
+                    id: 'phone',
+                    direction: DebtDirection.iOwe,
+                    name: 'Phone',
+                    category: DebtCategory.gadget,
+                    principal: 24000,
+                    status: DebtStatus.active,
+                  ),
+                  Debt(
+                    id: 'sss',
+                    direction: DebtDirection.iOwe,
+                    name: 'SSS',
+                    category: DebtCategory.governmentLoan,
+                    principal: 20000,
+                    status: DebtStatus.active,
+                  ),
+                ],
+                goals: Stream.value(const []),
+                billSchedules: Stream.value(const []),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('safe-to-spend-info')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bills due this month'), findsOneWidget);
+      expect(find.text('− ₱3,000'), findsOneWidget);
+      expect(find.text('Installments due this month'), findsOneWidget);
+      expect(find.text('− ₱2,000'), findsOneWidget);
+      expect(find.text('Debts due this month'), findsOneWidget);
+      expect(find.text('− ₱1,000'), findsOneWidget);
+      expect(find.text('Bills still to pay'), findsNothing);
+    });
+
+    testWidgets('a failed bill read says so quietly', (tester) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SafeToSpendCard(
+                today: DateTime(2026, 3, 22, 10),
+                wallets: Stream.value([cash]),
+                transactions: Stream.value(const []),
+                loadBills: () async => throw StateError('offline and uncached'),
+                loadDebts: () async => const [],
+                goals: Stream.value(const []),
+                billSchedules: Stream.value(const []),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      // Said in one quiet line, not hidden and not a warning of its own.
+      expect(find.text("Bills aren't counted yet."), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+    });
+
+    testWidgets('a later bill read failure keeps the last known bills', (
+      tester,
+    ) async {
+      final today = DateTime(2026, 3, 22, 10);
+      final transactions = StreamController<List<AppTransaction>>();
+      addTearDown(transactions.close);
+      var billReads = 0;
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SafeToSpendCard(
+                today: today,
+                wallets: Stream.value([cash]),
+                transactions: transactions.stream,
+                loadBills: () async {
+                  billReads++;
+                  if (billReads > 1) {
+                    throw StateError('offline and uncached');
+                  }
+                  return [
+                    BillInstance(
+                      id: 'rent',
+                      billId: 'rent',
+                      name: 'Rent',
+                      amount: 4000,
+                      category: 'Bills',
+                      dueDate: DateTime(2026, 3, 25),
+                      status: BillStatus.unpaid,
+                    ),
+                  ];
+                },
+                loadDebts: () async => const [],
+                goals: Stream.value(const []),
+                billSchedules: Stream.value(const []),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      transactions.add(const []);
+      await tester.pumpAndSettle();
+      expect(find.text('of ₱180 daily limit'), findsOneWidget);
+
+      transactions.add([
+        AppTransaction(
+          id: 'yesterday',
+          type: TransactionType.expense,
+          amount: 100,
+          label: 'Food',
+          date: DateTime(2026, 3, 21),
+          walletId: 'cash',
+        ),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(billReads, 2);
+      expect(find.text('of ₱180 daily limit'), findsOneWidget);
+      expect(find.text('Bills may be out of date.'), findsOneWidget);
+      expect(find.text("Bills aren't counted yet."), findsNothing);
     });
 
     testWidgets('a gift raises the daily limit, within the same month', (
@@ -8655,30 +8880,6 @@ void main() {
                 today: today,
                 wallets: Stream.value([cash]),
                 transactions: Stream.value(const []),
-                profile: Stream.value({
-                  'incomeFrequency': 'Monthly',
-                  'incomeSource': 'Salary',
-                  // Paid on the 10th, which is what the period runs from.
-                  'lastPaydayAt': Timestamp.fromDate(DateTime(2026, 3, 10)),
-                  'plannedAllocations': {'others': 100},
-                }),
-                // Newest first, as they are read.
-                cycles: Stream.value([
-                  AllocationCycle(
-                    id: 'gift',
-                    income: 1000,
-                    remaining: 1000,
-                    receivedAt: DateTime(2026, 3, 22),
-                    source: 'Gift',
-                  ),
-                  AllocationCycle(
-                    id: 'salary',
-                    income: 8000,
-                    remaining: 8000,
-                    receivedAt: DateTime(2026, 3, 10),
-                    source: 'Salary',
-                  ),
-                ]),
                 loadBills: () async => const [],
                 goals: Stream.value(const []),
                 billSchedules: Stream.value(const []),
@@ -8721,8 +8922,6 @@ void main() {
                     walletId: 'cash',
                   ),
                 ]),
-                profile: Stream.value({'incomeFrequency': 'Semi-monthly'}),
-                cycles: Stream.value(const []),
                 loadBills: () async => const [],
                 goals: Stream.value(const []),
                 billSchedules: Stream.value(const []),
@@ -8762,8 +8961,6 @@ void main() {
                 // Nothing set up yet: no wallets, no income, no bills.
                 wallets: Stream.value(const []),
                 transactions: Stream.value(const []),
-                profile: Stream.value(const {}),
-                cycles: Stream.value(const []),
                 loadBills: () async => const [],
                 goals: Stream.value(const []),
                 billSchedules: Stream.value(const []),
@@ -8807,8 +9004,6 @@ void main() {
                 today: DateTime(2026, 3, 22, 10),
                 wallets: Stream.value([cash]),
                 transactions: Stream.value(const []),
-                profile: Stream.value({'incomeFrequency': 'Semi-monthly'}),
-                cycles: Stream.value(const []),
                 loadBills: () async => const [],
                 goals: Stream.value(const []),
                 billSchedules: Stream.value(const []),
@@ -8830,15 +9025,15 @@ void main() {
 
       await tester.tap(find.byKey(const Key('safe-to-spend-info')));
       await tester.pumpAndSettle();
-      expect(find.text('Money in your wallets'), findsOneWidget);
+      expect(find.text('Available Balance'), findsOneWidget);
       // Nothing is taken off this account, so no total line repeats the
       // figure above it; it says so in words instead.
       expect(find.text('Left until your next pay'), findsNothing);
       expect(
-        find.textContaining('all of it is yours to spend'),
+        find.textContaining('Available Balance is yours to spend'),
         findsOneWidget,
       );
-      expect(find.textContaining('a day for the'), findsOneWidget);
+      expect(find.textContaining('a day.'), findsOneWidget);
     });
   });
 
@@ -12869,7 +13064,7 @@ void main() {
     );
 
     await pump([food]);
-    expect(find.text('Loans in'), findsNothing);
+    expect(find.text('Debt in'), findsNothing);
 
     await pump([
       food,
@@ -12890,8 +13085,8 @@ void main() {
         debtId: 'ana',
       ),
     ]);
-    expect(find.text('Loans in'), findsOneWidget);
-    expect(find.text('Loans out'), findsOneWidget);
+    expect(find.text('Debt in'), findsOneWidget);
+    expect(find.text('Debt out'), findsOneWidget);
     expect(find.text('₱500'), findsNWidgets(2), reason: 'loans in and out');
     expect(find.text('₱100'), findsOneWidget, reason: 'outward stays ₱100');
   });

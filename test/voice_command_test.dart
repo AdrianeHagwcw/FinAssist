@@ -109,6 +109,74 @@ void main() {
       final command = heard('add 500 to my laptop goal');
       expect(command.destination, VoiceDestination.goals);
     });
+
+    test('every Home quick action can be reached by voice', () {
+      // Voice Entry itself is the mic, so it has no spoken way in.
+      const quickActions =
+          <(String, String, VoiceCommandType, VoiceDestination?)>[
+            (
+              'Expense',
+              'add expense lunch 150',
+              VoiceCommandType.expense,
+              null,
+            ),
+            ('Income', 'add salary 500', VoiceCommandType.income, null),
+            (
+              'Transfer',
+              'transfer 500 from gcash to bdo',
+              VoiceCommandType.transfer,
+              null,
+            ),
+            (
+              'Scan Receipt',
+              'scan receipt',
+              VoiceCommandType.navigation,
+              VoiceDestination.scanReceipt,
+            ),
+            (
+              'Bill Planner',
+              'open bill planner',
+              VoiceCommandType.navigation,
+              VoiceDestination.bills,
+            ),
+            (
+              'Savings',
+              'open savings',
+              VoiceCommandType.navigation,
+              VoiceDestination.savings,
+            ),
+            (
+              'Goals',
+              'open goals',
+              VoiceCommandType.navigation,
+              VoiceDestination.goals,
+            ),
+            (
+              'Reports',
+              'open reports',
+              VoiceCommandType.navigation,
+              VoiceDestination.reports,
+            ),
+            (
+              'Installments',
+              'open installments',
+              VoiceCommandType.navigation,
+              VoiceDestination.installments,
+            ),
+            (
+              'Debts',
+              'open debts',
+              VoiceCommandType.navigation,
+              VoiceDestination.debts,
+            ),
+          ];
+
+      for (final (title, words, type, destination) in quickActions) {
+        final command = heard(words);
+        expect(command.type, type, reason: title);
+        expect(command.destination, destination, reason: title);
+      }
+    });
   });
 
   group('paying an installment or loan', () {

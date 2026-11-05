@@ -654,11 +654,11 @@ void main() {
       await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
       await tester.pump();
 
-      expect(find.text('Additional Loan Details (Optional)'), findsOneWidget);
+      expect(find.text('Additional Debt Details (Optional)'), findsOneWidget);
       expect(find.byKey(const Key('loan-rate')), findsNothing);
+      expect(find.text('Debt start date'), findsNothing);
       await tester.tap(find.byKey(const Key('loan-additional-details')));
       await tester.pumpAndSettle();
-      expect(find.text('Loan start date'), findsNothing);
       await tester.tap(find.text('Save Debt'));
       await tester.pumpAndSettle();
 

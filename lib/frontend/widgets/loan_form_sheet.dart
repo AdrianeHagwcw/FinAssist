@@ -318,7 +318,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     }
     if (_durationController.text.trim().isNotEmpty &&
         (_duration == null || _duration! < 1)) {
-      return 'Enter a loan duration above zero.';
+      return 'Enter a debt duration above zero.';
     }
     if (_paymentCount < 1) return 'Enter a valid payment amount or duration.';
     if (_paymentCount > _mostPayments) {
@@ -542,7 +542,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                   tilePadding: EdgeInsets.zero,
                   childrenPadding: EdgeInsets.zero,
                   title: Text(
-                    'Additional Loan Details (Optional)',
+                    'Additional Debt Details (Optional)',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -600,7 +600,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                             decoration:
                                 dialogFieldDecoration(
                                   context,
-                                  'Loan duration',
+                                  'Debt duration',
                                   hint: 'e.g. 12',
                                 ).copyWith(
                                   floatingLabelBehavior:
@@ -651,7 +651,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                     const SizedBox(height: 12),
                     _dateField(
                       context,
-                      label: 'Loan start date',
+                      label: 'Debt start date',
                       date: _loanStartDate,
                       onTap: () => _pickDate(loanStart: true),
                     ),

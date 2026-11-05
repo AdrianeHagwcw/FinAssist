@@ -152,7 +152,7 @@ String reminderTimingText(ReminderKind kind, int times) {
     },
     ReminderKind.interest =>
       'On the 1st after each account pays interest, at 9 AM. Skipped if you '
-          'already added it. Each January 1, the interest your loans cost the '
+          'already added it. Each January 1, the interest your debts cost the '
           'year before.',
   };
 }
@@ -651,8 +651,8 @@ List<PlannedReminder> planReminders({
           body: largest.length == 1
               ? '${formatPeso(total)} of your ${largest.first.key} payments '
                     'was interest. Tap to see what it has cost.'
-              : '${formatPeso(total)} of your loan payments was '
-                    'interest: ${[for (final e in largest.take(3)) '${e.key} ${formatPeso(e.value)}'].join(', ')}.',
+              : '${formatPeso(total)} of your installment and debt payments '
+                    'was interest: ${[for (final e in largest.take(3)) '${e.key} ${formatPeso(e.value)}'].join(', ')}.',
           payload: 'debts',
         ),
       );

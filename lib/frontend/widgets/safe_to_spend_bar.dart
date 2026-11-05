@@ -32,10 +32,13 @@ class SafeToSpendBar extends StatelessWidget {
 
     return Semantics(
       button: onTap != null,
-      label: over
-          ? 'Over what is safe to spend today: $spent spent of $limit.'
-          : 'Safe to spend today: $spent spent of $limit, '
-                '${formatPeso(s.leftToday, masked: masked)} left.',
+      label:
+          '${over ? 'Over what is safe to spend today: $spent spent of $limit.' : 'Safe to spend today: $spent spent of $limit, ${formatPeso(s.leftToday, masked: masked)} left.'}'
+          '${s.billsUnknown
+              ? " Bills aren't counted yet."
+              : s.billsOutOfDate
+              ? ' Bills may be out of date.'
+              : ''}',
       excludeSemantics: true,
       child: InkWell(
         key: const Key('safe-to-spend-bar'),
@@ -74,6 +77,21 @@ class SafeToSpendBar extends StatelessWidget {
                   valueColor: AlwaysStoppedAnimation(barColor),
                 ),
               ),
+              // One quiet line when bills are missing from the figure, so
+              // the number is never taken as whole.
+              if (s.billsUnknown || s.billsOutOfDate) ...[
+                const SizedBox(height: 5),
+                Text(
+                  s.billsUnknown
+                      ? "Bills aren't counted yet."
+                      : 'Bills may be out of date.',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

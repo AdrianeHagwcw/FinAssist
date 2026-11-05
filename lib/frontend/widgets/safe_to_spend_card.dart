@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../backend/models/allocation.dart';
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/bill.dart';
+import '../../backend/models/debt.dart';
 import '../../backend/models/goal.dart';
 import 'app_icon_button.dart';
 import '../../backend/models/safe_to_spend.dart';
@@ -13,9 +13,8 @@ import '../../backend/models/wallet.dart';
 import '../providers/app_settings_provider.dart';
 import '../../backend/services/allocation_service.dart';
 import '../../backend/services/bill_service.dart';
-import '../../backend/services/budget_service.dart';
+import '../../backend/services/debt_service.dart';
 import '../../backend/services/goal_service.dart';
-import '../../backend/services/user_profile_service.dart';
 import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -25,20 +24,13 @@ import 'dialog_kit.dart';
 import 'money_text.dart';
 
 /// Everything the Safe-to-Spend figure is worked out from, gathered once so
-/// the card and its edit sheet always agree.
+/// the card and anything under it always agree.
 class SafeToSpendInputs {
   const SafeToSpendInputs({
     required this.safeToSpend,
-    required this.period,
-    required this.frequency,
-    required this.cycles,
-    required this.transactions,
     this.bills = const [],
     this.wallets = const [],
     this.now,
-    this.plannedBills,
-    this.plannedSavings,
-    this.setAside = 0,
   });
 
   final SafeToSpend safeToSpend;
@@ -52,15 +44,6 @@ class SafeToSpendInputs {
 
   /// The moment the figure was worked out for.
   final DateTime? now;
-  final double? plannedBills;
-  final double? plannedSavings;
-
-  /// What is held in the bills and savings wallets right now.
-  final double setAside;
-  final PayPeriod period;
-  final String? frequency;
-  final List<AllocationCycle> cycles;
-  final List<AppTransaction> transactions;
 }
 
 /// Home's hero card: how much can still be spent today without eating into
@@ -69,9 +52,8 @@ class SafeToSpendCard extends StatefulWidget {
   const SafeToSpendCard({
     this.wallets,
     this.transactions,
-    this.profile,
-    this.cycles,
     this.loadBills,
+    this.loadDebts,
     this.goals,
     this.billSchedules,
     this.today,
@@ -83,9 +65,11 @@ class SafeToSpendCard extends StatefulWidget {
   /// Replace the live data. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
   final Stream<List<AppTransaction>>? transactions;
-  final Stream<Map<String, dynamic>?>? profile;
-  final Stream<List<AllocationCycle>>? cycles;
   final Future<List<BillInstance>> Function()? loadBills;
+
+  /// Replaces reading the plans behind the bills, used to tell an
+  /// installment payment from a debt payment. Used by tests.
+  final Future<List<Debt>> Function()? loadDebts;
   final Stream<List<Goal>>? goals;
 
   /// Replaces watching the bill schedules for changes. Used by tests.
@@ -159,11 +143,11 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
       widget.wallets ?? WalletService.watchWallets();
   late final Stream<List<AppTransaction>> _transactions =
       widget.transactions ?? WalletService.watchTransactions();
-  late final Stream<Map<String, dynamic>?> _profile =
-      widget.profile ??
-      UserProfileService.watchProfile().map((snapshot) => snapshot.data());
-  late final Stream<List<AllocationCycle>> _cycles =
-      widget.cycles ?? BudgetService.watchRecentCycles();
+
+  /// Which plans are installments and which are borrowed money, by plan id.
+  /// Null until they are read, or when they couldn't be, and the bills are
+  /// then shown as one total.
+  Map<String, bool>? _planIsLoan;
 
   /// Money set aside for goals. Held here rather than in another nested
   /// builder, since only its total matters.
@@ -202,6 +186,12 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
 
   List<BillInstance> _bills = const [];
 
+  /// Whether the last read of the bills failed, and whether any read has ever
+  /// worked. Told quietly on the card, so the figure is never passed off as
+  /// whole when bills are missing from it.
+  bool _billsReadFailed = false;
+  bool _billsLoadedOnce = false;
+
   /// Bills are re-read when the transactions or the bill schedules change.
   int _billsLoadedFor = -1;
 
@@ -221,30 +211,56 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         widget.loadBills ??
         () => AllocationService.loadOutstandingBills(now: _now);
 
+    // The plans behind the bills say which payments are installments and
+    // which are debts. If they can't be read the bills still count; they are
+    // just shown as one total instead of three.
+    Future<Map<String, bool>?> planKinds() async {
+      try {
+        final debts = await (widget.loadDebts ?? DebtService.loadDebts)();
+        return {for (final debt in debts) debt.id: debt.category.isLoan};
+      } catch (_) {
+        return null;
+      }
+    }
+
     load()
-        .then((bills) {
-          if (mounted) setState(() => _bills = bills);
+        .then((bills) async {
+          final kinds = await planKinds();
+          if (!mounted) return;
+          setState(() {
+            _bills = bills;
+            _planIsLoan = kinds;
+            _billsReadFailed = false;
+            _billsLoadedOnce = true;
+          });
         })
         .catchError((Object _) {
-          // Offline and never cached: carry on as if no bills are due.
+          if (!mounted) return;
+          setState(() => _billsReadFailed = true);
         });
   }
 
   SafeToSpendInputs _inputs({
     required List<Wallet> wallets,
     required List<AppTransaction> transactions,
-    required Map<String, dynamic>? profile,
-    required List<AllocationCycle> cycles,
   }) {
     final now = _now;
     final period = payPeriodFor(null, now: now);
     // The moment today began in the Philippines.
     final startOfToday = philippineDayStart(now);
+    final kinds = _planIsLoan;
+    final split = kinds == null
+        ? null
+        : splitBillsDue(_bills, period.end, kinds);
 
     return SafeToSpendInputs(
       safeToSpend: SafeToSpend(
         walletBalance: totalWalletBalance(wallets),
         billsDue: billsDueBefore(_bills, period.end),
+        installmentsDue: split?.installments,
+        debtsDue: split?.debts,
+        billsUnknown: _billsReadFailed && !_billsLoadedOnce,
+        billsOutOfDate: _billsReadFailed && _billsLoadedOnce,
         goalSavings: totalSetAsideInSpendingWallets(_goalsData, wallets),
         spentToday: discretionarySpending(
           transactions,
@@ -254,15 +270,8 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         daysLeft: period.daysLeft(now),
       ),
       wallets: wallets,
-      period: period,
-      frequency: null,
-      cycles: cycles,
-      transactions: transactions,
       bills: _bills,
       now: now,
-      plannedBills: plannedAllocationFrom(profile, 'bills'),
-      plannedSavings: plannedAllocationFrom(profile, 'savings'),
-      setAside: setAsideWalletBalance(wallets),
     );
   }
 
@@ -277,50 +286,38 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
         return StreamBuilder<List<AppTransaction>>(
           stream: _transactions,
           builder: (context, transactionSnapshot) {
-            return StreamBuilder<Map<String, dynamic>?>(
-              stream: _profile,
-              builder: (context, profileSnapshot) {
-                return StreamBuilder<List<AllocationCycle>>(
-                  stream: _cycles,
-                  builder: (context, cycleSnapshot) {
-                    final transactions =
-                        transactionSnapshot.data ?? const <AppTransaction>[];
+            final transactions =
+                transactionSnapshot.data ?? const <AppTransaction>[];
 
-                    if (transactionSnapshot.hasData) {
-                      _refreshBills(transactions);
-                    }
+            if (transactionSnapshot.hasData) {
+              _refreshBills(transactions);
+            }
 
-                    if (!walletSnapshot.hasData) {
-                      return widget.showFigure
-                          ? const SizedBox(
-                              height: 150,
-                              child: Center(child: CircularProgressIndicator()),
-                            )
-                          : const SizedBox.shrink();
-                    }
+            if (!walletSnapshot.hasData) {
+              return widget.showFigure
+                  ? const SizedBox(
+                      height: 150,
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : const SizedBox.shrink();
+            }
 
-                    final inputs = _inputs(
-                      wallets: walletSnapshot.data!,
-                      transactions: transactions,
-                      profile: profileSnapshot.data,
-                      cycles: cycleSnapshot.data ?? const [],
-                    );
+            final inputs = _inputs(
+              wallets: walletSnapshot.data!,
+              transactions: transactions,
+            );
 
-                    return Column(
-                      children: [
-                        if (widget.showFigure)
-                          _HeroCard(
-                            inputs: inputs,
-                            now: _now,
-                            onExplain: () => _explain(inputs),
-                          ),
-                        if (widget.belowCard != null)
-                          widget.belowCard!(context, inputs),
-                      ],
-                    );
-                  },
-                );
-              },
+            return Column(
+              children: [
+                if (widget.showFigure)
+                  _HeroCard(
+                    inputs: inputs,
+                    now: _now,
+                    onExplain: () => _explain(inputs),
+                  ),
+                if (widget.belowCard != null)
+                  widget.belowCard!(context, inputs),
+              ],
             );
           },
         );
@@ -461,6 +458,20 @@ class _HeroCard extends StatelessWidget {
                     ),
                   ],
                 ),
+                // One quiet line when bills are missing from the figure,
+                // rather than a banner or a warning of its own.
+                if (s.billsUnknown || s.billsOutOfDate) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    s.billsUnknown
+                        ? "Bills aren't counted yet."
+                        : 'Bills may be out of date.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.appColors.textMuted,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -512,33 +523,38 @@ class SafeToSpendWorking extends StatelessWidget {
     final days = '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'}';
     // With nothing taken off, a total line would repeat the line above it
     // and read like a mistake.
-    final takesSomeOff =
-        s.billsDue > 0 || s.goalSavings > 0 || s.spentToday > 0;
+    final takesSomeOff = s.billsDue > 0 || s.spentToday > 0;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // The wallets figure is already after today's spending, so the
-        // receipt opens with the balance as it stood before that money left
-        // and takes it off on the next line: a plain subtraction, rather
-        // than the spend being added back into a total.
+        // Available Balance is already after Goals. Restore today's spending
+        // only when showing the amount the day started with.
         if (s.spentToday > 0) ...[
           _Working(
-            'In your wallets before what you spent today',
-            s.walletBalance + s.spentToday,
+            'Available Balance before today\'s spending',
+            s.walletBalance + s.spentToday - s.goalSavings,
           ),
-          _Working('What you spent today', s.spentToday, take: true),
-        ] else
-          _Working('Money in your wallets', s.walletBalance),
-        if (s.billsDue > 0)
-          _Working('Bills still to pay', s.billsDue, take: true),
-        if (s.goalSavings > 0)
-          _Working('Saved for your goals', s.goalSavings, take: true),
+        ] else ...[
+          _Working('Available Balance', s.walletBalance - s.goalSavings),
+        ],
+        if (s.hasBillBreakdown) ...[
+          if (s.billsOnlyDue > 0)
+            _Working('Bills due this month', s.billsOnlyDue, take: true),
+          if (s.installmentsDue! > 0)
+            _Working(
+              'Installments due this month',
+              s.installmentsDue!,
+              take: true,
+            ),
+          if (s.debtsDue! > 0)
+            _Working('Debts due this month', s.debtsDue!, take: true),
+        ] else if (s.billsDue > 0)
+          _Working('Bills due this month', s.billsDue, take: true),
+        if (s.spentToday > 0) _Working('Spent today', s.spentToday, take: true),
         if (takesSomeOff) ...[
           const Divider(height: 22),
-          // What is really still there to spend: today's spending has
-          // already gone, so it is only subtracted once, on the line above.
           _Working(
             'Left through the end of this month',
             s.moneyLeftNow,
@@ -547,8 +563,8 @@ class SafeToSpendWorking extends StatelessWidget {
         ] else if (s.walletBalance > 0) ...[
           const SizedBox(height: 10),
           const Text(
-            'You have no bills due and nothing saved for goals out of this '
-            'money, so all of it is yours to spend.',
+            'There are no Bills due this month, so your Available Balance '
+            'is yours to spend.',
             style: TextStyle(height: 1.45),
           ),
         ],
@@ -561,13 +577,42 @@ class SafeToSpendWorking extends StatelessWidget {
                     'much of it you can spend each day through the end of '
                     'this month.'
               : s.spentToday > 0
-              ? 'Counting from where today began, your plan is '
-                    '${formatPeso(s.spendableThisPeriod)} for the $days '
-                    'left this month: ${formatPeso(s.recommendedDailyLimit)} a day.$_today'
-              : 'That is ${formatPeso(s.recommendedDailyLimit)} a day '
-                    'for the $days left this month.$_today',
+              ? 'Before today\'s spending, your Available Balance after this '
+                    'month\'s Bills was ${formatPeso(s.spendableThisPeriod)}. '
+                    'That is ${formatPeso(s.recommendedDailyLimit)} a day '
+                    'for the $days left this month.$_today'
+              : 'After this month\'s Bills, '
+                    '${formatPeso(s.recommendedDailyLimit * s.daysLeft)} is '
+                    'left for the $days left this month: '
+                    '${formatPeso(s.recommendedDailyLimit)} a day.$_today',
           style: const TextStyle(height: 1.45),
         ),
+        // The figure is a month's, so what comes after it is not counted yet.
+        if (s.walletBalance > 0) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Only bills due this month are counted, including any already '
+            "overdue. Next month's bills start counting when it does.",
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: context.appColors.textMuted,
+            ),
+          ),
+        ],
+        if (s.billsUnknown || s.billsOutOfDate) ...[
+          const SizedBox(height: 6),
+          Text(
+            s.billsUnknown
+                ? "Bills aren't counted yet."
+                : 'Bills may be out of date.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: context.appColors.textMuted,
+            ),
+          ),
+        ],
       ],
     );
   }

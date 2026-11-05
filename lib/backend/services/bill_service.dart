@@ -130,6 +130,25 @@ class BillService {
         .toList();
   }
 
+  /// Every occurrence still unpaid or partly paid, however long ago it fell
+  /// due. One query on status alone, so no composite index is needed; the
+  /// settled ones are left out by Firestore.
+  ///
+  /// Occurrences are only made for months that have been opened, so older
+  /// ones are here once the calendar has reached them.
+  static Future<List<BillInstance>> loadUnsettledInstances() async {
+    final snapshot = await _instances
+        .where(
+          'status',
+          whereIn: [BillStatus.unpaid.name, BillStatus.partial.name],
+        )
+        .get();
+
+    return snapshot.docs
+        .map((doc) => BillInstance.fromMap(doc.id, doc.data()))
+        .toList();
+  }
+
   // ------------------------------------------------------------- schedules
 
   /// Adds a bill schedule and returns its id.

@@ -800,6 +800,7 @@ void main() {
       await tester.tap(find.byKey(const Key('voice-language-english')));
       await tester.pump();
       expect(find.text('“Add salary 500”'), findsOneWidget);
+      expect(find.text('“Open debts”'), findsOneWidget);
       await tester.tap(find.byTooltip('Hold to speak'));
       await tester.pump();
       expect(speech.localeAsked, 'en-PH');
@@ -937,6 +938,77 @@ void main() {
       await tester.tap(find.text('Yes, Open'));
       await tester.pumpAndSettle();
       expect(destination, VoiceDestination.wallet);
+    });
+
+    testWidgets('opening debts works, said as debts', (tester) async {
+      final speech = FakeSpeech();
+      VoiceDestination? destination;
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          onNavigate: (value) => destination = value,
+        ),
+      );
+      await tester.pump();
+      speech.hear!('open debts');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Debts'), findsOneWidget);
+      await tester.tap(find.text('Yes, Open'));
+      await tester.pumpAndSettle();
+      expect(destination, VoiceDestination.debts);
+    });
+
+    testWidgets('saying loans still opens Debts, not Installments', (
+      tester,
+    ) async {
+      final speech = FakeSpeech();
+      VoiceDestination? destination;
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          onNavigate: (value) => destination = value,
+        ),
+      );
+      await tester.pump();
+      speech.hear!('show my loans');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Debts'), findsOneWidget);
+      await tester.tap(find.text('Yes, Open'));
+      await tester.pumpAndSettle();
+      expect(destination, VoiceDestination.debts);
+    });
+
+    testWidgets('opening installments works from voice', (tester) async {
+      final speech = FakeSpeech();
+      VoiceDestination? destination;
+      await pumpScreen(
+        tester,
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          onNavigate: (value) => destination = value,
+        ),
+      );
+      await tester.pump();
+      speech.hear!('open installments');
+      await tester.pump();
+      speech.end!(null);
+      await tester.pump();
+
+      expect(find.text('Installments'), findsOneWidget);
+      await tester.tap(find.text('Yes, Open'));
+      await tester.pumpAndSettle();
+      expect(destination, VoiceDestination.installments);
     });
 
     testWidgets('asks before opening Scan Receipt and supports cancelling', (
@@ -1236,7 +1308,7 @@ void main() {
 
         // What will happen is shown first, the way every command is.
         expect(find.text('Pay this month\'s due?'), findsOneWidget);
-        expect(find.text('Your installment or loan'), findsOneWidget);
+        expect(find.text('Your installment or debt'), findsOneWidget);
         expect(
           find.textContaining('Pay Now for your installment'),
           findsOneWidget,
