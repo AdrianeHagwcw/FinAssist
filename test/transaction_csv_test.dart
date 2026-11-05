@@ -141,6 +141,117 @@ void main() {
       expect(rows[3], contains(',Transfer,Transfer,'));
     });
 
+    test('uses deposit rules for savings and demand deposit transfers', () {
+      final cash = Wallet(
+        id: 'cash',
+        name: 'Cash',
+        type: WalletType.cash,
+        balance: 0,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+      );
+      final ewallet = Wallet(
+        id: 'ewallet',
+        name: 'GCash',
+        type: WalletType.gcash,
+        balance: 0,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+      );
+      final bank = Wallet(
+        id: 'bank',
+        name: 'BPI',
+        type: WalletType.bank,
+        balance: 0,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+      );
+      final savings = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 0,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 3,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+      );
+      final demand = Wallet(
+        id: 'demand',
+        name: 'Demand Deposit',
+        type: WalletType.other,
+        balance: 0,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 4,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.demandDeposit.name,
+      );
+
+      final csv = buildTransactionCsv(
+        [
+          entry(
+            type: TransactionType.transfer,
+            walletId: 'cash',
+            toWalletId: 'savings',
+          ),
+          entry(
+            type: TransactionType.transfer,
+            walletId: 'ewallet',
+            toWalletId: 'savings',
+          ),
+          entry(
+            type: TransactionType.transfer,
+            walletId: 'bank',
+            toWalletId: 'savings',
+          ),
+          entry(
+            type: TransactionType.transfer,
+            walletId: 'savings',
+            toWalletId: 'cash',
+          ),
+          entry(
+            type: TransactionType.transfer,
+            walletId: 'savings',
+            toWalletId: 'ewallet',
+          ),
+          entry(
+            type: TransactionType.transfer,
+            walletId: 'savings',
+            toWalletId: 'bank',
+          ),
+          entry(
+            type: TransactionType.transfer,
+            walletId: 'cash',
+            toWalletId: 'demand',
+          ),
+        ],
+        walletRecords: {
+          for (final wallet in [cash, ewallet, bank, savings, demand])
+            wallet.id: wallet,
+        },
+      );
+
+      expect(rowsOf(csv).skip(1).map((row) => row.split(',')[2]), [
+        'Deposit',
+        'Deposit',
+        'Transfer',
+        'Withdrawal',
+        'Withdrawal',
+        'Transfer',
+        'Deposit',
+      ]);
+    });
+
     test('a transfer without known wallets stays a plain transfer', () {
       final csv = buildTransactionCsv([
         entry(

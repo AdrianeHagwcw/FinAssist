@@ -431,6 +431,14 @@ class Wallet {
   /// True for savings, whose money is kept rather than spent.
   bool get isSetAside => purpose == WalletPurpose.savings;
 
+  bool get isDemandDeposit =>
+      isSetAside && savingsType == SavingsKind.demandDeposit;
+
+  /// Demand and savings deposits are separate records, not Cash in Bank
+  /// choices. The user moves money between them and ordinary wallets.
+  bool get isCashInBank =>
+      isDemandDeposit || (!isSetAside && type != WalletType.cash);
+
   /// Savings the user cannot simply take out: a time deposit before its date,
   /// or money with SSS, GSIS or Pag-IBIG. Counting it with ordinary savings
   /// would promise money that is years away.

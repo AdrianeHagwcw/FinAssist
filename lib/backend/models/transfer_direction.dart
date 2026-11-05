@@ -36,4 +36,36 @@ enum TransferDirection {
 
     return toCash ? TransferDirection.withdrawal : TransferDirection.deposit;
   }
+
+  /// The direction of a move when the wallets' savings purposes are known.
+  ///
+  /// Savings and demand deposits use the bank's Deposit, Withdrawal and
+  /// Transfer wording, which differs from ordinary account-to-account moves.
+  static TransferDirection betweenWallets({Wallet? from, Wallet? to}) {
+    if (from == null || to == null) {
+      return between(from: from?.type, to: to?.type);
+    }
+
+    final toDeposit =
+        to.isSetAside &&
+        (to.savingsType == SavingsKind.savingsDeposit ||
+            to.savingsType == SavingsKind.demandDeposit);
+    if (toDeposit) {
+      return from.type == WalletType.cash || isEWalletType(from.type)
+          ? TransferDirection.deposit
+          : TransferDirection.transfer;
+    }
+
+    final fromDeposit =
+        from.isSetAside &&
+        (from.savingsType == SavingsKind.savingsDeposit ||
+            from.savingsType == SavingsKind.demandDeposit);
+    if (fromDeposit) {
+      return to.type == WalletType.cash || isEWalletType(to.type)
+          ? TransferDirection.withdrawal
+          : TransferDirection.transfer;
+    }
+
+    return between(from: from.type, to: to.type);
+  }
 }

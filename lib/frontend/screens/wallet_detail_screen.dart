@@ -102,7 +102,12 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                     case 'income-in':
                       showIncomeWaterfall(context, walletId: wallet.id);
                     case 'transfer':
-                      showTransferSheet(context, fromWalletId: wallet.id);
+                      showTransferSheet(
+                        context,
+                        wallets: _wallets,
+                        transactions: _transactions,
+                        fromWalletId: wallet.id,
+                      );
                     case 'edit':
                       editWallet(context, wallet);
                     case 'remove':
@@ -116,12 +121,15 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                     icon: Icons.add_card,
                     color: confirmColorOn(context),
                   ),
-                  menuItem(
-                    value: 'transfer',
-                    label: 'Transfer money',
-                    icon: Icons.swap_horiz,
-                    color: appPrimaryBlue,
-                  ),
+                  if (!wallet.isLockedSavings)
+                    menuItem(
+                      value: 'transfer',
+                      label: wallet.purpose == WalletPurpose.savings
+                          ? 'Move money out'
+                          : 'Transfer money',
+                      icon: Icons.swap_horiz,
+                      color: appPrimaryBlue,
+                    ),
                   menuItem(
                     value: 'edit',
                     label: 'Edit wallet',

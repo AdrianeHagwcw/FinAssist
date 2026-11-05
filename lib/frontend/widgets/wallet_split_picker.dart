@@ -44,15 +44,16 @@ enum WalletGroupChoice {
   bool get showsBank => this != WalletGroupChoice.cash;
 }
 
-/// Cash wallets are cash on hand. Every other account, bank, e-wallet or
-/// savings record, is cash in bank: the same split Home makes.
-bool isCashOnHand(Wallet wallet) => wallet.type == WalletType.cash;
+/// Cash wallets are cash on hand; savings records are never cash wallets.
+bool isCashOnHand(Wallet wallet) =>
+    wallet.type == WalletType.cash && !wallet.isSetAside;
 
 /// What the money in a [WalletSplitPicker] is doing. It decides which
 /// wallets are offered and how much each one can give or take.
 enum SplitPurpose {
-  /// Money already saved for a goal, claimed from each account. Nothing
-  /// moves, and savings records can hold it too.
+  /// Money already saved for a goal, claimed from each eligible account.
+  /// Existing savings allocations remain recorded; they are not direct goal
+  /// funding sources.
   goal,
 
   /// Money leaving spending wallets for savings or a goal. Each wallet gives
@@ -338,7 +339,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
   final _controllers = <String, TextEditingController>{};
   final _feeControllers = <String, TextEditingController>{};
 
-  /// The banks and e-wallets added, in the order they were added.
+  /// The bank and e-wallet accounts eligible for Cash in Bank.
   late final List<_AccountRow> _accountRows = [
     for (final wallet in _accountWallets)
       if ((widget.initialAmounts[wallet.id] ?? 0) > 0)
@@ -369,7 +370,9 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
       (wallet) => (amounts[wallet.id] ?? 0) > 0,
     );
     final cash = used.any(isCashOnHand);
-    final bank = used.any((wallet) => !isCashOnHand(wallet));
+    final bank = used.any(
+      (wallet) => wallet.isCashInBank && !wallet.isDemandDeposit,
+    );
     if (cash && bank) return WalletGroupChoice.both;
     if (cash) return WalletGroupChoice.cash;
     if (bank) return WalletGroupChoice.bank;
@@ -407,14 +410,42 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
             wallet,
       ],
     };
+    final releasingGoalSavings =
+        limits != null && widget.purpose == SplitPurpose.giving;
+    final savingsDestinations =
+        widget.purpose == SplitPurpose.receiving && widget.includeSavings;
     return [
       for (final wallet in all)
-        if (wallet.id != widget.excludeWalletId) wallet,
+        if (wallet.id != widget.excludeWalletId &&
+            (releasingGoalSavings ||
+                (savingsDestinations &&
+                    wallet.isSetAside &&
+                    !wallet.isLockedSavings) ||
+                isCashOnHand(wallet) ||
+                (wallet.isCashInBank && !wallet.isDemandDeposit)))
+          wallet,
     ];
   }
 
-  List<Wallet> get _accountWallets =>
-      _eligible.where((wallet) => !isCashOnHand(wallet)).toList();
+  List<Wallet> get _accountWallets => _eligible
+      .where((wallet) => wallet.isCashInBank && !wallet.isDemandDeposit)
+      .toList();
+
+  /// Savings already claimed by a goal can be released, but are never shown
+  /// under Cash in Bank. A locked time deposit is settled at maturity instead.
+  List<Wallet> get _separateSavingsWallets {
+    if (widget.purpose == SplitPurpose.giving && widget.limits != null) {
+      return _eligible
+          .where((wallet) => wallet.isSetAside && !wallet.isLockedSavings)
+          .toList();
+    }
+    if (widget.purpose == SplitPurpose.receiving && widget.includeSavings) {
+      return _eligible
+          .where((wallet) => wallet.isSetAside && !wallet.isLockedSavings)
+          .toList();
+    }
+    return const [];
+  }
 
   /// Money going out needs a recorded balance to come from.
   bool _takesAmount(Wallet wallet) =>
@@ -435,9 +466,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
   /// user takes off stays off instead of being put back on the next build.
   bool _listedAllAccounts = false;
 
-  /// Every account with a row of its own: all of them at once, never one
-  /// by one, so Cash in Bank shows what Cash on Hand shows — every wallet
-  /// the user has, with the amount left to them to fill in.
+  /// Every eligible bank or e-wallet gets a row at once.
   void _listAllAccounts() {
     final listed = {for (final row in _accountRows) row.walletId};
     for (final wallet in _accountWallets) {
@@ -534,6 +563,22 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
   Map<String, double> _collect({bool fees = false}) {
     final option = _option;
     final values = <String, double>{};
+    if (widget.purpose == SplitPurpose.goal) {
+      for (final entry in widget.initialAmounts.entries) {
+        final wallet = widget.wallets
+            .where((wallet) => wallet.id == entry.key)
+            .firstOrNull;
+        if (wallet != null && wallet.isSetAside && entry.value > 0) {
+          values[entry.key] = entry.value;
+        }
+      }
+    }
+    if (!fees) {
+      for (final wallet in _separateSavingsWallets) {
+        final amount = _amountFrom(_controllers[wallet.id]);
+        if (amount > 0) values[wallet.id] = amount;
+      }
+    }
     if (option == null) return values;
 
     if (option.showsCash) {
@@ -687,9 +732,12 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     final cashWallets = eligible.where(isCashOnHand).toList();
     final bankWallets = _accountWallets;
 
-    if (eligible.isEmpty) {
+    if (cashWallets.isEmpty &&
+        bankWallets.isEmpty &&
+        _separateSavingsWallets.isEmpty) {
       return const DialogNote(
-        text: 'Add a cash, bank, or e-wallet account first.',
+        text:
+            'Add Cash on Hand, a bank or e-wallet, or a demand deposit first.',
       );
     }
 
@@ -779,9 +827,26 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
                 ),
               ),
           ],
-          if (amounts.isNotEmpty)
-            _allFit(amounts) ? _summary(amounts) : _summaryOnHold(),
         ],
+        if (_separateSavingsWallets.isNotEmpty) ...[
+          groupTitle(
+            widget.purpose == SplitPurpose.giving
+                ? 'Savings already assigned to this goal'
+                : 'Savings accounts',
+          ),
+          if (widget.purpose == SplitPurpose.giving)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'Release these amounts here first. Then move them from Savings '
+                'to Cash on Hand or a bank account.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          for (final wallet in _separateSavingsWallets) _cashCard(wallet),
+        ],
+        if (amounts.isNotEmpty)
+          _allFit(amounts) ? _summary(amounts) : _summaryOnHold(),
       ],
     );
   }

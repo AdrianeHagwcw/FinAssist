@@ -39,18 +39,18 @@ String loanIconAsset(AppTransaction transaction) =>
       return (label: 'Outflow', sign: '-');
     case TransactionType.transfer:
       return (
-        label: TransferDirection.between(
-          from: _walletType(wallets, transaction.walletId),
-          to: _walletType(wallets, transaction.toWalletId),
+        label: TransferDirection.betweenWallets(
+          from: _wallet(wallets, transaction.walletId),
+          to: _wallet(wallets, transaction.toWalletId),
         ).label,
         sign: '',
       );
   }
 }
 
-WalletType? _walletType(List<Wallet> wallets, String? id) {
+Wallet? _wallet(List<Wallet> wallets, String? id) {
   for (final wallet in wallets) {
-    if (wallet.id == id) return wallet.type;
+    if (wallet.id == id) return wallet;
   }
   return null;
 }

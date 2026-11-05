@@ -73,9 +73,9 @@ class TransactionFilter {
 
     if (direction != null) {
       if (transaction.type != TransactionType.transfer) return false;
-      final actual = TransferDirection.between(
-        from: _walletType(wallets, transaction.walletId),
-        to: _walletType(wallets, transaction.toWalletId),
+      final actual = TransferDirection.betweenWallets(
+        from: _wallet(wallets, transaction.walletId),
+        to: _wallet(wallets, transaction.toWalletId),
       );
       if (actual != direction) return false;
     }
@@ -95,9 +95,9 @@ class TransactionFilter {
           transaction.type.label,
           transaction.type.flowLabel,
           if (transaction.type == TransactionType.transfer)
-            TransferDirection.between(
-              from: _walletType(wallets, transaction.walletId),
-              to: _walletType(wallets, transaction.toWalletId),
+            TransferDirection.betweenWallets(
+              from: _wallet(wallets, transaction.walletId),
+              to: _wallet(wallets, transaction.toWalletId),
             ).label,
         ].any((value) => value.toLowerCase().contains(search))) {
       return false;
@@ -138,9 +138,9 @@ class TransactionFilter {
   static DateTime _dateOnly(DateTime date) =>
       DateTime(date.year, date.month, date.day);
 
-  static WalletType? _walletType(List<Wallet> wallets, String? id) {
+  static Wallet? _wallet(List<Wallet> wallets, String? id) {
     for (final wallet in wallets) {
-      if (wallet.id == id) return wallet.type;
+      if (wallet.id == id) return wallet;
     }
     return null;
   }

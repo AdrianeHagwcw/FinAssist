@@ -194,8 +194,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
     recheckWhenChanged(_nameController);
     recheckWhenChanged(_balanceController);
     recheckWhenChanged(_rateController);
-    // Only new savings can take money from the wallets, so only they need
-    // to know what goals hold there.
+    // New savings records can be funded from the user's wallets.
     if (_asksSource) {
       watchGoals(
         given: widget.goals,
@@ -204,15 +203,20 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
     }
   }
 
-  /// New savings can be money already in the account, recorded as it is,
-  /// or money moved in now from the user's own wallets. Setup only records
-  /// what is there today, so it never asks; this is the place money moves.
+  /// New savings records can be recorded as-is or funded from the user's
+  /// wallets. Setup only records what is there today, so it never asks.
   bool _movingIn = false;
   Map<String, double> _from = const {};
 
   bool get _asksSource => _isNew;
 
   bool get _isMovingIn => _asksSource && _movingIn;
+
+  void _chooseKind(SavingsKind kind) {
+    setState(() {
+      _kind = kind;
+    });
+  }
 
   double get _movingTotal =>
       _from.values.fold<double>(0, (sum, amount) => sum + amount);
@@ -232,7 +236,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
       context,
       option: savingsOptionFor(kind),
       actionLabel: 'Use this',
-      onAct: () => setState(() => _kind = kind),
+      onAct: () => _chooseKind(kind),
     );
   }
 
@@ -413,7 +417,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                 SavingsKindPicker(
                   kind: _kind,
                   keyPrefix: 'new-savings-',
-                  onChanged: (kind) => setState(() => _kind = kind),
+                  onChanged: _chooseKind,
                   onLearnMore: _explain,
                 ),
               if (!_isNew) ...[

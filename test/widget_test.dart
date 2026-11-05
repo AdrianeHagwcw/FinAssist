@@ -363,7 +363,7 @@ void main() {
         ),
       ),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     // Android's launch screen shows the logo, so there is no welcome page:
     // Log In greets a new user itself.
@@ -392,7 +392,7 @@ void main() {
     expect(LaunchScreen.isHolding, isTrue);
 
     session.complete(StartDestination.signedOut);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(LaunchScreen.isHolding, isFalse);
     expect(find.text('Welcome to FinAssist'), findsOneWidget);
   });
@@ -428,7 +428,7 @@ void main() {
     );
 
     session.complete(StartDestination.signedOut);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('Welcome to FinAssist'), findsOneWidget);
   });
 
@@ -943,7 +943,7 @@ void main() {
       expect(sss.isLockedSavings, isTrue);
     });
 
-    test('a time deposit can fund a goal, ready on its end date', () {
+    test('a time deposit stays assigned to a goal until its end date', () {
       final td = Wallet(
         id: 'td',
         name: 'Time Deposit',
@@ -957,13 +957,14 @@ void main() {
         savingsKind: SavingsKind.timeDeposit.name,
         maturityDate: DateTime(2027, 4, 25),
       );
-      expect(goalFundingWallets([td]), [td]);
+      expect(goalFundingWallets([td]), isEmpty);
+      expect(goalHoldingWallets([td]), [td]);
       expect(td.readyOn(DateTime(2026, 10, 25)), DateTime(2027, 4, 25));
       // From its end date on, there is nothing left to wait for.
       expect(td.readyOn(DateTime(2027, 4, 25)), isNull);
 
-      // When it is taken out, the goals' money goes with it, the top goal
-      // first.
+      // When it matures and is taken out, its goal allocations can move with
+      // the money, the top goal first.
       const tuition = Goal(
         id: 't',
         name: 'Tuition',
@@ -1386,9 +1387,17 @@ void main() {
         findsOneWidget,
       );
 
-      // A demand deposit asks no rate, so only the money is left to say.
-      await tester.tap(find.byKey(const Key('new-savings-demandDeposit')));
+      // An interest-bearing savings deposit can be funded from the wallets.
+      await tester.tap(find.byKey(const Key('new-savings-savingsDeposit')));
       await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('set-aside-interest-rate')),
+        '3',
+      );
+      await tester.tap(find.byKey(const Key('set-aside-deposit-start')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
 
       // Moving it in now: the same picker as goals, no balance to type.
       await tester.ensureVisible(
@@ -1421,7 +1430,7 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pumpAndSettle();
-      expect(name, 'Demand Deposit');
+      expect(name, 'Savings Deposit');
       expect(from, {'cash': 3000});
       expect(recorded, isNull, reason: 'moved in, not typed in');
     });
@@ -1446,7 +1455,10 @@ void main() {
 
       await tester.tap(find.byKey(const Key('new-savings-demandDeposit')));
       await tester.pump();
-      // An empty record is entered as 0.
+      expect(find.text('Where is this money?'), findsOneWidget);
+      expect(find.byKey(const Key('savings-source-already')), findsOneWidget);
+      expect(find.byKey(const Key('savings-source-wallets')), findsOneWidget);
+      // An empty record is entered as 0 when it is already at the bank.
       await tester.enterText(find.byKey(const Key('set-aside-balance')), '0');
       // A type name already exists, so the new record gets a unique suffix.
       await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
@@ -1455,6 +1467,58 @@ void main() {
       await tester.pump();
 
       expect(name, 'Demand Deposit 2');
+    });
+
+    testWidgets('a demand deposit can be funded from the selected wallets', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final cash = Wallet(
+        id: 'cash',
+        name: 'Cash',
+        type: WalletType.cash,
+        balance: 1000,
+        startingBalance: 1000,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 0,
+      );
+      Map<String, double>? movedFrom;
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: SetAsideRecordSheet(
+                wallets: [cash],
+                goals: Stream.value(const <Goal>[]),
+                onMoveIn: (_, amounts) => movedFrom = amounts,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('new-savings-demandDeposit')));
+      await tester.pump();
+      expect(find.text('Where is this money?'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('savings-source-wallets')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('goal-funding-cash')), '250');
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
+      await tester.tap(find.byKey(const Key('set-aside-save')));
+      await tester.pumpAndSettle();
+
+      expect(movedFrom, {'cash': 250});
     });
 
     testWidgets(
@@ -1804,6 +1868,151 @@ void main() {
       expect(received, 27000);
       expect(destination, {'cash': 27000});
     });
+
+    testWidgets('matured proceeds go to cash or bank, not savings records', (
+      tester,
+    ) async {
+      Wallet savingsRecord(String id, String name, SavingsKind kind) => Wallet(
+        id: id,
+        name: name,
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+        purpose: WalletPurpose.savings,
+        savingsKind: kind.name,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: MaturedSavingsSheet(
+              wallet: deposit(matures: today),
+              wallets: [
+                deposit(matures: today),
+                Wallet(
+                  id: 'cash',
+                  name: 'Cash',
+                  type: WalletType.cash,
+                  balance: 500,
+                  startingBalance: 500,
+                  receivesIncome: true,
+                  archived: false,
+                  sortOrder: 0,
+                ),
+                Wallet(
+                  id: 'bpi',
+                  name: 'BPI',
+                  type: WalletType.bank,
+                  balance: 500,
+                  startingBalance: 500,
+                  receivesIncome: false,
+                  archived: false,
+                  sortOrder: 1,
+                ),
+                savingsRecord(
+                  'demand',
+                  'Demand Deposit',
+                  SavingsKind.demandDeposit,
+                ),
+                savingsRecord(
+                  'savings',
+                  'Savings Deposit',
+                  SavingsKind.savingsDeposit,
+                ),
+              ],
+              onSettle: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Cash in Bank'));
+      await tester.pumpAndSettle();
+      expect(find.text('BPI'), findsOneWidget);
+      expect(find.text('Demand Deposit'), findsNothing);
+      expect(find.text('Savings Deposit'), findsNothing);
+    });
+
+    testWidgets('savings withdrawals include reported interest and can split', (
+      tester,
+    ) async {
+      final savings = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+      );
+      double? received;
+      Map<String, double>? destinations;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: MaturedSavingsSheet(
+              wallet: savings,
+              wallets: [
+                savings,
+                Wallet(
+                  id: 'cash',
+                  name: 'Cash',
+                  type: WalletType.cash,
+                  balance: 500,
+                  startingBalance: 500,
+                  receivesIncome: true,
+                  archived: false,
+                  sortOrder: 0,
+                ),
+                Wallet(
+                  id: 'bpi',
+                  name: 'BPI',
+                  type: WalletType.bank,
+                  balance: 1000,
+                  startingBalance: 1000,
+                  receivesIncome: false,
+                  archived: false,
+                  sortOrder: 2,
+                ),
+              ],
+              isMatured: false,
+              onSettle: (amount, to) {
+                received = amount;
+                destinations = to;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Withdraw from Savings Deposit'), findsOneWidget);
+      expect(find.byKey(const Key('matured-rollover')), findsNothing);
+      await tester.enterText(find.byKey(const Key('matured-amount')), '12000');
+      await tester.pump();
+      expect(
+        find.text('₱2,000 above the recorded balance, counted as interest.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Both'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('goes-to-cash')), '7000');
+      await tester.enterText(find.byKey(const Key('goes-to-bpi')), '5000');
+      await tester.ensureVisible(find.byKey(const Key('matured-settle')));
+      await tester.tap(find.byKey(const Key('matured-settle')));
+      await tester.pumpAndSettle();
+
+      expect(received, 12000);
+      expect(destinations, {'cash': 7000, 'bpi': 5000});
+    });
   });
 
   group('setup savings and goals', () {
@@ -1949,14 +2158,21 @@ void main() {
       final ewallet = wallet('ewallet', WalletType.gcash, 2500);
       final unsupported = wallet('other', WalletType.other, 2000);
       final archived = wallet('archived', WalletType.cash, 900, archived: true);
-      // A time deposit can fund a goal too: it counts now, ready on its end
-      // date.
+      // Savings accounts are held separately until their money is moved to a
+      // spendable wallet.
       final timeDeposit = wallet(
         'deposit',
         WalletType.other,
         8000,
         purpose: WalletPurpose.savings,
         savingsKind: SavingsKind.timeDeposit.name,
+      );
+      final demandDeposit = wallet(
+        'demand',
+        WalletType.other,
+        1500,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.demandDeposit.name,
       );
       final eligible = goalFundingWallets([
         cash,
@@ -1965,14 +2181,14 @@ void main() {
         unsupported,
         archived,
         timeDeposit,
+        demandDeposit,
       ]);
 
-      expect(eligible.map((item) => item.id), [
-        'cash',
-        'bank',
-        'ewallet',
-        'deposit',
-      ]);
+      expect(eligible.map((item) => item.id), ['cash', 'bank', 'ewallet']);
+      expect(
+        goalHoldingWallets([timeDeposit, demandDeposit]).map((item) => item.id),
+        ['deposit', 'demand'],
+      );
 
       final goal = Goal(
         id: 'goal',
@@ -4869,7 +5085,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
       await tester.pumpAndSettle();
 
       expect(find.text('GCash'), findsWidgets);
@@ -4909,7 +5125,7 @@ void main() {
           home: Scaffold(body: TransferSheet(wallets: Stream.value(wallets))),
         ),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
     }
 
     testWidgets('money only goes to wallets that exist', (tester) async {
@@ -4924,6 +5140,160 @@ void main() {
       expect(find.text('Savings'), findsNothing);
       expect(find.text('My GCash'), findsWidgets);
     });
+
+    testWidgets('transfer opens while savings interest is still loading', (
+      tester,
+    ) async {
+      final transactions = StreamController<List<AppTransaction>>();
+      addTearDown(transactions.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: TransferSheet(
+              wallets: Stream.value([cash, gcash]),
+              transactions: transactions.stream,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Where is it going?'), findsOneWidget);
+      expect(find.byKey(const Key('service-charge-amount')), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets(
+      'demand deposits are sources and savings stay separate destinations',
+      (tester) async {
+        final demand = Wallet(
+          id: 'demand',
+          name: 'Demand Deposit',
+          type: WalletType.other,
+          balance: 5000,
+          startingBalance: 5000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 2,
+          purpose: WalletPurpose.savings,
+          savingsKind: SavingsKind.demandDeposit.name,
+        );
+        final savings = Wallet(
+          id: 'savings',
+          name: 'Savings Deposit',
+          type: WalletType.other,
+          balance: 5000,
+          startingBalance: 5000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 3,
+          purpose: WalletPurpose.savings,
+          savingsKind: SavingsKind.savingsDeposit.name,
+        );
+        final time = Wallet(
+          id: 'time',
+          name: 'Time Deposit',
+          type: WalletType.other,
+          balance: 5000,
+          startingBalance: 5000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 4,
+          purpose: WalletPurpose.savings,
+          savingsKind: SavingsKind.timeDeposit.name,
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: TransferSheet(
+                wallets: Stream.value([cash, gcash, demand, savings, time]),
+                initialFromWalletId: demand.id,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Demand Deposit holds ₱5,000'), findsOneWidget);
+        await tester.tap(find.text('Cash in Bank'));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('goes-to-b')), findsOneWidget);
+        expect(find.byKey(const Key('goes-to-demand')), findsNothing);
+        expect(find.text('Savings accounts'), findsOneWidget);
+        expect(find.byKey(const Key('goes-to-savings')), findsOneWidget);
+        expect(find.byKey(const Key('goes-to-time')), findsNothing);
+
+        // A savings deposit can also be the source, with the demand deposit
+        // available as a separate destination.
+        await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Savings Deposit').last);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('goes-to-demand')), findsOneWidget);
+        expect(find.byKey(const Key('goes-to-savings')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'savings sources show the recorded balance plus after-tax interest',
+      (tester) async {
+        final started = DateTime.now().subtract(const Duration(days: 365));
+        final savings = Wallet(
+          id: 'savings',
+          name: 'Savings Deposit',
+          type: WalletType.other,
+          balance: 5000,
+          startingBalance: 5000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 2,
+          purpose: WalletPurpose.savings,
+          savingsKind: SavingsKind.savingsDeposit.name,
+          annualInterestRatePercent: 5,
+          depositStartDate: started,
+          createdAt: started,
+        );
+        final demand = Wallet(
+          id: 'demand',
+          name: 'Demand Deposit',
+          type: WalletType.other,
+          balance: 5000,
+          startingBalance: 5000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 3,
+          purpose: WalletPurpose.savings,
+          savingsKind: SavingsKind.demandDeposit.name,
+          annualInterestRatePercent: 5,
+          depositStartDate: started,
+          createdAt: started,
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: TransferSheet(
+                wallets: Stream.value([cash, gcash, savings, demand]),
+                transactions: Stream.value(const <AppTransaction>[]),
+                initialFromWalletId: savings.id,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Savings Deposit holds ₱5,200'), findsOneWidget);
+        await tester.tap(find.byType(DropdownButtonFormField<String>));
+        await tester.pumpAndSettle();
+        expect(find.text('Demand Deposit'), findsWidgets);
+        await tester.tap(find.text('Demand Deposit').last);
+        await tester.pumpAndSettle();
+        expect(find.text('Demand Deposit holds ₱5,000'), findsOneWidget);
+      },
+    );
 
     testWidgets('with one wallet there is nowhere to move it', (tester) async {
       await pumpTransfer(tester, wallets: [cash]);
@@ -6100,7 +6470,7 @@ void main() {
           ),
         ),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
       await tester.pump();
     }
 
@@ -6589,7 +6959,7 @@ void main() {
           ),
         ),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       // The charge is an input of its own now, optional until typed.
       expect(
@@ -8062,6 +8432,59 @@ void main() {
       expect(find.textContaining('₱2,000 saved'), findsOneWidget);
     });
 
+    testWidgets('savings streams survive scrolling through records', (
+      tester,
+    ) async {
+      await pumpSetAside(
+        tester,
+        wallets: [
+          for (var index = 0; index < 30; index++)
+            holding('s$index', 100, WalletPurpose.savings),
+        ],
+      );
+
+      await tester.drag(find.byType(ListView), const Offset(0, -1800));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView), const Offset(0, 1800));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Total balance'), findsOneWidget);
+    });
+
+    testWidgets('deleting a savings record asks first and can be cancelled', (
+      tester,
+    ) async {
+      await pumpSetAside(
+        tester,
+        wallets: [holding('s', 2000, WalletPurpose.savings)],
+      );
+
+      expect(find.byKey(const Key('delete-savings-s')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('delete-savings-s')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete Savings?'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Its ₱2,000 balance will no longer be included in FinAssist totals.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('This does not withdraw or move money'),
+        findsOneWidget,
+      );
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('set-aside-record-s')), findsOneWidget);
+      expect(find.byKey(const Key('delete-savings-s')), findsOneWidget);
+    });
+
     testWidgets('savings reads zero when the goals hold it all', (
       tester,
     ) async {
@@ -8147,6 +8570,16 @@ void main() {
         wallets: [
           holding('s', 2000, WalletPurpose.savings),
           Wallet(
+            id: 'cash',
+            name: 'Cash',
+            type: WalletType.cash,
+            balance: 1000,
+            startingBalance: 1000,
+            receivesIncome: true,
+            archived: false,
+            sortOrder: 1,
+          ),
+          Wallet(
             id: 'td',
             name: 'Time Deposit',
             type: WalletType.other,
@@ -8164,6 +8597,10 @@ void main() {
 
       expect(find.byKey(const Key('move-out-s')), findsOneWidget);
       expect(find.byKey(const Key('move-out-td')), findsNothing);
+      await tester.tap(find.byKey(const Key('move-out-s')));
+      await tester.pumpAndSettle();
+      expect(find.text('Transfer'), findsWidgets);
+      expect(find.text('Savings holds ₱2,000'), findsOneWidget);
     });
 
     testWidgets('an account with nothing set aside says so', (tester) async {
@@ -9320,17 +9757,15 @@ void main() {
       archived: false,
       sortOrder: 0,
     );
-    // Goal money is held in the Savings wallet, so the sheet needs one.
     final savings = Wallet(
-      id: 'savings',
-      name: 'Savings',
-      type: WalletType.other,
+      id: 'bpi',
+      name: 'BPI',
+      type: WalletType.bank,
       balance: 5000,
-      startingBalance: 0,
+      startingBalance: 5000,
       receivesIncome: false,
       archived: false,
       sortOrder: 1,
-      purpose: WalletPurpose.savings,
     );
     const laptop = Goal(
       id: 'g',
@@ -9339,7 +9774,7 @@ void main() {
       savedAmount: 1200,
       priority: 0,
       status: GoalStatus.active,
-      savedByWallet: {'savings': 1200},
+      savedByWallet: {'bpi': 1200},
     );
 
     Future<void> pumpSheet(
@@ -9399,17 +9834,14 @@ void main() {
 
       await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const Key('goal-funding-savings')),
-        '3800',
-      );
+      await tester.enterText(find.byKey(const Key('goal-funding-bpi')), '3800');
       await tester.pump();
       expect(find.text('Still to save'), findsOneWidget);
       await tester.tap(find.text('Set Aside'));
       await tester.pumpAndSettle();
 
       expect(saved, 3800);
-      expect(into, 'savings');
+      expect(into, 'bpi');
     });
 
     testWidgets('contributions do not promise more than the goal needs', (
@@ -9425,10 +9857,7 @@ void main() {
         find.byKey(const Key('goal-funding-cash')),
         '2000',
       );
-      await tester.enterText(
-        find.byKey(const Key('goal-funding-savings')),
-        '2000',
-      );
+      await tester.enterText(find.byKey(const Key('goal-funding-bpi')), '2000');
       await tester.pump();
       await tester.tap(find.text('Set Aside'));
       await tester.pumpAndSettle();
@@ -9440,24 +9869,21 @@ void main() {
       );
 
       // Within what it needs, it is saved from both, one each.
-      await tester.enterText(
-        find.byKey(const Key('goal-funding-savings')),
-        '1800',
-      );
+      await tester.enterText(find.byKey(const Key('goal-funding-bpi')), '1800');
       await tester.pump();
       await tester.tap(find.text('Set Aside'));
       await tester.pumpAndSettle();
-      expect(saved, {'cash': 2000, 'savings': 1800});
+      expect(saved, {'cash': 2000, 'bpi': 1800});
     });
 
-    testWidgets('money goes into the savings record the user picks', (
+    testWidgets('a demand deposit cannot be set aside directly for a goal', (
       tester,
     ) async {
       String? intoWallet;
 
-      final cashSavings = Wallet(
-        id: 'cash-savings',
-        name: 'Cash at home',
+      final demandDeposit = Wallet(
+        id: 'demand',
+        name: 'Demand Deposit',
         type: WalletType.other,
         balance: 3000,
         startingBalance: 0,
@@ -9465,6 +9891,7 @@ void main() {
         archived: false,
         sortOrder: 2,
         purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.demandDeposit.name,
       );
 
       await tester.pumpWidget(
@@ -9475,7 +9902,7 @@ void main() {
             home: Scaffold(
               body: ContributionSheet(
                 goal: laptop,
-                wallets: Stream.value([cash, savings, cashSavings]),
+                wallets: Stream.value([cash, savings, demandDeposit]),
                 goals: Stream.value(const [laptop]),
                 onSave: (_, walletId) => intoWallet = walletId,
               ),
@@ -9488,21 +9915,14 @@ void main() {
       // Both records are offered at once, not just the first one.
       await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(const Key('goal-funding-cash-savings')),
-        '500',
-      );
-      await tester.pump();
-      await tester.ensureVisible(find.text('Set Aside'));
+      expect(find.byKey(const Key('goal-funding-demand')), findsNothing);
       await tester.tap(find.text('Set Aside'));
-      await tester.pumpAndSettle();
-
+      await tester.pump();
       expect(
-        intoWallet,
-        'cash-savings',
-        reason: 'it used to always land on the first savings record',
+        find.text('Choose where the money is and enter an amount.'),
+        findsOneWidget,
       );
+      expect(intoWallet, isNull);
     });
 
     testWidgets('cannot take out more than is set aside', (tester) async {
@@ -9512,7 +9932,7 @@ void main() {
       // Only where the goal's money is: its savings record.
       await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
-      final amount = find.byKey(const Key('goal-funding-savings'));
+      final amount = find.byKey(const Key('goal-funding-bpi'));
       await tester.enterText(amount, '2000');
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Take It Out'));
@@ -9520,10 +9940,7 @@ void main() {
       await tester.pump();
 
       // Named per record, because the goal's money may sit in several.
-      expect(
-        find.text('Only ₱1,200 of this goal is in Savings.'),
-        findsWidgets,
-      );
+      expect(find.text('Only ₱1,200 of this goal is in BPI.'), findsWidgets);
       expect(saved, isNull);
 
       await tester.enterText(amount, '500');
@@ -9533,6 +9950,69 @@ void main() {
 
       expect(saved, -500);
     });
+
+    testWidgets(
+      'savings goal money can be released without calling it a bank',
+      (tester) async {
+        final interestSavings = Wallet(
+          id: 'interest-savings',
+          name: 'Savings Deposit',
+          type: WalletType.other,
+          balance: 5000,
+          startingBalance: 5000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 1,
+          purpose: WalletPurpose.savings,
+          savingsKind: SavingsKind.savingsDeposit.name,
+        );
+        const goal = Goal(
+          id: 'savings-goal',
+          name: 'Laptop',
+          targetAmount: 5000,
+          savedAmount: 1200,
+          priority: 0,
+          status: GoalStatus.active,
+          savedByWallet: {'interest-savings': 1200},
+        );
+        String? releasedFrom;
+        double? releasedAmount;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: ContributionSheet(
+                goal: goal,
+                takeOut: true,
+                wallets: Stream.value([cash, interestSavings]),
+                goals: Stream.value(const [goal]),
+                onSave: (amount, walletId) {
+                  releasedAmount = amount;
+                  releasedFrom = walletId;
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          find.text('Savings already assigned to this goal'),
+          findsOneWidget,
+        );
+        expect(find.text('Cash in Bank'), findsOneWidget);
+        await tester.enterText(
+          find.byKey(const Key('goal-funding-interest-savings')),
+          '500',
+        );
+        await tester.ensureVisible(find.text('Take It Out'));
+        await tester.tap(find.text('Take It Out'));
+        await tester.pumpAndSettle();
+
+        expect(releasedAmount, -500);
+        expect(releasedFrom, 'interest-savings');
+      },
+    );
 
     testWidgets('income can go toward a goal in the waterfall', (tester) async {
       AllocationPlan? confirmed;
@@ -10706,18 +11186,16 @@ void main() {
       sortOrder: 0,
     );
 
-    // Goal money is kept in the Savings wallet, so money already saved has
-    // to be there before a goal can claim it.
+    // Ordinary bank accounts can be used to fund a goal directly.
     final savings = Wallet(
       id: 'savings',
-      name: 'Savings',
-      type: WalletType.other,
+      name: 'BPI',
+      type: WalletType.bank,
       balance: 5000,
-      startingBalance: 0,
+      startingBalance: 5000,
       receivesIncome: false,
       archived: false,
       sortOrder: 1,
-      purpose: WalletPurpose.savings,
     );
 
     testWidgets('already saved is capped by what the record still has free', (
@@ -10992,7 +11470,7 @@ void main() {
       expect(saved?.planAmount, isNull);
       expect(saved?.kind, GoalKind.emergencyFund);
       expect(saved?.walletId, 'savings');
-      expect(saved?.fundingSource, GoalFundingSource.savings);
+      expect(saved?.fundingSource, GoalFundingSource.bank);
     });
 
     testWidgets('the form asks only what the plan needs, in plain words', (
@@ -11241,6 +11719,60 @@ void main() {
       // Every account is in, so there is nothing left to add.
       expect(find.text('Add account'), findsNothing);
     });
+
+    testWidgets(
+      'Cash in Bank excludes transfer-only demand and interest-bearing savings',
+      (tester) async {
+        Wallet savingsRecord(String id, String name, SavingsKind kind) =>
+            Wallet(
+              id: id,
+              name: name,
+              type: WalletType.other,
+              balance: 5000,
+              startingBalance: 5000,
+              receivesIncome: false,
+              archived: false,
+              sortOrder: 3,
+              purpose: WalletPurpose.savings,
+              savingsKind: kind.name,
+            );
+        final demand = savingsRecord(
+          'demand',
+          'Demand Deposit',
+          SavingsKind.demandDeposit,
+        );
+        final savingsDeposit = savingsRecord(
+          'savings',
+          'Savings Deposit',
+          SavingsKind.savingsDeposit,
+        );
+        final timeDeposit = savingsRecord(
+          'time',
+          'Time Deposit',
+          SavingsKind.timeDeposit,
+        );
+
+        await pumpFundingForm(
+          tester,
+          onSave: (_) {},
+          wallets: [cash, bpi, gcash, demand, savingsDeposit, timeDeposit],
+        );
+        expect(find.text('Savings'), findsNothing);
+        expect(find.text('All Accounts'), findsNothing);
+
+        await choose(tester, 'Cash in Bank');
+        expect(find.byKey(const Key('goal-funding-bpi')), findsOneWidget);
+        expect(find.byKey(const Key('goal-funding-gcash')), findsOneWidget);
+        expect(find.byKey(const Key('goal-funding-demand')), findsNothing);
+        expect(find.byKey(const Key('goal-funding-savings')), findsNothing);
+        expect(find.byKey(const Key('goal-funding-time')), findsNothing);
+
+        await choose(tester, 'Both');
+        expect(find.byKey(const Key('goal-funding-demand')), findsNothing);
+        expect(find.byKey(const Key('goal-funding-savings')), findsNothing);
+        expect(find.byKey(const Key('goal-funding-time')), findsNothing);
+      },
+    );
 
     testWidgets('Both splits one goal across cash and several accounts', (
       tester,
@@ -12434,6 +12966,51 @@ void main() {
       await tester.pump();
       await tester.pump();
     }
+
+    testWidgets('Quick Action Transfer uses Home wallets immediately', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 3200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final wallets = StreamController<List<Wallet>>.broadcast();
+      final transactions = StreamController<List<AppTransaction>>.broadcast();
+      addTearDown(wallets.close);
+      addTearDown(transactions.close);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: HomeScreen(
+              userName: 'Dave',
+              wallets: wallets.stream,
+              transactions: transactions.stream,
+              goals: Stream.value(const <Goal>[]),
+              safeToSpend: const SizedBox(height: 40),
+              today: DateTime(2026, 11, 6),
+            ),
+          ),
+        ),
+      );
+      wallets.add([cash, gcash]);
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.text('Transfer'));
+      await tester.pump();
+
+      expect(find.text('Where is it going?'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(TransferSheet),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsNothing,
+      );
+    });
 
     testWidgets('Home keeps support in Settings, not its top bar', (
       tester,

@@ -432,6 +432,85 @@ void main() {
       expect(saved?.paidWithLabel, 'BPI Savings');
     });
 
+    testWidgets(
+      'Cash in Bank excludes savings and transfer-only demand deposits',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 3200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        Wallet savingsRecord(String id, String name, SavingsKind kind) =>
+            Wallet(
+              id: id,
+              name: name,
+              type: WalletType.other,
+              balance: 5000,
+              startingBalance: 5000,
+              receivesIncome: false,
+              archived: false,
+              sortOrder: 1,
+              purpose: WalletPurpose.savings,
+              savingsKind: kind.name,
+            );
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: InstallmentFormSheet(
+                today: DateTime(2026, 10, 28),
+                wallets: Stream.value([
+                  Wallet(
+                    id: 'cash',
+                    name: 'Cash',
+                    type: WalletType.cash,
+                    balance: 2000,
+                    startingBalance: 2000,
+                    receivesIncome: false,
+                    archived: false,
+                    sortOrder: 0,
+                  ),
+                  Wallet(
+                    id: 'bank',
+                    name: 'BPI',
+                    type: WalletType.bank,
+                    balance: 5000,
+                    startingBalance: 5000,
+                    receivesIncome: false,
+                    archived: false,
+                    sortOrder: 1,
+                  ),
+                  savingsRecord(
+                    'demand',
+                    'Demand Deposit',
+                    SavingsKind.demandDeposit,
+                  ),
+                  savingsRecord(
+                    'savings',
+                    'Savings Deposit',
+                    SavingsKind.savingsDeposit,
+                  ),
+                  savingsRecord(
+                    'time',
+                    'Time Deposit',
+                    SavingsKind.timeDeposit,
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('installment-paid-with-bank')));
+        await tester.pumpAndSettle();
+        expect(find.text('BPI'), findsOneWidget);
+        expect(find.text('Demand Deposit'), findsNothing);
+        expect(find.text('Savings Deposit'), findsNothing);
+        expect(find.text('Time Deposit'), findsNothing);
+      },
+    );
+
     testWidgets('with no wallets yet, the wallet is left unrecorded', (
       tester,
     ) async {

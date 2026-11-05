@@ -548,6 +548,93 @@ class WalletService {
     commitFirestoreWrite(batch.commit(), 'record transfer');
   }
 
+  /// Transfers money from an interest-bearing savings deposit after adding
+  /// any unrecorded interest included in the amount being withdrawn.
+  static void recordSavingsDepositTransfer({
+    required Wallet wallet,
+    required Map<String, double> to,
+    double serviceCharge = 0,
+    DateTime? date,
+  }) {
+    if (wallet.purpose != WalletPurpose.savings ||
+        wallet.savingsType != SavingsKind.savingsDeposit) {
+      throw ArgumentError.value(
+        wallet.id,
+        'wallet',
+        'Must be a savings deposit.',
+      );
+    }
+    if (!serviceCharge.isFinite || serviceCharge < 0) {
+      throw ArgumentError.value(
+        serviceCharge,
+        'serviceCharge',
+        'Must be a nonnegative amount.',
+      );
+    }
+    if (to.containsKey(wallet.id)) {
+      throw ArgumentError('A transfer needs two different wallets.');
+    }
+    if (to.values.any((amount) => !amount.isFinite || amount < 0)) {
+      throw ArgumentError('Transfer amounts must be finite and nonnegative.');
+    }
+    final transfers = {
+      for (final entry in to.entries)
+        if (entry.value > 0) entry.key: (entry.value * 100).round() / 100,
+    };
+    if (transfers.values.fold<double>(0, (total, amount) => total + amount) <=
+        0) {
+      throw ArgumentError('Enter an amount to transfer.');
+    }
+
+    final when = date ?? DateTime.now();
+    final amount = transfers.values.fold<double>(
+      0,
+      (total, transfer) => total + transfer,
+    );
+    final taken = ((amount + serviceCharge) * 100).round() / 100;
+    final recordedBalance = (wallet.balance * 100).round() / 100;
+    final interest = (taken - recordedBalance)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+    final batch = _firestore.batch();
+    final deltas = <String, double>{};
+
+    if (interest > 0.005) {
+      addTransactionToBatch(
+        batch,
+        type: TransactionType.income,
+        amount: interest,
+        label: interestIncomeLabel,
+        walletId: wallet.id,
+        note: 'Interest on ${wallet.name}',
+        date: when,
+        collectDeltasInto: deltas,
+      );
+    }
+    for (final entry in transfers.entries) {
+      addTransactionToBatch(
+        batch,
+        type: TransactionType.transfer,
+        amount: entry.value,
+        label: TransactionType.transfer.label,
+        walletId: wallet.id,
+        toWalletId: entry.key,
+        date: when,
+        collectDeltasInto: deltas,
+      );
+    }
+    addServiceChargeToBatch(
+      batch,
+      walletId: wallet.id,
+      amount: serviceCharge,
+      note: 'For a transfer',
+      date: when,
+      collectDeltasInto: deltas,
+    );
+    _applyDeltas(batch, deltas);
+    commitFirestoreWrite(batch.commit(), 'transfer from savings deposit');
+  }
+
   /// Moves money between two wallets: one transaction, two balance changes,
   /// one batch. Returns the new transaction's id.
   static String recordTransfer({
@@ -678,6 +765,57 @@ class WalletService {
     DateTime? date,
     List<Goal> goals = const [],
   }) {
+    _settleSavings(
+      wallet: wallet,
+      received: received,
+      to: to,
+      date: date,
+      goals: goals,
+      transferNote: '${wallet.name} matured',
+      clearMaturityWhenEmpty: true,
+      action: 'settle matured savings',
+    );
+  }
+
+  /// Records a user-reported withdrawal from an interest-bearing savings
+  /// deposit, including any interest received and where the money went.
+  static void settleSavingsWithdrawal({
+    required Wallet wallet,
+    required double received,
+    required Map<String, double> to,
+    DateTime? date,
+    List<Goal> goals = const [],
+  }) {
+    if (wallet.purpose != WalletPurpose.savings ||
+        wallet.savingsType != SavingsKind.savingsDeposit) {
+      throw ArgumentError.value(
+        wallet.id,
+        'wallet',
+        'Must be a savings deposit.',
+      );
+    }
+    _settleSavings(
+      wallet: wallet,
+      received: received,
+      to: to,
+      date: date,
+      goals: goals,
+      transferNote: 'Withdrawn from ${wallet.name}',
+      clearMaturityWhenEmpty: false,
+      action: 'settle savings withdrawal',
+    );
+  }
+
+  static void _settleSavings({
+    required Wallet wallet,
+    required double received,
+    required Map<String, double> to,
+    required String transferNote,
+    required bool clearMaturityWhenEmpty,
+    required String action,
+    DateTime? date,
+    List<Goal> goals = const [],
+  }) {
     if (!received.isFinite || received <= 0) {
       throw ArgumentError.value(
         received,
@@ -728,7 +866,7 @@ class WalletService {
         label: TransactionType.transfer.label,
         walletId: wallet.id,
         toWalletId: entry.key,
-        note: '${wallet.name} matured',
+        note: transferNote,
         date: when,
         collectDeltasInto: deltas,
       );
@@ -768,14 +906,14 @@ class WalletService {
 
     // Whatever is left keeps its own maturity until the user says otherwise;
     // an emptied record has nothing left to come due.
-    if (taken >= balance) {
+    if (clearMaturityWhenEmpty && taken >= balance) {
       batch.set(_walletsCollection.doc(wallet.id), {
         'maturityDate': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
 
-    commitFirestoreWrite(batch.commit(), 'settle matured savings');
+    commitFirestoreWrite(batch.commit(), action);
   }
 
   /// Records interest the user says [wallet] was paid, as income into that

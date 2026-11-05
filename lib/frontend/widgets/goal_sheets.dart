@@ -508,12 +508,15 @@ class _GoalFormSheetState extends State<GoalFormSheet> with CheckAfterSave {
                       onChanged: (amounts) =>
                           setState(() => _funding = amounts),
                     ),
-                    if (wallets.any((wallet) => wallet.isLockedSavings)) ...[
+                    if (wallets.any((wallet) => wallet.isSetAside)) ...[
                       const SizedBox(height: 8),
                       const DialogNote(
                         text:
-                            'A time deposit can be set aside for a goal. It '
-                            'counts now and is ready on its end date.',
+                            'Cash in Bank lists ordinary bank and e-wallet '
+                            'accounts. Demand deposits are transfer sources '
+                            'only; savings and time deposits must be withdrawn '
+                            'or mature before their proceeds can be moved. '
+                            'Existing goal amounts in savings stay recorded.',
                       ),
                     ],
                   ],
@@ -709,7 +712,7 @@ class _ContributionSheetState extends State<ContributionSheet>
 
   /// What this goal holds in each account: the most each can give back.
   Map<String, double> _heldByWallet(List<Wallet> wallets) => {
-    for (final wallet in goalFundingWallets(wallets))
+    for (final wallet in goalHoldingWallets(wallets))
       if (goalMoneyInWallet([widget.goal], wallet.id) > 0.005)
         wallet.id: goalMoneyInWallet([widget.goal], wallet.id),
   };
@@ -758,7 +761,7 @@ class _ContributionSheetState extends State<ContributionSheet>
         const DialogNote(
           text:
               'It is no longer reserved for this goal. The money stays in '
-              'its current account.',
+              'its current account. Move it afterward if it is in Savings.',
         ),
         const SizedBox(height: 16),
         WalletSplitPicker(

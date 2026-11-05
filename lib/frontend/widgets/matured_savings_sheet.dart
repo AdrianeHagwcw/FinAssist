@@ -22,6 +22,8 @@ Future<bool?> showMaturedSavingsSheet(
   BuildContext context, {
   required Wallet wallet,
   required List<Wallet> wallets,
+  bool isMatured = true,
+  List<Goal>? goals,
   void Function(double received, Map<String, double> to)? onSettle,
   void Function(DateTime nextDate, double interest)? onRollOver,
 }) {
@@ -36,22 +38,41 @@ Future<bool?> showMaturedSavingsSheet(
     builder: (_) => MaturedSavingsSheet(
       wallet: wallet,
       wallets: wallets,
+      isMatured: isMatured,
+      goals: goals,
       onSettle: onSettle,
       onRollOver: onRollOver,
     ),
   );
 }
 
+Future<bool?> showSavingsWithdrawalSheet(
+  BuildContext context, {
+  required Wallet wallet,
+  required List<Wallet> wallets,
+  List<Goal>? goals,
+}) => showMaturedSavingsSheet(
+  context,
+  wallet: wallet,
+  wallets: wallets,
+  isMatured: false,
+  goals: goals,
+);
+
 class MaturedSavingsSheet extends StatefulWidget {
   const MaturedSavingsSheet({
     required this.wallet,
     required this.wallets,
+    this.isMatured = true,
+    this.goals,
     this.onSettle,
     this.onRollOver,
     super.key,
   });
 
   final Wallet wallet;
+  final bool isMatured;
+  final List<Goal>? goals;
 
   /// Every wallet the money could go to, the matured one aside.
   final List<Wallet> wallets;
@@ -72,6 +93,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
   /// dates are recorded. The amount starts on the balance plus this, so the
   /// user only changes it if the bank paid something else.
   late final double? _expectedInterest = (() {
+    if (!widget.isMatured) return null;
     final gross = widget.wallet.estimatedTimeDepositInterest();
     return gross == null || gross <= 0 ? null : afterTax(gross);
   })();
@@ -89,7 +111,8 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
     (wallet) =>
         !wallet.archived &&
         wallet.id != widget.wallet.id &&
-        !wallet.isLockedSavings,
+        (isCashOnHand(wallet) ||
+            (wallet.isCashInBank && !wallet.isDemandDeposit)),
   );
 
   @override
@@ -98,7 +121,11 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
     _amountController.addListener(() => setState(() {}));
     // Tests answer through the callbacks and have no goals behind them.
     watchGoals(
-      walletsGiven: widget.onSettle != null || widget.onRollOver != null,
+      given: widget.goals == null ? null : Stream.value(widget.goals!),
+      walletsGiven:
+          widget.onSettle != null ||
+          widget.onRollOver != null ||
+          widget.goals != null,
     );
   }
 
@@ -183,8 +210,15 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
 
     if (widget.onSettle != null) {
       widget.onSettle!(amount, _to);
-    } else {
+    } else if (widget.isMatured) {
       WalletService.settleMatured(
+        wallet: widget.wallet,
+        received: amount,
+        to: _to,
+        goals: heldGoals,
+      );
+    } else {
+      WalletService.settleSavingsWithdrawal(
         wallet: widget.wallet,
         received: amount,
         to: _to,
@@ -221,7 +255,9 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                 ),
               ),
               Text(
-                '${widget.wallet.name} is ready to take out',
+                widget.isMatured
+                    ? '${widget.wallet.name} is ready to take out'
+                    : 'Withdraw from ${widget.wallet.name}',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -230,7 +266,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
               ),
               const SizedBox(height: 6),
               Text(
-                due == null
+                due == null || !widget.isMatured
                     ? 'Recorded balance ${formatPeso(widget.wallet.balance)}.'
                     : 'Due ${formatShortDate(due)} · recorded balance '
                           '${formatPeso(widget.wallet.balance)}.',
@@ -270,7 +306,6 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                   goals: heldGoals,
                   purpose: SplitPurpose.receiving,
                   question: 'Where did it go?',
-                  includeSavings: true,
                   excludeWalletId: widget.wallet.id,
                   target: _typed ?? 0,
                   matchTarget: true,
@@ -290,8 +325,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                 const SizedBox(height: 6),
               ],
               Text(
-                'Put it in Savings and it stays out of your daily spending '
-                'money.',
+                'Choose one or more cash or bank wallets for the money.',
                 style: TextStyle(fontSize: 12, color: colors.textBody),
               ),
               if (error != null) ...[
@@ -313,15 +347,16 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                 ),
               ),
               const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                height: 46,
-                child: OutlinedButton(
-                  key: const Key('matured-rollover'),
-                  onPressed: _rollOver,
-                  child: const Text('It was renewed'),
+              if (widget.isMatured)
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: OutlinedButton(
+                    key: const Key('matured-rollover'),
+                    onPressed: _rollOver,
+                    child: const Text('It was renewed'),
+                  ),
                 ),
-              ),
               Center(
                 child: TextButton(
                   onPressed: () => Navigator.pop(context, false),

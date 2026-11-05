@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../backend/models/bill.dart';
 import '../../backend/models/debt.dart';
+import '../../backend/models/app_transaction.dart';
 import '../../backend/models/goal.dart';
 import '../../backend/models/voice_command.dart';
 import '../../backend/models/wallet.dart';
@@ -42,6 +43,7 @@ class VoiceRecognitionScreen extends StatefulWidget {
     this.autoStart = false,
     this.input,
     this.wallets,
+    this.transactions,
     this.goals,
     this.debts,
     this.payments,
@@ -60,6 +62,7 @@ class VoiceRecognitionScreen extends StatefulWidget {
 
   /// Replaces the live wallets and goals the forms use. Used by tests.
   final Stream<List<Wallet>>? wallets;
+  final Stream<List<AppTransaction>>? transactions;
   final Stream<List<Goal>>? goals;
 
   /// Replaces the live installments and loans, their payments, and the day
@@ -90,6 +93,11 @@ enum _Step { ready, listening, heard, nothingHeard, problem }
 class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
     with SingleTickerProviderStateMixin {
   late final SpeechInput _input = widget.input ?? SpeechInput();
+  late final Stream<List<AppTransaction>> _transactions =
+      widget.transactions ??
+      (widget.wallets == null
+          ? WalletService.watchTransactions()
+          : Stream.value(const <AppTransaction>[]));
 
   // The ring that grows out of the mic while it listens.
   late final AnimationController _pulse = AnimationController(
@@ -308,6 +316,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
         final saved = await showTransferSheet(
           context,
           wallets: widget.wallets,
+          transactions: _transactions,
           fromWalletId: matchSpokenWallet(command.from, wallets)?.id,
           toWalletId: to?.id,
           initialAmount: command.amount,

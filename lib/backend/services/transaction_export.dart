@@ -60,6 +60,7 @@ class TransactionExport {
       transactions,
       walletNames: walletNames,
       walletTypes: walletTypes,
+      walletRecords: {for (final wallet in wallets) wallet.id: wallet},
       billTags: billTags,
     );
     final fileName = transactionCsvFileName(now ?? DateTime.now());

@@ -15,6 +15,7 @@ class CsvLookups {
   const CsvLookups({
     this.walletNames = const {},
     this.walletTypes = const {},
+    this.walletRecords = const {},
     this.billTags = const {},
   });
 
@@ -24,6 +25,9 @@ class CsvLookups {
   /// A wallet id to its kind, so a transfer can be named the way the app
   /// names it: a deposit, a withdrawal, or a transfer.
   final Map<String, WalletType> walletTypes;
+
+  /// Wallet details for deposit-specific transfer wording.
+  final Map<String, Wallet> walletRecords;
 
   /// A bill id to what paying it is, such as 'Installment payment', for the
   /// schedules that pay off an installment or a debt.
@@ -75,11 +79,32 @@ String _time(AppTransaction entry, CsvLookups lookups) {
 String _type(AppTransaction entry, CsvLookups lookups) => switch (entry.type) {
   TransactionType.income => 'Inflow',
   TransactionType.expense => 'Outflow',
-  TransactionType.transfer => TransferDirection.between(
-    from: lookups.walletTypes[entry.walletId],
-    to: lookups.walletTypes[entry.toWalletId],
+  TransactionType.transfer => TransferDirection.betweenWallets(
+    from:
+        lookups.walletRecords[entry.walletId] ??
+        _walletFromType(lookups.walletTypes[entry.walletId], entry.walletId),
+    to:
+        lookups.walletRecords[entry.toWalletId] ??
+        _walletFromType(
+          lookups.walletTypes[entry.toWalletId],
+          entry.toWalletId,
+        ),
   ).label,
 };
+
+Wallet? _walletFromType(WalletType? type, String? id) =>
+    type == null || id == null
+    ? null
+    : Wallet(
+        id: id,
+        name: type.label,
+        type: type,
+        balance: 0,
+        startingBalance: 0,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+      );
 
 String _label(AppTransaction entry, CsvLookups lookups) => entry.label;
 
@@ -126,11 +151,13 @@ String buildTransactionCsv(
   List<AppTransaction> transactions, {
   Map<String, String> walletNames = const {},
   Map<String, WalletType> walletTypes = const {},
+  Map<String, Wallet> walletRecords = const {},
   Map<String, String> billTags = const {},
 }) {
   final lookups = CsvLookups(
     walletNames: walletNames,
     walletTypes: walletTypes,
+    walletRecords: walletRecords,
     billTags: billTags,
   );
   final rows = <String>[

@@ -516,23 +516,30 @@ List<Wallet> promisableSavingsRecords(Iterable<Wallet> wallets) => [
   for (final wallet in wallets)
     if (!wallet.archived &&
         wallet.purpose == WalletPurpose.savings &&
+        !wallet.isDemandDeposit &&
         !wallet.isLockedSavings)
       wallet,
 ];
 
-/// Accounts whose recorded money can be set aside for a goal: cash, banks,
-/// e-wallets, and savings records.
-///
-/// A time deposit counts too. Money placed for a set time is a common way to
-/// save for something with a date, such as next year's tuition; it counts
-/// toward the goal at once and is shown as ready on its end date, since it
-/// cannot be taken out before then.
+/// Spendable cash, bank, and e-wallet accounts that can be used to fund a
+/// goal directly. Savings records, including demand deposits, must first be
+/// moved into a spending wallet.
 List<Wallet> goalFundingWallets(Iterable<Wallet> wallets) => [
+  for (final wallet in wallets)
+    if (!wallet.archived &&
+        !wallet.isSetAside &&
+        (wallet.type == WalletType.cash || wallet.isBankOrEWallet))
+      wallet,
+];
+
+/// Accounts where existing goal money may still be held, including savings
+/// records that are no longer available for new direct goal funding.
+List<Wallet> goalHoldingWallets(Iterable<Wallet> wallets) => [
   for (final wallet in wallets)
     if (!wallet.archived &&
         ((!wallet.isSetAside &&
                 (wallet.type == WalletType.cash || wallet.isBankOrEWallet)) ||
-            wallet.purpose == WalletPurpose.savings))
+            wallet.isSetAside))
       wallet,
 ];
 

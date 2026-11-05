@@ -446,7 +446,10 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
       builder: (context, snapshot) {
         final wallets = [
           for (final wallet in snapshot.data ?? const <Wallet>[])
-            if (!wallet.archived) wallet,
+            if (!wallet.archived &&
+                (isCashOnHand(wallet) ||
+                    (wallet.isCashInBank && !wallet.isDemandDeposit)))
+              wallet,
         ];
         final colors = context.appColors;
 
@@ -551,9 +554,7 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight: picked
-                            ? FontWeight.bold
-                            : FontWeight.w600,
+                        fontWeight: picked ? FontWeight.bold : FontWeight.w600,
                         color: walletsThere.isEmpty
                             ? colors.textBody.withValues(alpha: 0.45)
                             : colors.textPrimary,
@@ -718,10 +719,8 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                     key: const Key('installment-edit-note'),
                     text:
                         'You can fix this plan any time before a payment is '
-                        'made on it${_editing
-                            ? ' — every payment is worked out again from '
-                                  'what you change'
-                            : ' — its payments are worked out from what you '
+                        'made on it${_editing ? ' — every payment is worked out again from '
+                                  'what you change' : ' — its payments are worked out from what you '
                                   'enter'}. Once a payment has been made on '
                         'it, it can no longer be edited.',
                   ),

@@ -5,6 +5,24 @@ import 'package:testapp/backend/models/wallet.dart';
 
 void main() {
   group('which way money moved between wallets', () {
+    Wallet wallet({
+      required String id,
+      required WalletType type,
+      WalletPurpose purpose = WalletPurpose.spending,
+      SavingsKind? savingsKind,
+    }) => Wallet(
+      id: id,
+      name: id,
+      type: type,
+      balance: 0,
+      startingBalance: 0,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 0,
+      purpose: purpose,
+      savingsKind: savingsKind?.name,
+    );
+
     test('money landing in cash in hand is a withdrawal', () {
       for (final account in [
         WalletType.bank,
@@ -107,5 +125,66 @@ void main() {
         'Deposit',
       );
     });
+
+    test(
+      'savings and demand deposits follow the stated transaction labels',
+      () {
+        for (final kind in [
+          SavingsKind.savingsDeposit,
+          SavingsKind.demandDeposit,
+        ]) {
+          final deposit = wallet(
+            id: kind.name,
+            type: WalletType.other,
+            purpose: WalletPurpose.savings,
+            savingsKind: kind,
+          );
+          final cash = wallet(id: 'cash', type: WalletType.cash);
+          final ewallet = wallet(id: 'ewallet', type: WalletType.gcash);
+          final bank = wallet(id: 'bank', type: WalletType.bank);
+          final otherDeposit = wallet(
+            id: 'other-${kind.name}',
+            type: WalletType.other,
+            purpose: WalletPurpose.savings,
+            savingsKind: kind == SavingsKind.savingsDeposit
+                ? SavingsKind.demandDeposit
+                : SavingsKind.savingsDeposit,
+          );
+
+          expect(
+            TransferDirection.betweenWallets(from: deposit, to: otherDeposit),
+            TransferDirection.transfer,
+          );
+          expect(
+            TransferDirection.betweenWallets(from: otherDeposit, to: deposit),
+            TransferDirection.transfer,
+          );
+          expect(
+            TransferDirection.betweenWallets(from: cash, to: deposit),
+            TransferDirection.deposit,
+          );
+          expect(
+            TransferDirection.betweenWallets(from: ewallet, to: deposit),
+            TransferDirection.deposit,
+          );
+          expect(
+            TransferDirection.betweenWallets(from: bank, to: deposit),
+            TransferDirection.transfer,
+          );
+          expect(
+            TransferDirection.betweenWallets(from: deposit, to: cash),
+            TransferDirection.withdrawal,
+          );
+          expect(
+            TransferDirection.betweenWallets(from: deposit, to: ewallet),
+            TransferDirection.withdrawal,
+          );
+          expect(
+            TransferDirection.betweenWallets(from: deposit, to: bank),
+            TransferDirection.transfer,
+          );
+        }
+      },
+    );
   });
 }
