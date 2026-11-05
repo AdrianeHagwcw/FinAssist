@@ -807,7 +807,7 @@ ChatReply? _goalSavingsPlan(
               '${asksDailyTarget ? 'araw-araw' : 'kada buwan'} sa loob ng '
               '$months buwan ($left pa ang kailangang ipunin). '
               '${records == null
-                  ? 'Hindi pa nakukuha ang mga goal mo, kaya ipinapalagay nitong wala ka pang naitatabi.'
+                  ? 'Hindi pa nakuha ang goal records mo, kaya hindi kasama sa tantyang ito ang anumang naitabi mo na.'
                   : matchingGoal == null
                   ? 'Wala pang naitatabi para sa goal na ito.'
                   : 'Ang goal mong “${matchingGoal.name}” ay may ${formatPeso(alreadySaved)} nang nakatabi.'}',
@@ -824,7 +824,7 @@ ChatReply? _goalSavingsPlan(
               '${asksDailyTarget ? 'per day' : 'per month'} for $months '
               'months ($left remaining). '
               '${records == null
-                  ? 'Your saved goals have not loaded, so this estimate assumes no amount is already set aside.'
+                  ? 'Your goal records have not loaded, so this estimate does not subtract any existing goal savings.'
                   : matchingGoal == null
                   ? 'No savings are recorded for this specific goal yet.'
                   : 'Your existing “${matchingGoal.name}” goal has ${formatPeso(alreadySaved)} set aside.'}',
@@ -1620,12 +1620,15 @@ ChatReply _safeToday(FinanceSnapshot records, bool fil) {
     final limit = formatPeso(s.dailyLimit);
     return ChatReply(
       fil
-          ? 'Nakagastos ka na ng $spent ngayong araw, $over na lampas sa limit '
-                'mong $limit. Gawing magaan ang gastos bukas para makahabol '
-                'bago matapos ang buwan sa $monthEnd.'
-          : "You've spent $spent today, which is $over over your limit of "
-                '$limit. Keeping tomorrow light helps you catch up before '
-                'month end on $monthEnd.',
+          ? 'Ayon sa records, $spent na ang nagastos mo ngayong araw, $over na '
+                'lampas sa iminumungkahing halaga na $limit. Gabay lang ito, '
+                'hindi mahigpit na limit. Makakatulong ang mas kaunting gastos '
+                'sa mga susunod na araw para tumagal ang natitirang pera '
+                'hanggang $monthEnd.'
+          : 'Your recorded spending today is $spent, which is $over above '
+                "today's suggested amount of $limit. This is a guide, not a "
+                'hard spending limit. Spending less on later days may help '
+                'the remaining money last through $monthEnd.',
       filipino: fil,
     );
   }
@@ -1634,12 +1637,15 @@ ChatReply _safeToday(FinanceSnapshot records, bool fil) {
   return ChatReply(
     fil
         ? 'Pwede ka pang gumastos ng $left ngayong araw, mula sa $limit na '
-              'limit mo ngayon. Sa ganito, ligtas ang bills at ang perang '
-              'nakatabi, at may ${s.daysLeft} araw pa ngayong buwan hanggang '
-              '$monthEnd.'
-        : "You can still spend $left today, out of today's $limit limit. "
-              'That keeps bills and money set aside safe, with '
-              '${_days(s.daysLeft)} left in this month through $monthEnd.',
+              'iminumungkahing halaga para sa araw na ito. Batay ito sa '
+              'nairekord na pera, bills na due ngayong buwan, at perang para '
+              'sa goals. May ${s.daysLeft} araw pa ngayong buwan hanggang '
+              '$monthEnd. Tantya ito at nakadepende sa records mo.'
+        : "You can still spend $left today, out of today's $limit suggested "
+              'amount. This estimate uses recorded wallet balances, bills due '
+              'this month and goal money. There are ${_days(s.daysLeft)} '
+              'left in this month through $monthEnd. It depends on your '
+              'records.',
     filipino: fil,
   );
 }
@@ -1723,8 +1729,8 @@ ChatReply _spent(String text, FinanceSnapshot records, bool fil) {
     if (spent <= 0) {
       return ChatReply(
         fil
-            ? 'Wala ka pang gastos sa $category $when.'
-            : "You haven't spent anything on $category $label.",
+            ? 'Wala akong nakitang naitalang gastos sa $category $when.'
+            : "I don't see any recorded spending on $category $label.",
         filipino: fil,
       );
     }
@@ -1911,17 +1917,18 @@ ChatReply _savingsCapacity(String text, FinanceSnapshot records, bool fil) {
   }
   return ChatReply(
     fil
-        ? 'Base sa records mo, may mga ${formatPeso(available)} kang maiipon '
+        ? 'Base sa records mo, may mga ${formatPeso(available)} na natira '
               '$when: ${formatPeso(flow.moneyIn)} na natanggap bawas '
-              '${formatPeso(spending)} na araw-araw na gastos. Hindi kasama '
-              'rito ang bills o gastos na hindi naitala, kaya magtira ng '
-              'kaunting reserba bago mo ito itabi.'
+              '${formatPeso(spending)} na naitalang gastos, kasama ang mga '
+              'nairekord na bayad sa bills. Hindi kasama rito ang hindi pa '
+              'bayad o hindi naitalang bills at ibang gastos, kaya magtira ng '
+              'reserba bago mag-ipon.'
         : 'Based on your records, you could have about '
-              '${formatPeso(available)} left to save $label: '
+              '${formatPeso(available)} left after recorded expenses $label: '
               '${formatPeso(flow.moneyIn)} received minus '
-              '${formatPeso(spending)} in everyday expenses. This does not '
-              'include unrecorded bills or spending, so keep a buffer before '
-              'setting it aside.',
+              '${formatPeso(spending)} in recorded expenses, including bill '
+              'payments. Unpaid or unrecorded bills and other spending are '
+              'not included, so keep a buffer before setting money aside.',
     filipino: fil,
   );
 }
@@ -1949,8 +1956,8 @@ ChatReply _topSpending(String text, FinanceSnapshot records, bool fil) {
   ];
   return ChatReply(
     fil
-        ? 'Pinakamalaking gastos mo $when:\n${lines.join('\n')}'
-        : 'Your biggest spending $label:\n${lines.join('\n')}',
+        ? 'Mga nangungunang category ng gastos mo $when:\n${lines.join('\n')}'
+        : 'Your top spending categories $label:\n${lines.join('\n')}',
     filipino: fil,
   );
 }
@@ -2077,10 +2084,11 @@ ChatReply _balance(FinanceSnapshot records, bool fil) {
   return ChatReply(
     fil
         ? 'May $available kang available sa ${wallets.length} wallet: '
-              '$list.$goalLine\n\nPagkatapos ng bills ngayong buwan at perang '
+              '$list${wallets.length > 5 ? ' (hanggang 5 wallet lang ang ipinapakita)' : ''}.$goalLine\n\nPagkatapos ng bills ngayong buwan at perang '
               'nakatabi, $toSpend ang pwede mong gastusin hanggang $until.'
         : 'You have $available available across ${wallets.length} '
-              '${wallets.length == 1 ? 'wallet' : 'wallets'}: $list.$goalLine'
+              '${wallets.length == 1 ? 'wallet' : 'wallets'}: $list'
+              '${wallets.length > 5 ? ' (showing up to 5 wallets)' : ''}.$goalLine'
               '\n\nAfter bills due this month and money set aside, $toSpend '
               'is free to spend until $until.',
     filipino: fil,
@@ -2089,24 +2097,31 @@ ChatReply _balance(FinanceSnapshot records, bool fil) {
 
 ChatReply _savings(FinanceSnapshot records, bool fil) {
   final goals = records.goals
-      .where((goal) => goal.status == GoalStatus.active)
+      .where((goal) => goal.status != GoalStatus.used)
       .toList();
   if (goals.isEmpty) {
     return ChatReply(
       fil
-          ? 'Wala ka pang nakatabing ipon o goal. Ang paggawa ng goal, kahit '
-                'maliit, ang pinakamadaling simula.'
-          : "You don't have any savings set aside or goals yet. Making a goal, "
-                'even a small one, is the easiest way to start.',
+          ? 'Wala pang naitalang ipon para sa goals mo. Hindi nito ibig '
+                'sabihing wala kang pera sa savings account; hiwalay iyon sa '
+                'goal savings na ipinapakita rito.'
+          : "There is no savings recorded for your goals yet. This doesn't "
+                'mean your savings accounts are empty; those balances are '
+                'separate from the goal savings shown here.',
       filipino: fil,
     );
   }
 
+  final hiddenGoals = goals.length - 5;
   final lines = [
     for (final goal in goals.take(5))
       '• ${goal.name}: ${formatPeso(goal.shownSaved)} ${fil ? 'sa' : 'of'} '
           '${formatPeso(goal.targetAmount)} '
           '(${(goal.progress * 100).round()}%)',
+    if (hiddenGoals > 0)
+      fil
+          ? '• at $hiddenGoals pang goal'
+          : '• and $hiddenGoals more ${hiddenGoals == 1 ? 'goal' : 'goals'}',
   ];
   final saved = formatPeso(records.goalSavings);
   return ChatReply(
@@ -2629,9 +2644,13 @@ ChatReply _emergencyFund(FinanceSnapshot records, bool fil) {
               'Karaniwang gabay ang 3 hanggang 6 na buwan ng pangunahing gastos '
               'mo.',
           enough
-              ? 'Base sa $last30 na nagastos mo sa nakaraang 30 araw, ang 3 '
+              ? 'Gumagamit ito ng kabuuang $last30 na naitalang gastos mo sa '
+                    'nakaraang 30 araw, kasama ang naitalang bayad sa bills. '
+                    'Tantyang gabay ito, hindi sukatan ng pangangailangan lang. '
+                    'Batay rito, ang 3 '
                     'buwan ay mga $three at ang 6 na buwan ay mga $six. Maaaring '
-                    'mas mababa kung pangangailangan lang ang bibilangin. '
+                    'mas mababa ang target kung pangunahing pangangailangan '
+                    'lang ang bibilangin. '
                     'Magsimula sa 1 buwan; kahit ₱50 kada araw ay aabot ng mga '
                     '₱1,500 kada buwan.'
               : 'Itala ang mga gastos mo nang ilang linggo at makakalkula ko '
@@ -2647,9 +2666,11 @@ ChatReply _emergencyFund(FinanceSnapshot records, bool fil) {
               'sick or losing income. A common guide is 3 to 6 months of your '
               'basic expenses.',
           enough
-              ? 'Based on the $last30 you spent in the last 30 days, 3 months '
-                    'is about $three and 6 months about $six. Needs alone may '
-                    'be less. Start with 1 month; even ₱50 a day adds up to '
+              ? 'This uses all $last30 in recorded spending over the last 30 '
+                    'days, including recorded bill payments. It is a rough '
+                    'guide, not a needs-only figure. On that basis, 3 months '
+                    'is about $three and 6 months about $six. A target based '
+                    'only on essentials may be lower. Start with 1 month; even ₱50 a day adds up to '
                     'about ₱1,500 a month.'
               : 'Record your expenses for a few weeks and I can work out how '
                     'much yours should be.',
@@ -2691,15 +2712,15 @@ ChatReply _budgetEnough(FinanceSnapshot records, bool fil) {
   final until = formatMonthDay(_lastDay(records));
   final covered = billsDue > 0
       ? (fil
-            ? 'Sapat ang pera mo. May $have kang available, sapat para sa '
+            ? 'Ayon sa records, kaya ng $have na available mong pera ang '
                   '$bills na bills na babayaran pa ngayong buwan.'
-            : "You're covered. You have $have available, enough for the "
+            : 'Your recorded available balance of $have can cover the '
                   '$bills in bills still to pay this month.')
       : (fil
-            ? 'Sapat ang pera mo. Wala ka nang bills na babayaran ngayong '
-                  'buwan, at may $have kang available.'
-            : "You're covered. No bills are left to pay this month, and you "
-                  'have $have available.');
+            ? 'May $have kang available ayon sa records, at wala akong '
+                  'nakitang bills na hindi pa bayad at due ngayong buwan.'
+            : 'Your recorded available balance is $have, and I do not see '
+                  'any unpaid bills due this month.');
   final lasting = daily >= 1
       ? (fil
             ? 'Para tumagal ang natitira hanggang $until, gumastos lang ng mga '
@@ -2707,10 +2728,13 @@ ChatReply _budgetEnough(FinanceSnapshot records, bool fil) {
             : 'To make the rest last until $until, keep to about '
                   '${formatPeso(daily)} a day.')
       : (fil
-            ? 'Kinukuha ng bills ang lahat, kaya ipagpaliban muna ang hindi pa '
+            ? 'Walang positibong halagang pang-araw-araw sa kasalukuyang '
+                  'kuwenta. Suriin kung tama ang balance, bills, perang para '
+                  'sa goals at plano mong gastos; ipagpaliban muna ang hindi '
                   'kailangan.'
-            : 'The bills take all of it, so hold off on anything that can '
-                  'wait.');
+            : 'The current calculation leaves no positive daily amount. '
+                  'Check that your balance, bills, goal money and spending '
+                  'plan are up to date; hold off on anything nonessential.');
   return ChatReply('$covered $lasting', filipino: fil);
 }
 
@@ -3220,7 +3244,10 @@ ChatReply _purchaseAnswer(
   final paced = pace != null && q.deadline.isAfter(monthEnd);
   final until = paced ? monthEnd : q.deadline;
   final days = math.max(1, until.difference(today).inDays);
-  final (spare: spareThen, :bills, :daily) = _spareBy(until, records);
+  final (spare: spareThen, :bills, :daily, :everydaySpending) = _spareBy(
+    until,
+    records,
+  );
   final monthsAfter = paced ? _monthsBetween(monthEnd, q.deadline) : 0;
   final spare = paced
       ? _down(spareThen + pace.perMonth * monthsAfter)
@@ -3258,23 +3285,29 @@ ChatReply _purchaseAnswer(
   // no "bills (₱0)" for someone with no bills.
   final setAside = records.goalSavingsInSpendingWallets;
   final coveredParts = [
-    if (bills > 0) 'bills (${formatPeso(bills)})',
+    if (bills > 0)
+      fil
+          ? 'bills ngayong buwan (${formatPeso(bills)})'
+          : 'bills due this month (${formatPeso(bills)})',
     if (setAside > 0)
       fil
-          ? 'perang nakatabi (${formatPeso(setAside)})'
-          : 'money set aside (${formatPeso(setAside)})',
-    if (daily > 0)
+          ? 'perang para sa goals (${formatPeso(setAside)})'
+          : 'money for goals (${formatPeso(setAside)})',
+    if (everydaySpending > 0)
       fil
-          ? 'karaniwang ${formatPeso(_down(daily))} mo kada araw'
-          : 'your usual ${formatPeso(_down(daily))} a day',
+          ? 'tinatayang gastos sa natitirang mga araw '
+                '(${formatPeso(_down(everydaySpending))} lahat, mga '
+                '${formatPeso(_down(daily))} kada araw)'
+          : 'estimated everyday spending for the remaining days '
+                '(${formatPeso(_down(everydaySpending))} total, about '
+                '${formatPeso(_down(daily))} a day)',
   ];
   final covers = coveredParts.length <= 1
       ? coveredParts.firstOrNull
       : '${coveredParts.take(coveredParts.length - 1).join(', ')} '
             '${fil ? 'at' : 'and'} ${coveredParts.last}';
-  final after = covers == null ? 'You' : 'After $covers, you';
-  // "Pagkatapos ng bills (₱2,100), may…" or just "May…".
-  final afterFil = covers == null ? 'May' : 'Pagkatapos ng $covers, may';
+  final after = covers == null ? 'You' : 'After subtracting $covers, you';
+  final afterFil = covers == null ? 'May' : 'Matapos ibawas ang $covers, may';
 
   // No price: say so plainly, then give the most that could go to it, so a
   // car is never made to sound like it costs a few thousand pesos. The price
@@ -3287,24 +3320,24 @@ ChatReply _purchaseAnswer(
       final what = q.thing.isEmpty ? 'ito' : q.thing;
       first = spare <= 0
           ? 'Wala pang presyo, kaya hindi ko pa ito masuri. $when, wala nang '
-                'matitira${covers == null ? '' : ' pagkatapos ng $covers'}. '
+                'matitira${covers == null ? '' : ' pagkatapos ibawas ang $covers'}. '
                 'Sabihin mo ang presyo at kukuwentahin ko kung gaano katagal '
                 'mag-iipon para rito.'
           : 'Wala pang presyo, kaya hindi ko pa ito masuri. $when, ang '
                 'pinakamalaking pwede mong gastusin sa $what ay mga '
                 '${formatPeso(spare)}'
-                '${covers == null ? '' : ', pagkatapos ng $covers'}. Sabihin '
+                '${covers == null ? '' : ', pagkatapos ibawas ang $covers'}. Sabihin '
                 'mo ang presyo at sasabihin ko kung kasya, o gaano katagal '
                 'mag-iipon para rito.';
     } else {
       final what = q.thing.isEmpty ? 'it' : 'the ${q.thing}';
       first = spare <= 0
           ? "Without a price, I can't check it yet. $when, there's nothing "
-                'spare${covers == null ? '' : ' once $covers are covered'}. '
+                'spare${covers == null ? '' : ' after subtracting $covers'}. '
                 "Tell me the price and I'll work out how long to save for it."
           : "Without a price, I can't check it yet. $when, the most you can "
                 'spend on $what is about ${formatPeso(spare)}'
-                '${covers == null ? '' : ', after $covers'}. Tell me the '
+                '${covers == null ? '' : ', after subtracting $covers'}. Tell me the '
                 "price and I'll tell you if it fits, or how long to save for "
                 'it.';
     }
@@ -3371,14 +3404,14 @@ ChatReply _purchaseAnswer(
                   '${formatPeso(spare)}, kulang pa ng ${formatPeso(short)} '
                   'para sa $cost.'
             : 'Hindi pa ito kasya $label. '
-                  '${covers == null ? 'Walang' : 'Pagkatapos ng $covers, walang'} '
+                  '${covers == null ? 'Walang' : 'Matapos ibawas ang $covers, walang'} '
                   'matitira, kaya kailangan pang ipunin ang buong $cost.'
       : spare > 0
       ? "It doesn't fit $label yet. $after would have about "
             '${formatPeso(spare)} spare, ${formatPeso(short)} short of '
             '$cost.'
       : "It doesn't fit $label yet. "
-            '${covers == null ? 'Nothing' : 'After $covers, nothing'} would '
+            '${covers == null ? 'Nothing' : 'After subtracting $covers, nothing'} would '
             'be spare, so all $cost still needs saving.';
   final name = q.thing.isEmpty
       ? (fil ? 'Gustong bilhin' : 'Something I want')
@@ -3433,7 +3466,9 @@ ChatReply _purchaseAnswer(
       break;
     }
   }
-  final perWeek = formatPeso(_upTo50(toSave / weeks));
+  final weeklyTarget = _upTo50(toSave / weeks);
+  weeks = math.max(1, (toSave / weeklyTarget).ceil());
+  final perWeek = formatPeso(weeklyTarget);
   final ready = today.add(Duration(days: weeks * 7));
   final readyOn = formatShortDate(ready);
 
@@ -3451,7 +3486,7 @@ ChatReply _purchaseAnswer(
 /// then, money set aside for goals, and the usual day-to-day spending until
 /// then. Today's spending is already out of the wallets; only the rest of
 /// today is still to come.
-({double spare, double bills, double daily}) _spareBy(
+({double spare, double bills, double daily, double everydaySpending}) _spareBy(
   DateTime until,
   FinanceSnapshot records,
 ) {
@@ -3462,7 +3497,12 @@ ChatReply _purchaseAnswer(
   final daily = records.usualDailySpending;
   final restOfToday = math.max(0.0, daily - records.spentToday);
   final usual = daily * (days - 1) + restOfToday;
-  return (spare: _down(available - usual), bills: bills, daily: daily);
+  return (
+    spare: _down(available - usual),
+    bills: bills,
+    daily: daily,
+    everydaySpending: usual,
+  );
 }
 
 /// Where most day-to-day money goes, from the last 30 days.

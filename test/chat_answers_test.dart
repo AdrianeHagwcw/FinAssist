@@ -153,11 +153,88 @@ void main() {
     expect(
       reply.text,
       contains(
-        "It doesn't fit this month yet. After your usual ₱150 a day, nothing "
-        'would be spare, so all ₱5,000 still needs saving.',
+        "It doesn't fit this month yet. After subtracting estimated everyday "
+        'spending for the remaining days (₱1,650 total, about ₱150 a day), '
+        'nothing would be spare, so all ₱5,000 still needs saving.',
       ),
     );
     expect(reply.text, isNot(contains('short of')));
+  });
+
+  test('safe-to-spend answer labels a passed amount as a guide, not a cap', () {
+    final snapshot = FinanceSnapshot(
+      now: now,
+      wallets: [wallet('cash', 'Cash', 5000)],
+      transactions: [spend('Food', 600, now)],
+    );
+    final reply = ask('How much can I spend today?', from: snapshot);
+    expect(reply.text, contains('above'));
+    expect(reply.text, contains('suggested amount'));
+    expect(reply.text, contains('not a hard spending limit'));
+    expect(reply.text, contains('remaining money last through Sep 30'));
+
+    for (final language in [ChatLanguage.tagalog, ChatLanguage.taglish]) {
+      final localized = ask(
+        'Magkano pa ang pwede kong gastusin ngayon?',
+        from: snapshot,
+        language: language,
+      );
+      expect(localized.filipino, isTrue);
+      expect(localized.text, contains('Gabay lang ito'));
+      expect(localized.text, contains('₱'));
+    }
+  });
+
+  test(
+    'Tagalog purchase answers explain the total estimated daily spending',
+    () {
+      final reply = ask(
+        'Kaya ko bang bumili ng laptop na ₱50,000 ngayong buwan?',
+        language: ChatLanguage.tagalog,
+      );
+      expect(reply.filipino, isTrue);
+      expect(
+        reply.text,
+        contains(
+          'tinatayang gastos sa natitirang mga araw '
+          '(₱1,727 lahat, mga ₱156 kada araw)',
+        ),
+      );
+    },
+  );
+
+  test('weekly savings target date uses the rounded amount', () {
+    final snapshot = FinanceSnapshot(
+      now: DateTime(2026, 11, 5, 10),
+      wallets: [wallet('cash', 'Cash', 29664.5)],
+      transactions: [
+        for (var day = 1; day <= 5; day++)
+          spend('Food', 143.5, DateTime(2026, 11, day, 12)),
+      ],
+      goals: const [
+        Goal(
+          id: 'existing',
+          name: 'Existing goal',
+          targetAmount: 5000,
+          savedAmount: 2665,
+          priority: 0,
+          status: GoalStatus.active,
+          walletId: 'cash',
+        ),
+      ],
+    );
+    final reply = ask(
+      'Can I buy a laptop for ₱50,000 this month?',
+      from: snapshot,
+    );
+
+    expect(reply.text, contains('₱3,587 total, about ₱143 a day'));
+    expect(reply.text, contains('₱23,412 spare, ₱26,588 short of ₱50,000'));
+    expect(
+      reply.text,
+      contains('Saving ₱550 a week gets you there by Oct 14, 2027'),
+    );
+    expect(reply.goal?.date, DateTime(2027, 10, 14));
   });
 
   group('answers from the user\'s records', () {
@@ -166,8 +243,34 @@ void main() {
       // 12 days is ₱920.83 a day; ₱150 of it is spent.
       final reply = ask('How much can I spend today?');
       expect(reply.text, contains('₱854 today'));
-      expect(reply.text, contains('₱1,004 limit'));
+      expect(reply.text, contains('₱1,004 suggested amount'));
       expect(reply.text, contains('12 days left in this month through Sep 30'));
+    });
+
+    test('an empty category is described as having no recorded expenses', () {
+      final empty = FinanceSnapshot(
+        now: now,
+        wallets: [wallet('cash', 'Cash', 1000)],
+      );
+      final english = ask(
+        'How much did I spend on Food this month?',
+        from: empty,
+      );
+      expect(english.text, contains("I don't see any recorded spending"));
+
+      final tagalog = ask(
+        'Magkano ang nagastos ko sa Food ngayong buwan?',
+        from: empty,
+        language: ChatLanguage.tagalog,
+      );
+      expect(tagalog.text, contains('Wala akong nakitang naitalang gastos'));
+      final taglish = ask(
+        'Magkano ang nagastos ko sa Food this month?',
+        from: empty,
+        language: ChatLanguage.taglish,
+      );
+      expect(taglish.filipino, isTrue);
+      expect(taglish.text, contains('Wala akong nakitang naitalang gastos'));
     });
 
     test('spending in a category, in Taglish', () {
@@ -260,12 +363,120 @@ void main() {
       expect(reply.text, contains('₱11,900 is free to spend until Sep 30'));
     });
 
+    test('balance says when only the first five wallets are listed', () {
+      final snapshot = FinanceSnapshot(
+        now: now,
+        wallets: [
+          for (var i = 0; i < 6; i++) wallet('wallet$i', 'Wallet $i', 1000),
+        ],
+      );
+      final english = ask('How much money do I have?', from: snapshot);
+      expect(english.text, contains('across 6 wallets'));
+      expect(english.text, contains('(showing up to 5 wallets)'));
+
+      final tagalog = ask(
+        'Magkano ang pera ko?',
+        from: snapshot,
+        language: ChatLanguage.tagalog,
+      );
+      expect(
+        tagalog.text,
+        contains('(hanggang 5 wallet lang ang ipinapakita)'),
+      );
+    });
+
     test('savings and goals', () {
       final reply = ask('Ilan na ipon ko?');
       expect(reply.text, contains('Laptop: ₱6,000 of ₱30,000 (20%)'));
       // Savings live in a savings record now, so there is no separate
       // reserve to report beside the goals.
       expect(reply.text, isNot(contains('as savings')));
+    });
+
+    test('goal savings includes completed goals and excludes used goals', () {
+      final snapshot = FinanceSnapshot(
+        now: now,
+        wallets: [wallet('cash', 'Cash', 3000)],
+        goals: const [
+          Goal(
+            id: 'completed',
+            name: 'Tuition',
+            targetAmount: 1000,
+            savedAmount: 1000,
+            priority: 0,
+            status: GoalStatus.completed,
+          ),
+          Goal(
+            id: 'used',
+            name: 'Trip',
+            targetAmount: 2000,
+            savedAmount: 2000,
+            priority: 1,
+            status: GoalStatus.used,
+          ),
+        ],
+      );
+      final reply = ask('How much have I saved?', from: snapshot);
+      expect(reply.text, contains('₱1,000'));
+      expect(reply.text, contains('Tuition: ₱1,000 of ₱1,000 (100%)'));
+      expect(reply.text, isNot(contains('Trip')));
+    });
+
+    test('goal savings identifies when more than five goals are omitted', () {
+      final snapshot = FinanceSnapshot(
+        now: now,
+        wallets: [wallet('cash', 'Cash', 10000)],
+        goals: [
+          for (var i = 0; i < 6; i++)
+            Goal(
+              id: 'goal$i',
+              name: 'Goal $i',
+              targetAmount: 1000,
+              savedAmount: 100,
+              priority: i,
+              status: GoalStatus.active,
+            ),
+        ],
+      );
+      final english = ask('How much have I saved?', from: snapshot);
+      expect(english.text, contains('for 6 goals'));
+      expect(english.text, contains('and 1 more goal'));
+
+      final tagalog = ask(
+        'Magkano na ang ipon ko?',
+        from: snapshot,
+        language: ChatLanguage.tagalog,
+      );
+      expect(tagalog.text, contains('para sa 6 goal'));
+      expect(tagalog.text, contains('at 1 pang goal'));
+    });
+
+    test('no goal record does not claim savings accounts are empty', () {
+      final snapshot = FinanceSnapshot(
+        now: now,
+        wallets: [
+          Wallet(
+            id: 'savings',
+            name: 'Bank Savings',
+            type: WalletType.bank,
+            balance: 5000,
+            startingBalance: 5000,
+            receivesIncome: false,
+            archived: false,
+            sortOrder: 0,
+            purpose: WalletPurpose.savings,
+          ),
+        ],
+      );
+      final reply = ask('How much have I saved?', from: snapshot);
+      expect(
+        reply.text,
+        contains('There is no savings recorded for your goals'),
+      );
+      expect(
+        reply.text,
+        contains("doesn't mean your savings accounts are empty"),
+      );
     });
 
     test('calculates possible savings separately from saved goals', () {
@@ -277,7 +488,10 @@ void main() {
       expect(weekly.text, isNot(contains("You've spent")));
 
       final fromIncome = ask('How much can I save from my income?');
-      expect(fromIncome.text, contains('left to save this month'));
+      expect(
+        fromIncome.text,
+        contains('left after recorded expenses this month'),
+      );
       expect(fromIncome.text, isNot(contains("You've received")));
     });
 
@@ -571,7 +785,11 @@ void main() {
         loading: true,
       );
 
-      expect(reply.text, contains('saved goals have not loaded'));
+      expect(reply.text, contains('goal records have not loaded'));
+      expect(
+        reply.text,
+        contains('does not subtract any existing goal savings'),
+      );
       expect(reply.text, isNot(contains('No savings are recorded')));
     });
 
@@ -845,16 +1063,18 @@ void main() {
       expect(
         reply.text,
         contains(
-          'Based on the ₱6,550 you spent in the last 30 days, 3 months is '
-          'about ₱19,650 and 6 months about ₱39,300',
+          'This uses all ₱6,550 in recorded spending over the last 30 days, '
+          'including recorded bill payments. It is a rough guide, not a '
+          'needs-only figure. On that basis, 3 months is about ₱19,650 and '
+          '6 months about ₱39,300',
         ),
       );
     });
 
     test('is the budget enough: bills against what is free', () {
       final enough = ask('Is my budget enough for this month?');
-      expect(enough.text, startsWith("You're covered."));
-      expect(enough.text, contains('enough for the ₱2,100 in bills'));
+      expect(enough.text, startsWith('Your recorded available balance'));
+      expect(enough.text, contains('can cover the ₱2,100 in bills'));
       expect(enough.text, contains('until Sep 30'));
 
       final short = ask(
@@ -867,6 +1087,23 @@ void main() {
       );
       expect(short.text, startsWith("You're short."));
       expect(short.text, contains('short by ₱4,000'));
+
+      final noMoney = ask(
+        'Will my money last this month?',
+        from: FinanceSnapshot(now: now, wallets: [wallet('cash', 'Cash', 0)]),
+      );
+      expect(noMoney.text, contains('no positive daily amount'));
+      expect(noMoney.text, isNot(contains('The bills take all of it')));
+
+      final tagalogNoMoney = ask(
+        'Aabot ba ang pera ko ngayong buwan?',
+        from: FinanceSnapshot(now: now, wallets: [wallet('cash', 'Cash', 0)]),
+        language: ChatLanguage.tagalog,
+      );
+      expect(
+        tagalogNoMoney.text,
+        contains('Walang positibong halagang pang-araw-araw'),
+      );
     });
 
     test('tips never say to cut back on health', () {
