@@ -105,7 +105,11 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                       showTransferSheet(
                         context,
                         wallets: _wallets,
-                        transactions: _transactions,
+                        transactions:
+                            widget.wallets == null &&
+                                widget.transactions == null
+                            ? WalletService.watchTransactions()
+                            : null,
                         fromWalletId: wallet.id,
                       );
                     case 'edit':

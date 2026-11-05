@@ -19,6 +19,7 @@ Future<bool> showTransferSheet(
   Stream<List<Wallet>>? wallets,
   List<Wallet>? initialWallets,
   Stream<List<AppTransaction>>? transactions,
+  List<AppTransaction>? initialTransactions,
   String? fromWalletId,
   String? toWalletId,
   double? initialAmount,
@@ -35,6 +36,7 @@ Future<bool> showTransferSheet(
       wallets: wallets,
       initialWallets: initialWallets,
       transactions: transactions,
+      initialTransactions: initialTransactions,
       initialFromWalletId: fromWalletId,
       initialToWalletId: toWalletId,
       initialAmount: initialAmount,
@@ -49,6 +51,7 @@ class TransferSheet extends StatefulWidget {
     this.wallets,
     this.initialWallets,
     this.transactions,
+    this.initialTransactions,
     this.goals,
     this.onSave,
     this.initialFromWalletId,
@@ -65,6 +68,9 @@ class TransferSheet extends StatefulWidget {
 
   /// Replaces the live transaction history used to estimate savings interest.
   final Stream<List<AppTransaction>>? transactions;
+
+  /// Transaction history already loaded by the screen that opened this sheet.
+  final List<AppTransaction>? initialTransactions;
 
   /// Replaces the live goals, for what they hold in each wallet. Used by
   /// tests.
@@ -95,9 +101,16 @@ class _TransferSheetState extends State<TransferSheet>
     with CheckAfterSave, WatchesGoals {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
+  // Always open a fresh Firestore subscription so the StreamBuilder receives
+  // the first cached snapshot.  Reusing a broadcast stream that a parent
+  // screen already listens to would miss data already emitted before this
+  // sheet subscribed, leaving transactions null and blocking
+  // savings-deposit transfers with "Loading the savings interest estimate."
   late final Stream<List<AppTransaction>> _transactions =
       widget.transactions ??
-      (widget.wallets == null
+      (widget.initialTransactions != null
+          ? const Stream<List<AppTransaction>>.empty()
+          : widget.wallets == null
           ? WalletService.watchTransactions()
           : Stream.value(const <AppTransaction>[]));
 
@@ -275,6 +288,7 @@ class _TransferSheetState extends State<TransferSheet>
 
               return StreamBuilder<List<AppTransaction>>(
                 stream: _transactions,
+                initialData: widget.initialTransactions,
                 builder: (context, transactionSnapshot) {
                   final transactions = transactionSnapshot.data;
                   final transactionsFailed = transactionSnapshot.hasError;

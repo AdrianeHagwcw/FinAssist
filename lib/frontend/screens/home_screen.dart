@@ -330,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onAction: () =>
               setState(() => _showAllQuickActions = !_showAllQuickActions),
         ),
-        _quickActions(wallets),
+        _quickActions(wallets, transactions),
 
         const SizedBox(height: 25),
         // Reports is in the bottom bar and Quick Actions, so the side of
@@ -392,7 +392,10 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   );
 
-  Widget _quickActions(List<Wallet>? wallets) {
+  Widget _quickActions(
+    List<Wallet>? wallets,
+    List<AppTransaction>? transactions,
+  ) {
     Widget tile(String asset, String title, VoidCallback onTap) {
       return Expanded(
         child: QuickActionTile(
@@ -425,7 +428,10 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             wallets: _wallets,
             initialWallets: wallets,
-            transactions: _transactions,
+            transactions: widget.wallets == null && widget.transactions == null
+                ? WalletService.watchTransactions()
+                : null,
+            initialTransactions: transactions,
           );
           if (saved && mounted) setState(() => _refreshKey++);
         },

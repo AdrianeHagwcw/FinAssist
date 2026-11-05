@@ -12978,6 +12978,34 @@ void main() {
       final transactions = StreamController<List<AppTransaction>>.broadcast();
       addTearDown(wallets.close);
       addTearDown(transactions.close);
+      final start = DateTime(2025, 11, 6);
+      final savings = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+        annualInterestRatePercent: 5,
+        depositStartDate: start,
+        createdAt: start,
+      );
+      final demand = Wallet(
+        id: 'demand',
+        name: 'Demand Deposit',
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 3,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.demandDeposit.name,
+      );
 
       await tester.pumpWidget(
         ChangeNotifierProvider(
@@ -12995,7 +13023,8 @@ void main() {
           ),
         ),
       );
-      wallets.add([cash, gcash]);
+      wallets.add([cash, gcash, savings, demand]);
+      transactions.add(const <AppTransaction>[]);
       await tester.pump();
       await tester.pump();
 
@@ -13010,6 +13039,19 @@ void main() {
         ),
         findsNothing,
       );
+
+      await tester.ensureVisible(
+        find.byType(DropdownButtonFormField<String>).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Savings Deposit').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Savings Deposit holds ₱5,200'), findsOneWidget);
+      expect(find.text('Loading savings interest estimate...'), findsNothing);
+      expect(find.byKey(const Key('goes-to-demand')), findsOneWidget);
     });
 
     testWidgets('Home keeps support in Settings, not its top bar', (
