@@ -815,7 +815,6 @@ ${responseLanguage == null ? '' : 'Write the explanation entirely in ${responseL
       'netCashFlowSavingsRatePercent': insights.netCashFlowSavingsRatePercent,
       'budgetUtilizationPercent': insights.budgetUtilizationPercent,
       'expenseCategoryTotals': approvedCategories,
-      'monthToMonthSpendingChangePercent': insights.spendingChangePercent,
       'forecastMonthlyAverage': insights.forecast.monthlyAverage,
       'forecastHighlyVariable': insights.forecast.isHighlyVariable,
     };

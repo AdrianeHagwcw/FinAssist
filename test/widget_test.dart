@@ -11837,7 +11837,7 @@ void main() {
       expect(onlyThisMonth.map((p) => p.label), ['Sep']);
     });
 
-    test('insights compare with earlier months only when there are some', () {
+    test('monthly insights use the selected month without comparisons', () {
       final september = ReportPeriod.monthOf(DateTime(2026, 9, 17));
 
       final firstMonth = insightsFor(
@@ -11871,10 +11871,7 @@ void main() {
         period: september,
         range: ReportRange.month,
       );
-      expect(withHistory, [
-        'Food spending is 20% higher than your 3-month average.',
-        'You spent ₱200 more than came in this month.',
-      ]);
+      expect(withHistory, ['You spent ₱200 more than came in this month.']);
 
       final shortHistory = insightsFor(
         [
@@ -11884,15 +11881,28 @@ void main() {
         period: september,
         range: ReportRange.month,
       );
-      expect(
-        shortHistory.first,
-        'Food spending is 50% lower than your recent average.',
-        reason: 'one earlier month is not a 3-month average',
-      );
+      expect(shortHistory, isEmpty);
 
       expect(
         insightsFor(const [], period: september, range: ReportRange.month),
         isEmpty,
+      );
+    });
+
+    test('non-month insights can still compare with earlier periods', () {
+      final week = ReportPeriod.weekOf(DateTime(2026, 9, 17));
+      final insights = insightsFor(
+        [
+          tx('current', TransactionType.expense, 1200, DateTime(2026, 9, 15)),
+          tx('previous', TransactionType.expense, 1000, DateTime(2026, 9, 8)),
+        ],
+        period: week,
+        range: ReportRange.week,
+      );
+
+      expect(
+        insights.first,
+        'Food spending is 20% higher than your recent average.',
       );
     });
 
@@ -12019,7 +12029,21 @@ void main() {
     testWidgets('trend chart uses inflow and outflow terminology', (
       tester,
     ) async {
-      await pumpReports(tester);
+      await pumpReports(
+        tester,
+        list: [
+          ...transactions,
+          AppTransaction(
+            id: 'previous-month',
+            type: TransactionType.expense,
+            amount: 1000,
+            label: 'Bills',
+            date: DateTime(2026, 8, 10),
+            walletId: 'cash',
+            billInstanceId: 'previous-month-instance',
+          ),
+        ],
+      );
       final trendTitle = find.text('Inflow vs. Outflow');
       await tester.ensureVisible(trendTitle);
       expect(trendTitle, findsOneWidget);
@@ -12030,6 +12054,11 @@ void main() {
       expect(find.text('Expenses'), findsNothing);
       expect(find.text('Inward'), findsNothing);
       expect(find.text('Outward'), findsNothing);
+      expect(find.text('Selected month only.'), findsOneWidget);
+      expect(
+        tester.widget<BarChart>(find.byType(BarChart)).data.barGroups,
+        hasLength(1),
+      );
     });
 
     testWidgets('the bar amounts always show, with nothing to press', (

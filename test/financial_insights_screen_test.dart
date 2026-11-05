@@ -12,6 +12,7 @@ import 'package:testapp/frontend/theme/app_theme.dart';
 
 class _FakeFinancialAssistant implements FinancialAssistant {
   int insightRequests = 0;
+  FinancialInsights? requestedInsights;
   bool fail = false;
 
   @override
@@ -35,6 +36,7 @@ class _FakeFinancialAssistant implements FinancialAssistant {
     ChatLanguage? responseLanguage,
   }) async {
     insightRequests++;
+    requestedInsights = insights;
     if (fail) {
       throw const FinancialAssistantFailure('simulated Gemini failure');
     }
@@ -112,12 +114,14 @@ Future<void> _pumpReports(
 }
 
 void main() {
-  testWidgets('shows plain insights, with no finance jargon', (tester) async {
+  testWidgets('monthly insights use this month without a comparison', (
+    tester,
+  ) async {
     await _pumpReports(tester, assistant: _FakeFinancialAssistant());
 
     expect(
       find.text('Food spending is 33% lower than your recent average.'),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.text('You kept 80% of what came in this month.'),
@@ -139,6 +143,7 @@ void main() {
     await tester.pump();
 
     expect(assistant.insightRequests, 1);
+    expect(assistant.requestedInsights?.spendingChangePercent, isNull);
     expect(
       find.textContaining('Review optional recurring costs'),
       findsOneWidget,

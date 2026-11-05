@@ -248,9 +248,9 @@ TrendPoint _trendPoint(
 
 /// Plain-language observations about a period's spending, most useful first.
 ///
-/// Every line is worked out from the user's own records, and a line is only
-/// given when there is enough to say it honestly: no comparisons without an
-/// earlier period to compare with.
+/// Every line is worked out from the user's own records. Calendar-month
+/// reports describe only the selected month; other ranges can compare with
+/// earlier periods when there is enough history.
 List<String> insightsFor(
   Iterable<AppTransaction> transactions, {
   required ReportPeriod period,
@@ -271,39 +271,39 @@ List<String> insightsFor(
         : const [];
   }
 
-  // Against the average of the three periods before, for the biggest
-  // categories. Periods with no spending at all are left out of the average,
-  // so someone who only started last month isn't told they spend three times
-  // their usual.
-  final earlier = <List<MapEntry<String, double>>>[];
-  var before = period;
-  for (var i = 0; i < 3; i++) {
-    before = before.previous(range);
-    final list = spendingByCategory(transactionsIn(transactions, before));
-    if (list.isNotEmpty) earlier.add(list);
-  }
+  if (range != ReportRange.month) {
+    // Periods with no spending at all are left out of the average, so someone
+    // who only started recently isn't told they spend more than usual.
+    final earlier = <List<MapEntry<String, double>>>[];
+    var before = period;
+    for (var i = 0; i < 3; i++) {
+      before = before.previous(range);
+      final list = spendingByCategory(transactionsIn(transactions, before));
+      if (list.isNotEmpty) earlier.add(list);
+    }
 
-  if (earlier.isNotEmpty) {
-    for (final entry in spending.take(3)) {
-      final average =
-          earlier.fold<double>(0, (total, list) {
-            final match = list.where((e) => e.key == entry.key);
-            return total + (match.isEmpty ? 0 : match.first.value);
-          }) /
-          earlier.length;
-      if (average <= 0) continue;
+    if (earlier.isNotEmpty) {
+      for (final entry in spending.take(3)) {
+        final average =
+            earlier.fold<double>(0, (total, list) {
+              final match = list.where((e) => e.key == entry.key);
+              return total + (match.isEmpty ? 0 : match.first.value);
+            }) /
+            earlier.length;
+        if (average <= 0) continue;
 
-      final change = (entry.value - average) / average;
-      if (change.abs() < 0.10) continue;
+        final change = (entry.value - average) / average;
+        if (change.abs() < 0.10) continue;
 
-      final percent = (change.abs() * 100).round();
-      final span = earlier.length < 3 || range == ReportRange.custom
-          ? 'recent'
-          : '3-${range.unit}';
-      lines.add(
-        '${entry.key} spending is $percent% ${change > 0 ? 'higher' : 'lower'} '
-        'than your $span average.',
-      );
+        final percent = (change.abs() * 100).round();
+        final span = earlier.length < 3 || range == ReportRange.custom
+            ? 'recent'
+            : '3-${range.unit}';
+        lines.add(
+          '${entry.key} spending is $percent% ${change > 0 ? 'higher' : 'lower'} '
+          'than your $span average.',
+        );
+      }
     }
   }
 

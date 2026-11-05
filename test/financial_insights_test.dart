@@ -185,6 +185,29 @@ void main() {
       },
     );
 
+    test('can omit month-to-month comparison for report suggestions', () {
+      final result = calculateFinancialInsights(
+        [
+          transaction(
+            'previous',
+            TransactionType.expense,
+            100,
+            DateTime(2026, 9, 2),
+          ),
+          transaction(
+            'current',
+            TransactionType.expense,
+            200,
+            DateTime(2026, 10, 2),
+          ),
+        ],
+        now: now,
+        includeSpendingComparison: false,
+      );
+
+      expect(result.spendingChangePercent, isNull);
+    });
+
     test(
       'uses a transparent score only when each scoring input is available',
       () {

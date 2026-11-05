@@ -221,6 +221,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   String _trendSubtitle(int count) {
+    if (_range == ReportRange.month) return 'Selected month only.';
     final unit = _range.unit;
     final span = count == 1
         ? 'This $unit, since your records start here'
@@ -311,6 +312,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       range: _range,
       end: _period.end.isAfter(_now) ? _now : _period.end,
       from: _period,
+      count: _range == ReportRange.month ? 1 : 6,
     );
     // The app's own plain-language lines: they need no AI and work offline.
     final insights = insightsFor(transactions, period: _period, range: _range);
@@ -318,6 +320,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       transactions,
       now: _now,
       spendingBudget: _records?.periodBudget,
+      includeSpendingComparison: false,
     );
     _currentInsightsKey = financialInsightsKey(financialInsights);
     final suggestionsAreCurrent = _aiSuggestionsKey == _currentInsightsKey;

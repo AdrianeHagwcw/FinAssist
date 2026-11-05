@@ -8,6 +8,7 @@ FinancialInsights calculateFinancialInsights(
   Iterable<AppTransaction> source, {
   required DateTime now,
   double? spendingBudget,
+  bool includeSpendingComparison = true,
 }) {
   final transactions = source.toList();
   final today = DateTime(now.year, now.month, now.day);
@@ -53,7 +54,8 @@ FinancialInsights calculateFinancialInsights(
         transaction.date.isBefore(previousMonthEnd),
   );
   final previousMonthSpending = _moneyInAndOut(previousMonth).expenses;
-  final spendingChangePercent = previousMonthSpending > 0
+  final spendingChangePercent =
+      includeSpendingComparison && previousMonthSpending > 0
       ? (currentTotals.expenses - previousMonthSpending) /
             previousMonthSpending *
             100
