@@ -24,6 +24,7 @@ Future<bool> showBillPaymentSheet(
   required BillInstance instance,
   bool payInFull = true,
   Stream<List<Wallet>>? wallets,
+  String? initialWalletId,
 }) async {
   final paid = await showModalBottomSheet<bool>(
     context: context,
@@ -37,6 +38,7 @@ Future<bool> showBillPaymentSheet(
       instance: instance,
       payInFull: payInFull,
       wallets: wallets,
+      initialWalletId: initialWalletId,
     ),
   );
 
@@ -51,6 +53,7 @@ class BillPaymentSheet extends StatefulWidget {
     required this.instance,
     this.payInFull = true,
     this.wallets,
+    this.initialWalletId,
     this.goals,
     this.onPay,
     super.key,
@@ -61,6 +64,10 @@ class BillPaymentSheet extends StatefulWidget {
 
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
+
+  /// Starts the payment on the wallet saved with this debt, if it still
+  /// exists. The user can choose another wallet in the payment sheet.
+  final String? initialWalletId;
 
   /// Replaces the live goals, for what each wallet has free. Used by tests.
   final Stream<List<Goal>>? goals;
@@ -184,6 +191,12 @@ class _BillPaymentSheetState extends State<BillPaymentSheet>
                     goals: heldGoals,
                     purpose: SplitPurpose.paying,
                     target: instance.remaining,
+                    initialAmounts: {
+                      for (final wallet in wallets)
+                        if (wallet.id == widget.initialWalletId &&
+                            !wallet.archived)
+                          wallet.id: instance.remaining,
+                    },
                     withFees: true,
                     // A bill is paid from cash on hand or from the bank, never
                     // part of each, so each payment has one clear source.

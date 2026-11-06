@@ -79,6 +79,38 @@ class DebtService {
         .map((doc) => doc.exists ? Debt.fromMap(doc.id, doc.data()) : null);
   }
 
+  /// Fixed interest charges the lender confirmed, oldest first.
+  static Stream<List<FixedInterestCharge>> watchFixedInterestCharges(
+    String debtId,
+  ) {
+    return _debts.doc(debtId).collection('interestCharges').snapshots().map((s) {
+      final charges = <FixedInterestCharge>[];
+      for (final doc in s.docs) {
+        final data = doc.data();
+        final chargedAt = data['chargedAt'];
+        if (data['amount'] is! num || chargedAt is! Timestamp) continue;
+        charges.add(
+          FixedInterestCharge(
+            periodKey: doc.id,
+            amount: (data['amount'] as num).toDouble(),
+            chargedAt: chargedAt.toDate(),
+            periodDueDate: data['periodDueDate'] is Timestamp
+                ? (data['periodDueDate'] as Timestamp).toDate()
+                : chargedAt.toDate(),
+            period: PaymentFrequency.fromName(
+              data['period'] is String ? data['period'] as String : null,
+            ),
+            recordedAt: data['createdAt'] is Timestamp
+                ? (data['createdAt'] as Timestamp).toDate()
+                : null,
+          ),
+        );
+      }
+      charges.sort((a, b) => a.periodDueDate.compareTo(b.periodDueDate));
+      return charges;
+    });
+  }
+
   /// Saves an installment or loan the user is paying back.
   ///
   /// The terms and the payment schedule in the Bill Planner go in one batch,
@@ -109,6 +141,7 @@ class DebtService {
     bool balanceBasedSchedule = false,
     double? fixedInterestAmount,
     PaymentFrequency? interestChargedPer,
+    DateTime? firstInterestChargeDate,
     double fees = 0,
     String? otherKind,
     String? paidWithWalletId,
@@ -163,6 +196,17 @@ class DebtService {
     if (fixedInterestAmount != null && interestChargedPer != null) {
       optionalDetails['fixedInterestAmount'] = fixedInterestAmount;
       optionalDetails['interestChargedPer'] = interestChargedPer.name;
+      if (firstInterestChargeDate != null) {
+        final date = DateTime(
+          firstInterestChargeDate.year,
+          firstInterestChargeDate.month,
+          firstInterestChargeDate.day,
+        );
+        optionalDetails['firstInterestChargeDate'] = Timestamp.fromDate(date);
+        optionalDetails['interestScheduleAnchor'] = Timestamp.fromDate(date);
+        optionalDetails['nextInterestDueDate'] = Timestamp.fromDate(date);
+        optionalDetails['interestPeriodsCharged'] = 0;
+      }
     }
 
     batch.set(debt, {
@@ -212,9 +256,44 @@ class DebtService {
     return debt.id;
   }
 
-  /// Records a lender-confirmed fixed interest charge once for the selected
-  /// period. This never runs automatically and never changes a wallet or the
-  /// payment schedule. The unique period document makes concurrent taps safe.
+  /// Adds the user-selected next due date to an older fixed-interest debt
+  /// that predates persistent interest scheduling. Existing charges stay.
+  static Future<bool> setInterestSchedule({
+    required Debt debt,
+    required DateTime firstChargeDate,
+  }) async {
+    final reference = _debts.doc(debt.id);
+    return _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(reference);
+      if (!snapshot.exists) return false;
+      final stored = Debt.fromMap(snapshot.id, snapshot.data());
+      if (stored.status != DebtStatus.active ||
+          stored.direction != DebtDirection.iOwe ||
+          stored.fixedInterestAmount == null ||
+          stored.interestChargedPer == null ||
+          stored.nextInterestDueDate != null) {
+        return false;
+      }
+      final date = DateTime(
+        firstChargeDate.year,
+        firstChargeDate.month,
+        firstChargeDate.day,
+      );
+      transaction.update(reference, {
+        'firstInterestChargeDate': Timestamp.fromDate(date),
+        'interestScheduleAnchor': Timestamp.fromDate(date),
+        'nextInterestDueDate': Timestamp.fromDate(date),
+        'interestPeriodsCharged': 0,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+  }
+
+  /// Records a lender-confirmed fixed interest charge when its separate due
+  /// date arrives. The transaction stores the charge, accrues exactly the
+  /// fixed amount, and advances the next due date together. The unique period
+  /// document prevents concurrent taps from adding the same charge twice.
   static Future<FixedInterestChargeResult> recordFixedInterestCharge({
     required Debt debt,
     required DateTime date,
@@ -227,25 +306,52 @@ class DebtService {
       final stored = Debt.fromMap(debtSnapshot.id, debtSnapshot.data());
       final amount = stored.fixedInterestAmount;
       final period = stored.interestChargedPer;
+      final scheduleAnchor =
+          stored.firstInterestChargeDate ?? stored.interestScheduleAnchor;
+      final dueDate = stored.interestPeriodsCharged == 0
+          ? stored.firstInterestChargeDate ??
+                stored.interestScheduleAnchor ??
+                stored.nextInterestDueDate
+          : stored.nextInterestDueDate;
       if (stored.status != DebtStatus.active ||
           stored.direction != DebtDirection.iOwe ||
           amount == null ||
           !amount.isFinite ||
           amount <= 0 ||
-          period == null) {
+          period == null ||
+          scheduleAnchor == null ||
+          dueDate == null) {
         return FixedInterestChargeResult.unavailable;
       }
 
+      final today = DateTime(date.year, date.month, date.day);
+      final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
+      if (today.isBefore(due)) return FixedInterestChargeResult.unavailable;
+
       final periodKey = fixedInterestPeriodKey(
-        date,
+        due,
         period,
-        anchor: stored.loanStartDate ?? stored.firstDueDate,
+        anchor: scheduleAnchor,
       );
       final chargeReference = debtReference
           .collection('interestCharges')
           .doc(periodKey);
       final previousCharge = await transaction.get(chargeReference);
       if (previousCharge.exists) {
+        // A charge already exists for this due period. Move past it without
+        // creating another balance entry; the charge and schedule may have
+        // been written by an earlier app version as separate operations.
+        transaction.update(debtReference, {
+          'interestPeriodsCharged': stored.interestPeriodsCharged + 1,
+          'nextInterestDueDate': Timestamp.fromDate(
+            interestDueDateAt(
+              scheduleAnchor,
+              period,
+              stored.interestPeriodsCharged + 2,
+            ),
+          ),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
         return FixedInterestChargeResult.alreadyRecorded;
       }
 
@@ -253,17 +359,78 @@ class DebtService {
         'amount': amount,
         'period': period.name,
         'periodKey': periodKey,
-        'chargedAt': Timestamp.fromDate(
-          DateTime(date.year, date.month, date.day),
-        ),
+        'periodNumber': stored.interestPeriodsCharged + 1,
+        'periodDueDate': Timestamp.fromDate(due),
+        'periodStartDate': stored.interestPeriodsCharged == 0
+            ? null
+            : Timestamp.fromDate(
+                lastDueDateFor(
+                  scheduleAnchor,
+                  period.recurrence,
+                  stored.interestPeriodsCharged,
+                ),
+              ),
+        'chargedAt': Timestamp.fromDate(today),
         'createdAt': FieldValue.serverTimestamp(),
       });
+      final nextDue = interestDueDateAt(
+        scheduleAnchor,
+        period,
+        stored.interestPeriodsCharged + 2,
+      );
       transaction.update(debtReference, {
         'accruedInterest': stored.accruedInterest + amount,
+        'interestPeriodsCharged': stored.interestPeriodsCharged + 1,
+        'nextInterestDueDate': Timestamp.fromDate(nextDue),
         'updatedAt': FieldValue.serverTimestamp(),
       });
       return FixedInterestChargeResult.recorded;
     });
+  }
+
+  /// Reconciles overdue fixed-interest charges after launch or app resume.
+  /// Each period is its own transaction, so a retry or a second device cannot
+  /// add the same charge twice. The scheduled date is retained in history even
+  /// when the app was closed when the charge became due.
+  static Future<void> processDueFixedInterestCharges({DateTime? now}) async {
+    final today = now ?? DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    try {
+      final snapshot = await _debts.get();
+      for (final document in snapshot.docs) {
+        var debt = Debt.fromMap(document.id, document.data());
+        while (debt.status == DebtStatus.active &&
+            debt.direction == DebtDirection.iOwe &&
+            debt.fixedInterestAmount != null &&
+            debt.interestChargedPer != null &&
+            debt.nextInterestDueDate != null) {
+          final due = debt.interestPeriodsCharged == 0
+              ? debt.firstInterestChargeDate ??
+                    debt.interestScheduleAnchor ??
+                    debt.nextInterestDueDate!
+              : debt.nextInterestDueDate!;
+          final dueOnly = DateTime(due.year, due.month, due.day);
+          if (dueOnly.isAfter(todayOnly)) break;
+
+          final result = await recordFixedInterestCharge(
+            debt: debt,
+            date: dueOnly,
+          );
+          if (result == FixedInterestChargeResult.unavailable) break;
+
+          final latest = await _debts.doc(debt.id).get();
+          if (!latest.exists) break;
+          final refreshed = Debt.fromMap(latest.id, latest.data());
+          if (refreshed.nextInterestDueDate == debt.nextInterestDueDate) {
+            break;
+          }
+          debt = refreshed;
+        }
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Could not process due fixed interest charges: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   /// Rewrites an installment the user corrected, as one batch: its terms,

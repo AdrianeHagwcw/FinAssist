@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../backend/models/debt.dart';
+import '../../backend/models/wallet.dart';
 import '../../backend/services/debt_service.dart';
+import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../../backend/utils/date_format.dart';
@@ -10,6 +12,8 @@ import '../../backend/utils/money_format.dart';
 import '../../backend/utils/text_limits.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
+import 'goal_funding_picker.dart' show fundingWalletKind;
+import 'wallet_split_picker.dart' show isCashOnHand;
 
 /// What the Debts form would save, handed to tests instead of Firestore.
 class LoanDraft {
@@ -25,6 +29,9 @@ class LoanDraft {
     this.paidBefore = 0,
     this.fixedInterestAmount,
     this.interestChargedPer,
+    this.firstInterestChargeDate,
+    this.paidWithWalletId,
+    this.paidWithLabel,
     this.loanDuration,
     this.loanDurationUnit,
     this.loanStartDate,
@@ -45,6 +52,9 @@ class LoanDraft {
   final int paidBefore;
   final double? fixedInterestAmount;
   final PaymentFrequency? interestChargedPer;
+  final DateTime? firstInterestChargeDate;
+  final String? paidWithWalletId;
+  final String? paidWithLabel;
   final int? loanDuration;
   final String? loanDurationUnit;
   final DateTime? loanStartDate;
@@ -66,8 +76,12 @@ Future<bool> showLoanFormSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) =>
-        LoanFormSheet(name: name, amount: amount, count: count),
+    builder: (context) => LoanFormSheet(
+      name: name,
+      amount: amount,
+      count: count,
+      wallets: WalletService.watchWallets(),
+    ),
   );
 
   if (saved == true && context.mounted) {
@@ -97,6 +111,7 @@ class LoanFormSheet extends StatefulWidget {
     this.amount,
     this.count,
     this.today,
+    this.wallets,
     this.onSave,
     super.key,
   });
@@ -105,6 +120,7 @@ class LoanFormSheet extends StatefulWidget {
   final double? amount;
   final int? count;
   final DateTime? today;
+  final Stream<List<Wallet>>? wallets;
   final void Function(LoanDraft draft)? onSave;
 
   @override
@@ -113,12 +129,9 @@ class LoanFormSheet extends StatefulWidget {
 
 class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
   late final DateTime _today = widget.today ?? DateTime.now();
-  late DateTime? _nextPaymentDate = DateTime(
-    _today.year,
-    _today.month + 1,
-    _today.day,
-  );
+  DateTime? _nextPaymentDate;
   DateTime? _loanStartDate;
+  DateTime? _firstInterestChargeDate;
 
   late final _nameController = TextEditingController(text: widget.name);
   late final _balanceController = TextEditingController(
@@ -140,6 +153,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
 
   PaymentFrequency _frequency = PaymentFrequency.monthly;
   PaymentFrequency? _interestChargedPer;
+  String? _paidWithWalletId;
+  String? _paidWithLabel;
+  Stream<List<Wallet>>? get _wallets => widget.wallets;
   _LoanTermUnit _durationUnit = _LoanTermUnit.months;
   bool _durationWasEdited = false;
   bool _durationIsAutomatic = false;
@@ -292,6 +308,17 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     });
   }
 
+  Future<void> _pickInterestDueDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _firstInterestChargeDate ?? _today,
+      firstDate: DateTime(_today.year - 100),
+      lastDate: DateTime(_today.year + 50),
+    );
+    if (picked == null) return;
+    setState(() => _firstInterestChargeDate = picked);
+  }
+
   static const _mostPayments = 36500;
 
   String? get _problem {
@@ -315,6 +342,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     }
     if (_fixedInterestAmount != null && _interestChargedPer == null) {
       return 'Choose how often the fixed interest is charged.';
+    }
+    if (_fixedInterestAmount != null && _firstInterestChargeDate == null) {
+      return 'Choose the next interest charge date.';
     }
     if (_durationController.text.trim().isNotEmpty &&
         (_duration == null || _duration! < 1)) {
@@ -353,6 +383,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       interestChargedPer: _fixedInterestAmount == null
           ? null
           : _interestChargedPer,
+      firstInterestChargeDate: _fixedInterestAmount == null
+          ? null
+          : _firstInterestChargeDate,
       loanDuration: _duration,
       loanDurationUnit: _duration == null ? null : _durationUnit.name,
       loanStartDate: _loanStartDate,
@@ -360,6 +393,8 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       otherKind: _kind == DebtCategory.otherLoan
           ? cleanText(_otherKindController.text)
           : null,
+      paidWithWalletId: _paidWithWalletId,
+      paidWithLabel: _paidWithLabel,
     );
 
     if (widget.onSave != null) {
@@ -376,14 +411,223 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
         firstDueDate: draft.firstDueDate!,
         fixedInterestAmount: draft.fixedInterestAmount,
         interestChargedPer: draft.interestChargedPer,
+        firstInterestChargeDate: draft.firstInterestChargeDate,
         loanDuration: draft.loanDuration,
         loanDurationUnit: draft.loanDurationUnit,
         loanStartDate: draft.loanStartDate,
         balanceBasedSchedule: draft.balanceBasedSchedule,
+        paidWithWalletId: draft.paidWithWalletId,
+        paidWithLabel: draft.paidWithLabel,
         otherKind: draft.otherKind,
       );
     }
     Navigator.pop(context, true);
+  }
+
+  Widget _walletPicker() {
+    final walletsStream = _wallets;
+    if (walletsStream == null) return const SizedBox.shrink();
+    return StreamBuilder<List<Wallet>>(
+      stream: walletsStream,
+      builder: (context, snapshot) {
+        final wallets = [
+          for (final wallet in snapshot.data ?? const <Wallet>[])
+            if (!wallet.archived &&
+                (isCashOnHand(wallet) ||
+                    (wallet.isCashInBank && !wallet.isDemandDeposit)))
+              wallet,
+        ];
+        if (wallets.isNotEmpty &&
+            !wallets.any((wallet) => wallet.id == _paidWithWalletId)) {
+          _paidWithWalletId = wallets.first.id;
+          _paidWithLabel = wallets.first.name;
+        }
+        final colors = context.appColors;
+
+        if (wallets.isEmpty) {
+          return Column(
+            key: const Key('loan-paid-with'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Wallet used',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: colors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const DialogNote(text: 'Add a wallet first, under Accounts.'),
+            ],
+          );
+        }
+
+        final cashWallets = [
+          for (final wallet in wallets)
+            if (isCashOnHand(wallet)) wallet,
+        ];
+        final bankWallets = [
+          for (final wallet in wallets)
+            if (!isCashOnHand(wallet)) wallet,
+        ];
+        final current = wallets.firstWhere(
+          (wallet) => wallet.id == _paidWithWalletId,
+        );
+        final showingBank = !isCashOnHand(current);
+        final group = showingBank ? bankWallets : cashWallets;
+
+        void pick(Wallet wallet) {
+          setState(() {
+            _paidWithWalletId = wallet.id;
+            _paidWithLabel = wallet.name;
+          });
+        }
+
+        Widget groupTile({required bool bank}) {
+          final walletsThere = bank ? bankWallets : cashWallets;
+          final picked = showingBank == bank;
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: walletsThere.isEmpty
+                  ? null
+                  : () {
+                      if (walletsThere.any(
+                        (wallet) => wallet.id == current.id,
+                      )) {
+                        return;
+                      }
+                      pick(walletsThere.first);
+                    },
+              child: Container(
+                key: Key('loan-paid-with-${bank ? 'bank' : 'cash'}'),
+                constraints: const BoxConstraints(minHeight: 76),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: picked ? colors.primaryTint : colors.pageBackground,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: picked ? colors.primaryText : colors.border,
+                    width: picked ? 1.5 : 1,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset(
+                      bank
+                          ? WalletType.bank.iconAsset
+                          : WalletType.cash.iconAsset,
+                      width: 26,
+                      height: 26,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      bank ? 'Cash in Bank' : 'Cash on Hand',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: picked ? FontWeight.bold : FontWeight.w600,
+                        color: walletsThere.isEmpty
+                            ? colors.textBody.withValues(alpha: 0.45)
+                            : colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Column(
+          key: const Key('loan-paid-with'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Wallet used',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  groupTile(bank: false),
+                  const SizedBox(width: 8),
+                  groupTile(bank: true),
+                ],
+              ),
+            ),
+            for (final wallet in group)
+              _paidWithCard(wallet, picked: wallet.id == current.id),
+            const SizedBox(height: 10),
+            Text(
+              'Payments start from this wallet. You can change it when you pay.',
+              style: TextStyle(fontSize: 12, color: colors.textMuted),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _paidWithCard(Wallet wallet, {required bool picked}) {
+    final colors = context.appColors;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _paidWithWalletId = wallet.id;
+          _paidWithLabel = wallet.name;
+        });
+      },
+      child: Container(
+        key: ValueKey('loan-paid-with-wallet-${wallet.id}'),
+        margin: const EdgeInsets.only(top: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: picked ? colors.primaryTint : colors.pageBackground,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: picked ? colors.primaryText : colors.border,
+            width: picked ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Image.asset(wallet.iconAsset, width: 28, height: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    wallet.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    '${fundingWalletKind(wallet)} · '
+                    '${formatPeso(wallet.balance)} balance',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -523,10 +767,13 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
               const SizedBox(height: 12),
               _dateField(
                 context,
+                key: const Key('loan-next-payment-date'),
                 label: 'Next payment date',
                 date: _nextPaymentDate,
                 onTap: () => _pickDate(loanStart: false),
               ),
+              const SizedBox(height: 12),
+              _walletPicker(),
               const SizedBox(height: 12),
               Theme(
                 data: Theme.of(context).copyWith(
@@ -557,8 +804,8 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                       label: 'Fixed Interest Amount',
                       hint: 'e.g. 180',
                       helper:
-                          'Enter the fixed amount your lender charges as '
-                          'interest for each selected period.',
+                          'The lender charges this exact amount each period. '
+                          'Interest is recorded separately from payments.',
                       alwaysShowHint: true,
                       autofocus: false,
                     ),
@@ -584,6 +831,30 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                       onChanged: (value) =>
                           setState(() => _interestChargedPer = value),
                     ),
+                    if (_fixedInterestAmount != null &&
+                        _interestChargedPer != null) ...[
+                      const SizedBox(height: 12),
+                      _dateField(
+                        context,
+                        key: const Key('loan-first-interest-date'),
+                        label: 'Next Interest Charge Date',
+                        date: _firstInterestChargeDate,
+                        onTap: _pickInterestDueDate,
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          key: const Key('use-next-payment-for-interest'),
+                          onPressed: _nextPaymentDate == null
+                              ? null
+                              : () => setState(
+                                  () => _firstInterestChargeDate =
+                                      _nextPaymentDate,
+                                ),
+                          child: const Text('Use Next Payment Date'),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -699,10 +970,12 @@ Widget _sectionTitle(BuildContext context, String text) => Text(
 
 Widget _dateField(
   BuildContext context, {
+  Key? key,
   required String label,
   required DateTime? date,
   required VoidCallback onTap,
 }) => InkWell(
+  key: key,
   onTap: onTap,
   borderRadius: BorderRadius.circular(12),
   child: InputDecorator(
