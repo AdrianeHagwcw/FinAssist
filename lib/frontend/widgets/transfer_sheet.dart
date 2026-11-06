@@ -159,7 +159,7 @@ class _TransferSheetState extends State<TransferSheet>
       return wallet.balance;
     }
     if (transactions == null) return wallet.balance;
-    final interest = wallet.estimatedSavingsDepositInterest(
+    final interest = wallet.estimatedUnrecordedSavingsDepositInterest(
       transactions: transactions,
     );
     return wallet.balance + (interest == null ? 0 : afterTax(interest));
@@ -246,6 +246,7 @@ class _TransferSheetState extends State<TransferSheet>
         wallet: source,
         to: _to,
         serviceCharge: charge,
+        transactions: transactions ?? const [],
       );
     } else {
       WalletService.recordTransfers(

@@ -565,6 +565,48 @@ class Wallet {
     );
   }
 
+  /// The part of [estimatedSavingsDepositInterest] that has not been recorded
+  /// as income yet: everything earned after the last recorded interest.
+  ///
+  /// Interest is added to the recorded balance only when it is written down,
+  /// so an estimate that keeps returning the whole amount would show money
+  /// that is already in the balance. Taking the estimate as of the last
+  /// recorded interest leaves only the days since then.
+  double? estimatedUnrecordedSavingsDepositInterest({
+    required Iterable<AppTransaction> transactions,
+    DateTime? asOf,
+  }) {
+    final total = estimatedSavingsDepositInterest(
+      transactions: transactions,
+      asOf: asOf,
+    );
+    if (total == null) return null;
+
+    final now = _dateOnly(asOf ?? DateTime.now());
+    DateTime? lastRecorded;
+    for (final transaction in transactions) {
+      if (!transaction.involvesWallet(id) ||
+          transaction.type != TransactionType.income ||
+          transaction.label != interestIncomeLabel) {
+        continue;
+      }
+      final date = _dateOnly(transaction.date);
+      if (date.isAfter(now)) continue;
+      if (lastRecorded == null || date.isAfter(lastRecorded)) {
+        lastRecorded = date;
+      }
+    }
+    if (lastRecorded == null) return total;
+
+    final alreadyRecorded = estimatedSavingsDepositInterest(
+      transactions: transactions,
+      asOf: lastRecorded,
+    );
+    if (alreadyRecorded == null) return total;
+    final unrecorded = total - alreadyRecorded;
+    return unrecorded > 0 ? unrecorded : 0.0;
+  }
+
   String get iconAsset => purpose.iconAsset ?? type.iconAsset;
 
   bool get isEWallet => isEWalletType(type);

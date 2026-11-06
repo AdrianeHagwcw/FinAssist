@@ -1078,6 +1078,65 @@ void main() {
       );
     });
 
+    test('unrecorded savings interest stops at the last interest recorded', () {
+      final savingsDeposit = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+        annualInterestRatePercent: 10,
+        depositStartDate: DateTime(2024, 1, 1),
+        createdAt: DateTime(2024, 1, 1),
+      );
+      final asOf = DateTime(2024, 1, 11);
+      final earned = 10000 * 0.10 * 10 / 365;
+
+      // Nothing written down yet: all of it is still unrecorded.
+      expect(
+        savingsDeposit.estimatedUnrecordedSavingsDepositInterest(
+          transactions: const [],
+          asOf: asOf,
+        ),
+        closeTo(earned, 0.000001),
+      );
+
+      final recorded = [
+        AppTransaction(
+          id: 'interest',
+          type: TransactionType.income,
+          amount: afterTax(earned),
+          label: interestIncomeLabel,
+          date: asOf,
+          walletId: 'savings',
+        ),
+      ];
+
+      // Written down on the same day: nothing is left to add on top.
+      expect(
+        savingsDeposit.estimatedUnrecordedSavingsDepositInterest(
+          transactions: recorded,
+          asOf: asOf,
+        ),
+        closeTo(0, 0.000001),
+      );
+
+      // The next day only the new day's interest is unrecorded, earned on
+      // the balance that already includes what was written down.
+      expect(
+        savingsDeposit.estimatedUnrecordedSavingsDepositInterest(
+          transactions: recorded,
+          asOf: DateTime(2024, 1, 12),
+        ),
+        closeTo((10000 + afterTax(earned)) * 0.10 / 365, 0.000001),
+      );
+    });
+
     test('missing and future savings-deposit dates are safe', () {
       final future = Wallet(
         id: 'future',
@@ -5294,6 +5353,67 @@ void main() {
         expect(find.text('Demand Deposit holds ₱5,000'), findsOneWidget);
       },
     );
+
+    testWidgets('recorded savings interest is not counted again', (
+      tester,
+    ) async {
+      final started = DateTime.now().subtract(const Duration(days: 365));
+      final savings = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 5200,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+        annualInterestRatePercent: 5,
+        depositStartDate: started,
+        createdAt: started,
+      );
+      final demand = Wallet(
+        id: 'demand',
+        name: 'Demand Deposit',
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 3,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.demandDeposit.name,
+      );
+      // The ₱200 after-tax interest for the year is already in the balance,
+      // so the sheet must not add the same estimate on top of it.
+      final recorded = [
+        AppTransaction(
+          id: 'interest',
+          type: TransactionType.income,
+          amount: 200,
+          label: interestIncomeLabel,
+          date: DateTime.now(),
+          walletId: savings.id,
+        ),
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: TransferSheet(
+              wallets: Stream.value([cash, gcash, savings, demand]),
+              transactions: Stream.value(recorded),
+              initialFromWalletId: savings.id,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Savings Deposit holds ₱5,200'), findsOneWidget);
+    });
 
     testWidgets('with one wallet there is nowhere to move it', (tester) async {
       await pumpTransfer(tester, wallets: [cash]);

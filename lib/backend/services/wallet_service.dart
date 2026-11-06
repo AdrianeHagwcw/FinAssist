@@ -548,13 +548,19 @@ class WalletService {
     commitFirestoreWrite(batch.commit(), 'record transfer');
   }
 
-  /// Transfers money from an interest-bearing savings deposit after adding
-  /// any unrecorded interest included in the amount being withdrawn.
+  /// Transfers money from an interest-bearing savings deposit, writing down
+  /// the interest it has earned but not recorded as income first.
+  ///
+  /// The transfer itself stays a transfer; the interest is separate income.
+  /// All unrecorded interest is recorded, not just the part needed to cover
+  /// the amount, so the balance left behind is real and the same interest is
+  /// never counted twice.
   static void recordSavingsDepositTransfer({
     required Wallet wallet,
     required Map<String, double> to,
     double serviceCharge = 0,
     DateTime? date,
+    required Iterable<AppTransaction> transactions,
   }) {
     if (wallet.purpose != WalletPurpose.savings ||
         wallet.savingsType != SavingsKind.savingsDeposit) {
@@ -593,9 +599,25 @@ class WalletService {
     );
     final taken = ((amount + serviceCharge) * 100).round() / 100;
     final recordedBalance = (wallet.balance * 100).round() / 100;
-    final interest = (taken - recordedBalance)
-        .clamp(0.0, double.infinity)
-        .toDouble();
+
+    // Every cent of interest earned since the last one written down is new
+    // money in the account, whether or not the transfer uses all of it.
+    final accrued = wallet.estimatedUnrecordedSavingsDepositInterest(
+      transactions: transactions,
+      asOf: when,
+    );
+    final interest = accrued == null
+        ? 0.0
+        : (afterTax(accrued) * 100).round() / 100;
+
+    if (taken > recordedBalance + interest + 0.005) {
+      throw ArgumentError.value(
+        taken,
+        'to',
+        'More than the balance and interest in the savings deposit.',
+      );
+    }
+
     final batch = _firestore.batch();
     final deltas = <String, double>{};
 
