@@ -258,6 +258,14 @@ void main() {
       await tester.pump();
     }
 
+    Future<void> pickDate(WidgetTester tester, Key key) async {
+      await tester.ensureVisible(find.byKey(key));
+      await tester.tap(find.byKey(key));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+    }
+
     testWidgets('Installments lists only things bought on installment', (
       tester,
     ) async {
@@ -736,6 +744,7 @@ void main() {
       expect(find.text('Additional Debt Details (Optional)'), findsOneWidget);
       expect(find.byKey(const Key('loan-rate')), findsNothing);
       expect(find.text('Debt start date'), findsNothing);
+      await pickDate(tester, const Key('loan-next-payment-date'));
       await tester.tap(find.byKey(const Key('loan-additional-details')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Save Debt'));
@@ -746,7 +755,7 @@ void main() {
       expect(saved?.perPayment, 1000);
       expect(saved?.paymentCount, 15);
       expect(saved?.frequency, PaymentFrequency.monthly);
-      expect(saved?.firstDueDate, DateTime(2026, 11, 28));
+      expect(saved?.firstDueDate, DateTime(2026, 10, 28));
       expect(saved?.fixedInterestAmount, isNull);
       expect(saved?.interestChargedPer, isNull);
       expect(saved?.balanceBasedSchedule, isTrue);
@@ -802,6 +811,7 @@ void main() {
       await tester.enterText(find.byKey(const Key('loan-name')), 'Tita Baby');
       await tester.enterText(find.byKey(const Key('loan-balance')), '10000');
       await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
+      await pickDate(tester, const Key('loan-next-payment-date'));
 
       await tester.tap(find.byKey(const Key('loan-additional-details')));
       await tester.pumpAndSettle();
@@ -817,6 +827,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Every month').last);
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('loan-first-interest-date')),
+      );
+      await pickDate(tester, const Key('loan-first-interest-date'));
 
       await tester.tap(find.text('Save Debt'));
       await tester.pumpAndSettle();
@@ -825,6 +839,7 @@ void main() {
       expect(saved?.paymentCount, 10);
       expect(saved?.fixedInterestAmount, 180);
       expect(saved?.interestChargedPer, PaymentFrequency.monthly);
+      expect(saved?.firstInterestChargeDate, DateTime(2026, 10, 28));
       expect(saved?.loanDuration, 10);
     });
 
@@ -872,6 +887,7 @@ void main() {
       await tester.enterText(find.byKey(const Key('loan-name')), 'Quick loan');
       await tester.enterText(find.byKey(const Key('loan-balance')), '5000');
       await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
+      await pickDate(tester, const Key('loan-next-payment-date'));
       await tester.tap(find.byKey(const ValueKey('loan-frequency-monthly')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Every day').last);

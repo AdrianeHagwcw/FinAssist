@@ -239,6 +239,39 @@ String fixedInterestPeriodKey(
   }
 }
 
+/// The due date of interest period [number], with the initial due date as
+/// period one. Dates are calculated from the original anchor so a short
+/// month or leap year does not shift later periods.
+DateTime interestDueDateAt(
+  DateTime anchor,
+  PaymentFrequency period,
+  int number,
+) {
+  if (number < 1) {
+    throw ArgumentError.value(number, 'number', 'Must be at least one.');
+  }
+  return lastDueDateFor(anchor, period.recurrence, number);
+}
+
+/// One fixed interest amount scheduled or recorded for a period.
+class FixedInterestCharge {
+  const FixedInterestCharge({
+    required this.periodKey,
+    required this.amount,
+    required this.chargedAt,
+    required this.periodDueDate,
+    required this.period,
+    this.recordedAt,
+  });
+
+  final String periodKey;
+  final double amount;
+  final DateTime periodDueDate;
+  final PaymentFrequency period;
+  final DateTime chargedAt;
+  final DateTime? recordedAt;
+}
+
 /// What period a lender's quoted rate is counted over.
 enum RatePeriod {
   day('a day'),
@@ -347,6 +380,10 @@ class Debt {
     this.balanceBasedSchedule = false,
     this.fixedInterestAmount,
     this.interestChargedPer,
+    this.firstInterestChargeDate,
+    this.interestScheduleAnchor,
+    this.nextInterestDueDate,
+    this.interestPeriodsCharged = 0,
     this.accruedInterest = 0,
     this.fees = 0,
     this.otherKind,
@@ -400,6 +437,14 @@ class Debt {
       interestChargedPer: map['interestChargedPer'] is String
           ? PaymentFrequency.fromName(map['interestChargedPer'] as String)
           : null,
+      firstInterestChargeDate:
+          _asDate(map['firstInterestChargeDate']) ??
+          _asDate(map['interestScheduleAnchor']),
+      interestScheduleAnchor: _asDate(map['interestScheduleAnchor']),
+      nextInterestDueDate: _asDate(map['nextInterestDueDate']),
+      interestPeriodsCharged: _asDouble(map['interestPeriodsCharged'])
+          .toInt()
+          .clamp(0, 1 << 20),
       accruedInterest: _asDouble(map['accruedInterest']).abs(),
       fees: _asDouble(map['fees']).abs(),
       otherKind: _asString(map['otherKind']),
@@ -458,6 +503,16 @@ class Debt {
   final double? fixedInterestAmount;
   final PaymentFrequency? interestChargedPer;
 
+  /// The date the lender first charges fixed interest. Older records used
+  /// [interestScheduleAnchor] for this value.
+  final DateTime? firstInterestChargeDate;
+
+  /// Independently persisted fixed-interest schedule. The first due date is
+  /// the anchor used to calculate later dates without month-end drift.
+  final DateTime? interestScheduleAnchor;
+  final DateTime? nextInterestDueDate;
+  final int interestPeriodsCharged;
+
   /// Interest the user explicitly recorded as charged and still unpaid.
   final double accruedInterest;
 
@@ -477,12 +532,13 @@ class Debt {
   /// What the user called the kind when they chose Other.
   final String? otherKind;
 
-  /// The wallet the purchase was charged to, for an installment: a card or
-  /// account the user already has. Display only; it never moves money.
+  /// The wallet picked for this debt: for an installment, where it was
+  /// charged; for a loan, the wallet Pay Now starts on. Picking it alone
+  /// never moves money.
   final String? paidWithWalletId;
 
-  /// The card or account in the user's own words, when it is not one of
-  /// their wallets, such as a credit card they did not add.
+  /// The card or account in the user's own words when it is not one of their
+  /// wallets, such as a credit card they did not add.
   final String? paidWithLabel;
 
   /// When it was paid off before its schedule ended, and what that last
@@ -542,7 +598,8 @@ class Debt {
   double get totalPayable =>
       paymentCount < 1 ? 0 : perPayment * (paymentCount - 1) + finalPayment;
 
-  /// The scheduled amount plus interest charges explicitly recorded so far.
+  /// Only confirmed charges are added to the current balance. Future periods
+  /// are not liabilities until the lender charges them.
   double get totalWithAccruedInterest => totalPayable + accruedInterest;
 
   /// What borrowing costs on top of what the user got: interest, and any

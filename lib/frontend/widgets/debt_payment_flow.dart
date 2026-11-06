@@ -50,7 +50,10 @@ class PayNowState {
       owesThisMonth: owesThisMonth,
       fallsDueThisMonth: fallsDueThisMonth,
       canPayAhead:
-          next != null && !owesThisMonth && debt.paidWithWalletId != null,
+          next != null &&
+          !owesThisMonth &&
+          !debt.category.isLoan &&
+          debt.paidWithWalletId != null,
     );
   }
 
@@ -152,7 +155,12 @@ Future<bool> payDebtNow(
     );
     return false;
   }
-  return showBillPaymentSheet(context, instance: instance, wallets: wallets);
+  return showBillPaymentSheet(
+    context,
+    instance: instance,
+    wallets: wallets,
+    initialWalletId: debt.paidWithWalletId,
+  );
 }
 
 /// Pays [debt]'s next payment ahead of its date, out of the wallet the plan

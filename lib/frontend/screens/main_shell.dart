@@ -92,6 +92,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _reminders.start();
     // Older installments get their interest kept apart, once each.
     DebtService.fillInterestShares();
+    // Apply any fixed-interest charges that came due while the app was away.
+    unawaited(
+      DebtService.processDueFixedInterestCharges(now: philippineNow()),
+    );
     ReminderService.opened.addListener(_openReminder);
     // A reminder may have opened the app before this screen existed.
     WidgetsBinding.instance.addPostFrameCallback((_) => _openReminder());
@@ -111,6 +115,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
+    unawaited(
+      DebtService.processDueFixedInterestCharges(now: philippineNow()),
+    );
     // A new day may have started, so "nothing logged today" is planned again.
     _reminders.refresh();
     // Back on a new day: Home is worked out again, so This Month, today's

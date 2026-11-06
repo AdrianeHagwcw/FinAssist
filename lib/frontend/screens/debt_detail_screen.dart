@@ -28,6 +28,7 @@ class InstallmentDetailScreen extends _DebtDetailScreenBase {
     super.liveDebt,
     super.payments,
     super.wallets,
+    super.interestCharges,
     super.today,
     super.key,
   });
@@ -41,6 +42,7 @@ class LoanDetailScreen extends _DebtDetailScreenBase {
     super.liveDebt,
     super.payments,
     super.wallets,
+    super.interestCharges,
     super.today,
     super.key,
   });
@@ -54,6 +56,7 @@ class _DebtDetailScreenBase extends StatefulWidget {
     this.liveDebt,
     this.payments,
     this.wallets,
+    this.interestCharges,
     this.today,
     super.key,
   });
@@ -64,6 +67,7 @@ class _DebtDetailScreenBase extends StatefulWidget {
   final Stream<Debt?>? liveDebt;
   final Stream<List<BillInstance>>? payments;
   final Stream<List<Wallet>>? wallets;
+  final Stream<List<FixedInterestCharge>>? interestCharges;
 
   /// The day this page is read on, which decides whether a payment is due
   /// yet. Philippine time by default; tests set it.
@@ -85,6 +89,12 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
 
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets(includeArchived: true);
+
+  late final Stream<List<FixedInterestCharge>> _interestCharges =
+      widget.interestCharges ??
+      (widget.debt.fixedInterestAmount == null
+          ? Stream.value(const <FixedInterestCharge>[])
+          : DebtService.watchFixedInterestCharges(widget.debt.id));
 
   Future<bool> _confirm({
     required String title,
@@ -213,6 +223,7 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
                 debt: debt,
                 instances: instances,
                 wallets: _wallets,
+                interestCharges: _interestCharges,
                 today: widget.today ?? philippineNow(),
               ),
             );
@@ -228,6 +239,7 @@ class _DetailBody extends StatelessWidget {
     required this.debt,
     required this.instances,
     required this.wallets,
+    required this.interestCharges,
     required this.today,
   });
 
@@ -238,6 +250,7 @@ class _DetailBody extends StatelessWidget {
   final List<BillInstance> instances;
 
   final Stream<List<Wallet>> wallets;
+  final Stream<List<FixedInterestCharge>> interestCharges;
 
   /// The day the page is read on, Philippine time.
   final DateTime today;
@@ -400,16 +413,37 @@ class _DetailBody extends StatelessWidget {
             debt.status == DebtStatus.active) ...[
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
-              key: const Key('record-fixed-interest'),
-              onPressed: () =>
-                  _recordFixedInterestCharge(context, debt: debt, date: today),
-              style: openButtonStyle(),
-              icon: const Icon(Icons.add_card_outlined),
-              label: const Text('Record interest charge'),
-            ),
+            child: debt.nextInterestDueDate == null
+                ? OutlinedButton.icon(
+                    key: const Key('set-interest-due-date'),
+                    onPressed: () => _setInterestSchedule(
+                      context,
+                      debt: debt,
+                      today: today,
+                    ),
+                    style: openButtonStyle(),
+                    icon: const Icon(Icons.calendar_month_outlined),
+                    label: const Text('Set next interest charge date'),
+                  )
+                : _scheduledInterestChargeDate(debt) != null &&
+                      _isDue(_scheduledInterestChargeDate(debt)!, today)
+                ? OutlinedButton.icon(
+                    key: const Key('record-fixed-interest'),
+                    onPressed: () => _recordFixedInterestCharge(
+                      context,
+                      debt: debt,
+                      date: today,
+                    ),
+                    style: openButtonStyle(),
+                    icon: const Icon(Icons.add_card_outlined),
+                    label: const Text('Record interest charge'),
+                  )
+                : const SizedBox.shrink(),
           ),
-          const SizedBox(height: 12),
+          if (debt.nextInterestDueDate == null ||
+              (_scheduledInterestChargeDate(debt) != null &&
+                  _isDue(_scheduledInterestChargeDate(debt)!, today)))
+            const SizedBox(height: 12),
         ],
         if (!progress.isPaidOff) ...[
           // This month's due, always here: Pay Now takes it whenever it is
@@ -504,9 +538,15 @@ class _DetailBody extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          'Every payment, what you have paid on it, and what is left to '
-          'pay after it.',
+          'Payments and interest charges together, with what is left after '
+          'each one.',
           style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
+        ),
+        const SizedBox(height: 12),
+        _statementScheduleCard(
+          context,
+          debt: debt,
+          today: today,
         ),
         const SizedBox(height: 12),
         // The plan's own dates are enough to list every payment; only
@@ -518,7 +558,30 @@ class _DetailBody extends StatelessWidget {
             style: TextStyle(color: context.appColors.textMuted),
           )
         else
-          ..._statementRows(context, debt, instances, progress),
+          StreamBuilder<List<FixedInterestCharge>>(
+            stream: interestCharges,
+            builder: (context, snapshot) {
+              if (snapshot.hasError && debt.accruedInterest > 0) {
+                return const Text(
+                  'Could not load recorded interest charges for the statement.',
+                );
+              }
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  debt.accruedInterest > 0) {
+                return const Text('Loading recorded interest charges…');
+              }
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: _statementRows(
+                  context,
+                  debt,
+                  instances,
+                  progress,
+                  charges: snapshot.data ?? const [],
+                ),
+              );
+            },
+          ),
       ],
     );
   }
@@ -550,8 +613,49 @@ Future<void> _undoPayoff(BuildContext context, Debt debt) async {
   if (ok == true) await DebtService.undoPayOff(debt);
 }
 
-/// Records interest only after the user confirms the lender charged it.
-/// Nothing is accrued just by reading the debt screen.
+bool _isDue(DateTime due, DateTime today) => !DateTime(
+  due.year,
+  due.month,
+  due.day,
+).isAfter(DateTime(today.year, today.month, today.day));
+
+DateTime? _scheduledInterestChargeDate(Debt debt) =>
+    debt.interestPeriodsCharged == 0
+    ? debt.firstInterestChargeDate ??
+          debt.interestScheduleAnchor ??
+          debt.nextInterestDueDate
+    : debt.nextInterestDueDate;
+
+Future<void> _setInterestSchedule(
+  BuildContext context, {
+  required Debt debt,
+  required DateTime today,
+}) async {
+  final firstChargeDate = await showDatePicker(
+    context: context,
+    initialDate: today,
+    firstDate: DateTime(today.year - 100),
+    lastDate: DateTime(today.year + 50),
+  );
+  if (firstChargeDate == null || !context.mounted) return;
+
+  final saved = await DebtService.setInterestSchedule(
+    debt: debt,
+    firstChargeDate: firstChargeDate,
+  );
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        saved
+            ? 'Next interest charge date saved.'
+            : 'The interest schedule could not be updated.',
+      ),
+    ),
+  );
+}
+
+/// Records a due charge if automatic reconciliation has not already done so.
 Future<void> _recordFixedInterestCharge(
   BuildContext context, {
   required Debt debt,
@@ -559,7 +663,8 @@ Future<void> _recordFixedInterestCharge(
 }) async {
   final amount = debt.fixedInterestAmount;
   final period = debt.interestChargedPer;
-  if (amount == null || period == null) return;
+  final dueDate = _scheduledInterestChargeDate(debt);
+  if (amount == null || period == null || dueDate == null) return;
 
   final confirmed = await showDialog<bool>(
     context: context,
@@ -567,7 +672,7 @@ Future<void> _recordFixedInterestCharge(
       title: const Text('Record interest charge?'),
       content: Text(
         'Add ${formatPeso(amount)} for the ${period.label.toLowerCase()} '
-        'period dated ${formatShortDate(date)} to accrued interest? This '
+        'period due ${formatShortDate(dueDate)} to accrued interest? This '
         'does not move money or change your payment schedule.',
       ),
       actions: [
@@ -694,16 +799,9 @@ class _CostOfBorrowing extends StatelessWidget {
                     'Debt start date: ${formatShortDate(debt.loanStartDate!)}.',
                     style: body,
                   ),
-                if (debt.fixedInterestAmount != null &&
-                    debt.interestChargedPer != null)
-                  Text(
-                    'Fixed interest: ${formatPeso(debt.fixedInterestAmount!)} '
-                    '${debt.interestChargedPer!.label.toLowerCase()}.',
-                    style: body,
-                  ),
                 Text(
-                  'Interest is added only when you record a lender charge. '
-                  'It is kept separate from principal.',
+                  'Fixed interest charges follow their own schedule and stay '
+                  'separate from principal payments.',
                   style: body,
                 ),
               ],
@@ -803,8 +901,117 @@ class _CostOfBorrowing extends StatelessWidget {
   }
 }
 
-/// The statement's rows: one per payment in the plan, in the order they fall
-/// due, with what is still owed after each one.
+/// Interest schedule details shown above the statement's transactions.
+Widget _statementScheduleCard(
+  BuildContext context, {
+  required Debt debt,
+  required DateTime today,
+}) {
+  final colors = context.appColors;
+  final hasFixedInterest =
+      debt.fixedInterestAmount != null && debt.interestChargedPer != null;
+  final nextInterestDate = debt.nextInterestDueDate;
+  final nextInterestStatus = debt.status != DebtStatus.active
+      ? 'No upcoming charge'
+      : nextInterestDate == null
+      ? 'Not set'
+      : _isDue(nextInterestDate, today)
+      ? 'Due'
+      : 'Upcoming';
+
+  return Container(
+    key: const Key('statement-interest-information'),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: colors.card,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: colors.border),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Interest information',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: colors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (!hasFixedInterest)
+          Text(
+            debt.quotedRate != null || debt.extraCost > 0
+                ? 'No fixed interest schedule.'
+                : 'No Interest',
+            style: TextStyle(fontSize: 13, color: colors.textBody),
+          )
+        else ...[
+          _Line(
+            'Fixed interest amount',
+            formatPeso(debt.fixedInterestAmount!),
+          ),
+          _Line(
+            'Interest charging frequency',
+            debt.interestChargedPer!.label,
+          ),
+          Container(
+            key: const Key('statement-next-interest-charge-date'),
+            margin: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: colors.primaryTint,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: colors.primaryText),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Next Interest Charge Date',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: colors.textBody,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        debt.status != DebtStatus.active
+                            ? 'No upcoming charge'
+                            : nextInterestDate == null
+                            ? 'Not set'
+                            : formatShortDate(nextInterestDate),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  nextInterestStatus,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colors.primaryText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+/// The statement's rows: payments and fixed-interest charges in date order,
+/// with what is still owed after each one.
 ///
 /// Built from the plan's own schedule rather than from the bills that happen
 /// to exist. A payment only becomes a bill when its month is opened, so a
@@ -815,8 +1022,9 @@ List<Widget> _statementRows(
   BuildContext context,
   Debt debt,
   List<BillInstance> instances,
-  DebtProgress progress,
-) {
+  DebtProgress progress, {
+  List<FixedInterestCharge> charges = const [],
+}) {
   final colors = context.appColors;
   final rows = <Widget>[];
 
@@ -832,7 +1040,70 @@ List<Widget> _statementRows(
 
   // Counted down from the whole amount payable, so the last row reads zero
   // when the plan is finished.
-  var owed = progress.total;
+  var owed = progress.total - debt.accruedInterest;
+  final orderedCharges = [...charges]
+    ..sort((a, b) => a.chargedAt.compareTo(b.chargedAt));
+  var chargeIndex = 0;
+
+  void addStandaloneCharge(FixedInterestCharge charge) {
+    owed += charge.amount;
+    rows.add(
+      Container(
+        key: Key('statement-fixed-interest-${charge.periodKey}'),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: colors.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colors.border),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Interest charge recorded',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Charge date: ${formatShortDate(charge.chargedAt)} · '
+                    'Amount: ${formatPeso(charge.amount)}',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    'Status: Recorded · Date recorded: '
+                    '${charge.recordedAt == null ? 'Unavailable' : formatShortDate(charge.recordedAt!)}',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    'Period due: ${formatShortDate(charge.periodDueDate)}',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '${formatPeso(owed)} left',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: colors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   // Without a start date there is no schedule to lay out, so the bills that
   // exist are all there is to show.
@@ -865,6 +1136,38 @@ List<Widget> _statementRows(
     final number = payment.number;
     final due = payment.due;
     final scheduled = payment.amount;
+    final paymentCharges = <FixedInterestCharge>[];
+
+    while (chargeIndex < orderedCharges.length &&
+        orderedCharges[chargeIndex].chargedAt.isBefore(due)) {
+      addStandaloneCharge(orderedCharges[chargeIndex++]);
+    }
+    while (chargeIndex < orderedCharges.length &&
+        _sameDate(orderedCharges[chargeIndex].chargedAt, due)) {
+      final charge = orderedCharges[chargeIndex++];
+      paymentCharges.add(charge);
+      owed += charge.amount;
+    }
+    final interestAmount = paymentCharges.fold<double>(
+      0,
+      (total, charge) => total + charge.amount,
+    );
+    String interestSummary() {
+      if (paymentCharges.isEmpty) return '';
+      final chargedDates = paymentCharges
+          .map((charge) => formatShortDate(charge.chargedAt))
+          .toSet()
+          .join(', ');
+      final recordedDates = paymentCharges
+          .map((charge) => charge.recordedAt)
+          .whereType<DateTime>()
+          .map(formatShortDate)
+          .toSet()
+          .join(', ');
+      return '${formatPeso(interestAmount)} interest recorded; charge date '
+          '$chargedDates; date recorded: '
+          '${recordedDates.isEmpty ? 'Unavailable' : recordedDates}';
+    }
 
     // Paid before it was tracked: no bill stands for it, but it was paid.
     final paidEarlier = first != null && number <= debt.paidBefore;
@@ -882,6 +1185,9 @@ List<Widget> _statementRows(
 
     final settledHere = stillDue <= 0.005;
     final partly = paid > 0.005 && !settledHere;
+    final paymentLabel = paymentCharges.isEmpty
+        ? 'Payment $number of ${schedule.length}'
+        : 'Payment $number + Interest charge';
 
     rows.add(
       Container(
@@ -899,8 +1205,7 @@ List<Widget> _statementRows(
               children: [
                 Expanded(
                   child: Text(
-                    'Payment $number of ${schedule.length} · '
-                    '${formatShortDate(due)}',
+                    '$paymentLabel · ${formatShortDate(due)}',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       color: colors.textPrimary,
@@ -926,15 +1231,18 @@ List<Widget> _statementRows(
               children: [
                 Expanded(
                   child: Text(
-                    closedByPayoff
-                        ? '${formatPeso(paid)} paid, the rest when it was paid '
-                              'off'
-                        : settledHere
-                        ? '${formatPeso(amount)} paid in full'
-                        : partly
-                        ? '${formatPeso(paid)} of ${formatPeso(amount)} paid · '
-                              '${formatPeso(stillDue)} still due'
-                        : '${formatPeso(amount)} due',
+                    [
+                      closedByPayoff
+                          ? '${formatPeso(paid)} paid, the rest when it was paid '
+                                'off'
+                          : settledHere
+                          ? '${formatPeso(amount)} paid in full'
+                          : partly
+                          ? '${formatPeso(paid)} of ${formatPeso(amount)} paid · '
+                                '${formatPeso(stillDue)} still due'
+                          : '${formatPeso(amount)} due',
+                      if (paymentCharges.isNotEmpty) interestSummary(),
+                    ].join(' · '),
                     style: TextStyle(fontSize: 12, color: colors.textBody),
                   ),
                 ),
@@ -953,6 +1261,10 @@ List<Widget> _statementRows(
         ),
       ),
     );
+  }
+
+  while (chargeIndex < orderedCharges.length) {
+    addStandaloneCharge(orderedCharges[chargeIndex++]);
   }
 
   if (debt.paidOffEarly) {
@@ -1020,6 +1332,9 @@ BillInstance? _instanceOn(List<BillInstance> instances, DateTime day) {
   }
   return null;
 }
+
+bool _sameDate(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
 
 String _interestPeriodLabel(String period) => switch (period) {
   'day' => 'daily',
