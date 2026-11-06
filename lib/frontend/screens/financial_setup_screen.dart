@@ -2767,8 +2767,12 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet>
   late SavingsKind _kind = widget.existing?.kind ?? SavingsKind.savingsDeposit;
   late DateTime? _depositStartDate = widget.existing?.depositStartDate;
   late DateTime? _maturityDate = widget.existing?.maturityDate;
-  late InterestPayout _payout =
-      widget.existing?.interestPayout ?? InterestPayout.monthly;
+
+  /// Ticked once the time deposit lock warning has been read.
+  bool _acknowledged = false;
+
+  bool get _lockedTimeDeposit =>
+      !_isEditing && _kind == SavingsKind.timeDeposit && !_acknowledged;
 
   // What is missing from the dates: shown once Save has been tapped, and
   // gone as soon as the right date is picked.
@@ -2848,6 +2852,7 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet>
 
   void _save() {
     // Every problem shows at once, not one per tap.
+    if (_lockedTimeDeposit) return;
     final fieldsOk = checkForm(_formKey);
     if (!fieldsOk || _startError != null || _endError != null) return;
 
@@ -2863,7 +2868,8 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet>
         depositStartDate: _needsRateAndStart ? _depositStartDate : null,
         maturityDate: _kind == SavingsKind.timeDeposit ? _maturityDate : null,
         note: widget.existing?.note,
-        interestPayout: _payout,
+        interestPayout:
+            widget.existing?.interestPayout ?? InterestPayout.monthly,
       ),
     );
   }
@@ -2929,7 +2935,10 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet>
               // The same pieces as Add Savings on the Savings screen.
               SavingsKindPicker(
                 kind: _kind,
-                onChanged: (kind) => setState(() => _kind = kind),
+                onChanged: (kind) => setState(() {
+                  _kind = kind;
+                  _acknowledged = false;
+                }),
                 onLearnMore: _explain,
               ),
               const FieldLabel('Current balance'),
@@ -2997,13 +3006,6 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet>
                   error: _startError,
                 ),
               ],
-              // A savings deposit pays now and then; a time deposit pays at
-              // its end date.
-              if (_kind == SavingsKind.savingsDeposit)
-                InterestPayoutPicker(
-                  payout: _payout,
-                  onChanged: (payout) => setState(() => _payout = payout),
-                ),
               if (_kind == SavingsKind.timeDeposit) ...[
                 const FieldLabel('End date'),
                 PickDateField(
@@ -3013,6 +3015,13 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet>
                   helper: 'When you can take it out without a penalty.',
                   error: _endError,
                 ),
+                if (!_isEditing) ...[
+                  const SizedBox(height: 14),
+                  TimeDepositLockNotice(
+                    acknowledged: _acknowledged,
+                    onChanged: (value) => setState(() => _acknowledged = value),
+                  ),
+                ],
               ],
               const SizedBox(height: 20),
               SizedBox(
@@ -3021,7 +3030,7 @@ class _OnboardingSavingsSheetState extends State<_OnboardingSavingsSheet>
                 child: ElevatedButton(
                   key: const Key('save-onboarding-savings'),
                   style: confirmButtonStyle(),
-                  onPressed: _save,
+                  onPressed: _lockedTimeDeposit ? null : _save,
                   child: Text(
                     _isEditing ? 'Save Changes' : 'Add Savings',
                     style: _saveLabelStyle,

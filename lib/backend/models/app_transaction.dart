@@ -54,6 +54,7 @@ class AppTransaction {
     this.debtId,
     this.interest = 0,
     this.installmentPayment = false,
+    this.internalTransfer,
   });
 
   /// Reads a stored transaction document.
@@ -84,6 +85,9 @@ class AppTransaction {
       debtId: _asString(map['debtId']),
       interest: _asDouble(map['interest']).abs(),
       installmentPayment: map['installmentPayment'] == true,
+      internalTransfer: map['isInternalTransfer'] is bool
+          ? map['isInternalTransfer'] as bool
+          : null,
     );
   }
 
@@ -141,6 +145,16 @@ class AppTransaction {
   final bool installmentPayment;
 
   bool get isInstallmentPayment => installmentPayment;
+
+  /// True when this entry only moved money between the user's own wallets.
+  ///
+  /// It is kept apart from [type] so a row can say "Deposit" or "Withdrawal"
+  /// while accounting still treats it as an internal move, never income or
+  /// spending. Older records have no stored flag; a transfer was always one.
+  final bool? internalTransfer;
+
+  bool get isInternalTransfer =>
+      internalTransfer ?? type == TransactionType.transfer;
 
   /// What a list calls this transaction: what it paid, rather than the
   /// category it is grouped under.

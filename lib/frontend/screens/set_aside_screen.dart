@@ -188,7 +188,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                 ),
               ),
             // Savings deposits and demand deposits use the transfer flow;
-            // savings deposits show their estimated interest in the source.
+            // savings deposit interest comes from the simple-interest estimate.
             if (!wallet.isLockedSavings && wallet.balance > 0)
               Align(
                 alignment: Alignment.centerLeft,

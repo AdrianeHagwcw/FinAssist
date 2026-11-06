@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/goal.dart';
+import '../../backend/models/transfer_direction.dart';
 import '../../backend/models/wallet.dart';
 import '../../backend/services/wallet_service.dart';
 import '../theme/app_colors.dart';
@@ -66,7 +67,7 @@ class TransferSheet extends StatefulWidget {
   /// Wallets already loaded by the screen that opened this sheet.
   final List<Wallet>? initialWallets;
 
-  /// Replaces the live transaction history used to estimate savings interest.
+  /// Replaces the live history used to calculate unrecorded simple interest.
   final Stream<List<AppTransaction>>? transactions;
 
   /// Transaction history already loaded by the screen that opened this sheet.
@@ -81,6 +82,7 @@ class TransferSheet extends StatefulWidget {
     required String fromWalletId,
     required Map<String, double> to,
     required double serviceCharge,
+    required double interestAmount,
   })?
   onSave;
 
@@ -101,11 +103,6 @@ class _TransferSheetState extends State<TransferSheet>
     with CheckAfterSave, WatchesGoals {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets();
-  // Always open a fresh Firestore subscription so the StreamBuilder receives
-  // the first cached snapshot.  Reusing a broadcast stream that a parent
-  // screen already listens to would miss data already emitted before this
-  // sheet subscribed, leaving transactions null and blocking
-  // savings-deposit transfers with "Loading the savings interest estimate."
   late final Stream<List<AppTransaction>> _transactions =
       widget.transactions ??
       (widget.initialTransactions != null
@@ -146,24 +143,29 @@ class _TransferSheetState extends State<TransferSheet>
 
   List<Wallet> _transferSources(List<Wallet> wallets) => [
     for (final wallet in wallets)
-      if (!wallet.archived &&
+      if (canBeTransferSource(wallet) &&
           (!wallet.isSetAside ||
               wallet.isDemandDeposit ||
-              wallet.savingsType == SavingsKind.savingsDeposit))
+              wallet.savingsType == SavingsKind.savingsDeposit ||
+              wallet.isTimeDeposit))
         wallet,
   ];
 
-  double _balanceFor(Wallet wallet, List<AppTransaction>? transactions) {
-    if (!wallet.isSetAside ||
-        wallet.savingsType != SavingsKind.savingsDeposit) {
-      return wallet.balance;
-    }
-    if (transactions == null) return wallet.balance;
-    final interest = wallet.estimatedUnrecordedSavingsDepositInterest(
+  bool _usesCalculatedInterest(Wallet? wallet) =>
+      wallet?.isSetAside == true &&
+      wallet?.savingsType == SavingsKind.savingsDeposit;
+
+  double _interestFor(Wallet wallet, List<AppTransaction>? transactions) {
+    if (!_usesCalculatedInterest(wallet) || transactions == null) return 0;
+    final unrecorded = wallet.estimatedUnrecordedSavingsDepositInterest(
       transactions: transactions,
     );
-    return wallet.balance + (interest == null ? 0 : afterTax(interest));
+    if (unrecorded == null || !unrecorded.isFinite || unrecorded < 0) return 0;
+    return (unrecorded * 100).round() / 100;
   }
+
+  double _balanceFor(Wallet wallet, List<AppTransaction>? transactions) =>
+      wallet.balance + _interestFor(wallet, transactions);
 
   double _freeFor(Wallet wallet, List<AppTransaction>? transactions) =>
       (_balanceFor(wallet, transactions) -
@@ -180,12 +182,13 @@ class _TransferSheetState extends State<TransferSheet>
     bool transactionsFailed = false,
   }) {
     if (source == null) return 'Choose the wallet it comes from.';
-    if (source.isSetAside &&
-        source.savingsType == SavingsKind.savingsDeposit &&
-        transactions == null) {
+    if (!canBeTransferSource(source)) {
+      return 'This time deposit is locked until its maturity date.';
+    }
+    if (_usesCalculatedInterest(source) && transactions == null) {
       return transactionsFailed
           ? 'Savings interest history is unavailable. Try again later.'
-          : 'Loading the savings interest estimate. Please wait.';
+          : 'Loading the savings interest calculation. Please wait.';
     }
     final into = walletSplitProblem(
       purpose: SplitPurpose.receiving,
@@ -238,10 +241,15 @@ class _TransferSheetState extends State<TransferSheet>
     }
 
     final charge = _charge;
+    final interest = _interestFor(source, transactions);
     if (widget.onSave != null) {
-      widget.onSave!(fromWalletId: source.id, to: _to, serviceCharge: charge);
-    } else if (source.isSetAside &&
-        source.savingsType == SavingsKind.savingsDeposit) {
+      widget.onSave!(
+        fromWalletId: source.id,
+        to: _to,
+        serviceCharge: charge,
+        interestAmount: _usesCalculatedInterest(source) ? interest : 0,
+      );
+    } else if (_usesCalculatedInterest(source)) {
       WalletService.recordSavingsDepositTransfer(
         wallet: source,
         to: _to,
@@ -253,6 +261,7 @@ class _TransferSheetState extends State<TransferSheet>
         fromWalletId: source.id,
         to: _to,
         serviceCharge: charge,
+        wallets: wallets,
       );
     }
     // This wallet usually charges the same again, so its fee is kept to
@@ -293,7 +302,6 @@ class _TransferSheetState extends State<TransferSheet>
                 builder: (context, transactionSnapshot) {
                   final transactions = transactionSnapshot.data;
                   final transactionsFailed = transactionSnapshot.hasError;
-
                   final sources = _transferSources(wallets);
                   final from = sources.any((wallet) => wallet.id == _fromId)
                       ? _fromId
@@ -368,17 +376,20 @@ class _TransferSheetState extends State<TransferSheet>
                             displayBalances: balances,
                             helper: source == null
                                 ? null
-                                : source.isSetAside &&
-                                      source.savingsType ==
-                                          SavingsKind.savingsDeposit &&
+                                : _usesCalculatedInterest(source) &&
                                       transactions == null
                                 ? transactionsFailed
                                       ? 'Savings interest history is unavailable.'
-                                      : 'Loading savings interest estimate...'
+                                      : 'Loading the savings interest calculation...'
                                 : free == null || balance == null
                                 ? null
                                 : free < balance - 0.005
                                 ? '${source.name} has ${formatPeso(free)} free to move'
+                            : _usesCalculatedInterest(source) &&
+                                  _interestFor(source, transactions) > 0
+                            ? '${source.name} holds ${formatPeso(balance)}, '
+                                  'including ${formatPeso(_interestFor(source, transactions))} '
+                                  'simple interest'
                                 : '${source.name} holds ${formatPeso(balance)}',
                             onChanged: (value) => setState(() {
                               _fromId = value;

@@ -428,9 +428,8 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             wallets: _wallets,
             initialWallets: wallets,
-            transactions: widget.wallets == null && widget.transactions == null
-                ? WalletService.watchTransactions()
-                : null,
+            transactions:
+                widget.transactions ?? WalletService.watchTransactions(),
             initialTransactions: transactions,
           );
           if (saved && mounted) setState(() => _refreshKey++);

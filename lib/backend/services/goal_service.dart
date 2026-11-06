@@ -29,6 +29,14 @@ class GoalService {
     );
   }
 
+  /// Loads the latest goal allocations when replaying an offline wallet
+  /// settlement, so saved money follows its destination after reconnecting.
+  static Future<List<Goal>> loadGoals() async => sortGoals(
+    (await _goals.get(
+      const GetOptions(source: Source.server),
+    )).docs.map((doc) => Goal.fromMap(doc.id, doc.data())),
+  );
+
   static Stream<Goal?> watchGoal(String goalId) {
     return _goals
         .doc(goalId)
@@ -496,6 +504,33 @@ class GoalService {
       moved = {if (left > 0.005) from: left, to: amount};
     }
     batch.set(_goals.doc(goal.id), {
+      'savedByWallet': moved,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// The transaction counterpart used when a matured time deposit is claimed
+  /// or renewed. The parent transaction also checks and closes the deposit,
+  /// making its goal movement part of the same once-only operation.
+  static void moveMoneyInTransaction(
+    Transaction transaction,
+    Goal goal, {
+    required String from,
+    required String to,
+    required double amount,
+  }) {
+    if (amount <= 0 || from == to) return;
+    final Map<String, Object> moved;
+    if (goal.savedByWallet.isNotEmpty) {
+      moved = {
+        from: FieldValue.increment(-amount),
+        to: FieldValue.increment(amount),
+      };
+    } else {
+      final left = ((goal.shownSaved - amount) * 100).round() / 100;
+      moved = {if (left > 0.005) from: left, to: amount};
+    }
+    transaction.set(_goals.doc(goal.id), {
       'savedByWallet': moved,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));

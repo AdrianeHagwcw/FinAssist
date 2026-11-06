@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../backend/models/goal.dart';
+import '../../backend/models/transfer_direction.dart';
 import '../../backend/models/wallet.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -186,6 +187,12 @@ String? walletSplitProblem({
     final wallet = byId[entry.key];
     if (wallet == null || wallet.archived) {
       return 'One of these wallets is no longer listed. Choose again.';
+    }
+    if (purpose == SplitPurpose.receiving && wallet.isTimeDeposit) {
+      return 'Money cannot be added to a time deposit.';
+    }
+    if (purpose == SplitPurpose.giving && !canBeTransferSource(wallet)) {
+      return 'That time deposit is locked until its maturity date.';
     }
     if (!isRecordableAmount(amount)) return minimumAmountError;
     final fee = fees[entry.key] ?? 0;

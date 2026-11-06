@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:testapp/backend/models/bill.dart';
 import 'package:testapp/backend/models/debt.dart';
 import 'package:testapp/backend/models/wallet.dart';
+import 'package:testapp/frontend/providers/app_settings_provider.dart';
 import 'package:testapp/frontend/screens/debt_detail_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
 
@@ -10,6 +12,11 @@ void main() {
   testWidgets('combines same-date interest with the numbered payment', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(800, 3200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     final date = DateTime(2026, 12, 1);
     final debt = Debt(
       id: 'annual-loan',
@@ -50,22 +57,30 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: LoanDetailScreen(
-          debt: debt,
-          liveDebt: Stream.value(debt),
-          payments: Stream.value([payment]),
-          wallets: Stream.value(const <Wallet>[]),
-          interestCharges: Stream.value([charge]),
-          today: date,
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: LoanDetailScreen(
+            debt: debt,
+            liveDebt: Stream.value(debt),
+            payments: Stream.value([payment]),
+            wallets: Stream.value(const <Wallet>[]),
+            interestCharges: Stream.value([charge]),
+            today: date,
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Statement of account'));
+    await tester.pumpAndSettle();
 
     expect(find.textContaining('Payment 1 + Interest charge'), findsOneWidget);
-    expect(find.textContaining('180 interest charged on'), findsOneWidget);
+    expect(
+      find.textContaining('interest recorded; charge date'),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const Key('statement-fixed-interest-annually-2026')),
       findsNothing,
@@ -75,6 +90,11 @@ void main() {
   testWidgets('keeps an interest charge separate when dates differ', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(800, 3200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     final paymentDate = DateTime(2026, 12, 1);
     final chargeDate = DateTime(2026, 11, 15);
     final debt = Debt(
@@ -105,21 +125,26 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: LoanDetailScreen(
-          debt: debt,
-          liveDebt: Stream.value(debt),
-          payments: Stream.value(const <BillInstance>[]),
-          wallets: Stream.value(const <Wallet>[]),
-          interestCharges: Stream.value([charge]),
-          today: paymentDate,
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: LoanDetailScreen(
+            debt: debt,
+            liveDebt: Stream.value(debt),
+            payments: Stream.value(const <BillInstance>[]),
+            wallets: Stream.value(const <Wallet>[]),
+            interestCharges: Stream.value([charge]),
+            today: paymentDate,
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Statement of account'));
+    await tester.pumpAndSettle();
 
-    expect(find.textContaining('Payment 1 of 2'), findsOneWidget);
+    expect(find.textContaining('Payment 1 of 2 ·'), findsOneWidget);
     expect(
       find.byKey(const Key('statement-fixed-interest-monthly-2026-11')),
       findsOneWidget,

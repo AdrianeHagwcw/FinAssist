@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/goal.dart';
+import '../../backend/models/transfer_direction.dart';
 import '../../backend/models/wallet.dart';
 import '../../backend/services/wallet_service.dart';
 import '../../backend/services/goal_service.dart';
@@ -14,6 +15,7 @@ import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/interest_sheet.dart';
 import '../widgets/item_card.dart';
+import '../widgets/matured_savings_sheet.dart';
 import '../widgets/money_text.dart';
 import '../widgets/transaction_row.dart';
 import '../widgets/transfer_sheet.dart';
@@ -101,15 +103,19 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                   switch (value) {
                     case 'income-in':
                       showIncomeWaterfall(context, walletId: wallet.id);
+                    case 'claim':
+                      showMaturedSavingsSheet(
+                        context,
+                        wallet: wallet,
+                        wallets: wallets,
+                      );
                     case 'transfer':
                       showTransferSheet(
                         context,
                         wallets: _wallets,
                         transactions:
-                            widget.wallets == null &&
-                                widget.transactions == null
-                            ? WalletService.watchTransactions()
-                            : null,
+                            widget.transactions ??
+                            WalletService.watchTransactions(),
                         fromWalletId: wallet.id,
                       );
                     case 'edit':
@@ -119,13 +125,22 @@ class _WalletDetailScreenState extends State<WalletDetailScreen> {
                   }
                 },
                 itemBuilder: (context) => [
-                  menuItem(
-                    value: 'income-in',
-                    label: 'Add income',
-                    icon: Icons.add_card,
-                    color: confirmColorOn(context),
-                  ),
-                  if (!wallet.isLockedSavings)
+                  if (wallet.isMaturedTimeDeposit)
+                    menuItem(
+                      value: 'claim',
+                      label: 'Claim or renew',
+                      icon: Icons.savings_outlined,
+                      color: confirmColorOn(context),
+                    ),
+                  if (!wallet.isActiveTimeDeposit &&
+                      !wallet.isClosedTimeDeposit)
+                    menuItem(
+                      value: 'income-in',
+                      label: 'Add income',
+                      icon: Icons.add_card,
+                      color: confirmColorOn(context),
+                    ),
+                  if (canBeTransferSource(wallet))
                     menuItem(
                       value: 'transfer',
                       label: wallet.purpose == WalletPurpose.savings
@@ -235,11 +250,13 @@ class _SavingsInterestSummary extends StatelessWidget {
         ? wallet.startingBalance + net
         : null;
     final status = isTimeDeposit
-        ? wallet.isMaturedTimeDeposit
-              ? 'Its end date has come. Say what you did with the money when '
-                    'you are ready.'
-              : 'The money stays locked until the end date. Taking it out '
-                    'early may cost you.'
+        ? wallet.isClosedTimeDeposit
+              ? 'This time deposit was already claimed or renewed. Its '
+                    'history stays here.'
+              : wallet.isMaturedTimeDeposit
+              ? 'Its end date has come. Claim or renew it when you are ready.'
+              : 'The money stays locked until the end date. It cannot be '
+                    'added to, withdrawn or transferred until then.'
         : isSavingsDeposit
         ? 'Counted from what was recorded since you added this account.'
         : isDemandDeposit

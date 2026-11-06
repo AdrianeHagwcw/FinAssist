@@ -332,6 +332,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
         label: _selectedCategory!,
         note: note,
         date: _selectedDate,
+        wallets: _wallets,
       );
     } else {
       // One expense from each wallet that paid part of it, saved together.
@@ -341,6 +342,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
         label: _selectedCategory!,
         note: note,
         date: _selectedDate,
+        wallets: _wallets,
       );
     }
 

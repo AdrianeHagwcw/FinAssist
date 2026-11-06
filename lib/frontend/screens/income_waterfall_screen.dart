@@ -498,6 +498,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             goalKeptIn: goalKeptIn,
             source: source,
             receivedAt: receivedAt,
+            wallets: _walletList,
           );
         };
 
@@ -550,7 +551,12 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       body: StreamBuilder<List<Wallet>>(
         stream: _wallets,
         builder: (context, snapshot) {
-          _walletList = snapshot.data ?? const [];
+          _walletList = [
+            for (final wallet in snapshot.data ?? const <Wallet>[])
+              // Income never goes into a time deposit: its money can only be
+              // placed when it is opened, or renewed at maturity.
+              if (!wallet.isTimeDeposit) wallet,
+          ];
           final error = _triedStep == _step ? _problem : null;
 
           return Column(

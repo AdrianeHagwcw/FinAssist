@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/ph_time.dart';
 import 'app_transaction.dart';
 
 /// Kind of money holder. Decides the wallet's icon and default name.
@@ -275,6 +276,21 @@ class WalletDraft {
   }
 }
 
+/// Where a time deposit stands, worked out from its stored dates and status.
+enum TimeDepositStatus {
+  /// Not a time deposit at all.
+  notTimeDeposit,
+
+  /// Still inside its term. Money cannot be added or taken out.
+  active,
+
+  /// The maturity day has arrived; the money waits to be claimed or renewed.
+  matured,
+
+  /// Already claimed or renewed. The record stays for its history.
+  closed,
+}
+
 /// A saved wallet, as stored in `users/{uid}/wallets`.
 class Wallet {
   const Wallet({
@@ -295,6 +311,10 @@ class Wallet {
     this.createdAt,
     this.interestPayout = InterestPayout.monthly,
     this.serviceCharge,
+    this.principal,
+    this.closedAt,
+    this.renewedIntoId,
+    this.maturityInterestRecorded = false,
   });
 
   /// Reads a stored wallet document.
@@ -305,6 +325,11 @@ class Wallet {
     final map = data ?? const <String, dynamic>{};
     final type = WalletType.fromName(_asString(map['type']));
     final name = _asString(map['name'])?.trim();
+    final purpose = WalletPurpose.fromName(_asString(map['purpose']));
+    final savingsKind = _asString(map['savingsKind']);
+    final isTimeDeposit =
+        purpose == WalletPurpose.savings &&
+        SavingsKind.fromName(savingsKind) == SavingsKind.timeDeposit;
 
     return Wallet(
       id: id,
@@ -322,10 +347,14 @@ class Wallet {
       annualInterestRatePercent: _asValidInterestRate(
         map['annualInterestRatePercent'],
       ),
-      purpose: WalletPurpose.fromName(_asString(map['purpose'])),
-      savingsKind: _asString(map['savingsKind']),
-      maturityDate: _asDate(map['maturityDate']),
-      depositStartDate: _asDate(map['depositStartDate']),
+      purpose: purpose,
+      savingsKind: savingsKind,
+      maturityDate: isTimeDeposit
+          ? _asPhilippineCalendarDate(map['maturityDate'])
+          : _asDate(map['maturityDate']),
+      depositStartDate: isTimeDeposit
+          ? _asPhilippineCalendarDate(map['depositStartDate'])
+          : _asDate(map['depositStartDate']),
       createdAt: _asDate(map['createdAt']),
       interestPayout: InterestPayout.fromStored(
         months: map['interestPayoutMonths'],
@@ -337,6 +366,10 @@ class Wallet {
               (map['serviceCharge'] as num) > 0
           ? (map['serviceCharge'] as num).toDouble()
           : null,
+      principal: _asNullablePositive(map['principal']),
+      closedAt: _asDate(map['closedAt']),
+      renewedIntoId: _asString(map['renewedIntoId']),
+      maturityInterestRecorded: map['maturityInterestRecorded'] == true,
     );
   }
 
@@ -384,6 +417,65 @@ class Wallet {
   /// in when the user adds one again. Null until one is used.
   final double? serviceCharge;
 
+  /// The money placed when a time deposit was opened, kept apart from any
+  /// interest. Null on older records, where the starting balance is used.
+  final double? principal;
+
+  /// When a time deposit was claimed or renewed. Null while it is open.
+  final DateTime? closedAt;
+
+  /// The time deposit this one was renewed into, when it was rolled over.
+  final String? renewedIntoId;
+
+  /// True once the interest earned at maturity has been written down, so a
+  /// second app load never counts the same interest again.
+  final bool maturityInterestRecorded;
+
+  bool get isTimeDeposit =>
+      purpose == WalletPurpose.savings &&
+      savingsType == SavingsKind.timeDeposit;
+
+  /// The original money placed. Older records only have [startingBalance].
+  double get timeDepositPrincipal {
+    final placed = principal;
+    return placed != null && placed.isFinite && placed >= 0
+        ? placed
+        : startingBalance;
+  }
+
+  /// Whether this time deposit has been claimed or renewed already.
+  bool get isClosedTimeDeposit =>
+      isTimeDeposit && (closedAt != null || renewedIntoId != null);
+
+  /// True while the term is running and the money cannot be touched.
+  bool get isActiveTimeDeposit =>
+      timeDepositStatusAt(DateTime.now()) == TimeDepositStatus.active;
+
+  /// Where this record stands now. The stored dates win over any stale status
+  /// field, so a record matures even if the app was never opened that day.
+  TimeDepositStatus timeDepositStatusAt(DateTime now) {
+    if (!isTimeDeposit) return TimeDepositStatus.notTimeDeposit;
+    if (closedAt != null || renewedIntoId != null) {
+      return TimeDepositStatus.closed;
+    }
+    final due = maturityDate;
+    if (due == null) return TimeDepositStatus.active;
+    final day = _dateOnly(due);
+    final today = _dateOnly(philippineTime(now));
+    return day.isAfter(today)
+        ? TimeDepositStatus.active
+        : TimeDepositStatus.matured;
+  }
+
+  /// The interest this deposit should have earned, net of the 20% final tax,
+  /// once it matures. Zero when the record has no usable rate or dates.
+  double get timeDepositMaturityInterest =>
+      afterTax(estimatedTimeDepositInterest() ?? 0);
+
+  /// What the deposit is worth at maturity: original money plus net interest.
+  double get timeDepositMaturityValue =>
+      timeDepositPrincipal + timeDepositMaturityInterest;
+
   /// Whether this account pays interest now and then, for the user to add as
   /// income when it comes: a bank or e-wallet with a rate, or a savings
   /// deposit. A time deposit pays at its end date instead, and cash and
@@ -413,8 +505,10 @@ class Wallet {
   bool maturedBy(DateTime now) {
     final due = maturityDate;
     if (due == null || balance <= 0 || archived) return false;
-    final day = DateTime(due.year, due.month, due.day);
-    final today = DateTime(now.year, now.month, now.day);
+    // A record already claimed or renewed is history, not a new maturity.
+    if (closedAt != null || renewedIntoId != null) return false;
+    final day = _dateOnly(due);
+    final today = _dateOnly(philippineTime(now));
     return !day.isAfter(today);
   }
 
@@ -424,8 +518,11 @@ class Wallet {
   DateTime? readyOn(DateTime now) {
     final due = maturityDate;
     if (!isLockedSavings || due == null) return null;
-    final day = DateTime(due.year, due.month, due.day);
-    return day.isAfter(DateTime(now.year, now.month, now.day)) ? day : null;
+    final day = _dateOnly(due);
+    if (!day.isAfter(_dateOnly(philippineTime(now)))) return null;
+    // The recorded calendar day, kept in the phone's own midnight so it
+    // reads back exactly as it was entered.
+    return DateTime(due.year, due.month, due.day);
   }
 
   /// True for savings, whose money is kept rather than spent.
@@ -455,14 +552,12 @@ class Wallet {
           savingsType == SavingsKind.demandDeposit);
 
   bool get isMaturedTimeDeposit =>
-      purpose == WalletPurpose.savings &&
-      savingsType == SavingsKind.timeDeposit &&
-      maturedBy(DateTime.now());
+      timeDepositStatusAt(DateTime.now()) == TimeDepositStatus.matured;
 
   double? estimatedTimeDepositInterest() {
     // A deposit filled by transfers from the user's wallets starts at zero
-    // and holds its principal as its balance.
-    final principal = startingBalance > 0 ? startingBalance : balance;
+    // and holds its principal as its balance. The recorded principal wins.
+    final principal = timeDepositPrincipal > 0 ? timeDepositPrincipal : balance;
     final rate = annualInterestRatePercent;
     final start = depositStartDate;
     final maturity = maturityDate;
@@ -488,7 +583,7 @@ class Wallet {
 
   double? estimatedMaturityValue() {
     final interest = estimatedTimeDepositInterest();
-    return interest == null ? null : startingBalance + interest;
+    return interest == null ? null : timeDepositPrincipal + interest;
   }
 
   double? estimatedSavingsDepositInterest({
@@ -632,11 +727,27 @@ class Wallet {
     return isValidAnnualInterestRatePercent(rate) ? rate : null;
   }
 
+  static double? _asNullablePositive(Object? value) {
+    if (value is! num) return null;
+    final amount = value.toDouble();
+    return amount.isFinite && amount >= 0 ? amount : null;
+  }
+
   /// Reads a Firestore timestamp, a DateTime, or nothing at all.
   static DateTime? _asDate(Object? value) {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     return null;
+  }
+
+  static DateTime? _asPhilippineCalendarDate(Object? value) {
+    final date = _asDate(value);
+    if (date == null) return null;
+    if (value is Timestamp) {
+      final philippine = philippineTime(date);
+      return DateTime(philippine.year, philippine.month, philippine.day);
+    }
+    return DateTime(date.year, date.month, date.day);
   }
 }
 

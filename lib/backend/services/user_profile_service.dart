@@ -9,6 +9,7 @@ import 'firestore_write.dart';
 import 'goal_service.dart';
 import '../utils/money_format.dart';
 import '../utils/text_limits.dart';
+import '../utils/ph_time.dart';
 
 // Profile writes are not awaited and reads use Firestore's default source, so
 // they work from the local cache while offline and sync when back online. The
@@ -333,12 +334,24 @@ class UserProfileService {
         'sortOrder': sortOrder++,
         'purpose': WalletPurpose.savings.name,
         'savingsKind': savings.kind.name,
+        if (savings.kind == SavingsKind.timeDeposit) ...{
+          'principal': savings.balance,
+          'maturityInterestRecorded': false,
+        },
         if (savings.annualInterestRatePercent != null)
           'annualInterestRatePercent': savings.annualInterestRatePercent,
         if (savings.depositStartDate != null)
-          'depositStartDate': Timestamp.fromDate(savings.depositStartDate!),
+          'depositStartDate': Timestamp.fromDate(
+            savings.kind == SavingsKind.timeDeposit
+                ? philippineDayStart(savings.depositStartDate!)
+                : savings.depositStartDate!,
+          ),
         if (savings.maturityDate != null)
-          'maturityDate': Timestamp.fromDate(savings.maturityDate!),
+          'maturityDate': Timestamp.fromDate(
+            savings.kind == SavingsKind.timeDeposit
+                ? philippineDayStart(savings.maturityDate!)
+                : savings.maturityDate!,
+          ),
         if (savings.kind == SavingsKind.savingsDeposit)
           'interestPayoutMonths': savings.interestPayout.months,
         if (savings.note != null) 'note': savings.note,

@@ -7,6 +7,9 @@
     <!-- Reminders: notifications, and scheduling them again after a restart. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Exact delivery where the user allows it; Android falls back to an
+         inexact alarm when this is not granted. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application
         android:label="FinAssist"

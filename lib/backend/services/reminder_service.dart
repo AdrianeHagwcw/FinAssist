@@ -67,6 +67,10 @@ class ReminderService {
         },
       );
 
+      // Exact delivery when Android allows it, inexact otherwise; a reminder
+      // still arrives either way.
+      await _refreshExactPermission();
+
       final launch = await _plugin.getNotificationAppLaunchDetails();
       if (launch?.didNotificationLaunchApp ?? false) {
         opened.value = launch?.notificationResponse?.payload;
@@ -83,14 +87,40 @@ class ReminderService {
         AndroidFlutterLocalNotificationsPlugin
       >();
 
-  /// Asks for notification permission where Android needs it (13 and up).
+  /// Asks for notification permission where Android needs it (13 and up),
+  /// and for exact alarms where the phone allows that choice (12 and up).
   /// True when reminders can be shown.
   static Future<bool> requestPermission() async {
     try {
       await init();
-      return await _android?.requestNotificationsPermission() ?? false;
+      final notifications =
+          await _android?.requestNotificationsPermission() ?? false;
+      final exact = _android;
+      if (exact != null) {
+        try {
+          await exact.requestExactAlarmsPermission();
+          await _refreshExactPermission();
+        } catch (_) {
+          // Inexact delivery is still fine.
+        }
+      }
+      return notifications;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Whether the phone will let FinAssist schedule an exact alarm. False on
+  /// older Android and when the user has not granted it; scheduling then
+  /// falls back to an inexact alarm instead of failing.
+  static bool _exactScheduling = false;
+
+  static Future<void> _refreshExactPermission() async {
+    try {
+      _exactScheduling =
+          await _android?.canScheduleExactNotifications() ?? false;
+    } catch (_) {
+      _exactScheduling = false;
     }
   }
 
@@ -124,20 +154,52 @@ class ReminderService {
       }
 
       for (final reminder in reminders) {
-        await _plugin.zonedSchedule(
+        await _scheduleOne(
           id: reminder.id,
           title: reminder.title,
           body: reminder.body,
           payload: reminder.payload,
-          scheduledDate: tz.TZDateTime.from(reminder.at, tz.local),
-          notificationDetails: _details,
-          // Inexact: Android may deliver a few minutes late to save battery,
-          // and no extra alarm permission is needed.
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          at: tz.TZDateTime.from(reminder.at, tz.local),
         );
       }
     } catch (error) {
       debugPrint('Could not schedule reminders: $error');
+    }
+  }
+
+  /// Schedules one notification, exactly when the phone allows it and
+  /// inexactly otherwise. The fallback also covers a permission revoked
+  /// after the last check, so a reminder is never silently dropped.
+  static Future<void> _scheduleOne({
+    required int id,
+    required String title,
+    required String body,
+    required String payload,
+    required tz.TZDateTime at,
+  }) async {
+    try {
+      await _plugin.zonedSchedule(
+        id: id,
+        title: title,
+        body: body,
+        payload: payload,
+        scheduledDate: at,
+        notificationDetails: _details,
+        androidScheduleMode: _exactScheduling
+            ? AndroidScheduleMode.exactAllowWhileIdle
+            : AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    } catch (_) {
+      _exactScheduling = false;
+      await _plugin.zonedSchedule(
+        id: id,
+        title: title,
+        body: body,
+        payload: payload,
+        scheduledDate: at,
+        notificationDetails: _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
     }
   }
 

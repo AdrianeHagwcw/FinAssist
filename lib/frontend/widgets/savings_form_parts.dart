@@ -37,6 +37,109 @@ String savingsKindIcon(SavingsKind kind) => switch (kind) {
       SavingsKind.demandDeposit => (interest: 'None', access: 'Anytime'),
     };
 
+/// The exact warning a new time deposit must show before it can be saved.
+const String timeDepositLockText =
+    'Before You Start — Your money will stay in this Time Deposit until the '
+    'selected maturity date. While it\'s active, you cannot add more money, '
+    'withdraw it, or transfer it to another wallet. Once it reaches its '
+    'maturity date, you can claim your original money plus the interest '
+    'earned, or choose to renew your deposit. Please double-check the amount '
+    'and maturity date before confirming.';
+
+/// The acknowledgement a new time deposit needs before Confirm is enabled.
+const String timeDepositAcknowledgement =
+    'I understand that my money will be locked until the maturity date.';
+
+/// The info card and checkbox shown when a time deposit is being opened.
+///
+/// The parent owns [acknowledged], so Confirm stays disabled until the box is
+/// ticked. It is shared by setup and the Savings screen so the wording can
+/// never drift apart.
+class TimeDepositLockNotice extends StatelessWidget {
+  const TimeDepositLockNotice({
+    required this.acknowledged,
+    required this.onChanged,
+    super.key,
+  });
+
+  final bool acknowledged;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          key: const Key('time-deposit-info'),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: colors.primaryTint,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: colors.primaryText.withValues(alpha: 0.35),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, size: 20, color: colors.primaryText),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  timeDepositLockText,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: const Key('time-deposit-ack'),
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => onChanged(!acknowledged),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Checkbox(
+                    value: acknowledged,
+                    onChanged: (value) => onChanged(value ?? false),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        timeDepositAcknowledgement,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// One labeled fact with its icon. Two side by side, as a [FactPair], say
 /// what something is at a glance; Add Savings and the savings explainer
 /// both use them, so the two read the same.
@@ -210,6 +313,7 @@ class SavingsKindPicker extends StatelessWidget {
   const SavingsKindPicker({
     required this.kind,
     required this.onChanged,
+    this.enabled = true,
     this.onLearnMore,
     this.keyPrefix = 'savings-kind-',
     super.key,
@@ -217,6 +321,7 @@ class SavingsKindPicker extends StatelessWidget {
 
   final SavingsKind kind;
   final ValueChanged<SavingsKind> onChanged;
+  final bool enabled;
   final ValueChanged<SavingsKind>? onLearnMore;
 
   /// Each tile's key is this plus the kind's name.
@@ -242,7 +347,7 @@ class SavingsKindPicker extends StatelessWidget {
                     label: choice.label,
                     iconAsset: savingsKindIcon(choice),
                     selected: kind == choice,
-                    onTap: () => onChanged(choice),
+                    onTap: enabled ? () => onChanged(choice) : null,
                   ),
                 ),
               ],
@@ -286,7 +391,7 @@ class _KindTile extends StatelessWidget {
   final String label;
   final String iconAsset;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -348,7 +453,7 @@ class PickDateField extends StatelessWidget {
   });
 
   final DateTime? date;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String helper;
   final String? error;
 

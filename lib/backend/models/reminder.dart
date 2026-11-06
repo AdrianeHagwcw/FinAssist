@@ -6,6 +6,7 @@ import 'wallet.dart';
 import 'onboarding_data.dart';
 import '../utils/date_format.dart';
 import '../utils/money_format.dart';
+import '../utils/ph_time.dart';
 
 /// The kinds of reminder FinAssist can send.
 enum ReminderKind {
@@ -35,6 +36,16 @@ String reminderCountText(int rank) {
       : 1;
   return '$times reminder${times == 1 ? '' : 's'}';
 }
+
+/// The title for one time-deposit maturity reminder. The body carries the
+/// agreed wording; the title names the deposit so several read clearly.
+String _timeDepositReminderTitle(String name, int daysBefore) =>
+    switch (daysBefore) {
+      7 => '$name matures in 7 days',
+      3 => '$name matures in 3 days',
+      1 => '$name matures tomorrow',
+      _ => '$name has matured',
+    };
 
 /// Which reminders are on, and how many each gets from the user's ranking.
 ///
@@ -527,9 +538,10 @@ List<PlannedReminder> planReminders({
     }
   }
 
-  // Savings that have come due. FinAssist cannot see a real account, so it
-  // asks once on the day and once a week later, then leaves the card on Home
-  // to do the rest. Settling the record clears its date, which cancels both.
+  // Savings that have come due. A time deposit gets the four agreed
+  // milestones; government savings keep the older day-of and one-week-later
+  // nudge. FinAssist cannot see a real account, so it asks rather than moving
+  // anything. Settling or renewing a record clears these reminders.
   if (settings.isOn(ReminderKind.goals)) {
     for (final wallet in wallets) {
       final due = wallet.maturityDate;
@@ -537,7 +549,52 @@ List<PlannedReminder> planReminders({
       if (wallet.purpose != WalletPurpose.savings) continue;
       if (wallet.archived || wallet.balance <= 0) continue;
 
-      final day = DateTime(due.year, due.month, due.day);
+      final maturityDay = due;
+      final day = DateTime(
+        maturityDay.year,
+        maturityDay.month,
+        maturityDay.day,
+      );
+
+      if (wallet.isTimeDeposit) {
+        if (wallet.timeDepositStatusAt(now) == TimeDepositStatus.closed) {
+          continue;
+        }
+        for (final milestone in const [7, 3, 1, 0]) {
+          final reminderDay = day.subtract(Duration(days: milestone));
+          final reminderAt = philippineDayStart(
+            reminderDay,
+          ).add(const Duration(hours: morningHour));
+          // A day already gone by is never sent late.
+          if (!reminderAt.isAfter(now)) continue;
+          add(
+            PlannedReminder(
+              kind: ReminderKind.goals,
+              // Stable per deposit and milestone, so planning again replaces
+              // the same notification instead of adding another.
+              key: milestone == 0
+                  ? 'savings:${wallet.id}:matured'
+                  : 'savings:${wallet.id}:matured:$milestone',
+              at: reminderAt,
+              title: _timeDepositReminderTitle(wallet.name, milestone),
+              body: switch (milestone) {
+                7 =>
+                  'Your Time Deposit will mature in 7 days. Get ready to '
+                      'claim your money!',
+                3 => 'Your Time Deposit will mature in 3 days.',
+                1 => 'Your Time Deposit matures tomorrow!',
+                _ =>
+                  'Your Time Deposit has matured! You can now review and '
+                      'claim your money.',
+              },
+              payload: 'savings:${wallet.id}',
+            ),
+          );
+        }
+        continue;
+      }
+
+      // Older government savings: once on the day, once a week later.
       // Older than a fortnight is the card's job now, not a notification's.
       if (day.isBefore(today.subtract(const Duration(days: 14)))) continue;
       // What it should have earned, after tax, so the user knows what to
@@ -580,6 +637,14 @@ List<PlannedReminder> planReminders({
   // week before means there is nothing to ask.
   if (settings.isOn(ReminderKind.interest)) {
     for (final wallet in wallets) {
+      // Savings Deposits use their saved rate, start date and transaction
+      // history for transfer estimates, so recurring payout prompts are not
+      // useful there. Bank and e-wallet payout reminders remain enabled.
+      if (wallet.isSetAside &&
+          wallet.savingsType == SavingsKind.savingsDeposit) {
+        continue;
+      }
+
       final expected = wallet.interestPerPayoutAfterTax;
       if (expected == null || !isRecordableAmount(expected)) continue;
 

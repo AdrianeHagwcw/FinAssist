@@ -41,9 +41,27 @@ enum TransferDirection {
   ///
   /// Savings and demand deposits use the bank's Deposit, Withdrawal and
   /// Transfer wording, which differs from ordinary account-to-account moves.
-  static TransferDirection betweenWallets({Wallet? from, Wallet? to}) {
+  /// A time deposit follows the same wording when it is opened, and reads as
+  /// a withdrawal or transfer when its matured money is released.
+  static TransferDirection betweenWallets({
+    Wallet? from,
+    Wallet? to,
+    bool openingDeposit = false,
+  }) {
     if (from == null || to == null) {
       return between(from: from?.type, to: to?.type);
+    }
+
+    if (to.isTimeDeposit && openingDeposit) {
+      return from.type == WalletType.cash || isEWalletType(from.type)
+          ? TransferDirection.deposit
+          : TransferDirection.transfer;
+    }
+
+    if (from.isTimeDeposit) {
+      return to.type == WalletType.cash || isEWalletType(to.type)
+          ? TransferDirection.withdrawal
+          : TransferDirection.transfer;
     }
 
     final toDeposit =
@@ -69,3 +87,130 @@ enum TransferDirection {
     return between(from: from.type, to: to.type);
   }
 }
+
+/// Whether one move between the user's own wallets may happen, and what it
+/// is called.
+///
+/// This is the single rule matrix for every screen, Quick Action and the
+/// maturity claim/renew flow. A screen may hide a wallet for clarity, but the
+/// service layer asks this before writing anything.
+class WalletTransferRule {
+  const WalletTransferRule._({
+    required this.allowed,
+    required this.direction,
+    this.reason,
+  });
+
+  const WalletTransferRule.allowed(TransferDirection direction)
+    : this._(allowed: true, direction: direction);
+
+  const WalletTransferRule.blocked(String reason)
+    : this._(
+        allowed: false,
+        direction: TransferDirection.transfer,
+        reason: reason,
+      );
+
+  final bool allowed;
+  final TransferDirection direction;
+
+  /// Why the move is not allowed, for a message under the form.
+  final String? reason;
+
+  /// Every move between the user's own wallets is internal: none of it is
+  /// income or spending. The label ([direction]) is shown to the user; this
+  /// flag is what reports use.
+  bool get isInternalTransfer => true;
+
+  String get label => direction.label;
+}
+
+/// Wallets allowed to fund a time deposit as it is first opened.
+bool canFundTimeDeposit(Wallet wallet) =>
+    !wallet.archived &&
+    (wallet.type == WalletType.cash ||
+        isEWalletType(wallet.type) ||
+        wallet.type == WalletType.bank ||
+        (wallet.isSetAside &&
+            (wallet.savingsType == SavingsKind.savingsDeposit ||
+                wallet.savingsType == SavingsKind.demandDeposit)));
+
+/// The rule for moving money from [from] into [to].
+///
+/// [openingDeposit] is true only while a new time deposit is being created:
+/// that is the one moment money may enter a time deposit. After that an
+/// active deposit refuses money in either direction, and a matured one only
+/// lets its capital and interest out.
+WalletTransferRule transferRuleBetween({
+  required Wallet from,
+  required Wallet to,
+  DateTime? now,
+  bool openingDeposit = false,
+}) {
+  final when = now ?? DateTime.now();
+
+  if (from.id == to.id) {
+    return const WalletTransferRule.blocked('Choose a different wallet.');
+  }
+  if (from.archived || to.archived) {
+    return const WalletTransferRule.blocked('That wallet is archived.');
+  }
+
+  if (from.isTimeDeposit) {
+    final status = from.timeDepositStatusAt(when);
+    if (status == TimeDepositStatus.active) {
+      return const WalletTransferRule.blocked(
+        'This time deposit is still locked until its maturity date.',
+      );
+    }
+    if (status == TimeDepositStatus.closed) {
+      return const WalletTransferRule.blocked(
+        'This time deposit was already claimed or renewed.',
+      );
+    }
+    if (to.isTimeDeposit) {
+      return const WalletTransferRule.blocked(
+        'Renew a matured time deposit through its renewal flow.',
+      );
+    }
+    return WalletTransferRule.allowed(
+      TransferDirection.betweenWallets(from: from, to: to),
+    );
+  }
+
+  if (to.isTimeDeposit) {
+    if (!openingDeposit) {
+      return const WalletTransferRule.blocked(
+        'Money cannot be added to a time deposit. Open a new one instead.',
+      );
+    }
+    if (!canFundTimeDeposit(from)) {
+      return const WalletTransferRule.blocked(
+        'Fund a time deposit from Cash, an e-wallet, a bank, or another '
+        'savings deposit.',
+      );
+    }
+  }
+
+  return WalletTransferRule.allowed(
+    TransferDirection.betweenWallets(
+      from: from,
+      to: to,
+      openingDeposit: openingDeposit,
+    ),
+  );
+}
+
+/// Whether [wallet] may be a source in an ordinary transfer.
+bool canBeTransferSource(Wallet wallet, {DateTime? now}) {
+  if (wallet.archived) return false;
+  if (!wallet.isTimeDeposit) return true;
+  return wallet.timeDepositStatusAt(now ?? DateTime.now()) ==
+      TimeDepositStatus.matured;
+}
+
+/// Whether [wallet] may receive money in an ordinary transfer. A time
+/// deposit never can; money enters only when a new one is opened, or through
+/// its own renewal flow.
+bool canBeTransferDestination(Wallet wallet) =>
+    !wallet.archived && !wallet.isTimeDeposit;

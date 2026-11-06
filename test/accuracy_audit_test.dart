@@ -233,6 +233,7 @@ void main() {
                 required String fromWalletId,
                 required Map<String, double> to,
                 required double serviceCharge,
+                required double interestAmount,
               }) {},
         ),
       ),

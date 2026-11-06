@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
+import '../models/wallet.dart';
 import '../utils/money_format.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
@@ -77,6 +78,7 @@ class AllocationService {
     required String source,
     required DateTime receivedAt,
     List<AllocationCycle> recentCycles = const [],
+    List<Wallet> wallets = const [],
   }) {
     final problems = plan.problems;
     if (problems.isNotEmpty) {
@@ -85,6 +87,24 @@ class AllocationService {
     _checkAddsUp(incomeByWallet, plan.income, 'The income');
     _checkAddsUp(billsPaidFrom, plan.toBills, 'The bill payments');
     _checkAddsUp(goalKeptIn, plan.toGoal, 'The goal money');
+    if (wallets.isNotEmpty) {
+      final timeDepositIds = {
+        for (final wallet in wallets)
+          if (wallet.isTimeDeposit) wallet.id,
+      };
+      final ordinaryMovements = {
+        ...incomeByWallet.keys,
+        ...billsPaidFrom.keys,
+        ...billFees.keys,
+        ...goalKeptIn.keys,
+      };
+      if (ordinaryMovements.any(timeDepositIds.contains)) {
+        throw ArgumentError(
+          'Claim a matured time deposit before using it for income, bills, '
+          'fees, or goal contributions.',
+        );
+      }
+    }
 
     final batch = _firestore.batch();
     final deltas = <String, double>{};

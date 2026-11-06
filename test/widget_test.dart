@@ -904,6 +904,7 @@ void main() {
       double balance = 25000,
       DateTime? matures,
       bool archived = false,
+      SavingsKind kind = SavingsKind.timeDeposit,
     }) => Wallet(
       id: id,
       name: name,
@@ -914,7 +915,7 @@ void main() {
       archived: archived,
       sortOrder: 0,
       purpose: WalletPurpose.savings,
-      savingsKind: SavingsKind.timeDeposit.name,
+      savingsKind: kind.name,
       maturityDate: matures,
     );
 
@@ -1110,7 +1111,7 @@ void main() {
         AppTransaction(
           id: 'interest',
           type: TransactionType.income,
-          amount: afterTax(earned),
+          amount: earned,
           label: interestIncomeLabel,
           date: asOf,
           walletId: 'savings',
@@ -1127,13 +1128,13 @@ void main() {
       );
 
       // The next day only the new day's interest is unrecorded, earned on
-      // the balance that already includes what was written down.
+      // the balance that already includes the simple interest written down.
       expect(
         savingsDeposit.estimatedUnrecordedSavingsDepositInterest(
           transactions: recorded,
           asOf: DateTime(2024, 1, 12),
         ),
-        closeTo((10000 + afterTax(earned)) * 0.10 / 365, 0.000001),
+        closeTo((10000 + earned) * 0.10 / 365, 0.000001),
       );
     });
 
@@ -1193,7 +1194,11 @@ void main() {
           theme: AppTheme.light,
           home: Scaffold(
             body: SetAsideRecordSheet(
-              wallet: deposit(name: 'Pag-IBIG MP2', balance: 50000),
+              wallet: deposit(
+                name: 'Pag-IBIG MP2',
+                balance: 50000,
+                kind: SavingsKind.demandDeposit,
+              ),
               onSave: (newName, newBalance) {
                 name = newName;
                 recorded = newBalance;
@@ -1216,6 +1221,7 @@ void main() {
         find.byKey(const Key('set-aside-name')),
         'MP2 savings',
       );
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
 
@@ -1271,7 +1277,11 @@ void main() {
           theme: AppTheme.light,
           home: Scaffold(
             body: SetAsideRecordSheet(
-              wallet: deposit(name: 'Savings', balance: 2500),
+              wallet: deposit(
+                name: 'Savings',
+                balance: 2500,
+                kind: SavingsKind.demandDeposit,
+              ),
               minimumBalance: 2500,
               onSave: (_, amount) {
                 saves++;
@@ -1284,6 +1294,7 @@ void main() {
       await tester.pump();
 
       await tester.enterText(find.byKey(const Key('set-aside-balance')), '0');
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
 
@@ -1297,6 +1308,7 @@ void main() {
         find.byKey(const Key('set-aside-balance')),
         '2500',
       );
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
 
@@ -1307,6 +1319,11 @@ void main() {
     testWidgets('savings left empty at sign up can be started later', (
       tester,
     ) async {
+      tester.view.physicalSize = const Size(700, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       String? name;
       double? recorded;
 
@@ -1353,7 +1370,13 @@ void main() {
       // A time deposit is opened with its money in it: it can't start at
       // ₱0 and be filled later.
       await tester.enterText(find.byKey(const Key('set-aside-balance')), '0');
+      // The lock warning must be acknowledged before Confirm works.
+      await tester.ensureVisible(find.byKey(const Key('time-deposit-ack')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('time-deposit-ack')));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
       expect(
@@ -1706,7 +1729,11 @@ void main() {
           theme: AppTheme.light,
           home: Scaffold(
             body: SetAsideRecordSheet(
-              wallet: deposit(name: 'Savings', balance: 1000),
+              wallet: deposit(
+                name: 'Savings',
+                balance: 1000,
+                kind: SavingsKind.demandDeposit,
+              ),
               onSave: (_, _) => saves++,
             ),
           ),
@@ -1715,6 +1742,7 @@ void main() {
       await tester.pump();
 
       await tester.enterText(find.byKey(const Key('set-aside-name')), '');
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
       expect(find.text('Give it a name.'), findsOneWidget);
@@ -1729,6 +1757,7 @@ void main() {
       expect(find.text('-5'), findsNothing);
       expect(find.text('5'), findsOneWidget);
 
+      await tester.ensureVisible(find.byKey(const Key('set-aside-save')));
       await tester.tap(find.byKey(const Key('set-aside-save')));
       await tester.pump();
       expect(saves, 1, reason: '₱5 is a balance a record can hold');
@@ -1772,7 +1801,7 @@ void main() {
       ]);
     });
 
-    testWidgets('a time deposit starts on its balance plus the interest', (
+    testWidgets('a matured time deposit shows its money and interest', (
       tester,
     ) async {
       DateTime? renewedTo;
@@ -1792,13 +1821,23 @@ void main() {
         depositStartDate: DateTime(2026, 1, 1),
         maturityDate: DateTime(2027, 1, 1),
       );
+      final cash = Wallet(
+        id: 'cash',
+        name: 'Cash',
+        type: WalletType.cash,
+        balance: 500,
+        startingBalance: 500,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 1,
+      );
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.light,
           home: Scaffold(
             body: MaturedSavingsSheet(
               wallet: timeDeposit,
-              wallets: [timeDeposit],
+              wallets: [timeDeposit, cash],
               onRollOver: (next, earned) {
                 renewedTo = next;
                 interest = earned;
@@ -1810,26 +1849,236 @@ void main() {
       await tester.pump();
 
       // ₱10,000 × 3% for 365 days = ₱300, less the 20% tax banks keep.
-      expect(find.text('10240'), findsOneWidget);
-      expect(
-        find.text(
-          'Starts on ₱10,000 plus about ₱240 interest after tax. Change it '
-          'to what your bank paid.',
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('₱240 above the recorded balance'),
-        findsOneWidget,
-      );
+      expect(find.text('Original money'), findsOneWidget);
+      expect(find.text('₱10,000'), findsWidgets);
+      expect(find.text('Interest earned'), findsOneWidget);
+      expect(find.text('₱240'), findsWidgets);
+      expect(find.text('Total at maturity'), findsOneWidget);
+      expect(find.text('₱10,240'), findsWidgets);
 
-      // Renewed with the interest: it is kept as income in the deposit.
+      // Where it goes, filled with the whole amount.
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+
+      // Renewed with the interest: it is kept in the new deposit.
+      await tester.ensureVisible(find.byKey(const Key('matured-rollover')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('matured-rollover')));
       await tester.pumpAndSettle();
+      // The date picker starts a year after the old end date.
       await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matured-confirm')));
       await tester.pumpAndSettle();
       expect(renewedTo, isNotNull);
       expect(interest, 240);
+    });
+
+    testWidgets('a matured time deposit can claim capital and interest', (
+      tester,
+    ) async {
+      double? capital;
+      double? interest;
+      Map<String, double>? capitalTo;
+      Map<String, double>? interestTo;
+
+      final timeDeposit = Wallet(
+        id: 'td',
+        name: 'Time Deposit',
+        type: WalletType.other,
+        balance: 10240,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+        annualInterestRatePercent: 3,
+        depositStartDate: DateTime(2026, 1, 1),
+        maturityDate: DateTime(2027, 1, 1),
+        principal: 10000,
+      );
+      final cash = Wallet(
+        id: 'cash',
+        name: 'Cash',
+        type: WalletType.cash,
+        balance: 500,
+        startingBalance: 500,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 1,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: MaturedSavingsSheet(
+              wallet: timeDeposit,
+              wallets: [timeDeposit, cash],
+              onClaim: (money, earned, moneyTo, earnedTo) {
+                capital = money;
+                interest = earned;
+                capitalTo = moneyTo;
+                interestTo = earnedTo;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('matured-settle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matured-settle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matured-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(capital, 10000);
+      expect(interest, 240);
+      expect(capitalTo, {'cash': 10240});
+      expect(interestTo, isEmpty, reason: 'it goes where the capital goes');
+    });
+
+    testWidgets('a time deposit lets the user enter the actual interest', (
+      tester,
+    ) async {
+      double? interest;
+      Map<String, double>? capitalTo;
+      final timeDeposit = Wallet(
+        id: 'td-override',
+        name: 'Time Deposit',
+        type: WalletType.other,
+        balance: 10240,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+        annualInterestRatePercent: 3,
+        depositStartDate: DateTime(2026, 1, 1),
+        maturityDate: DateTime(2027, 1, 1),
+        principal: 10000,
+        maturityInterestRecorded: true,
+      );
+      final cash = Wallet(
+        id: 'cash-override',
+        name: 'Cash',
+        type: WalletType.cash,
+        balance: 500,
+        startingBalance: 500,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 1,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: MaturedSavingsSheet(
+              wallet: timeDeposit,
+              wallets: [timeDeposit, cash],
+              onClaim: (money, earned, moneyTo, _) {
+                interest = earned;
+                capitalTo = moneyTo;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('matured-td-interest')));
+      await tester.enterText(
+        find.byKey(const Key('matured-td-interest')),
+        '250',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('matured-settle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matured-settle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matured-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(interest, 250);
+      expect(capitalTo, {'cash-override': 10250});
+    });
+
+    testWidgets('a time deposit can renew the capital and pay out interest', (
+      tester,
+    ) async {
+      DateTime? renewedTo;
+      double? paidInterest;
+      Map<String, double>? interestTo;
+
+      final timeDeposit = Wallet(
+        id: 'td',
+        name: 'Time Deposit',
+        type: WalletType.other,
+        balance: 10240,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+        annualInterestRatePercent: 3,
+        depositStartDate: DateTime(2026, 1, 1),
+        maturityDate: DateTime(2027, 1, 1),
+        principal: 10000,
+      );
+      final cash = Wallet(
+        id: 'cash',
+        name: 'Cash',
+        type: WalletType.cash,
+        balance: 500,
+        startingBalance: 500,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 1,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: MaturedSavingsSheet(
+              wallet: timeDeposit,
+              wallets: [timeDeposit, cash],
+              onRenewCapital: (next, earned, earnedTo) {
+                renewedTo = next;
+                paidInterest = earned;
+                interestTo = earnedTo;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('matured-renew-capital')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matured-renew-capital')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matured-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(renewedTo, isNotNull);
+      expect(paidInterest, 240);
+      expect(interestTo, {'cash': 240});
     });
 
     test('the end-date reminder says what interest to look for', () {
@@ -1854,12 +2103,13 @@ void main() {
         goals: const [],
         wallets: [timeDeposit],
         transactions: const [],
-        now: DateTime(2026, 12, 30),
-      ).where((r) => r.key == 'savings:td:matured');
+        now: DateTime(2026, 12, 31),
+      );
+      final onTheDay = planned.where((r) => r.key == 'savings:td:matured');
       expect(
-        planned.single.body,
-        '₱10,000 is recorded, plus about ₱240 interest after tax. Open '
-        'FinAssist to say what you got back.',
+        onTheDay.single.body,
+        'Your Time Deposit has matured! You can now review and claim your '
+        'money.',
       );
     });
 
@@ -1874,9 +2124,9 @@ void main() {
           theme: AppTheme.light,
           home: Scaffold(
             body: MaturedSavingsSheet(
-              wallet: deposit(matures: today),
+              wallet: deposit(matures: today, kind: SavingsKind.savingsDeposit),
               wallets: [
-                deposit(matures: today),
+                deposit(matures: today, kind: SavingsKind.savingsDeposit),
                 Wallet(
                   id: 'cash',
                   name: 'Cash',
@@ -1928,7 +2178,7 @@ void main() {
       expect(destination, {'cash': 27000});
     });
 
-    testWidgets('matured proceeds go to cash or bank, not savings records', (
+    testWidgets('matured proceeds can go to cash, bank or savings records', (
       tester,
     ) async {
       Wallet savingsRecord(String id, String name, SavingsKind kind) => Wallet(
@@ -1992,8 +2242,10 @@ void main() {
       await tester.tap(find.text('Cash in Bank'));
       await tester.pumpAndSettle();
       expect(find.text('BPI'), findsOneWidget);
-      expect(find.text('Demand Deposit'), findsNothing);
-      expect(find.text('Savings Deposit'), findsNothing);
+      // A matured time deposit may be claimed into a savings or demand
+      // deposit as well; only another time deposit is closed to it.
+      expect(find.text('Demand Deposit'), findsOneWidget);
+      expect(find.text('Savings Deposit'), findsOneWidget);
     });
 
     testWidgets('savings withdrawals include reported interest and can split', (
@@ -3799,20 +4051,12 @@ void main() {
       expect(find.text('Earns interest'), findsOneWidget);
       expect(find.text("Follows your bank's rules"), findsOneWidget);
       expect(find.textContaining('Locked until the end date'), findsNothing);
-      // A savings deposit asks for its rate and start date, not an end, and
-      // how often it pays, for its reminders.
+      // A savings deposit asks for its rate and start date, not an end or a
+      // payout schedule: its interest is estimated from rate and dates.
       expect(find.text('Interest rate per year'), findsOneWidget);
       expect(find.text('Start date'), findsOneWidget);
       expect(find.text('End date'), findsNothing);
-      expect(find.text('How often does it pay interest?'), findsOneWidget);
-      // Every month starts chosen: the one with the check.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('interest-payout-monthly')),
-          matching: find.byIcon(Icons.check),
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('How often does it pay interest?'), findsNothing);
 
       // A time deposit adds the end date. Missing dates are all shown at
       // once, under the field each one belongs to.
@@ -3830,6 +4074,10 @@ void main() {
         find.byKey(const Key('onboarding-savings-rate')),
         '4',
       );
+      // The lock warning must be acknowledged for Confirm to work.
+      await tester.ensureVisible(find.byKey(const Key('time-deposit-ack')));
+      await tester.tap(find.byKey(const Key('time-deposit-ack')));
+      await tester.pumpAndSettle();
       final saveSavings = find.byKey(const Key('save-onboarding-savings'));
       await tester.ensureVisible(saveSavings);
       await tester.tap(saveSavings);
@@ -5200,28 +5448,137 @@ void main() {
       expect(find.text('My GCash'), findsWidgets);
     });
 
-    testWidgets('transfer opens while savings interest is still loading', (
+    testWidgets('savings transfer uses the computed simple interest', (
       tester,
     ) async {
-      final transactions = StreamController<List<AppTransaction>>();
-      addTearDown(transactions.close);
+      final started = DateTime.now().subtract(const Duration(days: 365));
+      final savings = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+        annualInterestRatePercent: 5,
+        depositStartDate: started,
+        createdAt: started,
+      );
+      final demand = Wallet(
+        id: 'demand',
+        name: 'Demand Deposit',
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 3,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.demandDeposit.name,
+      );
+      final calculatedInterest = savings
+          .estimatedUnrecordedSavingsDepositInterest(transactions: const [])!;
+      final roundedInterest = (calculatedInterest * 100).round() / 100;
+      final total = savings.balance + roundedInterest;
+      double? savedInterest;
+      Map<String, double>? savedTransfers;
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.light,
           home: Scaffold(
             body: TransferSheet(
-              wallets: Stream.value([cash, gcash]),
-              transactions: transactions.stream,
+              wallets: Stream.value([cash, gcash, savings, demand]),
+              initialTransactions: const [],
+              initialFromWalletId: savings.id,
+              initialToWalletId: demand.id,
+              initialAmount: total,
+              onSave:
+                  ({
+                    required String fromWalletId,
+                    required Map<String, double> to,
+                    required double serviceCharge,
+                    required double interestAmount,
+                  }) {
+                    savedInterest = interestAmount;
+                    savedTransfers = to;
+                  },
             ),
           ),
         ),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      expect(find.text('Where is it going?'), findsOneWidget);
-      expect(find.byKey(const Key('service-charge-amount')), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byKey(const Key('transfer-savings-interest')), findsNothing);
+      expect(
+        find.textContaining('Savings Deposit holds ${formatPeso(total)}'),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.widgetWithText(ElevatedButton, 'Transfer'),
+      );
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Transfer'));
+      await tester.pumpAndSettle();
+
+      expect(savedInterest, roundedInterest);
+      expect(savedTransfers, {demand.id: total});
     });
+
+    testWidgets(
+      'computed savings interest is shown as Income in Transactions',
+      (tester) async {
+        final started = DateTime.now().subtract(const Duration(days: 365));
+        final savings = Wallet(
+          id: 'savings',
+          name: 'Savings Deposit',
+          type: WalletType.other,
+          balance: 5000,
+          startingBalance: 5000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 2,
+          purpose: WalletPurpose.savings,
+          savingsKind: SavingsKind.savingsDeposit.name,
+          annualInterestRatePercent: 5,
+          depositStartDate: started,
+          createdAt: started,
+        );
+        final calculated = savings.estimatedUnrecordedSavingsDepositInterest(
+          transactions: const [],
+        )!;
+        final interest = (calculated * 100).round() / 100;
+        final transaction = AppTransaction(
+          id: 'interest',
+          type: TransactionType.income,
+          amount: interest,
+          label: interestIncomeLabel,
+          date: DateTime.now(),
+          walletId: savings.id,
+        );
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider(
+            create: (_) => AppSettingsProvider(),
+            child: MaterialApp(
+              theme: AppTheme.light,
+              home: Scaffold(
+                body: TransactionRow(
+                  transaction: transaction,
+                  wallets: [savings],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text(interestIncomeLabel), findsOneWidget);
+        expect(find.text('+${formatPeso(interest)}'), findsOneWidget);
+        expect(find.textContaining('Inflow'), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'demand deposits are sources and savings stay separate destinations',
@@ -5294,126 +5651,6 @@ void main() {
         expect(find.byKey(const Key('goes-to-savings')), findsNothing);
       },
     );
-
-    testWidgets(
-      'savings sources show the recorded balance plus after-tax interest',
-      (tester) async {
-        final started = DateTime.now().subtract(const Duration(days: 365));
-        final savings = Wallet(
-          id: 'savings',
-          name: 'Savings Deposit',
-          type: WalletType.other,
-          balance: 5000,
-          startingBalance: 5000,
-          receivesIncome: false,
-          archived: false,
-          sortOrder: 2,
-          purpose: WalletPurpose.savings,
-          savingsKind: SavingsKind.savingsDeposit.name,
-          annualInterestRatePercent: 5,
-          depositStartDate: started,
-          createdAt: started,
-        );
-        final demand = Wallet(
-          id: 'demand',
-          name: 'Demand Deposit',
-          type: WalletType.other,
-          balance: 5000,
-          startingBalance: 5000,
-          receivesIncome: false,
-          archived: false,
-          sortOrder: 3,
-          purpose: WalletPurpose.savings,
-          savingsKind: SavingsKind.demandDeposit.name,
-          annualInterestRatePercent: 5,
-          depositStartDate: started,
-          createdAt: started,
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: AppTheme.light,
-            home: Scaffold(
-              body: TransferSheet(
-                wallets: Stream.value([cash, gcash, savings, demand]),
-                transactions: Stream.value(const <AppTransaction>[]),
-                initialFromWalletId: savings.id,
-              ),
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('Savings Deposit holds ₱5,200'), findsOneWidget);
-        await tester.tap(find.byType(DropdownButtonFormField<String>));
-        await tester.pumpAndSettle();
-        expect(find.text('Demand Deposit'), findsWidgets);
-        await tester.tap(find.text('Demand Deposit').last);
-        await tester.pumpAndSettle();
-        expect(find.text('Demand Deposit holds ₱5,000'), findsOneWidget);
-      },
-    );
-
-    testWidgets('recorded savings interest is not counted again', (
-      tester,
-    ) async {
-      final started = DateTime.now().subtract(const Duration(days: 365));
-      final savings = Wallet(
-        id: 'savings',
-        name: 'Savings Deposit',
-        type: WalletType.other,
-        balance: 5200,
-        startingBalance: 5000,
-        receivesIncome: false,
-        archived: false,
-        sortOrder: 2,
-        purpose: WalletPurpose.savings,
-        savingsKind: SavingsKind.savingsDeposit.name,
-        annualInterestRatePercent: 5,
-        depositStartDate: started,
-        createdAt: started,
-      );
-      final demand = Wallet(
-        id: 'demand',
-        name: 'Demand Deposit',
-        type: WalletType.other,
-        balance: 5000,
-        startingBalance: 5000,
-        receivesIncome: false,
-        archived: false,
-        sortOrder: 3,
-        purpose: WalletPurpose.savings,
-        savingsKind: SavingsKind.demandDeposit.name,
-      );
-      // The ₱200 after-tax interest for the year is already in the balance,
-      // so the sheet must not add the same estimate on top of it.
-      final recorded = [
-        AppTransaction(
-          id: 'interest',
-          type: TransactionType.income,
-          amount: 200,
-          label: interestIncomeLabel,
-          date: DateTime.now(),
-          walletId: savings.id,
-        ),
-      ];
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: TransferSheet(
-              wallets: Stream.value([cash, gcash, savings, demand]),
-              transactions: Stream.value(recorded),
-              initialFromWalletId: savings.id,
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Savings Deposit holds ₱5,200'), findsOneWidget);
-    });
 
     testWidgets('with one wallet there is nowhere to move it', (tester) async {
       await pumpTransfer(tester, wallets: [cash]);
@@ -7070,6 +7307,7 @@ void main() {
                       required String fromWalletId,
                       required Map<String, double> to,
                       required double serviceCharge,
+                      required double interestAmount,
                     }) {
                       moved = to['bpi'];
                       fee = serviceCharge;
@@ -10013,7 +10251,6 @@ void main() {
         purpose: WalletPurpose.savings,
         savingsKind: SavingsKind.demandDeposit.name,
       );
-
       await tester.pumpWidget(
         ChangeNotifierProvider(
           create: (_) => AppSettingsProvider(),
@@ -13127,6 +13364,14 @@ void main() {
         savingsKind: SavingsKind.demandDeposit.name,
       );
 
+      final estimatedInterest = savings
+          .estimatedUnrecordedSavingsDepositInterest(
+            transactions: const <AppTransaction>[],
+            asOf: DateTime.now(),
+          )!;
+      final expectedBalance =
+          savings.balance + (estimatedInterest * 100).round() / 100;
+
       await tester.pumpWidget(
         ChangeNotifierProvider(
           create: (_) => AppSettingsProvider(),
@@ -13169,8 +13414,13 @@ void main() {
       await tester.tap(find.text('Savings Deposit').last);
       await tester.pumpAndSettle();
 
-      expect(find.text('Savings Deposit holds ₱5,200'), findsOneWidget);
-      expect(find.text('Loading savings interest estimate...'), findsNothing);
+      expect(
+        find.textContaining(
+          'Savings Deposit holds ${formatPeso(expectedBalance)}',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('transfer-savings-interest')), findsNothing);
       expect(find.byKey(const Key('goes-to-demand')), findsOneWidget);
     });
 
@@ -14459,6 +14709,8 @@ void main() {
       double balance = 100000,
       double? rate = 3,
       WalletType type = WalletType.bank,
+      WalletPurpose purpose = WalletPurpose.spending,
+      String? savingsKind,
     }) => Wallet(
       id: 'bpi',
       name: 'BPI',
@@ -14470,6 +14722,8 @@ void main() {
       sortOrder: 0,
       annualInterestRatePercent: rate,
       interestPayout: payout,
+      purpose: purpose,
+      savingsKind: savingsKind,
     );
 
     test('interest is asked about on the 1st after each payment', () {
@@ -14547,6 +14801,36 @@ void main() {
       expect(days(interestAccount(rate: null)), isEmpty);
       expect(days(interestAccount(balance: 1, rate: 0.1)), isEmpty);
       expect(days(interestAccount(type: WalletType.cash)), isEmpty);
+    });
+
+    test('savings deposit payout schedules do not create reminders', () {
+      final settings = ReminderSettings.fromProfile(
+        profile(const [FinancialPriority.saveForGoal]),
+      );
+      final savingsDeposit = interestAccount(
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+      );
+
+      expect(savingsDeposit.paysRegularInterest, isTrue);
+      expect(
+        plan(
+          settings,
+          now: DateTime(2027, 3, 10, 7),
+          wallets: [savingsDeposit],
+          only: ReminderKind.interest,
+        ),
+        isEmpty,
+      );
+      expect(
+        plan(
+          settings,
+          now: DateTime(2027, 3, 10, 7),
+          wallets: [interestAccount(type: WalletType.ewallet)],
+          only: ReminderKind.interest,
+        ).map((reminder) => reminder.at),
+        [DateTime(2027, 4, 1, 9), DateTime(2027, 5, 1, 9)],
+      );
     });
 
     test('interest already added, or reminders turned off, asks nothing', () {
@@ -14822,6 +15106,71 @@ void main() {
       await tester.tap(find.byKey(const Key('add-interest')));
       await tester.pump();
       expect(opened, isTrue);
+    });
+
+    testWidgets('a savings deposit card has no payout schedule', (
+      tester,
+    ) async {
+      final savingsDeposit = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        annualInterestRatePercent: 3,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(body: InterestCard(wallet: savingsDeposit)),
+        ),
+      );
+
+      expect(find.text('3% a year'), findsOneWidget);
+      expect(find.textContaining('paid'), findsNothing);
+      expect(find.byType(InterestPayoutPicker), findsNothing);
+      expect(find.byKey(const Key('add-interest')), findsOneWidget);
+    });
+
+    testWidgets('adding savings interest does not suggest a payout amount', (
+      tester,
+    ) async {
+      final savingsDeposit = Wallet(
+        id: 'savings',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 0,
+        annualInterestRatePercent: 3,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: AddInterestSheet(
+              wallet: savingsDeposit,
+              today: DateTime(2027, 4, 1),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Interest from Savings Deposit'), findsOneWidget);
+      expect(find.textContaining('We expected about'), findsNothing);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        isEmpty,
+      );
     });
 
     Wallet maturedDeposit({double balance = 25000, DateTime? matures}) =>

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../utils/amount_input_formatter.dart';
 import '../../backend/models/goal.dart';
+import '../../backend/models/transfer_direction.dart';
 import '../../backend/models/wallet.dart';
 import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
@@ -106,10 +107,16 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
   );
   late DateTime? _depositStartDate = widget.wallet?.depositStartDate;
   late DateTime? _maturityDate = widget.wallet?.maturityDate;
-  late InterestPayout _payout =
-      widget.wallet?.interestPayout ?? InterestPayout.monthly;
 
   bool get _isNew => widget.wallet == null;
+  bool get _existingTimeDeposit => widget.wallet?.isTimeDeposit ?? false;
+
+  /// Ticked once the user has read the time deposit lock warning. Only a new
+  /// time deposit needs it; Confirm stays disabled until then.
+  bool _acknowledged = false;
+
+  bool get _lockedTimeDeposit =>
+      _isNew && _kind == SavingsKind.timeDeposit && !_acknowledged;
 
   bool get _canEditSavingsMetadata {
     if (_isNew) return true;
@@ -215,6 +222,18 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
   void _chooseKind(SavingsKind kind) {
     setState(() {
       _kind = kind;
+      if (kind == SavingsKind.timeDeposit) {
+        _from = {
+          for (final entry in _from.entries)
+            if (widget.wallets.any(
+              (wallet) => wallet.id == entry.key && canFundTimeDeposit(wallet),
+            ))
+              entry.key: entry.value,
+        };
+      }
+      // The warning belongs to the time deposit choice; a different kind
+      // starts fresh if it is picked again.
+      _acknowledged = false;
     });
   }
 
@@ -293,6 +312,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
   void _save() {
     // Every problem shows at once, each under its own field.
     markTriedToSave();
+    if (_lockedTimeDeposit) return;
     final problems = _problems;
     if (problems.name != null ||
         problems.balance != null ||
@@ -333,7 +353,6 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
         annualInterestRatePercent: rate,
         depositStartDate: _depositStartDate,
         maturityDate: _kind == SavingsKind.timeDeposit ? _maturityDate : null,
-        interestPayout: _kind == SavingsKind.savingsDeposit ? _payout : null,
       );
     } else {
       final wallet = widget.wallet!;
@@ -344,16 +363,13 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
       if (_canEditSavingsMetadata) {
         WalletService.updateWallet(
           walletId: wallet.id,
+          currentWallet: wallet,
           updateSavingsMetadata: true,
           savingsKind: _kind.name,
           annualInterestRatePercent: rate,
           depositStartDate: _kind.isInterestBearing ? _depositStartDate : null,
           maturityDate: _kind == SavingsKind.timeDeposit ? _maturityDate : null,
         );
-        if (_kind == SavingsKind.savingsDeposit &&
-            _payout != wallet.interestPayout) {
-          WalletService.setInterestPayout(wallet, _payout);
-        }
       }
     }
     Navigator.pop(context, true);
@@ -416,6 +432,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
               if (_canEditSavingsMetadata)
                 SavingsKindPicker(
                   kind: _kind,
+                  enabled: !_existingTimeDeposit,
                   keyPrefix: 'new-savings-',
                   onChanged: _chooseKind,
                   onLearnMore: _explain,
@@ -453,7 +470,9 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                 const SizedBox(height: 12),
                 WalletSplitPicker(
                   key: const ValueKey('savings-from-wallets'),
-                  wallets: widget.wallets,
+                  wallets: _kind == SavingsKind.timeDeposit
+                      ? widget.wallets.where(canFundTimeDeposit).toList()
+                      : widget.wallets,
                   goals: heldGoals,
                   purpose: SplitPurpose.giving,
                   onChanged: (amounts) => setState(() => _from = amounts),
@@ -473,6 +492,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                 TextField(
                   key: const Key('set-aside-balance'),
                   controller: _balanceController,
+                  readOnly: widget.wallet?.isTimeDeposit ?? false,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
@@ -481,7 +501,10 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                     hint: '0.00',
                     prefix: '₱ ',
                     error: problems?.balance,
-                    helper: _isNew
+                    helper: widget.wallet?.isTimeDeposit ?? false
+                        ? 'This time deposit amount stays locked until you '
+                              'claim or renew it at maturity.'
+                        : _isNew
                         ? "Check your bank app or passbook. Enter 0 if it's "
                               'empty.'
                         : widget.minimumBalance > 0
@@ -497,6 +520,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                 TextField(
                   key: const Key('set-aside-interest-rate'),
                   controller: _rateController,
+                  readOnly: _existingTimeDeposit,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
@@ -512,30 +536,30 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                 PickDateField(
                   key: const Key('set-aside-deposit-start'),
                   date: _depositStartDate,
-                  onTap: _pickDepositStart,
+                  onTap: _existingTimeDeposit ? null : _pickDepositStart,
                   helper: 'When this money started earning interest.',
                   error: problems?.start,
                 ),
               ],
-              // A savings deposit pays now and then; a time deposit pays at
-              // its end date.
-              if (asksRate && _kind == SavingsKind.savingsDeposit)
-                InterestPayoutPicker(
-                  payout: _payout,
-                  onChanged: (payout) => setState(() => _payout = payout),
-                ),
               if (_canEditSavingsMetadata &&
                   _kind == SavingsKind.timeDeposit) ...[
                 const FieldLabel('End date'),
                 PickDateField(
                   key: const Key('new-savings-maturity'),
                   date: _maturityDate,
-                  onTap: _pickMaturity,
+                  onTap: _existingTimeDeposit ? null : _pickMaturity,
                   helper:
                       'When you can take it out without a penalty. FinAssist '
                       'asks what you did with it then.',
                   error: problems?.end,
                 ),
+                if (_isNew) ...[
+                  const SizedBox(height: 14),
+                  TimeDepositLockNotice(
+                    acknowledged: _acknowledged,
+                    onChanged: (value) => setState(() => _acknowledged = value),
+                  ),
+                ],
               ],
               const SizedBox(height: 20),
               SizedBox(
@@ -544,7 +568,7 @@ class _SetAsideRecordSheetState extends State<SetAsideRecordSheet>
                 child: ElevatedButton(
                   key: const Key('set-aside-save'),
                   style: confirmButtonStyle(),
-                  onPressed: _save,
+                  onPressed: _lockedTimeDeposit ? null : _save,
                   child: Text(
                     _isNew ? _addLabel : 'Save Changes',
                     style: const TextStyle(

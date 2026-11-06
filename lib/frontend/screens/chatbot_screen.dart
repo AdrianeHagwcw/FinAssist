@@ -815,6 +815,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     try {
       WalletService.recordExpenseBatch(
         expenses: splitExpenseBatch(expenses, paidFrom),
+        wallets: wallets,
       );
     } on Object catch (error, stackTrace) {
       debugPrint('FinAssist expense batch save failed: $error');
@@ -1270,7 +1271,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // =========================================================
   // SUGGESTED QUESTIONS
   // =========================================================
-
 
   Widget _suggestedQuestions() {
     const questions = suggestedQuestions;

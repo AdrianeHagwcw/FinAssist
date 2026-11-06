@@ -53,6 +53,14 @@ LoanPayments work(
 )!;
 
 void main() {
+  Future<void> pickDate(WidgetTester tester, Key key) async {
+    await tester.ensureVisible(find.byKey(key));
+    await tester.tap(find.byKey(key));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+  }
+
   test('loan payment frequencies map to matching bill dates', () {
     expect(PaymentFrequency.daily.recurrence, BillRecurrence.daily);
     expect(PaymentFrequency.quarterly.recurrence, BillRecurrence.quarterly);
@@ -256,14 +264,6 @@ void main() {
         ),
       );
       await tester.pump();
-    }
-
-    Future<void> pickDate(WidgetTester tester, Key key) async {
-      await tester.ensureVisible(find.byKey(key));
-      await tester.tap(find.byKey(key));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('OK'));
-      await tester.pumpAndSettle();
     }
 
     testWidgets('Installments lists only things bought on installment', (

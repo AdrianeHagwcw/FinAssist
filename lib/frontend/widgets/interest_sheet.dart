@@ -56,7 +56,11 @@ class AddInterestSheet extends StatefulWidget {
 class _AddInterestSheetState extends State<AddInterestSheet>
     with CheckAfterSave {
   late final DateTime _today = widget.today ?? DateTime.now();
-  late final double? _expected = widget.wallet.interestPerPayoutAfterTax;
+  late final double? _expected =
+      widget.wallet.isSetAside &&
+          widget.wallet.savingsType == SavingsKind.savingsDeposit
+      ? null
+      : widget.wallet.interestPerPayoutAfterTax;
 
   late final _amountController = TextEditingController(
     text: _expected == null || !isRecordableAmount(_expected)
@@ -233,6 +237,8 @@ class InterestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final isSavingsDeposit =
+        wallet.isSetAside && wallet.savingsType == SavingsKind.savingsDeposit;
     final payout = wallet.interestPayout;
     final each = wallet.interestPerPayoutAfterTax;
     final rate = wallet.annualInterestRatePercent!;
@@ -271,8 +277,10 @@ class InterestCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${percentText(rate)} a year · paid '
-                      '${payout.label.toLowerCase()}',
+                      isSavingsDeposit
+                          ? '${percentText(rate)} a year'
+                          : '${percentText(rate)} a year · paid '
+                                '${payout.label.toLowerCase()}',
                       style: TextStyle(fontSize: 13, color: colors.textBody),
                     ),
                   ],
@@ -280,7 +288,7 @@ class InterestCard extends StatelessWidget {
               ),
             ],
           ),
-          if (each != null) ...[
+          if (each != null && !isSavingsDeposit) ...[
             const SizedBox(height: 8),
             // Paid daily, what is added is the month's total.
             ItemCardDetail(
@@ -292,16 +300,16 @@ class InterestCard extends StatelessWidget {
               'about ${formatPeso(each * 12 / payout.remindEvery)}',
             ),
           ],
-          // The same choice as when a savings deposit is added.
-          InterestPayoutPicker(
-            payout: payout,
-            onChanged: (choice) {
-              if (choice == payout) return;
-              (onPayoutChanged ??
-                  (next) =>
-                      WalletService.setInterestPayout(wallet, next))(choice);
-            },
-          ),
+          if (!isSavingsDeposit)
+            InterestPayoutPicker(
+              payout: payout,
+              onChanged: (choice) {
+                if (choice == payout) return;
+                (onPayoutChanged ??
+                    (next) =>
+                        WalletService.setInterestPayout(wallet, next))(choice);
+              },
+            ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,

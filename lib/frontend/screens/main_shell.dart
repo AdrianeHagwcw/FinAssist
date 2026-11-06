@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -68,6 +69,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   bool get _live => widget.pages == null;
   StreamSubscription? _profileSubscription;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   @override
   void initState() {
@@ -90,6 +92,17 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addObserver(this);
     _reminders.start();
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      results,
+    ) {
+      if (results.any((result) => result != ConnectivityResult.none)) {
+        unawaited(WalletService.syncLoadedTimeDeposits());
+        unawaited(WalletService.syncPendingTimeDepositSettlements());
+      }
+    });
+    // Mature deposits and locally queued claims are resolved at startup.
+    unawaited(WalletService.syncLoadedTimeDeposits());
+    unawaited(WalletService.syncPendingTimeDepositSettlements());
     // Older installments get their interest kept apart, once each.
     DebtService.fillInterestShares();
     // Apply any fixed-interest charges that came due while the app was away.
@@ -104,6 +117,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     _profileSubscription?.cancel();
+    _connectivitySubscription?.cancel();
     if (_live) {
       WidgetsBinding.instance.removeObserver(this);
       ReminderService.opened.removeListener(_openReminder);
@@ -120,6 +134,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     );
     // A new day may have started, so "nothing logged today" is planned again.
     _reminders.refresh();
+    unawaited(WalletService.syncLoadedTimeDeposits());
+    unawaited(WalletService.syncPendingTimeDepositSettlements());
     // Back on a new day: Home is worked out again, so This Month, today's
     // spending and Safe to Spend follow the date instead of the day the app
     // was left open on.
