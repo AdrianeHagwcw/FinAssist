@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../backend/models/bill.dart';
@@ -11,9 +13,11 @@ import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
 import '../widgets/add_button.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/goal_progress.dart';
 import '../widgets/installment_form_sheet.dart';
 import '../widgets/loan_form_sheet.dart';
 import '../widgets/money_text.dart';
+import '../widgets/segmented_filter_tile.dart';
 import 'debt_detail_screen.dart';
 
 /// Things bought on installment, as its own screen, for the Home shortcuts.
@@ -149,6 +153,9 @@ class _DebtListState extends State<_DebtList> {
           ? DebtService.watchLoans()
           : DebtService.watchInstallments());
 
+  /// False shows what is still being paid; true shows what is finished.
+  bool _showCompleted = false;
+
   /// Opens the form for this list.
   Future<void> _add() async {
     if (widget.loans) {
@@ -196,47 +203,252 @@ class _DebtListState extends State<_DebtList> {
             .where((d) => d.category.isLoan == widget.loans)
             .toList();
 
-        return ListView(
-          padding: EdgeInsets.fromLTRB(20, 16, 20, widget.bottomPadding),
-          children: [
-            if (shown.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 30, bottom: 10),
-                child: EmptyStateView(
-                  iconAsset: widget.loans
-                      ? 'assets/icons/icons8-loan-96.png'
-                      : 'assets/icons/installment-96.png',
-                  title: widget.loans ? 'No debts yet' : 'No installments yet',
-                  message: widget.loans
-                      ? 'Add money you borrowed. The app works out each '
-                            'payment from the interest, and they show up in '
-                            'your Bill Planner so you never miss one.'
-                      : 'Add an installment and its payments show up '
-                            'in your Bill Planner so you never miss one.',
-                ),
-              )
-            else
-              for (final debt in shown) ...[
-                StreamBuilder<List<BillInstance>>(
-                  stream: debt.billId == null
-                      ? Stream.value(const [])
-                      : _payments(debt.billId!),
-                  builder: (context, payments) => _InstallmentCard(
-                    debt: debt,
-                    progress: DebtProgress.of(debt, payments.data ?? const []),
-                    onTap: () => _open(debt),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-            const SizedBox(height: 4),
-            AddButton(
-              label: widget.loans ? 'Add Debt' : 'Add Installment',
-              onPressed: _add,
-            ),
-          ],
+        return _DebtProgressList(
+          debts: shown,
+          paymentsFor: _payments,
+          showCompleted: _showCompleted,
+          onChanged: (completed) => setState(() => _showCompleted = completed),
+          loans: widget.loans,
+          bottomPadding: widget.bottomPadding,
+          onOpen: _open,
+          onAdd: _add,
         );
       },
+    );
+  }
+}
+
+/// Pairs each debt with how far it has been paid, then shows either the
+/// active ones or the completed ones under the same filter Goals uses.
+///
+/// Progress comes from each debt's bill payments, so an ordinary installment
+/// counts as completed when its last payment is made, not only when it is
+/// paid off early.
+class _DebtProgressList extends StatefulWidget {
+  const _DebtProgressList({
+    required this.debts,
+    required this.paymentsFor,
+    required this.showCompleted,
+    required this.onChanged,
+    required this.loans,
+    required this.bottomPadding,
+    required this.onOpen,
+    required this.onAdd,
+  });
+
+  final List<Debt> debts;
+  final Stream<List<BillInstance>> Function(String billId) paymentsFor;
+  final bool showCompleted;
+  final ValueChanged<bool> onChanged;
+  final bool loans;
+  final double bottomPadding;
+  final ValueChanged<Debt> onOpen;
+  final VoidCallback onAdd;
+
+  @override
+  State<_DebtProgressList> createState() => _DebtProgressListState();
+}
+
+class _DebtProgressListState extends State<_DebtProgressList> {
+  final _instances = <String, List<BillInstance>>{};
+  final _progress = <String, DebtProgress>{};
+  final _billIds = <String, String>{};
+  final _subscriptions = <String, StreamSubscription<List<BillInstance>>>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DebtProgressList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync();
+  }
+
+  @override
+  void dispose() {
+    for (final subscription in _subscriptions.values) {
+      subscription.cancel();
+    }
+    super.dispose();
+  }
+
+  /// Subscribes to the payments of any debt that is new here, drops records
+  /// that left the list, and recomputes from the latest debt terms.
+  void _sync() {
+    final ids = {for (final debt in widget.debts) debt.id};
+    for (final id in _subscriptions.keys.toList()) {
+      if (!ids.contains(id)) {
+        _subscriptions.remove(id)?.cancel();
+        _billIds.remove(id);
+        _instances.remove(id);
+        _progress.remove(id);
+      }
+    }
+
+    for (final debt in widget.debts) {
+      final billId = debt.billId;
+      if (billId == null) {
+        _subscriptions.remove(debt.id)?.cancel();
+        _billIds.remove(debt.id);
+        _instances[debt.id] = const [];
+        continue;
+      }
+
+      if (_subscriptions.containsKey(debt.id) && _billIds[debt.id] == billId) {
+        continue;
+      }
+
+      _subscriptions.remove(debt.id)?.cancel();
+      _billIds[debt.id] = billId;
+      // Show the plan's own figures at once; the payments fill in when the
+      // stream delivers them, as each card did before.
+      _instances.putIfAbsent(debt.id, () => const []);
+      _subscriptions[debt.id] = widget
+          .paymentsFor(billId)
+          .listen(
+            (instances) {
+              if (!mounted) return;
+              setState(() {
+                _instances[debt.id] = instances;
+                _recompute();
+              });
+            },
+            onError: (Object _) {
+              if (!mounted) return;
+              // A failed read still leaves the plan's own figures usable.
+              setState(() {
+                _instances[debt.id] = const [];
+                _recompute();
+              });
+            },
+          );
+    }
+
+    _recompute();
+  }
+
+  void _recompute() {
+    for (final debt in widget.debts) {
+      final instances = _instances[debt.id];
+      if (instances == null) continue;
+      _progress[debt.id] = DebtProgress.of(debt, instances);
+    }
+  }
+
+  bool get _ready =>
+      widget.debts.every((debt) => _progress.containsKey(debt.id));
+
+  /// Paid in full, whether through its last scheduled payment or early.
+  bool _isCompleted(Debt debt, DebtProgress progress) =>
+      progress.isPaidOff ||
+      debt.paidOffEarly ||
+      debt.status == DebtStatus.settled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final active = <Debt>[];
+    final completed = <Debt>[];
+    for (final debt in widget.debts) {
+      final progress = _progress[debt.id]!;
+      (_isCompleted(debt, progress) ? completed : active).add(debt);
+    }
+    final shown = widget.showCompleted ? completed : active;
+    final noun = widget.loans ? 'debts' : 'installments';
+
+    return ListView(
+      padding: EdgeInsets.fromLTRB(20, 16, 20, widget.bottomPadding),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: SegmentedFilterTile(
+                key: Key(
+                  widget.loans
+                      ? 'debts-filter-active'
+                      : 'installments-filter-active',
+                ),
+                iconAsset: widget.loans
+                    ? 'assets/icons/icons8-loan-96.png'
+                    : 'assets/icons/installment-96.png',
+                label: 'Active',
+                count: active.length,
+                selected: !widget.showCompleted,
+                semanticsLabel: 'Active $noun, ${active.length}',
+                onTap: () => widget.onChanged(false),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: SegmentedFilterTile(
+                key: Key(
+                  widget.loans
+                      ? 'debts-filter-completed'
+                      : 'installments-filter-completed',
+                ),
+                iconAsset: goalReachedIcon,
+                label: 'Completed',
+                count: completed.length,
+                selected: widget.showCompleted,
+                semanticsLabel: 'Completed $noun, ${completed.length}',
+                onTap: () => widget.onChanged(true),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (widget.debts.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 30, bottom: 10),
+            child: EmptyStateView(
+              iconAsset: widget.loans
+                  ? 'assets/icons/icons8-loan-96.png'
+                  : 'assets/icons/installment-96.png',
+              title: widget.loans ? 'No debts yet' : 'No installments yet',
+              message: widget.loans
+                  ? 'Add money you borrowed. The app works out each '
+                        'payment from the interest, and they show up in '
+                        'your Bill Planner so you never miss one.'
+                  : 'Add an installment and its payments show up '
+                        'in your Bill Planner so you never miss one.',
+            ),
+          )
+        else if (shown.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40),
+            child: Text(
+              widget.showCompleted
+                  ? widget.loans
+                        ? 'Debts you finish will show up here.'
+                        : 'Installments you finish will show up here.'
+                  : widget.loans
+                  ? 'Every debt is done. Add a new one to keep going.'
+                  : 'Every installment is done. Add a new one to keep going.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.appColors.textMuted),
+            ),
+          )
+        else
+          for (final debt in shown) ...[
+            _InstallmentCard(
+              debt: debt,
+              progress: _progress[debt.id]!,
+              onTap: () => widget.onOpen(debt),
+            ),
+            const SizedBox(height: 12),
+          ],
+        const SizedBox(height: 4),
+        AddButton(
+          label: widget.loans ? 'Add Debt' : 'Add Installment',
+          onPressed: widget.onAdd,
+        ),
+      ],
     );
   }
 }

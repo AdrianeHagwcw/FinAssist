@@ -853,7 +853,11 @@ void main() {
       final speech = FakeSpeech();
       await pumpScreen(
         tester,
-        VoiceRecognitionScreen(autoStart: true, input: speech),
+        VoiceRecognitionScreen(
+          autoStart: true,
+          input: speech,
+          wallets: Stream.value(const <Wallet>[]),
+        ),
       );
       await tester.pump();
       speech.hear!('add utang');

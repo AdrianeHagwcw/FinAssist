@@ -78,23 +78,34 @@ class _DebtDetailScreenBase extends StatefulWidget {
 }
 
 class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
-  late final Stream<Debt?> _debt =
-      widget.liveDebt ?? DebtService.watchDebt(widget.debt.id);
+  /// A screen can listen to one of these streams from more than one place,
+  /// and a row rebuilt as the list scrolls listens again. A Firestore watch
+  /// is already broadcast, but a plain stream (or one a test supplies) is
+  /// not, so share it: never open the same stream twice.
+  static Stream<T> _shared<T>(Stream<T> stream) =>
+      stream.isBroadcast ? stream : stream.asBroadcastStream();
 
-  late final Stream<List<BillInstance>> _payments =
-      widget.payments ??
-      (widget.debt.billId == null
-          ? Stream.value(const [])
-          : BillService.watchInstancesForBill(widget.debt.billId!));
+  late final Stream<Debt?> _debt = _shared(
+    widget.liveDebt ?? DebtService.watchDebt(widget.debt.id),
+  );
 
-  late final Stream<List<Wallet>> _wallets =
-      widget.wallets ?? WalletService.watchWallets(includeArchived: true);
+  late final Stream<List<BillInstance>> _payments = _shared(
+    widget.payments ??
+        (widget.debt.billId == null
+            ? Stream.value(const [])
+            : BillService.watchInstancesForBill(widget.debt.billId!)),
+  );
 
-  late final Stream<List<FixedInterestCharge>> _interestCharges =
-      widget.interestCharges ??
-      (widget.debt.fixedInterestAmount == null
-          ? Stream.value(const <FixedInterestCharge>[])
-          : DebtService.watchFixedInterestCharges(widget.debt.id));
+  late final Stream<List<Wallet>> _wallets = _shared(
+    widget.wallets ?? WalletService.watchWallets(includeArchived: true),
+  );
+
+  late final Stream<List<FixedInterestCharge>> _interestCharges = _shared(
+    widget.interestCharges ??
+        (widget.debt.fixedInterestAmount == null
+            ? Stream.value(const <FixedInterestCharge>[])
+            : DebtService.watchFixedInterestCharges(widget.debt.id)),
+  );
 
   Future<bool> _confirm({
     required String title,
