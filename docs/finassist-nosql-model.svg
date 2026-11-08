@@ -1,198 +1,186 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="945" viewBox="0 0 1600 1400" role="img" aria-labelledby="title description">
-  <title id="title">FinAssist Complete Firestore NoSQL Model</title>
-  <desc id="description">Firestore collections and their one-to-one, one-to-many, optional, nested, and array-based relationships.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="2450" viewBox="0 0 1100 2450" role="img" aria-labelledby="title description">
+  <title id="title">NoSQL ERD</title>
+  <desc id="description">Portrait Firestore ERD with two entities per row and nested collections shown beside their parents.</desc>
   <defs>
     <style>
       text { font-family: Arial, "Segoe UI", sans-serif; }
-      .entity { fill: #fff; stroke: #123ee8; stroke-width: 2.5; }
+      .title { fill: #16294d; font-size: 30px; font-weight: 700; }
+      .subtitle { fill: #50617c; font-size: 15px; }
+      .section { fill: #344965; font-size: 17px; font-weight: 700; letter-spacing: .4px; }
+      .entity { fill: #fff; stroke: #123ee8; stroke-width: 2; }
       .head { fill: #0752e8; }
       .entity-name { fill: #fff; font-size: 18px; font-weight: 700; }
-      .field { fill: #172033; font-size: 14px; }
-      .path { fill: #4c5e79; font-size: 13px; font-family: Consolas, "Courier New", monospace; }
-      .title { fill: #16294d; font-size: 29px; font-weight: 700; }
-      .subtitle { fill: #50617c; font-size: 14px; }
-      .section { fill: #344965; font-size: 16px; font-weight: 700; letter-spacing: .5px; }
-      .relation { fill: #24334b; font-size: 14px; }
-      .small { fill: #4c5c73; font-size: 12px; }
-      .relation-box { fill: #f8faff; stroke: #cad5e4; stroke-width: 1.3; }
-      .group { fill: #fbfcff; stroke: #c8d3e1; stroke-width: 1.6; stroke-dasharray: 8 6; }
+      .path { fill: #4c5e79; font: 12px Consolas, "Courier New", monospace; }
+      .field { fill: #172033; font-size: 13px; }
+      .small { fill: #4c5c73; font-size: 13px; }
       .line { fill: none; stroke: #596273; stroke-width: 1.7; }
+      .group { fill: #fbfcff; stroke: #c8d3e1; stroke-width: 1.5; stroke-dasharray: 8 6; }
+      .relation-box { fill: #f8faff; stroke: #cad5e4; stroke-width: 1.3; }
     </style>
-    <marker id="many" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
-      <path d="M1 1 L10 6 L1 11 M1 6 L10 6" fill="none" stroke="#596273" stroke-width="1.5"/>
-    </marker>
-    <marker id="one" markerWidth="10" markerHeight="12" refX="5" refY="6" orient="auto" markerUnits="userSpaceOnUse">
-      <path d="M4 1 V11 M7 1 V11" fill="none" stroke="#596273" stroke-width="1.5"/>
-    </marker>
-    <marker id="optional-one" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto" markerUnits="userSpaceOnUse">
-      <circle cx="3" cy="6" r="2.3" fill="#fff" stroke="#596273" stroke-width="1.3"/>
-      <path d="M8 1 V11" fill="none" stroke="#596273" stroke-width="1.5"/>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1 1 L8 5 L1 9" fill="none" stroke="#596273" stroke-width="1.4"/>
     </marker>
   </defs>
+  <rect width="1100" height="2450" fill="#fff"/>
+  <text class="title" x="55" y="55">NoSQL ERD</text>
+  <text class="subtitle" x="55" y="82">Firestore collections and nested documents · top-to-bottom view</text>
 
-  <rect width="1600" height="1400" fill="#fff"/>
-  <text class="title" x="48" y="48">FinAssist · Complete Firestore NoSQL Model</text>
-  <text class="subtitle" x="50" y="75">Collections, nested documents, and logical relationship cardinalities from the current app code.</text>
-
-  <!-- Authentication and profile are one-to-one via the Auth UID. -->
+  <!-- Authentication account and profile document. -->
   <g>
-    <rect class="entity" x="80" y="112" width="350" height="165" rx="14"/>
-    <path class="head" d="M94 112 H416 Q430 112 430 126 V150 H80 V126 Q80 112 94 112 Z"/>
-    <text class="entity-name" x="255" y="138" text-anchor="middle">Firebase Auth User</text>
-    <text class="field" x="100" y="180">+ uid (authentication key)</text>
-    <text class="field" x="100" y="205">+ email?, display identity</text>
-    <text class="field" x="100" y="230">Password handled by Firebase Auth</text>
-    <text class="path" x="100" y="255">Not stored in Cloud Firestore</text>
+    <rect class="entity" x="55" y="110" width="990" height="105" rx="12"/>
+    <path class="head" d="M67 110 H1033 Q1045 110 1045 122 V143 H55 V122 Q55 110 67 110 Z"/>
+    <text class="entity-name" x="550" y="134" text-anchor="middle">Account</text>
+    <text class="field" x="80" y="169">uid · email · display identity</text>
+    <text class="path" x="80" y="194">Firebase Authentication · password is not stored in Firestore</text>
   </g>
-  <path class="line" d="M430 184 H1170" marker-start="url(#one)" marker-end="url(#one)"/>
-  <text class="small" x="746" y="174">uid · one-to-one</text>
+  <path class="line" d="M550 215 V245" marker-end="url(#arrow)"/>
+  <text class="small" x="565" y="237">1:1 · same uid</text>
   <g>
-    <rect class="entity" x="1170" y="112" width="350" height="145" rx="14"/>
-    <path class="head" d="M1184 112 H1506 Q1520 112 1520 126 V150 H1170 V126 Q1170 112 1184 112 Z"/>
-    <text class="entity-name" x="1345" y="138" text-anchor="middle">UserProfile</text>
-    <text class="field" x="1190" y="180">+ uid (document ID)</text>
-    <text class="field" x="1190" y="205">+ name, email, setupCompleted</text>
-    <text class="path" x="1190" y="235">users/{uid}</text>
+    <rect class="entity" x="55" y="245" width="990" height="145" rx="12"/>
+    <path class="head" d="M67 245 H1033 Q1045 245 1045 257 V280 H55 V257 Q55 245 67 245 Z"/>
+    <text class="entity-name" x="550" y="271" text-anchor="middle">User</text>
+    <text class="path" x="80" y="306">users/{uid}</text>
+    <text class="field" x="80" y="332">email · name · setupCompleted · onboardingVersion · createdAt · updatedAt</text>
+    <text class="field" x="80" y="358">notificationsEnabled · reminders{} · priorities[] · plannedAllocations{}</text>
+    <text class="field" x="80" y="382">customCategories[] · hiddenCategories[] · legacy import metadata</text>
   </g>
 
-  <rect class="group" x="35" y="285" width="1530" height="515" rx="18"/>
-  <text class="section" x="60" y="317">USER-OWNED COLLECTIONS · PROFILE SUBCOLLECTIONS PLUS NESTED GOAL CONTRIBUTIONS</text>
+  <rect class="group" x="35" y="420" width="1030" height="960" rx="16"/>
+  <text class="section" x="60" y="453">USER COLLECTIONS · TWO ENTITIES PER ROW</text>
 
-  <!-- User profile owns each of the following subcollections (1 to many). -->
-  <path class="line" d="M1345 257 V333 H210 V365" marker-start="url(#one)" marker-end="url(#many)"/>
-  <path class="line" d="M1345 333 H600 V365" marker-start="url(#one)" marker-end="url(#many)"/>
-  <path class="line" d="M1345 333 H990 V365" marker-start="url(#one)" marker-end="url(#many)"/>
-  <path class="line" d="M1345 333 H1380 V365" marker-start="url(#one)" marker-end="url(#many)"/>
-  <path class="line" d="M1345 333 V585 H210 V610" marker-start="url(#one)" marker-end="url(#many)"/>
-  <path class="line" d="M1345 585 H990 V610" marker-start="url(#one)" marker-end="url(#many)"/>
-  <path class="line" d="M1145 460 H1225" marker-start="url(#one)" marker-end="url(#many)"/>
-  <path class="line" d="M365 690 H445" marker-start="url(#one)" marker-end="url(#many)"/>
+  <!-- Row 1 -->
+  <g>
+    <rect class="entity" x="55" y="475" width="480" height="155" rx="11"/>
+    <path class="head" d="M66 475 H524 Q535 475 535 486 V509 H55 V486 Q55 475 66 475 Z"/>
+    <text class="entity-name" x="295" y="500" text-anchor="middle">Wallet</text>
+    <text class="path" x="75" y="534">users/{uid}/wallets/{walletId}</text>
+    <text class="field" x="75" y="562">name · type · purpose · balance</text>
+    <text class="field" x="75" y="586">startingBalance · receivesIncome · archived</text>
+    <text class="field" x="75" y="610">sortOrder · savings/interest fields?</text>
+  </g>
+  <g>
+    <rect class="entity" x="565" y="475" width="480" height="155" rx="11"/>
+    <path class="head" d="M576 475 H1034 Q1045 475 1045 486 V509 H565 V486 Q565 475 576 475 Z"/>
+    <text class="entity-name" x="805" y="500" text-anchor="middle">Transaction</text>
+    <text class="path" x="585" y="534">users/{uid}/transactions/{transactionId}</text>
+    <text class="field" x="585" y="562">type · amount · label · date · note?</text>
+    <text class="field" x="585" y="586">walletId? · toWalletId? · billInstanceId?</text>
+    <text class="field" x="585" y="610">debtId? · legacy · interest · installmentPayment</text>
+  </g>
 
-  <!-- Entity cards are drawn over collection ownership connectors. -->
+  <!-- Row 2 -->
   <g>
-    <rect class="entity" x="55" y="365" width="310" height="190" rx="13"/>
-    <path class="head" d="M68 365 H352 Q365 365 365 378 V402 H55 V378 Q55 365 68 365 Z"/>
-    <text class="entity-name" x="210" y="390" text-anchor="middle">Wallet</text>
-    <text class="path" x="73" y="426">wallets/{walletId}</text>
-    <text class="field" x="73" y="451">+ name, type, purpose</text>
-    <text class="field" x="73" y="475">+ balance, startingBalance</text>
-    <text class="field" x="73" y="499">+ receivesIncome, archived, sortOrder</text>
-    <text class="field" x="73" y="523">+ savingsKind?, maturityDate?</text>
+    <rect class="entity" x="55" y="650" width="480" height="155" rx="11"/>
+    <path class="head" d="M66 650 H524 Q535 650 535 661 V684 H55 V661 Q55 650 66 650 Z"/>
+    <text class="entity-name" x="295" y="675" text-anchor="middle">Bill</text>
+    <text class="path" x="75" y="709">users/{uid}/bills/{billId}</text>
+    <text class="field" x="75" y="737">name · amount · category · recurrence</text>
+    <text class="field" x="75" y="761">firstDueDate · archived · walletId?</text>
+    <text class="field" x="75" y="785">debtId? · startDate? · endDate? · lastAmount?</text>
   </g>
   <g>
-    <rect class="entity" x="445" y="365" width="310" height="190" rx="13"/>
-    <path class="head" d="M458 365 H742 Q755 365 755 378 V402 H445 V378 Q445 365 458 365 Z"/>
-    <text class="entity-name" x="600" y="390" text-anchor="middle">Transaction</text>
-    <text class="path" x="463" y="426">transactions/{transactionId}</text>
-    <text class="field" x="463" y="451">+ type, amount, label, date</text>
-    <text class="field" x="463" y="475">+ walletId?, toWalletId?</text>
-    <text class="field" x="463" y="499">+ billInstanceId?, debtId?</text>
-    <text class="field" x="463" y="523">+ note?, legacy, createdAt</text>
+    <rect class="entity" x="565" y="650" width="480" height="155" rx="11"/>
+    <path class="head" d="M576 650 H1034 Q1045 650 1045 661 V684 H565 V661 Q565 650 576 650 Z"/>
+    <text class="entity-name" x="805" y="675" text-anchor="middle">Bill Occurrence</text>
+    <text class="path" x="585" y="709">users/{uid}/billInstances/{instanceId}</text>
+    <text class="field" x="585" y="737">billId · dueDate · status · amount · amountPaid</text>
+    <text class="field" x="585" y="761">carriedOver · paymentIds[] · walletId?</text>
+    <text class="field" x="585" y="785">carriedInto? · debtId? · interestShare?</text>
   </g>
-  <g>
-    <rect class="entity" x="835" y="365" width="310" height="190" rx="13"/>
-    <path class="head" d="M848 365 H1132 Q1145 365 1145 378 V402 H835 V378 Q835 365 848 365 Z"/>
-    <text class="entity-name" x="990" y="390" text-anchor="middle">Bill</text>
-    <text class="path" x="853" y="426">bills/{billId}</text>
-    <text class="field" x="853" y="451">+ name, amount, category</text>
-    <text class="field" x="853" y="475">+ firstDueDate, recurrence, archived</text>
-    <text class="field" x="853" y="499">+ walletId?, debtId?</text>
-    <text class="field" x="853" y="523">+ endDate?, lastAmount?</text>
-  </g>
-  <g>
-    <rect class="entity" x="1225" y="365" width="310" height="190" rx="13"/>
-    <path class="head" d="M1238 365 H1522 Q1535 365 1535 378 V402 H1225 V378 Q1225 365 1238 365 Z"/>
-    <text class="entity-name" x="1380" y="390" text-anchor="middle">BillInstance</text>
-    <text class="path" x="1243" y="426">billInstances/{instanceId}</text>
-    <text class="field" x="1243" y="451">+ billId, dueDate, status</text>
-    <text class="field" x="1243" y="475">+ amount, amountPaid, carriedOver</text>
-    <text class="field" x="1243" y="499">+ walletId?, paymentIds[]</text>
-    <text class="field" x="1243" y="523">+ carriedInto?</text>
-  </g>
-  <text class="small" x="1160" y="449">billId</text>
-  <g>
-    <rect class="entity" x="835" y="610" width="310" height="160" rx="13"/>
-    <path class="head" d="M848 610 H1132 Q1145 610 1145 623 V647 H835 V623 Q835 610 848 610 Z"/>
-    <text class="entity-name" x="990" y="635" text-anchor="middle">Debt</text>
-    <text class="path" x="853" y="671">debts/{debtId}</text>
-    <text class="field" x="853" y="696">+ direction, name, category, status</text>
-    <text class="field" x="853" y="720">+ principal, received?, payment terms</text>
-    <text class="field" x="853" y="744">+ billId?, dueDate?, note?</text>
-  </g>
-  <g>
-    <rect class="entity" x="55" y="610" width="310" height="160" rx="13"/>
-    <path class="head" d="M68 610 H352 Q365 610 365 623 V647 H55 V623 Q55 610 68 610 Z"/>
-    <text class="entity-name" x="210" y="635" text-anchor="middle">Goal</text>
-    <text class="path" x="73" y="671">goals/{goalId}</text>
-    <text class="field" x="73" y="696">+ name, targetAmount, savedAmount</text>
-    <text class="field" x="73" y="720">+ status, kind, priority, targetDate?</text>
-    <text class="field" x="73" y="744">+ walletId?, savedByWallet</text>
-  </g>
-  <g>
-    <rect class="entity" x="1225" y="610" width="310" height="160" rx="13"/>
-    <path class="head" d="M1238 610 H1522 Q1535 610 1535 623 V647 H1225 V623 Q1225 610 1238 610 Z"/>
-    <text class="entity-name" x="1380" y="635" text-anchor="middle">AllocationCycle</text>
-    <text class="path" x="1243" y="671">allocationCycles/{cycleId}</text>
-    <text class="field" x="1243" y="696">+ income, receivedAt, remaining</text>
-    <text class="field" x="1243" y="720">+ walletId?, goalId?, incomeTransactionId?</text>
-    <text class="field" x="1243" y="744">+ billPayments[], skippedInstanceIds[]</text>
-  </g>
-  <g>
-    <rect class="entity" x="445" y="610" width="310" height="160" rx="13"/>
-    <path class="head" d="M458 610 H742 Q755 610 755 623 V647 H445 V623 Q445 610 458 610 Z"/>
-    <text class="entity-name" x="600" y="635" text-anchor="middle">GoalContribution</text>
-    <text class="path" x="463" y="671">goals/{goalId}/contributions/{id}</text>
-    <text class="field" x="463" y="696">+ amount, date, walletId?</text>
-    <text class="field" x="463" y="720">+ cycleId?, createdAt</text>
-    <text class="field" x="463" y="744">Nested one-to-many under Goal</text>
-  </g>
-  <text class="small" x="375" y="681">goalId · 1:N</text>
 
-  <text class="section" x="50" y="837">LOGICAL ID RELATIONSHIPS · CARDINALITY SHOWN FROM LEFT ENTITY TO RIGHT</text>
-  <text class="small" x="50" y="858">These are document ID fields / arrays, not Firestore-enforced foreign keys. 0..1 means optional; 0..N means zero or many.</text>
+  <!-- Row 3: parent debt and its nested collection. -->
+  <g>
+    <rect class="entity" x="55" y="825" width="480" height="155" rx="11"/>
+    <path class="head" d="M66 825 H524 Q535 825 535 836 V859 H55 V836 Q55 825 66 825 Z"/>
+    <text class="entity-name" x="295" y="850" text-anchor="middle">Debt</text>
+    <text class="path" x="75" y="884">users/{uid}/debts/{debtId}</text>
+    <text class="field" x="75" y="912">direction · name · category · status</text>
+    <text class="field" x="75" y="936">principal · received? · payment terms</text>
+    <text class="field" x="75" y="960">billId? · dueDate? · note?</text>
+  </g>
+  <g>
+    <rect class="entity" x="565" y="825" width="480" height="155" rx="11"/>
+    <path class="head" d="M576 825 H1034 Q1045 825 1045 836 V859 H565 V836 Q565 825 576 825 Z"/>
+    <text class="entity-name" x="805" y="850" text-anchor="middle">Interest Charge</text>
+    <text class="path" x="585" y="884">users/{uid}/debts/{debtId}/interestCharges/{periodKey}</text>
+    <text class="field" x="585" y="912">Nested under one Debt</text>
+    <text class="field" x="585" y="936">One debt has zero or many charges</text>
+    <text class="field" x="585" y="960">Per-period interest record</text>
+  </g>
 
-  <rect class="relation-box" x="45" y="878" width="485" height="411" rx="13"/>
-  <text class="section" x="65" y="908">WALLETS AND LEDGER</text>
-  <text class="relation" x="65" y="938">Wallet 1  →  0..N Transactions (walletId)</text>
-  <text class="relation" x="65" y="965">Wallet 1  →  0..N Transactions (toWalletId)</text>
-  <text class="relation" x="65" y="992">Wallet 1  →  0..N Bills (bill.walletId)</text>
-  <text class="relation" x="65" y="1019">Wallet 1  →  0..N BillInstances (walletId)</text>
-  <text class="relation" x="65" y="1046">Wallet 1  →  0..N Goals (goal.walletId)</text>
-  <text class="relation" x="65" y="1073">Wallet 1  →  0..N GoalContributions (walletId)</text>
-  <text class="relation" x="65" y="1100">Wallet 1  →  0..N AllocationCycles (walletId)</text>
-  <text class="relation" x="65" y="1140">Debt 1  →  0..N Transactions (transaction.debtId)</text>
-  <text class="relation" x="65" y="1167">BillInstance 1  →  0..N Transactions (billInstanceId)</text>
-  <text class="small" x="65" y="1210">A transfer may reference a source wallet and</text>
-  <text class="small" x="65" y="1230">destination wallet on the same transaction.</text>
+  <!-- Row 4: parent goal and nested contributions. -->
+  <g>
+    <rect class="entity" x="55" y="1000" width="480" height="155" rx="11"/>
+    <path class="head" d="M66 1000 H524 Q535 1000 535 1011 V1034 H55 V1011 Q55 1000 66 1000 Z"/>
+    <text class="entity-name" x="295" y="1025" text-anchor="middle">Goal</text>
+    <text class="path" x="75" y="1059">users/{uid}/goals/{goalId}</text>
+    <text class="field" x="75" y="1087">name · targetAmount · savedAmount · status</text>
+    <text class="field" x="75" y="1111">kind · priority · targetDate? · walletId?</text>
+    <text class="field" x="75" y="1135">savedByWallet{} · funding/planning fields</text>
+  </g>
+  <g>
+    <rect class="entity" x="565" y="1000" width="480" height="155" rx="11"/>
+    <path class="head" d="M576 1000 H1034 Q1045 1000 1045 1011 V1034 H565 V1011 Q565 1000 576 1000 Z"/>
+    <text class="entity-name" x="805" y="1025" text-anchor="middle">Goal Contribution</text>
+    <text class="path" x="585" y="1059">users/{uid}/goals/{goalId}/contributions/{contributionId}</text>
+    <text class="field" x="585" y="1087">Nested under one Goal</text>
+    <text class="field" x="585" y="1111">amount · date · walletId? · cycleId?</text>
+    <text class="field" x="585" y="1135">One goal has zero or many contributions</text>
+  </g>
 
-  <rect class="relation-box" x="558" y="878" width="485" height="411" rx="13"/>
-  <text class="section" x="578" y="908">PLANS, GOALS AND CYCLES</text>
-  <text class="relation" x="578" y="938">Bill 1  →  0..N BillInstances (billId)</text>
-  <text class="relation" x="578" y="965">Debt 0..1  ↔  0..1 Bill (billId / debtId)</text>
-  <text class="relation" x="578" y="992">Goal 1  →  0..N GoalContributions (nested)</text>
-  <text class="relation" x="578" y="1019">Goal 1  →  0..N AllocationCycles (goalId)</text>
-  <text class="relation" x="578" y="1046">AllocationCycle 0..1  →  0..1 Transaction</text>
-  <text class="small" x="598" y="1067">(incomeTransactionId)</text>
-  <text class="relation" x="578" y="1094">AllocationCycle 1  →  0..N Contributions</text>
-  <text class="small" x="598" y="1115">(contribution.cycleId)</text>
-  <text class="relation" x="578" y="1142">AllocationCycle 1  →  0..N BillInstances</text>
-  <text class="small" x="598" y="1163">(billPayments[] / skippedInstanceIds[])</text>
-  <text class="small" x="578" y="1195">billPayments[] embeds billId, instanceId and</text>
-  <text class="small" x="578" y="1215">transactionId; array references may become stale.</text>
+  <!-- Row 5 -->
+  <g>
+    <rect class="entity" x="55" y="1175" width="480" height="155" rx="11"/>
+    <path class="head" d="M66 1175 H524 Q535 1175 535 1186 V1209 H55 V1186 Q55 1175 66 1175 Z"/>
+    <text class="entity-name" x="295" y="1200" text-anchor="middle">Allocation</text>
+    <text class="path" x="75" y="1234">users/{uid}/allocationCycles/{cycleId}</text>
+    <text class="field" x="75" y="1262">income · receivedAt · remaining · walletId?</text>
+    <text class="field" x="75" y="1286">goalId? · incomeTransactionId?</text>
+    <text class="field" x="75" y="1310">billPayments[] · skippedInstanceIds[]</text>
+  </g>
+  <g>
+    <rect class="entity" x="565" y="1175" width="480" height="155" rx="11"/>
+    <path class="head" d="M576 1175 H1034 Q1045 1175 1045 1186 V1209 H565 V1186 Q565 1175 576 1175 Z"/>
+    <text class="entity-name" x="805" y="1200" text-anchor="middle">Legacy Records</text>
+    <text class="path" x="585" y="1234">users/{uid}/expenses/{expenseId}</text>
+    <text class="path" x="585" y="1258">users/{uid}/dailyIncomeTransactions/{incomeId}</text>
+    <text class="field" x="585" y="1286">Copied into transactions with same ID,</text>
+    <text class="field" x="585" y="1310">marked legacy: true; originals remain.</text>
+  </g>
+  <text class="small" x="65" y="1360">categoryBudgets appears in legacy account cleanup only.</text>
 
-  <rect class="relation-box" x="1070" y="878" width="485" height="411" rx="13"/>
-  <text class="section" x="1090" y="908">IDENTITY AND MIGRATION</text>
-  <text class="relation" x="1090" y="938">Firebase Auth User 1  ↔  1 UserProfile</text>
-  <text class="small" x="1110" y="959">(Auth uid = users/{uid})</text>
-  <text class="relation" x="1090" y="990">UserProfile 1  →  0..N documents in each</text>
-  <text class="small" x="1110" y="1011">profile collection above, plus expenses/ and</text>
-  <text class="small" x="1110" y="1031">dailyIncomeTransactions/ legacy sources.</text>
-  <text class="relation" x="1090" y="1062">Legacy expense 1  →  0..1 Transaction copy</text>
-  <text class="relation" x="1090" y="1089">Legacy income 1  →  0..1 Transaction copy</text>
-  <text class="small" x="1110" y="1110">(same document ID; imported copy has legacy=true)</text>
-  <text class="small" x="1090" y="1160">Original legacy documents remain after import.</text>
-  <text class="small" x="1090" y="1200">Cardinality describes app data, not DB constraints.</text>
+  <text class="section" x="55" y="1415">SHARED COLLECTIONS</text>
+  <g>
+    <rect class="entity" x="55" y="1440" width="480" height="155" rx="11"/>
+    <path class="head" d="M66 1440 H524 Q535 1440 535 1451 V1474 H55 V1451 Q55 1440 66 1440 Z"/>
+    <text class="entity-name" x="295" y="1465" text-anchor="middle">Price References</text>
+    <text class="path" x="75" y="1499">priceReferences/{referenceId}</text>
+    <text class="field" x="75" y="1527">Scraped reference data · updatedAt</text>
+    <text class="field" x="75" y="1551">status includes last check time/results</text>
+    <text class="field" x="75" y="1575">Signed-in users read; app writes disabled</text>
+  </g>
+  <g>
+    <rect class="entity" x="565" y="1440" width="480" height="155" rx="11"/>
+    <path class="head" d="M576 1440 H1034 Q1045 1440 1045 1451 V1474 H565 V1451 Q565 1440 576 1440 Z"/>
+    <text class="entity-name" x="805" y="1465" text-anchor="middle">Scraper Run</text>
+    <text class="path" x="585" y="1499">scraperRuns/{runId}</text>
+    <text class="field" x="585" y="1527">startedAt · finishedAt · results</text>
+    <text class="field" x="585" y="1551">Backend run log</text>
+    <text class="field" x="585" y="1575">Not accessible to the app</text>
+  </g>
 
-  <text class="subtitle" x="50" y="1328">Notation: 1 = exactly one · 0..1 = optional one · 0..N = zero or many · [] = array of references · ↔ indicates an optional relationship at either end.</text>
-  <text class="subtitle" x="50" y="1356">Firestore does not enforce foreign keys; reference cardinalities reflect current FinAssist service behavior.</text>
+  <rect class="relation-box" x="55" y="1635" width="990" height="690" rx="14"/>
+  <text class="section" x="80" y="1672">LOGICAL RELATIONSHIPS</text>
+  <text class="field" x="80" y="1710">Account 1 ↔ 1 User · the Firebase Auth uid identifies users/{uid}</text>
+  <text class="field" x="80" y="1744">User 1 → many Wallets, Transactions, Bills, Bill Occurrences, Debts, Goals, Allocations</text>
+  <text class="field" x="80" y="1778">Bill 1 → many Bill Occurrences · Debt 1 → many Interest Charges</text>
+  <text class="field" x="80" y="1812">Goal 1 → many Goal Contributions</text>
+  <text class="field" x="80" y="1846">Wallet 1 → many Transactions, Bills, Bill Occurrences, Goals, Contributions, Allocations</text>
+  <text class="field" x="80" y="1880">Debt 0..1 ↔ 0..1 Bill · Transaction may reference a Debt or Bill Occurrence</text>
+  <text class="field" x="80" y="1914">Allocation may reference a Goal and income Transaction; bill payments are embedded</text>
+  <text class="field" x="80" y="1948">Legacy record 0..1 → Transaction copy (same document ID)</text>
+  <text class="small" x="80" y="2000">ID fields and arrays are logical references. Firestore does not enforce foreign keys.</text>
+  <text class="small" x="80" y="2030">Optional fields use ? · arrays/maps use [] / {}</text>
+  <text class="small" x="80" y="2078">Reminder, priority, allocation-plan, and category preferences are fields on users/{uid}.</text>
+  <text class="small" x="80" y="2108">Theme and amount-display preferences are stored on the device, not in Firestore.</text>
 </svg>
