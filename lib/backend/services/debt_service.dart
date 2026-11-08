@@ -246,6 +246,7 @@ class DebtService {
       recurrence: frequency.recurrence,
       endDate: lastDue,
       debtId: debt.id,
+      isLoan: category.isLoan,
       lastAmount: terms.hasDifferentLastPayment ? terms.finalPayment : null,
       startDate: paidBefore > 0 ? terms.dueDateOf(paidBefore + 1) : null,
       // Each payment then records the interest inside it.
@@ -531,6 +532,7 @@ class DebtService {
       recurrence: stored.frequency.recurrence,
       endDate: lastDue,
       lastAmount: terms.hasDifferentLastPayment ? terms.finalPayment : null,
+      isLoan: category.isLoan,
       interestShare: terms.interestShare,
     );
 
@@ -579,6 +581,32 @@ class DebtService {
       }
     } on FirebaseException catch (error) {
       debugPrint('Installment interest: $error');
+    }
+  }
+
+  /// Gives loans saved before the app told their payments apart from an
+  /// installment's the same marker as new ones, so what is already recorded
+  /// reads "Payment of debt payable" too, and future payments keep reading
+  /// that way. Each loan is done once; offline, it waits for the next start.
+  ///
+  /// Installments are never marked.
+  static Future<void> fillPlanKinds() async {
+    try {
+      final snapshot = await _debts.get();
+      for (final doc in snapshot.docs) {
+        final debt = Debt.fromMap(doc.id, doc.data());
+        final billId = debt.billId;
+        if (debt.direction != DebtDirection.iOwe || billId == null) continue;
+        if (!debt.category.isLoan) continue;
+        final paymentIds = await BillService.markLoanPlan(billId);
+        if (paymentIds == null) continue;
+        if (paymentIds.isNotEmpty) {
+          await WalletService.markLoanPayments(paymentIds);
+        }
+        await BillService.markLoanSchedule(billId);
+      }
+    } on FirebaseException catch (error) {
+      debugPrint('Plan kinds: $error');
     }
   }
 
@@ -665,16 +693,11 @@ class DebtService {
 
     var instance = waiting.instance;
     if (instance == null) {
-      // The month was never opened in the Bill Planner, so no record stands
-      // for the payment. The planner makes them the same way when a month
-      // is opened: one for this bill, and nothing changes for the others.
-      final monthTaken = occurrences.any(
-        (occurrence) =>
-            occurrence.dueDate.year == waiting.due.year &&
-            occurrence.dueDate.month == waiting.due.month,
-      );
-      if (monthTaken) return null;
-
+      // The period was never opened in the Bill Planner, so no record stands
+      // for the payment. Opening it makes this bill's dates the way the
+      // planner does: only the dates that are missing are filled in, so a
+      // plan with several payments in the month — a daily one, say — finds
+      // any of them without disturbing the others.
       final bill = await BillService.loadBill(billId);
       if (bill == null) return null;
       await BillService.ensureInstances(

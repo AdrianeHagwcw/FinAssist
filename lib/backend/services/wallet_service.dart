@@ -2264,6 +2264,7 @@ class WalletService {
     String? debtId,
     double interest = 0,
     bool installmentPayment = false,
+    bool loanPayment = false,
     bool? internalTransfer,
   }) {
     if (!amount.isFinite || amount <= 0) {
@@ -2298,6 +2299,7 @@ class WalletService {
       'debtId': debtId,
       if (interest > 0) 'interest': interest,
       if (installmentPayment) 'installmentPayment': true,
+      if (loanPayment) 'loanPayment': true,
       'isInternalTransfer':
           internalTransfer ?? type == TransactionType.transfer,
       'createdAt': FieldValue.serverTimestamp(),
@@ -2322,6 +2324,27 @@ class WalletService {
     batch.set(_transactionsCollection.doc(transactionId), {
       'interest': interest,
     }, SetOptions(merge: true));
+  }
+
+  /// Marks payments already recorded against a loan so their rows read
+  /// "Payment of debt payable". Idempotent, and chunked to the batch limit
+  /// because a long plan can have hundreds of payments.
+  static Future<void> markLoanPayments(Iterable<String> paymentIds) async {
+    var batch = _firestore.batch();
+    var writes = 0;
+    for (final id in paymentIds) {
+      batch.set(_transactionsCollection.doc(id), {
+        'loanPayment': true,
+      }, SetOptions(merge: true));
+      if (++writes == 400) {
+        commitFirestoreWrite(batch.commit(), 'mark loan payments');
+        batch = _firestore.batch();
+        writes = 0;
+      }
+    }
+    if (writes > 0) {
+      commitFirestoreWrite(batch.commit(), 'mark loan payments');
+    }
   }
 
   /// Writes balance changes gathered with `collectDeltasInto`, one write per

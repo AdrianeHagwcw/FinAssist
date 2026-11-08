@@ -364,6 +364,7 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
           name: command.name,
           amount: command.amount,
           count: command.count,
+          wallets: widget.wallets,
         );
         _saved(saved);
         return;

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,6 +9,7 @@ import '../../backend/models/app_transaction.dart';
 import '../../backend/models/bill.dart';
 import '../../backend/models/dashboard_tip.dart';
 import '../../backend/models/goal.dart';
+import '../../backend/models/reminder.dart';
 import '../../backend/models/report.dart';
 import '../../backend/models/safe_to_spend.dart';
 import '../../backend/models/transaction_filter.dart';
@@ -13,6 +17,7 @@ import '../../backend/models/voice_command.dart';
 import '../../backend/models/wallet.dart';
 import '../providers/app_settings_provider.dart';
 import '../../backend/services/goal_service.dart';
+import '../../backend/services/user_profile_service.dart';
 import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
@@ -68,6 +73,7 @@ class HomeScreen extends StatefulWidget {
     this.wallets,
     this.goals,
     this.transactions,
+    this.profile,
     this.safeToSpend,
     this.today,
     super.key,
@@ -108,6 +114,10 @@ class HomeScreen extends StatefulWidget {
   /// Replaces the live transactions. Used by tests.
   final Stream<List<AppTransaction>>? transactions;
 
+  /// Replaces the live profile, which carries the user's reminder choices.
+  /// Used by tests.
+  final Stream<Map<String, dynamic>?>? profile;
+
   /// Replaces the Safe to Spend card. Used by tests.
   final Widget? safeToSpend;
 
@@ -129,6 +139,15 @@ class _HomeScreenState extends State<HomeScreen> {
           : GoalService.watchGoals());
   late final Stream<List<AppTransaction>> _transactions =
       widget.transactions ?? WalletService.watchTransactions();
+  late final Stream<Map<String, dynamic>?> _profile =
+      widget.profile ??
+      (Firebase.apps.isEmpty || FirebaseAuth.instance.currentUser == null
+          ? Stream.value(null)
+          : UserProfileService.watchProfile().map((s) => s.data()));
+
+  /// The user's reminder choices, which set how far ahead Home looks.
+  ReminderSettings _reminders = ReminderSettings.fromProfile(null);
+  StreamSubscription<Map<String, dynamic>?>? _profileSubscription;
 
   // Changing this rebuilds the Safe to Spend card after income is added.
   int _refreshKey = 0;
@@ -142,6 +161,24 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Today's Safe to Spend, worked out by the card below the balance and
   /// shown along the bottom of the balance card.
   SafeToSpend? _safeToSpend;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileSubscription = _profile.listen((profile) {
+      if (!mounted) return;
+      setState(() => _reminders = ReminderSettings.fromProfile(profile));
+    }, onError: (Object error) => debugPrint('Reminder settings: $error'));
+  }
+
+  @override
+  void dispose() {
+    _profileSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// How many days ahead the card and the tip look, from the reminders.
+  int get _dueSoonDays => billDueSoonDays(_reminders);
 
   static bool _sameFigure(SafeToSpend? a, SafeToSpend b) =>
       a != null &&
@@ -373,6 +410,7 @@ class _HomeScreenState extends State<HomeScreen> {
         transactions: transactions,
         bills: _bills,
         now: now,
+        days: _dueSoonDays,
       ),
     );
   }
@@ -528,6 +566,7 @@ class _HomeScreenState extends State<HomeScreen> {
         DueSoonNotice(
           bills: inputs.bills,
           now: inputs.now ?? philippineNow(),
+          days: _dueSoonDays,
           onOpen: (bill) => _push(BillDetailScreen(instance: bill)),
         ),
         // A time deposit or government savings that has come due. Nothing

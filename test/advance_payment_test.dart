@@ -199,10 +199,7 @@ void main() {
     expect(find.text('GCash'), findsOneWidget);
     // What GCash has free now, not the ₱4,000 being paid.
     expect(find.textContaining('₱5,000 available'), findsOneWidget);
-    expect(
-      find.text('Chosen when the installment was set up.'),
-      findsOneWidget,
-    );
+    expect(find.text('Chosen when the plan was set up.'), findsOneWidget);
     expect(find.byKey(const Key('advance-button')), findsOneWidget);
   });
 
@@ -382,7 +379,7 @@ void main() {
 
     expect(
       find.textContaining(
-        'The wallet this installment was charged to is not '
+        'The wallet this plan was charged to is not '
         'in Accounts any more.',
       ),
       findsOneWidget,

@@ -67,6 +67,7 @@ Future<bool> showLoanFormSheet(
   String? name,
   double? amount,
   int? count,
+  Stream<List<Wallet>>? wallets,
 }) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
@@ -80,7 +81,7 @@ Future<bool> showLoanFormSheet(
       name: name,
       amount: amount,
       count: count,
-      wallets: WalletService.watchWallets(),
+      wallets: wallets ?? WalletService.watchWallets(),
     ),
   );
 

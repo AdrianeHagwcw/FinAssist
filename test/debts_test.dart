@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +12,7 @@ import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/frontend/screens/debts_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
 import 'package:testapp/frontend/widgets/bill_payment_sheet.dart';
+import 'package:testapp/frontend/widgets/goal_progress.dart';
 import 'package:testapp/frontend/widgets/installment_form_sheet.dart';
 import 'package:testapp/frontend/widgets/loan_form_sheet.dart';
 import 'package:testapp/frontend/widgets/wallet_split_picker.dart';
@@ -228,7 +231,13 @@ void main() {
       expect(guessDebtCategory('BPI credit card'), DebtCategory.creditCard);
     });
 
-    Debt saved(String name, DebtCategory category) => Debt(
+    Debt saved(
+      String name,
+      DebtCategory category, {
+      int paidBefore = 0,
+      DateTime? paidOffAt,
+      DebtStatus status = DebtStatus.active,
+    }) => Debt(
       id: name,
       direction: DebtDirection.iOwe,
       name: name,
@@ -236,14 +245,26 @@ void main() {
       principal: 6000,
       perPayment: 500,
       paymentCount: 12,
-      status: DebtStatus.active,
+      status: status,
+      paidBefore: paidBefore,
+      paidOffAt: paidOffAt,
     );
 
-    Future<void> pumpList(WidgetTester tester, {required bool loans}) async {
-      final debts = Stream.value([
-        saved('Phone', DebtCategory.gadget),
-        saved('SSS loan', DebtCategory.governmentLoan),
-      ]);
+    Future<void> pumpList(
+      WidgetTester tester, {
+      required bool loans,
+      List<Debt>? items,
+      Stream<List<BillInstance>> Function(String billId)? paymentsFor,
+    }) async {
+      final debts = Stream.value(
+        items ??
+            [
+              saved('Phone', DebtCategory.gadget),
+              saved('SSS loan', DebtCategory.governmentLoan),
+            ],
+      );
+      final payments =
+          paymentsFor ?? (_) => Stream.value(const <BillInstance>[]);
       await tester.pumpWidget(
         ChangeNotifierProvider(
           create: (_) => AppSettingsProvider(),
@@ -251,14 +272,8 @@ void main() {
             theme: AppTheme.light,
             home: Scaffold(
               body: loans
-                  ? DebtsView(
-                      debts: debts,
-                      paymentsFor: (_) => Stream.value(const <BillInstance>[]),
-                    )
-                  : InstallmentsView(
-                      debts: debts,
-                      paymentsFor: (_) => Stream.value(const <BillInstance>[]),
-                    ),
+                  ? DebtsView(debts: debts, paymentsFor: payments)
+                  : InstallmentsView(debts: debts, paymentsFor: payments),
             ),
           ),
         ),
@@ -281,6 +296,370 @@ void main() {
       expect(find.text('SSS loan'), findsOneWidget);
       expect(find.text('Phone'), findsNothing);
       expect(find.text('Money you borrowed is now under Debts.'), findsNothing);
+      expect(find.text('Add Debt'), findsOneWidget);
+    });
+
+    testWidgets('Installments filters active and completed, like Goals', (
+      tester,
+    ) async {
+      await pumpList(
+        tester,
+        loans: false,
+        items: [
+          saved('Phone', DebtCategory.gadget),
+          saved('Laptop', DebtCategory.gadget, paidBefore: 12),
+        ],
+      );
+
+      final active = find.byKey(const Key('installments-filter-active'));
+      final completed = find.byKey(const Key('installments-filter-completed'));
+      expect(active, findsOneWidget);
+      expect(completed, findsOneWidget);
+      expect(
+        find.descendant(of: active, matching: find.text('1')),
+        findsOneWidget,
+        reason: 'one installment is still being paid',
+      );
+      expect(
+        find.descendant(of: completed, matching: find.text('1')),
+        findsOneWidget,
+        reason: 'one installment is finished',
+      );
+
+      // Active is the default, so the finished one is out of the way.
+      expect(find.text('Phone'), findsOneWidget);
+      expect(find.text('Laptop'), findsNothing);
+
+      await tester.tap(completed);
+      await tester.pump();
+      expect(find.text('Phone'), findsNothing);
+      expect(find.text('Laptop'), findsOneWidget);
+      expect(find.text('Add Installment'), findsOneWidget);
+
+      await tester.tap(active);
+      await tester.pump();
+      expect(find.text('Phone'), findsOneWidget);
+      expect(find.text('Laptop'), findsNothing);
+    });
+
+    testWidgets('a bill-backed installment completes from its payments', (
+      tester,
+    ) async {
+      final phone = Debt(
+        id: 'phone',
+        direction: DebtDirection.iOwe,
+        name: 'Phone',
+        category: DebtCategory.gadget,
+        principal: 1000,
+        perPayment: 500,
+        paymentCount: 2,
+        status: DebtStatus.active,
+        billId: 'phone-bill',
+      );
+
+      BillInstance paid(String id, DateTime due) => BillInstance(
+        id: id,
+        billId: 'phone-bill',
+        debtId: phone.id,
+        name: phone.name,
+        amount: 500,
+        amountPaid: 500,
+        category: 'Bills',
+        dueDate: due,
+        status: BillStatus.paid,
+      );
+
+      await pumpList(
+        tester,
+        loans: false,
+        items: [phone],
+        paymentsFor: (billId) => Stream.value(
+          billId == 'phone-bill'
+              ? [
+                  paid('one', DateTime(2026, 5, 1)),
+                  paid('two', DateTime(2026, 6, 1)),
+                ]
+              : const <BillInstance>[],
+        ),
+      );
+
+      // Let the payments stream deliver what has been paid.
+      await tester.pump();
+
+      final active = find.byKey(const Key('installments-filter-active'));
+      final completed = find.byKey(const Key('installments-filter-completed'));
+      expect(
+        find.descendant(of: active, matching: find.text('0')),
+        findsOneWidget,
+        reason: 'nothing is still being paid',
+      );
+      expect(
+        find.descendant(of: completed, matching: find.text('1')),
+        findsOneWidget,
+        reason: 'the last payment finished it',
+      );
+
+      // Active is the default, and it is done, so it waits under Completed.
+      expect(find.text('Phone'), findsNothing);
+      await tester.tap(completed);
+      await tester.pump();
+      expect(find.text('Phone'), findsOneWidget);
+    });
+
+    testWidgets(
+      'an installment moves to Completed when its last payment lands',
+      (tester) async {
+        final phone = Debt(
+          id: 'phone',
+          direction: DebtDirection.iOwe,
+          name: 'Phone',
+          category: DebtCategory.gadget,
+          principal: 1000,
+          perPayment: 500,
+          paymentCount: 2,
+          status: DebtStatus.active,
+          billId: 'phone-bill',
+        );
+        final payments = StreamController<List<BillInstance>>();
+        addTearDown(payments.close);
+
+        BillInstance payment(String id, DateTime due, {required bool paid}) =>
+            BillInstance(
+              id: id,
+              billId: 'phone-bill',
+              debtId: phone.id,
+              name: phone.name,
+              amount: 500,
+              amountPaid: paid ? 500 : 0,
+              category: 'Bills',
+              dueDate: due,
+              status: paid ? BillStatus.paid : BillStatus.unpaid,
+            );
+
+        final first = payment('one', DateTime(2026, 5, 1), paid: true);
+        final second = payment('two', DateTime(2026, 6, 1), paid: false);
+
+        await pumpList(
+          tester,
+          loans: false,
+          items: [phone],
+          paymentsFor: (_) => payments.stream,
+        );
+        payments.add([first, second]);
+        await tester.pump();
+        await tester.pump();
+
+        final active = find.byKey(const Key('installments-filter-active'));
+        final completed = find.byKey(
+          const Key('installments-filter-completed'),
+        );
+        expect(
+          find.descendant(of: active, matching: find.text('1')),
+          findsOneWidget,
+          reason: 'one payment is still to be made',
+        );
+        expect(
+          find.descendant(of: completed, matching: find.text('0')),
+          findsOneWidget,
+        );
+        expect(find.text('Phone'), findsOneWidget);
+
+        // The last payment is recorded while the page is open: it moves over
+        // to Completed at once, without reopening the screen.
+        payments.add([first, payment('two', DateTime(2026, 6, 1), paid: true)]);
+        await tester.pump();
+        await tester.pump();
+
+        expect(
+          find.descendant(of: active, matching: find.text('0')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: completed, matching: find.text('1')),
+          findsOneWidget,
+        );
+        expect(find.text('Phone'), findsNothing);
+
+        await tester.tap(completed);
+        await tester.pump();
+        expect(find.text('Phone'), findsOneWidget);
+      },
+    );
+
+    testWidgets('Debts filters active and completed, like Goals', (
+      tester,
+    ) async {
+      await pumpList(
+        tester,
+        loans: true,
+        items: [
+          saved('SSS loan', DebtCategory.governmentLoan),
+          saved(
+            'Car loan',
+            DebtCategory.cardCashLoan,
+            paidOffAt: DateTime(2026, 1, 1),
+            status: DebtStatus.settled,
+          ),
+        ],
+      );
+
+      final active = find.byKey(const Key('debts-filter-active'));
+      final completed = find.byKey(const Key('debts-filter-completed'));
+      expect(active, findsOneWidget);
+      expect(completed, findsOneWidget);
+      expect(
+        find.descendant(of: active, matching: find.text('1')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: completed, matching: find.text('1')),
+        findsOneWidget,
+      );
+
+      expect(find.text('SSS loan'), findsOneWidget);
+      expect(find.text('Car loan'), findsNothing);
+
+      await tester.tap(completed);
+      await tester.pump();
+      expect(find.text('SSS loan'), findsNothing);
+      expect(find.text('Car loan'), findsOneWidget);
+      expect(find.text('Add Debt'), findsOneWidget);
+    });
+
+    Future<void> showCards(
+      WidgetTester tester, {
+      required bool loans,
+      required List<Debt> items,
+      bool completed = false,
+    }) async {
+      await pumpList(tester, loans: loans, items: items);
+      await tester.pumpAndSettle();
+      if (completed) {
+        await tester.tap(
+          find.byKey(
+            Key(
+              loans
+                  ? 'debts-filter-completed'
+                  : 'installments-filter-completed',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+    }
+
+    LinearProgressIndicator cardBar(WidgetTester tester) =>
+        tester.widget<LinearProgressIndicator>(
+          find.descendant(
+            of: find.byType(GoalProgressBar),
+            matching: find.byType(LinearProgressIndicator),
+          ),
+        );
+
+    testWidgets('the card bar takes the Goals colors and percent', (
+      tester,
+    ) async {
+      // 2 of 12 paid: 16%, amber.
+      await showCards(
+        tester,
+        loans: false,
+        items: [saved('Phone', DebtCategory.gadget, paidBefore: 2)],
+      );
+      expect(find.text('16%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(16, dark: false));
+      expect(find.textContaining('of ₱6,000 paid'), findsOneWidget);
+      // Goals' words stay on the Goals page.
+      expect(find.text('Getting started'), findsNothing);
+
+      // 3 of 12: 25%, blue.
+      await showCards(
+        tester,
+        loans: true,
+        items: [saved('SSS loan', DebtCategory.governmentLoan, paidBefore: 3)],
+      );
+      expect(find.text('25%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(25, dark: false));
+
+      // 9 of 12: 75%, teal.
+      await showCards(
+        tester,
+        loans: false,
+        items: [saved('Laptop', DebtCategory.gadget, paidBefore: 9)],
+      );
+      expect(find.text('75%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(75, dark: false));
+    });
+
+    testWidgets('a finished card reads 100% green, even paid off early', (
+      tester,
+    ) async {
+      await showCards(
+        tester,
+        loans: true,
+        items: [
+          saved(
+            'Car loan',
+            DebtCategory.cardCashLoan,
+            paidOffAt: DateTime(2026, 1, 1),
+            status: DebtStatus.settled,
+          ),
+        ],
+        completed: true,
+      );
+      expect(find.text('100%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(100, dark: false));
+      expect(find.text('Paid off early · Jan 1, 2026'), findsOneWidget);
+    });
+
+    testWidgets('a card finished through its last payment is 100% green', (
+      tester,
+    ) async {
+      // Finished through its last payment is the same 100% and green.
+      await showCards(
+        tester,
+        loans: true,
+        items: [
+          saved(
+            'SSS loan',
+            DebtCategory.governmentLoan,
+            paidBefore: 12,
+            status: DebtStatus.settled,
+          ),
+        ],
+        completed: true,
+      );
+      expect(find.text('100%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(100, dark: false));
+      expect(find.text('Paid off'), findsOneWidget);
+    });
+
+    testWidgets('an empty filter explains where the records went', (
+      tester,
+    ) async {
+      await pumpList(
+        tester,
+        loans: false,
+        items: [saved('Phone', DebtCategory.gadget, paidBefore: 12)],
+      );
+
+      // Everything is done, so Active says so.
+      expect(
+        find.text('Every installment is done. Add a new one to keep going.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('installments-filter-completed')));
+      await tester.pump();
+      expect(find.text('Phone'), findsOneWidget);
+
+      // The other tab explains when nothing has finished yet.
+      await pumpList(
+        tester,
+        loans: true,
+        items: [saved('SSS loan', DebtCategory.governmentLoan)],
+      );
+      await tester.tap(find.byKey(const Key('debts-filter-completed')));
+      await tester.pump();
+      expect(find.text('Debts you finish will show up here.'), findsOneWidget);
       expect(find.text('Add Debt'), findsOneWidget);
     });
 

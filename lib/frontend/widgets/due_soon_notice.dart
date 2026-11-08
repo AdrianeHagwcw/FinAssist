@@ -15,6 +15,7 @@ class DueSoonNotice extends StatelessWidget {
     required this.bills,
     required this.now,
     required this.onOpen,
+    this.days = 3,
     this.limit = 3,
     super.key,
   });
@@ -22,6 +23,11 @@ class DueSoonNotice extends StatelessWidget {
   final List<BillInstance> bills;
   final DateTime now;
   final ValueChanged<BillInstance> onOpen;
+
+  /// How many days ahead still counts as due soon. Home sets this from the
+  /// user's bill reminder setting; [limit] is only how many rows show.
+  final int days;
+
   final int limit;
 
   /// "due today", "due tomorrow", "due in 3 days" or "2 days overdue".
@@ -38,7 +44,7 @@ class DueSoonNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final due = billsDueSoon(bills, now: now);
+    final due = billsDueSoon(bills, now: now, days: days);
     if (due.isEmpty) return const SizedBox.shrink();
 
     final colors = context.appColors;

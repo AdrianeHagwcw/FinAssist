@@ -23,20 +23,25 @@ const cash = Wallet(
 );
 
 /// One payment of an installment, recorded the way paying the bill records
-/// it: an expense out of Cash against the plan's occurrence.
-AppTransaction payment({bool installment = true, double interest = 0}) =>
-    AppTransaction(
-      id: 'p1',
-      type: TransactionType.expense,
-      amount: 4000,
-      label: 'Bills',
-      date: DateTime(2026, 6, 10, 9, 30),
-      walletId: 'cash',
-      note: 'iPhone 15',
-      billInstanceId: 'i2026-6',
-      interest: interest,
-      installmentPayment: installment,
-    );
+/// it: an expense out of Cash against the plan's occurrence. [loan] marks a
+/// payment of borrowed money instead.
+AppTransaction payment({
+  bool installment = true,
+  bool loan = false,
+  double interest = 0,
+}) => AppTransaction(
+  id: 'p1',
+  type: TransactionType.expense,
+  amount: 4000,
+  label: 'Bills',
+  date: DateTime(2026, 6, 10, 9, 30),
+  walletId: 'cash',
+  note: 'iPhone 15',
+  billInstanceId: 'i2026-6',
+  interest: interest,
+  installmentPayment: installment,
+  loanPayment: loan,
+);
 
 void main() {
   group('a payment recorded within an installment', () {
@@ -131,6 +136,103 @@ void main() {
 
       expect(find.text('Bills'), findsOneWidget);
       expect(find.text('Payment of installment payable'), findsNothing);
+    });
+  });
+
+  group('a payment recorded against borrowed money', () {
+    test('reads as a debt payment, not an installment one', () {
+      final paid = payment(loan: true);
+      expect(paid.title, 'Payment of debt payable');
+      expect(paid.title, isNot('Payment of installment payable'));
+      // It is still a payment of a plan, so Reports keep counting it as the
+      // bill it was paid against.
+      expect(paid.isInstallmentPayment, isTrue);
+    });
+
+    test('keeps an installment reading as an installment', () {
+      expect(payment().title, 'Payment of installment payable');
+      expect(payment().loanPayment, isFalse);
+    });
+
+    test('leaves a plain bill payment reading as its category', () {
+      final plain = payment(installment: false);
+      expect(plain.title, 'Bills');
+      expect(plain.loanPayment, isFalse);
+    });
+
+    test('is read back from what was stored', () {
+      final read = AppTransaction.fromMap('p1', {
+        'type': 'expense',
+        'amount': 4000,
+        'label': 'Bills',
+        'date': DateTime(2026, 6, 10),
+        'walletId': 'cash',
+        'installmentPayment': true,
+        'loanPayment': true,
+      });
+      expect(read.loanPayment, isTrue);
+      expect(read.title, 'Payment of debt payable');
+    });
+
+    test('is still counted under the bill in Reports', () {
+      expect(
+        const TransactionFilter(category: 'Bills').matches(payment(loan: true)),
+        isTrue,
+      );
+      expect(
+        const TransactionFilter(
+          category: 'Payment of debt payable',
+        ).matches(payment(loan: true)),
+        isFalse,
+      );
+    });
+
+    test('can be found by searching what it reads as', () {
+      expect(
+        const TransactionFilter(query: 'debt').matches(payment(loan: true)),
+        isTrue,
+      );
+      expect(
+        const TransactionFilter(query: 'debt').matches(payment()),
+        isFalse,
+      );
+      expect(
+        const TransactionFilter(query: 'installment').matches(payment()),
+        isTrue,
+      );
+      expect(
+        const TransactionFilter(
+          query: 'installment',
+        ).matches(payment(loan: true)),
+        isFalse,
+      );
+    });
+
+    testWidgets('is shown that way on its row', (tester) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: TransactionRow(
+                transaction: payment(loan: true),
+                wallets: const [cash],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Payment of debt payable'), findsOneWidget);
+      expect(find.text('Payment of installment payable'), findsNothing);
+      expect(find.text('-₱4,000'), findsOneWidget);
+      expect(find.textContaining('Outflow'), findsOneWidget);
+      expect(
+        tester.widget<CategoryIcon>(find.byType(CategoryIcon)).category,
+        'Bills',
+      );
     });
   });
 }

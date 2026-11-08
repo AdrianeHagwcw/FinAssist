@@ -200,6 +200,7 @@ class BillService {
     double? lastAmount,
     DateTime? startDate,
     double interestShare = 0,
+    bool isLoan = false,
   }) {
     batch.set(
       reference,
@@ -212,6 +213,9 @@ class BillService {
           walletId: walletId,
           endDate: endDate,
           debtId: debtId,
+          // Only a loan is marked, so an installment's schedule stays as it
+          // was saved before this existed.
+          isLoan: isLoan ? true : null,
         )
         ..['createdAt'] = FieldValue.serverTimestamp()
         // An installment whose last payment differs, set once with its terms.
@@ -273,6 +277,7 @@ class BillService {
     required DateTime endDate,
     double? lastAmount,
     double interestShare = 0,
+    bool isLoan = false,
   }) {
     final trimmedName = name.trim();
 
@@ -290,6 +295,7 @@ class BillService {
       // longer does, so an earlier plan's last payment can't be left over.
       'lastAmount': lastAmount ?? FieldValue.delete(),
       'interestShare': interestShare,
+      'isLoan': isLoan ? true : FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -309,6 +315,7 @@ class BillService {
     String? walletId,
     DateTime? endDate,
     String? debtId,
+    bool? isLoan,
   }) {
     final trimmedName = name.trim();
 
@@ -329,6 +336,7 @@ class BillService {
           DateTime(endDate.year, endDate.month, endDate.day),
         ),
       'debtId': ?debtId,
+      if (isLoan != null) 'isLoan': isLoan ? true : FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -381,6 +389,57 @@ class BillService {
       'interestShare': share,
     }, SetOptions(merge: true));
     commitFirestoreWrite(batch.commit(), 'split installment interest');
+  }
+
+  /// Marks every occurrence of a loan's schedule as a loan and returns the
+  /// ids of the payments already recorded against them, so their rows can
+  /// read "Payment of debt payable" too. Null when there is nothing to mark —
+  /// the schedule is gone or already marked, so it runs once per loan.
+  static Future<List<String>?> markLoanPlan(String billId) async {
+    final billDoc = await _bills.doc(billId).get();
+    if (!billDoc.exists) return null;
+    final bill = Bill.fromMap(billDoc.id, billDoc.data());
+    if (bill.isLoan) return null;
+
+    final instances = await _instances.where('billId', isEqualTo: billId).get();
+
+    // A long plan has hundreds of dates; a batch takes 500 writes at most.
+    var batch = _firestore.batch();
+    var writes = 0;
+    void write(void Function(WriteBatch batch) change) {
+      change(batch);
+      if (++writes == 400) {
+        commitFirestoreWrite(batch.commit(), 'mark loan dates');
+        batch = _firestore.batch();
+        writes = 0;
+      }
+    }
+
+    final paymentIds = <String>[];
+    for (final doc in instances.docs) {
+      final instance = BillInstance.fromMap(doc.id, doc.data());
+      paymentIds.addAll(instance.paymentIds);
+      if (instance.isLoan) continue;
+      write(
+        (batch) =>
+            batch.set(doc.reference, {'isLoan': true}, SetOptions(merge: true)),
+      );
+    }
+
+    if (writes > 0) {
+      commitFirestoreWrite(batch.commit(), 'mark loan dates');
+    }
+    return paymentIds;
+  }
+
+  /// Marks the loan schedule itself, after its occurrences and their payments
+  /// are done. Marking it last means a run stopped partway tries again next
+  /// time instead of leaving the rest unmarked.
+  static Future<void> markLoanSchedule(String billId) async {
+    commitFirestoreWrite(
+      _bills.doc(billId).set({'isLoan': true}, SetOptions(merge: true)),
+      'mark loan schedule',
+    );
   }
 
   /// The date that records paying [billId]'s schedule off early.
@@ -581,6 +640,7 @@ class BillService {
         'paymentIds': <String>[],
         'walletId': bill.walletId,
         if (bill.debtId != null) 'debtId': bill.debtId,
+        if (bill.isLoan) 'isLoan': true,
         if (bill.interestShare > 0) 'interestShare': bill.interestShare,
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -757,6 +817,9 @@ class BillService {
       // What the row calls it: a payment of the plan behind the bill, not
       // the bill category it is counted under in Reports.
       installmentPayment: instance.debtId != null,
+      // Borrowed money reads as a debt payment; something bought on
+      // installment keeps its own wording.
+      loanPayment: instance.debtId != null && instance.isLoan,
       // An installment's interest is kept apart inside the same payment, so
       // Reports can show what borrowing cost.
       interest: instance.interestIn(amount),

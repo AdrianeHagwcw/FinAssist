@@ -105,6 +105,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     unawaited(WalletService.syncPendingTimeDepositSettlements());
     // Older installments get their interest kept apart, once each.
     DebtService.fillInterestShares();
+    // Older loans get told apart from installments, so their payments read
+    // as debt payments, once each.
+    DebtService.fillPlanKinds();
     // Apply any fixed-interest charges that came due while the app was away.
     unawaited(
       DebtService.processDueFixedInterestCharges(now: philippineNow()),
