@@ -325,6 +325,54 @@ ChatReply answerChat(
   // being mistaken for an item name or price.
   if (_asksForFormula(text)) return _formula(text, records, fil).protected();
 
+  if (asksForGoldReferencePrice(message)) {
+    final gold = prices?.gold;
+    if (gold == null) {
+      return ChatReply(
+        fil
+            ? 'Hindi ko mabasa ang pinakahuling naka-save na presyo ng ginto. '
+                  'Subukan muli kapag available ang koneksyon.'
+            : 'I could not read the latest saved gold reference price. '
+                  'Please try again when the connection is available.',
+        useLocalAnswer: true,
+        filipino: fil,
+      ).protected();
+    }
+
+    final karat = _karatIn(message) ?? 24;
+    final pesoPerGram = goldWorth(1, karat, gold.pesoPerGram);
+    final checkedAt = gold.checkedAt ?? gold.asOf;
+    final checkedNote = checkedAt == null
+        ? ''
+        : fil
+        ? ' Huling na-update noong ${formatShortDate(checkedAt)}.'
+        : ' Last updated ${formatShortDate(checkedAt)}.';
+    return ChatReply(
+      fil
+          ? karat == 24
+                ? 'Ang pinakahuling naka-save na reference price ng purong '
+                      '24k ginto ay ${formatPeso(pesoPerGram)} kada gramo.'
+                      '$checkedNote Presyo ito ng spot gold; maaaring mag-iba '
+                      'ang presyo ng alahas sa tindahan.'
+                : 'Batay sa 24k reference price, ang tinatayang halaga ng '
+                      '$karat k ginto ay ${formatPeso(pesoPerGram)} kada '
+                      'gramo.$checkedNote Maaaring mag-iba ang presyo sa '
+                      'tindahan dahil sa paggawa at patong.'
+          : karat == 24
+          ? 'The latest saved reference price for pure 24k gold is '
+                '${formatPeso(pesoPerGram)} per gram.$checkedNote This is the '
+                'spot-gold reference; jewelry prices at shops can differ.'
+          : 'Based on the 24k reference price, $karat k gold is estimated at '
+                '${formatPeso(pesoPerGram)} per gram.$checkedNote Shop prices '
+                'can differ because of workmanship and markups.',
+      sources: gold.sources,
+      filipino: fil,
+    ).protected();
+  }
+
+  final referenceReply = _scrapedReferenceReply(message, prices, fil);
+  if (referenceReply != null) return referenceReply.protected();
+
   if (pending != null) {
     final followUp = _continuePurchase(
       message,
@@ -3199,6 +3247,222 @@ String? productPriceLookupQuery(String message) {
   if (product.isEmpty || product.length > 100) return null;
   return product;
 }
+
+/// Whether a question asks for the scraped 24k gold reference price rather
+/// than a retail gold product price.
+bool asksForGoldReferencePrice(String message) {
+  final normalized = _plain(message);
+  if (!RegExp(r'\b(gold|ginto|gintong)\b').hasMatch(normalized)) {
+    return false;
+  }
+  if (RegExp(
+    r'\b(ring|necklace|earrings?|bracelet|chain|jewelry|jewellery|'
+    r'earring|pendant|wedding)\b',
+  ).hasMatch(normalized)) {
+    return false;
+  }
+  return RegExp(
+    r'\b(prices?|presyo|magkano|how much|cost|worth|value|rate|'
+    r'per gram|kada gramo|gram|grams|karat|carat|today|current|latest|'
+    r'now|spot)\b',
+  ).hasMatch(normalized);
+}
+
+/// Topics whose local answers use data saved by the daily price scraper.
+bool shouldRefreshPriceReferencesForChat(String message) {
+  final normalized = _plain(message);
+  return asksForGoldReferencePrice(message) ||
+      RegExp(
+        r'\b(gold|ginto|house|home|construction|building cost|'
+        r'build cost|build|construct|magpatayo|pagpapatayo|patayuan|'
+        r'land|lupa|lot|lote|'
+        r'pag ibig|mortgage|'
+        r'housing loan|home loan|inflation|cost of living|'
+        r'pagtaas ng bilihin|pagtaas ng presyo)\b',
+      ).hasMatch(normalized);
+}
+
+ChatReply? _scrapedReferenceReply(
+  String message,
+  PriceReferences? prices,
+  bool fil,
+) {
+  final words = ' ${_plain(message)} ';
+  final asksConstructionCost =
+      (_has(words, [
+            'construction',
+            'building cost',
+            'build cost',
+            'build',
+            'building',
+            'construct',
+            'constructing',
+            'cost to build',
+            'magpatayo',
+            'pagpapatayo',
+            'patayuan',
+          ]) &&
+          _has(words, [
+            'cost',
+            'costs',
+            'price',
+            'prices',
+            'how much',
+            'per sqm',
+            'per square meter',
+            'magkano',
+            'presyo',
+            'gastos',
+          ])) ||
+      _has(words, ['construction cost', 'building cost', 'build cost']);
+  if (asksConstructionCost) {
+    final cost = prices?.buildingCost;
+    if (cost == null) {
+      return _referenceUnavailable(fil, 'PSA construction cost');
+    }
+    final region = regionCostIn(message, cost);
+    final perSqm = region?.pesoPerSqm ?? cost.pesoPerSqm;
+    final sqm = _sqmIn(message);
+    final place = region == null
+        ? (fil ? 'sa buong bansa' : 'for the Philippines')
+        : (fil ? 'sa ${region.name}' : 'in ${region.name}');
+    final text = fil
+        ? sqm == null
+              ? 'Ayon sa PSA, mga ${formatPeso(perSqm)} kada sqm ang average na gastos sa pagpapatayo ng residential building noong ${cost.year} $place. Hindi kasama ang lupa.'
+              : 'Tinatayang ${formatPeso(sqm * perSqm)} ang pagpapatayo ng ${_number(sqm)} sqm, batay sa PSA average na ${formatPeso(perSqm)} kada sqm noong ${cost.year} $place. Hindi kasama ang lupa.'
+        : sqm == null
+        ? 'The PSA average cost to build a residential building was about ${formatPeso(perSqm)} per sqm in ${cost.year} $place. Land is not included.'
+        : 'Building ${_number(sqm)} sqm is estimated at ${formatPeso(sqm * perSqm)}, using the PSA average of ${formatPeso(perSqm)} per sqm in ${cost.year} $place. Land is not included.';
+    return ChatReply(text, sources: [cost.source], filipino: fil);
+  }
+
+  final asksZonalValues =
+      _has(words, ['zonal', 'bir land value', 'bir values']) ||
+      (_has(words, ['land', 'lupa', 'lot', 'lote']) &&
+          _has(words, [
+            'price',
+            'prices',
+            'value',
+            'values',
+            'cost',
+            'costs',
+            'how much',
+            'presyo',
+            'magkano',
+          ]) &&
+          RegExp(r'\b(in|at|near|sa)\b').hasMatch(words));
+  if (asksZonalValues) {
+    final values = prices?.zonalValues;
+    if (values == null) return _referenceUnavailable(fil, 'BIR zonal values');
+    final offices = zonalOfficesIn(message, values);
+    final links = _zonalLinks(offices);
+    final text = offices.isEmpty
+        ? fil
+              ? 'I-type ang bayan at probinsya, halimbawa "zonal values in Tanauan, Batangas", para mahanap ko ang opisina ng BIR at opisyal na listahan. Naka-link ang pangunahing pahina ng BIR.'
+              : 'Tell me the town and province, such as "zonal values in Tanauan, Batangas", so I can find the covering BIR office and its official schedule. The BIR page is linked below.'
+        : (_zonalLine(offices, fil) ?? '') +
+              (fil
+                  ? ' Naka-save sa datos ang opisina at link sa listahan; tingnan ang file para sa halaga ng partikular na kalye o property.'
+                  : ' The saved data identifies the office and links to its schedule; use that file for the value of a specific street or property.');
+    return ChatReply(
+      text,
+      sources: offices.isEmpty || links.isEmpty ? [values.source] : links,
+      filipino: fil,
+    );
+  }
+
+  final asksInflation = _has(words, [
+    'inflation',
+    'inflation rate',
+    'cost of living',
+    'pagtaas ng bilihin',
+    'pagtaas ng presyo',
+  ]);
+  if (asksInflation) {
+    final inflation = prices?.inflation;
+    if (inflation == null) return _referenceUnavailable(fil, 'PSA inflation');
+    final average = inflation.averageLast12Months;
+    final text = fil
+        ? 'Ang pinakahuling inflation rate ng PSA ay ${_number(inflation.ratePercent)}% para sa ${inflation.periodLabel}.${average == null ? '' : ' Ang average sa nakaraang 12 buwan ay ${_number(average)}%.'}'
+        : 'The latest PSA inflation rate is ${_number(inflation.ratePercent)}% for ${inflation.periodLabel}.${average == null ? '' : ' The average over the last 12 months is ${_number(average)}%.'}';
+    return ChatReply(text, sources: [inflation.source], filipino: fil);
+  }
+
+  final asksHousingRates =
+      _has(words, ['pag ibig', 'housing loan rate', 'home loan rate']) ||
+      (_has(words, ['mortgage', 'housing loan', 'home loan']) &&
+          _has(words, ['rate', 'rates', 'interest', 'how much', 'magkano']));
+  if (asksHousingRates) {
+    final loans = prices?.homeLoans;
+    if (loans == null || loans.standard.isEmpty) {
+      return _referenceUnavailable(fil, 'Pag-IBIG housing loan rates');
+    }
+    final rates = loans.standard
+        .map(
+          (rate) =>
+              '${rate.fixedYears}${fil ? ' taon: ' : ' yr: '}${_number(rate.ratePercent)}%',
+        )
+        .join(', ');
+    final promos = loans.promo
+        .map((rate) {
+          final range = rate.loanFrom == null
+              ? rate.loanUpTo == null
+                    ? (fil ? 'lahat ng halaga ng loan' : 'all loan amounts')
+                    : (fil ? 'hanggang ' : 'up to ') +
+                          formatPeso(rate.loanUpTo!)
+              : rate.loanUpTo == null
+              ? (fil ? 'lampas ' : 'over ') + formatPeso(rate.loanFrom!)
+              : (fil ? 'lampas ' : 'over ') +
+                    formatPeso(rate.loanFrom!) +
+                    (fil ? ' hanggang ' : ' to ') +
+                    formatPeso(rate.loanUpTo!);
+          return '$range${fil ? ': ' : ': '}${_number(rate.ratePercent)}%${fil ? ' sa loob ng ' : ' for '}${rate.fixedYears}${fil ? ' taon' : ' years'}';
+        })
+        .join('; ');
+    final sourcePeriod = loans.standardAsOf == null
+        ? ''
+        : fil
+        ? ' Ayon sa source, para ito noong ${loans.standardAsOf!}.'
+        : ' The source reports these rates as of ${loans.standardAsOf!}.';
+    final lastChecked = fil
+        ? ' Huling sinuri sa app noong ${formatShortDate(loans.checkedOn)}.'
+        : ' Last checked in the app on ${formatShortDate(loans.checkedOn)}.';
+    final caution = fil
+        ? ' Kumpirmahin sa Pag-IBIG dahil maaaring magbago ang rates.'
+        : ' Confirm with Pag-IBIG because rates can change.';
+    final promoNote = promos.isEmpty
+        ? ''
+        : (fil ? ' Naka-save ring promo: ' : ' A saved promo listing says: ') +
+              promos +
+              (loans.promoAsOf == null
+                  ? (fil
+                        ? '. Kumpirmahin kung available pa ito.'
+                        : '. Confirm whether it is still available.')
+                  : (fil ? ', iniulat noong ' : ', reported in ') +
+                        loans.promoAsOf! +
+                        (fil
+                            ? '. Kumpirmahin kung available pa ito.'
+                            : '. Confirm whether it is still available.'));
+    return ChatReply(
+      '${fil ? 'Naka-save na standard annual Pag-IBIG rates ayon sa haba ng fixed period: ' : 'Saved standard annual Pag-IBIG rates by fixed period: '}$rates.$sourcePeriod$promoNote$lastChecked$caution',
+      sources: [
+        ?loans.standardSource,
+        if (promos.isNotEmpty) ?loans.promoSource,
+      ],
+      filipino: fil,
+    );
+  }
+
+  return null;
+}
+
+ChatReply _referenceUnavailable(bool fil, String source) => ChatReply(
+  fil
+      ? 'Hindi ko mabasa ang pinakahuling naka-save na datos ng $source. Subukan muli kapag available ang koneksyon.'
+      : 'I could not read the latest saved $source data. Please try again when the connection is available.',
+  useLocalAnswer: true,
+  filipino: fil,
+);
 
 /// Choices to offer for [item], or null for anything else, or when a brand
 /// is already named in it.
