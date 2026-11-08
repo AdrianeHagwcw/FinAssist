@@ -15,9 +15,9 @@ import 'goal_funding_picker.dart' show fundingWalletKind;
 import 'wallet_split_picker.dart';
 import 'wallet_picker.dart';
 
-/// Pays the installment's next payment ahead of its due date: the amount the
-/// statement of account asks for, out of the wallet the installment was
-/// charged to when it was set up. Returns true when it was recorded.
+/// Pays the plan's next payment ahead of its due date: the amount the
+/// statement of account asks for, out of the wallet the plan was charged to
+/// when it was set up. Returns true when it was recorded.
 Future<bool> showAdvancePaymentSheet(
   BuildContext context, {
   required Debt debt,
@@ -47,7 +47,7 @@ Future<bool> showAdvancePaymentSheet(
 }
 
 /// Records one payment before the Bill Planner expects it. Only the amount
-/// is asked: the wallet was chosen when the installment was set up, and is
+/// is asked: the wallet was chosen when the plan was set up, and is
 /// charged here without asking again, its free balance checked first.
 class AdvancePaymentSheet extends StatefulWidget {
   const AdvancePaymentSheet({
@@ -113,8 +113,8 @@ class _AdvancePaymentSheetState extends State<AdvancePaymentSheet>
   double get _amount =>
       double.tryParse(_amountController.text.trim().replaceAll(',', '')) ?? 0;
 
-  /// The wallet the installment was charged to, or null when it is not in
-  /// the accounts (or there was never one, which the button hides).
+  /// The wallet the plan was charged to, or null when it is not in the
+  /// accounts (or there was never one, which the button hides).
   Wallet? _designated(List<Wallet> wallets) {
     final id = widget.debt.paidWithWalletId;
     if (id == null) return null;
@@ -308,9 +308,9 @@ class _AdvancePaymentSheetState extends State<AdvancePaymentSheet>
                   if (wallet == null) ...[
                     const DialogNote(
                       text:
-                          'The wallet this installment was charged to is '
-                          'not in Accounts any more. Pay this payment in the '
-                          'Bill Planner instead.',
+                          'The wallet this plan was charged to is not in '
+                          'Accounts any more. Pay this payment in the Bill '
+                          'Planner instead.',
                     ),
                   ] else
                     _walletCard(context, wallet),
@@ -360,8 +360,8 @@ class _AdvancePaymentSheetState extends State<AdvancePaymentSheet>
   }
 
   /// Where the money goes, in one sentence: the whole payment, or what stays
-  /// owed when the statement asked for less. An installment carries no
-  /// interest, so there is nothing to split apart.
+  /// owed when the statement asked for less. An installment's price carries
+  /// no interest; a loan's payment already includes its share.
   String? _breakdown() {
     final amount = _amount;
     if (amount <= 0) return null;
@@ -370,11 +370,14 @@ class _AdvancePaymentSheetState extends State<AdvancePaymentSheet>
       return "That leaves ${formatPeso(owed - amount)} of this payment "
           'still owed, until the statement says the rest.';
     }
-    return 'All of it goes to payment ${widget.next.number}: an installment '
-        'carries no interest.';
+    return widget.debt.category.isLoan
+        ? 'All of it goes to payment ${widget.next.number}. Its share of '
+              "interest is already part of the plan's amount."
+        : 'All of it goes to payment ${widget.next.number}: an installment '
+              'carries no interest.';
   }
 
-  /// The single wallet this installment was charged to, shown the way the
+  /// The single wallet this plan was charged to, shown the way the
   /// paying-from cards always look: kind, and what is free in it now.
   Widget _walletCard(BuildContext context, Wallet wallet) {
     final colors = context.appColors;
@@ -416,7 +419,7 @@ class _AdvancePaymentSheetState extends State<AdvancePaymentSheet>
                     style: note,
                   ),
                 Text(
-                  'Chosen when the installment was set up.',
+                  'Chosen when the plan was set up.',
                   style: TextStyle(fontSize: 12, color: colors.textMuted),
                 ),
               ],

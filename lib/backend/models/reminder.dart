@@ -190,6 +190,22 @@ List<FinancialPriority> prioritiesFrom(Map<String, dynamic>? profile) {
   return ordered;
 }
 
+/// How many days before a bill is due Home should show it, based on the
+/// user's bill reminder setting.
+///
+/// The card is an in-app safety net, not a notification preview: it looks as
+/// far ahead as the furthest reminder the user chose, so two reminders mean
+/// only overdue, today and tomorrow. When reminders are off it keeps a
+/// [fallback]-day window instead of disappearing.
+int billDueSoonDays(ReminderSettings settings, {int fallback = 3}) {
+  if (!settings.enabled || !settings.isOn(ReminderKind.bills)) {
+    return fallback;
+  }
+  final days = billReminderDays[settings.timesFor(ReminderKind.bills)];
+  if (days == null || days.isEmpty) return fallback;
+  return days.reduce((a, b) => a > b ? a : b);
+}
+
 /// One notification to schedule.
 class PlannedReminder {
   const PlannedReminder({

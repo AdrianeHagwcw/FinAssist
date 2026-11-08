@@ -12,6 +12,7 @@ import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/frontend/screens/debts_screen.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
 import 'package:testapp/frontend/widgets/bill_payment_sheet.dart';
+import 'package:testapp/frontend/widgets/goal_progress.dart';
 import 'package:testapp/frontend/widgets/installment_form_sheet.dart';
 import 'package:testapp/frontend/widgets/loan_form_sheet.dart';
 import 'package:testapp/frontend/widgets/wallet_split_picker.dart';
@@ -523,6 +524,113 @@ void main() {
       expect(find.text('SSS loan'), findsNothing);
       expect(find.text('Car loan'), findsOneWidget);
       expect(find.text('Add Debt'), findsOneWidget);
+    });
+
+    Future<void> showCards(
+      WidgetTester tester, {
+      required bool loans,
+      required List<Debt> items,
+      bool completed = false,
+    }) async {
+      await pumpList(tester, loans: loans, items: items);
+      await tester.pumpAndSettle();
+      if (completed) {
+        await tester.tap(
+          find.byKey(
+            Key(
+              loans
+                  ? 'debts-filter-completed'
+                  : 'installments-filter-completed',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+    }
+
+    LinearProgressIndicator cardBar(WidgetTester tester) =>
+        tester.widget<LinearProgressIndicator>(
+          find.descendant(
+            of: find.byType(GoalProgressBar),
+            matching: find.byType(LinearProgressIndicator),
+          ),
+        );
+
+    testWidgets('the card bar takes the Goals colors and percent', (
+      tester,
+    ) async {
+      // 2 of 12 paid: 16%, amber.
+      await showCards(
+        tester,
+        loans: false,
+        items: [saved('Phone', DebtCategory.gadget, paidBefore: 2)],
+      );
+      expect(find.text('16%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(16, dark: false));
+      expect(find.textContaining('of ₱6,000 paid'), findsOneWidget);
+      // Goals' words stay on the Goals page.
+      expect(find.text('Getting started'), findsNothing);
+
+      // 3 of 12: 25%, blue.
+      await showCards(
+        tester,
+        loans: true,
+        items: [saved('SSS loan', DebtCategory.governmentLoan, paidBefore: 3)],
+      );
+      expect(find.text('25%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(25, dark: false));
+
+      // 9 of 12: 75%, teal.
+      await showCards(
+        tester,
+        loans: false,
+        items: [saved('Laptop', DebtCategory.gadget, paidBefore: 9)],
+      );
+      expect(find.text('75%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(75, dark: false));
+    });
+
+    testWidgets('a finished card reads 100% green, even paid off early', (
+      tester,
+    ) async {
+      await showCards(
+        tester,
+        loans: true,
+        items: [
+          saved(
+            'Car loan',
+            DebtCategory.cardCashLoan,
+            paidOffAt: DateTime(2026, 1, 1),
+            status: DebtStatus.settled,
+          ),
+        ],
+        completed: true,
+      );
+      expect(find.text('100%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(100, dark: false));
+      expect(find.text('Paid off early · Jan 1, 2026'), findsOneWidget);
+    });
+
+    testWidgets('a card finished through its last payment is 100% green', (
+      tester,
+    ) async {
+      // Finished through its last payment is the same 100% and green.
+      await showCards(
+        tester,
+        loans: true,
+        items: [
+          saved(
+            'SSS loan',
+            DebtCategory.governmentLoan,
+            paidBefore: 12,
+            status: DebtStatus.settled,
+          ),
+        ],
+        completed: true,
+      );
+      expect(find.text('100%'), findsOneWidget);
+      expect(cardBar(tester).color, getProgressColor(100, dark: false));
+      expect(find.text('Paid off'), findsOneWidget);
     });
 
     testWidgets('an empty filter explains where the records went', (

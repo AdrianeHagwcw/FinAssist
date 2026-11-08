@@ -20,6 +20,15 @@ import '../widgets/money_text.dart';
 import '../widgets/segmented_filter_tile.dart';
 import 'debt_detail_screen.dart';
 
+/// Paid in full, whether through its last scheduled payment or early.
+///
+/// Shared by the card and the Active/Completed filter so what a card shows
+/// and where it is listed can never disagree.
+bool isDebtCompleted(Debt debt, DebtProgress progress) =>
+    progress.isPaidOff ||
+    debt.paidOffEarly ||
+    debt.status == DebtStatus.settled;
+
 /// Things bought on installment, as its own screen, for the Home shortcuts.
 class InstallmentsScreen extends StatelessWidget {
   const InstallmentsScreen({super.key});
@@ -343,9 +352,7 @@ class _DebtProgressListState extends State<_DebtProgressList> {
 
   /// Paid in full, whether through its last scheduled payment or early.
   bool _isCompleted(Debt debt, DebtProgress progress) =>
-      progress.isPaidOff ||
-      debt.paidOffEarly ||
-      debt.status == DebtStatus.settled;
+      isDebtCompleted(debt, progress);
 
   @override
   Widget build(BuildContext context) {
@@ -496,7 +503,7 @@ class _InstallmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final done = progress.isPaidOff;
+    final completed = isDebtCompleted(debt, progress);
     final last = debt.lastDueDate;
 
     return _CardShell(
@@ -518,7 +525,7 @@ class _InstallmentCard extends StatelessWidget {
                   ),
                 ),
               ),
-              if (done)
+              if (completed)
                 Icon(Icons.check_circle, color: confirmColorOn(context)),
             ],
           ),
@@ -542,16 +549,14 @@ class _InstallmentCard extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: progress.fraction,
-              minHeight: 8,
-              backgroundColor: colors.track,
-              valueColor: AlwaysStoppedAnimation(
-                done ? confirmColorOn(context) : appPrimaryBlue,
-              ),
-            ),
+          // The same bar Goals uses: amber, blue, teal, then green once it
+          // is done, easing into each new amount and color.
+          GoalProgressBar(
+            progress: progress.fraction,
+            reached: completed,
+            height: 8,
+            showPercent: true,
+            showLabel: false,
           ),
           const SizedBox(height: 8),
           Row(
@@ -580,7 +585,7 @@ class _InstallmentCard extends StatelessWidget {
           const SizedBox(height: 2),
           // On its own line: next to the amounts it runs off a narrow phone.
           Text(
-            done
+            completed
                 ? debt.paidOffEarly
                       ? 'Paid off early · ${formatShortDate(debt.paidOffAt!)}'
                       : 'Paid off'

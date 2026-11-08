@@ -24,6 +24,7 @@ DashboardTip dashboardTipFor({
   required List<AppTransaction>? transactions,
   required List<BillInstance> bills,
   required DateTime now,
+  int days = 3,
 }) {
   if (wallets != null && wallets.isEmpty) {
     return const DashboardTip(
@@ -44,7 +45,7 @@ DashboardTip dashboardTipFor({
     );
   }
 
-  final due = billsDueSoon(bills, now: now);
+  final due = billsDueSoon(bills, now: now, days: days);
   if (due.isNotEmpty) {
     final soonest = due.first;
     final overdue = soonest.dueDate.isBefore(

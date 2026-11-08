@@ -206,27 +206,51 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
                       switch (value) {
                         case 'edit':
                           _edit(debt);
+                        case 'payoff':
+                          showPayoffSheet(
+                            context,
+                            debt: debt,
+                            progress: DebtProgress.of(debt, instances),
+                          );
                         case 'delete':
                           _delete(debt);
                       }
                     },
-                    itemBuilder: (context) => [
-                      // Blue, the way opening something is, because it
-                      // changes what is there rather than taking it away.
-                      if (editable)
+                    itemBuilder: (context) {
+                      // Finishing a loan in one go stays reachable, but the
+                      // page's own button is Pay in advance now, like an
+                      // installment's.
+                      final canPayOffEarly =
+                          debt.category.isLoan &&
+                          debt.billId != null &&
+                          !debt.paidOffEarly &&
+                          debt.status != DebtStatus.settled &&
+                          !DebtProgress.of(debt, instances).isPaidOff;
+                      return [
+                        // Blue, the way opening something is, because it
+                        // changes what is there rather than taking it away.
+                        if (editable)
+                          menuItem(
+                            value: 'edit',
+                            label: 'Edit',
+                            icon: Icons.edit_outlined,
+                            color: appPrimaryBlue,
+                          ),
+                        if (canPayOffEarly)
+                          menuItem(
+                            value: 'payoff',
+                            label: 'Pay it off early',
+                            icon: Icons.check_circle_outline,
+                            color: appPrimaryBlue,
+                          ),
                         menuItem(
-                          value: 'edit',
-                          label: 'Edit',
-                          icon: Icons.edit_outlined,
-                          color: appPrimaryBlue,
+                          value: 'delete',
+                          label: 'Delete',
+                          icon: Icons.delete_outline,
+                          color: dangerColorOn(context),
                         ),
-                      menuItem(
-                        value: 'delete',
-                        label: 'Delete',
-                        icon: Icons.delete_outline,
-                        color: dangerColorOn(context),
-                      ),
-                    ],
+                      ];
+                    },
                   ),
                 ],
               ),
@@ -273,26 +297,34 @@ class _DetailBody extends StatelessWidget {
     final last = debt.lastDueDate;
     // What Pay Now takes, read the same way the button below acts on it, so
     // what the page says and what pressing it does can never disagree: the
-    // payment waiting that falls due this month, or that fell due earlier
-    // and is still owed, from the plan's own dates — there even for a month
-    // the Bill Planner has not opened yet. Null once this month's due is
-    // paid: what waits then belongs to next month, which is what paying
-    // ahead of the schedule is for.
+    // payment waiting in the period the plan is in — the month for a plan
+    // paid monthly, the day for one paid daily — from the plan's own dates,
+    // there even for a period the Bill Planner has not opened yet. Null once
+    // that period's due is paid: what waits then belongs to the next period,
+    // which is what paying ahead of the schedule is for.
     final pay = PayNowState.read(debt, instances, today);
     final next = pay.next;
-    final owing = pay.owesThisMonth ? next : null;
+    final owing = pay.dueNow ? next : null;
     final canPayAhead = pay.canPayAhead;
     final fallsDueThisMonth = pay.fallsDueThisMonth;
     final payNowNote = owing != null
         ? 'Payment ${owing.number} of ${debt.paymentCount} is '
               '${DueSoonNotice.whenLabel(owing.due, today)}. Pay it from the '
               'wallet you want.'
-        : fallsDueThisMonth
-        ? canPayAhead
-              ? 'This month\'s due is paid. What comes next can be paid '
-                    'ahead of its date.'
-              : 'This month\'s due is paid.'
-        : 'Nothing falls due this month.';
+        : pay.byMonth
+        ? fallsDueThisMonth
+              ? canPayAhead
+                    ? 'This month\'s due is paid. What comes next can be paid '
+                          'ahead of its date.'
+                    : 'This month\'s due is paid.'
+              : 'Nothing falls due this month.'
+        : next == null
+        ? 'Every payment of this plan is paid.'
+        : canPayAhead
+        ? 'Nothing is due ${pay.periodWord}. What comes next can be paid '
+              'ahead of its date.'
+        : 'Nothing is due ${pay.periodWord}. Payment ${next.number} of '
+              '${debt.paymentCount} falls due on ${formatShortDate(next.due)}.';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
@@ -427,11 +459,8 @@ class _DetailBody extends StatelessWidget {
             child: debt.nextInterestDueDate == null
                 ? OutlinedButton.icon(
                     key: const Key('set-interest-due-date'),
-                    onPressed: () => _setInterestSchedule(
-                      context,
-                      debt: debt,
-                      today: today,
-                    ),
+                    onPressed: () =>
+                        _setInterestSchedule(context, debt: debt, today: today),
                     style: openButtonStyle(),
                     icon: const Icon(Icons.calendar_month_outlined),
                     label: const Text('Set next interest charge date'),
@@ -480,14 +509,12 @@ class _DetailBody extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
           ),
-          // Paying ahead of schedule: an installment pays its next
-          // payment in advance from the wallet it was charged to; a loan
-          // has no such wallet, so it is closed by paying it off early.
+          // Paying ahead of schedule: the next payment, in advance, from the
+          // wallet the plan named when it was set up. Only once this month's
+          // due is paid, so "in advance" never takes the place of the one
+          // owed now. A loan that did not name a wallet is paid when it
+          // falls due instead.
           if (debt.billId != null) ...[
-            // Paying the next payment ahead of its date, from the wallet
-            // the installment named. Only once this month's due is paid, so
-            // "in advance" never takes the place of the one owed now. Loans
-            // are never named one.
             if (canPayAhead) ...[
               const SizedBox(height: 14),
               SizedBox(
@@ -503,22 +530,6 @@ class _DetailBody extends StatelessWidget {
                   style: openButtonStyle(),
                   child: const Text(
                     'Pay in advance',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-            ],
-            if (debt.category.isLoan) ...[
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  key: const Key('payoff-open'),
-                  onPressed: () =>
-                      showPayoffSheet(context, debt: debt, progress: progress),
-                  style: openButtonStyle(),
-                  child: const Text(
-                    'Paid it off early',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -554,11 +565,7 @@ class _DetailBody extends StatelessWidget {
           style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
         ),
         const SizedBox(height: 12),
-        _statementScheduleCard(
-          context,
-          debt: debt,
-          today: today,
-        ),
+        _statementScheduleCard(context, debt: debt, today: today),
         const SizedBox(height: 12),
         // The plan's own dates are enough to list every payment; only
         // one with no start date waits for its bills.
@@ -957,14 +964,8 @@ Widget _statementScheduleCard(
             style: TextStyle(fontSize: 13, color: colors.textBody),
           )
         else ...[
-          _Line(
-            'Fixed interest amount',
-            formatPeso(debt.fixedInterestAmount!),
-          ),
-          _Line(
-            'Interest charging frequency',
-            debt.interestChargedPer!.label,
-          ),
+          _Line('Fixed interest amount', formatPeso(debt.fixedInterestAmount!)),
+          _Line('Interest charging frequency', debt.interestChargedPer!.label),
           Container(
             key: const Key('statement-next-interest-charge-date'),
             margin: const EdgeInsets.only(top: 4),
@@ -1049,9 +1050,14 @@ List<Widget> _statementRows(
       if (instance.id != payoffId) instance,
   ];
 
-  // Counted down from the whole amount payable, so the last row reads zero
-  // when the plan is finished.
-  var owed = progress.total - debt.accruedInterest;
+  // Counted down from the income side of the plan, so the last row reads
+  // zero when the plan is finished. A plan paid off early reports its paid
+  // amount as its total, so the plan's own total is used there instead:
+  // the whole schedule is still listed, and the balance after each payment
+  // must follow that schedule, not the smaller figure the payoff left.
+  var owed = debt.paidOffEarly
+      ? debt.totalPayable
+      : progress.total - debt.accruedInterest;
   final orderedCharges = [...charges]
     ..sort((a, b) => a.chargedAt.compareTo(b.chargedAt));
   var chargeIndex = 0;
@@ -1189,8 +1195,10 @@ List<Widget> _statementRows(
 
     owed = (owed - paid).clamp(0.0, double.infinity).toDouble();
 
-    // Paid off early: only the payments made are listed.
-    if (debt.paidOffEarly && !paidEarlier && paid <= 0.005) continue;
+    // Paid off early: the whole schedule still shows. What the payoff made
+    // unnecessary is marked as such instead of hidden, so the statement
+    // reads like an installment's.
+    final notNeeded = debt.paidOffEarly && !paidEarlier && paid <= 0.005;
     final closedByPayoff =
         payoffId != null && instance?.carriedInto == payoffId;
 
@@ -1228,6 +1236,11 @@ List<Widget> _statementRows(
                     'Paid before FinAssist',
                     style: TextStyle(fontSize: 12, color: colors.textBody),
                   )
+                else if (notNeeded)
+                  Text(
+                    'Not needed — paid off early',
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  )
                 else if (instance != null)
                   BillStatusBadge(instance: instance)
                 else
@@ -1243,7 +1256,9 @@ List<Widget> _statementRows(
                 Expanded(
                   child: Text(
                     [
-                      closedByPayoff
+                      notNeeded
+                          ? '${formatPeso(amount)} not needed · paid off early'
+                          : closedByPayoff
                           ? '${formatPeso(paid)} paid, the rest when it was paid '
                                 'off'
                           : settledHere
@@ -1259,7 +1274,7 @@ List<Widget> _statementRows(
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  '${formatPeso(owed)} left',
+                  notNeeded ? '—' : '${formatPeso(owed)} left',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

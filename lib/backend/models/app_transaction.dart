@@ -30,9 +30,13 @@ enum TransactionType {
   }
 }
 
-/// What a payment of a loan or an installment plan reads as in a list of
-/// transactions, instead of the bill category it is counted under.
+/// What a payment of an installment plan reads as in a list of transactions,
+/// instead of the bill category it is counted under.
 const String installmentPaymentLabel = 'Payment of installment payable';
+
+/// What a payment of borrowed money — a debt or loan — reads as in a list of
+/// transactions, instead of the bill category it is counted under.
+const String debtPaymentLabel = 'Payment of debt payable';
 
 /// One entry in `users/{uid}/transactions`: an expense, an income, or a
 /// transfer between two wallets.
@@ -54,6 +58,7 @@ class AppTransaction {
     this.debtId,
     this.interest = 0,
     this.installmentPayment = false,
+    this.loanPayment = false,
     this.internalTransfer,
   });
 
@@ -85,6 +90,7 @@ class AppTransaction {
       debtId: _asString(map['debtId']),
       interest: _asDouble(map['interest']).abs(),
       installmentPayment: map['installmentPayment'] == true,
+      loanPayment: map['loanPayment'] == true,
       internalTransfer: map['isInternalTransfer'] is bool
           ? map['isInternalTransfer'] as bool
           : null,
@@ -146,6 +152,11 @@ class AppTransaction {
 
   bool get isInstallmentPayment => installmentPayment;
 
+  /// True when the plan behind [installmentPayment] is borrowed money — a
+  /// debt or loan — rather than something bought on installment. The row then
+  /// reads "Payment of debt payable".
+  final bool loanPayment;
+
   /// True when this entry only moved money between the user's own wallets.
   ///
   /// It is kept apart from [type] so a row can say "Deposit" or "Withdrawal"
@@ -158,7 +169,11 @@ class AppTransaction {
 
   /// What a list calls this transaction: what it paid, rather than the
   /// category it is grouped under.
-  String get title => installmentPayment ? installmentPaymentLabel : label;
+  String get title => loanPayment
+      ? debtPaymentLabel
+      : installmentPayment
+      ? installmentPaymentLabel
+      : label;
 
   /// Where this expense's money went, by category: the payment under its
   /// own label, and any interest in it under Interest. Together they add up

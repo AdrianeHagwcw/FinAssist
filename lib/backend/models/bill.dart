@@ -74,6 +74,7 @@ class Bill {
     this.archived = false,
     this.endDate,
     this.debtId,
+    this.isLoan = false,
     this.lastAmount,
     this.startDate,
     this.interestShare = 0,
@@ -94,6 +95,7 @@ class Bill {
       archived: map['archived'] == true,
       endDate: _asDate(map['endDate']),
       debtId: _asString(map['debtId']),
+      isLoan: map['isLoan'] == true,
       lastAmount: map['lastAmount'] is num && (map['lastAmount'] as num) > 0
           ? (map['lastAmount'] as num).toDouble()
           : null,
@@ -124,6 +126,11 @@ class Bill {
 
   /// Set when this schedule is the payments of an installment or loan.
   final String? debtId;
+
+  /// Set when the plan behind [debtId] is borrowed money — a debt or loan —
+  /// rather than something bought on installment. It follows every occurrence
+  /// and every payment of it, so their rows read "Payment of debt payable".
+  final bool isLoan;
 
   /// What the occurrence on [endDate] asks for when the contract's last
   /// payment differs from the others.
@@ -294,6 +301,7 @@ class BillInstance {
     this.walletId,
     this.carriedInto,
     this.debtId,
+    this.isLoan = false,
     this.interestShare = 0,
   });
 
@@ -315,6 +323,7 @@ class BillInstance {
       walletId: _asString(map['walletId']),
       carriedInto: _asString(map['carriedInto']),
       debtId: _asString(map['debtId']),
+      isLoan: map['isLoan'] == true,
       interestShare: _shareOf(map['interestShare']),
     );
   }
@@ -350,6 +359,11 @@ class BillInstance {
   /// What a payment of this is called follows from it, so every payment of
   /// one plan reads the same way wherever it is recorded.
   final String? debtId;
+
+  /// Copied from the [Bill.isLoan] of the schedule this came from: whether
+  /// the plan is borrowed money rather than an installment. What a payment of
+  /// this is called follows from it.
+  final bool isLoan;
 
   /// Copied from the installment's [Bill.interestShare]: how much of a
   /// payment on this is interest.

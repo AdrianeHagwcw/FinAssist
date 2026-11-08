@@ -275,13 +275,32 @@ void main() {
     status: DebtStatus.active,
   );
 
-  testWidgets('paying in advance is offered only to an installment that '
-      'named its wallet', (tester) async {
-    // A loan: no wallet is ever named at setup, so it keeps the payoff
-    // button and pays early in the Bill Planner.
+  testWidgets('paying in advance is offered only to a plan that named its '
+      'wallet', (tester) async {
+    // A loan that never named a wallet: no advance, and the payoff button
+    // moved into the options menu.
     await pump(tester, detail(loan(), const []));
     expect(find.byKey(const Key('advance-open')), findsNothing);
-    expect(find.byKey(const Key('payoff-open')), findsOneWidget);
+    expect(find.byKey(const Key('payoff-open')), findsNothing);
+    await tester.tap(find.byTooltip('Options'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pay it off early'), findsOneWidget);
+
+    // A loan that did name one pays ahead like an installment.
+    final namedLoan = loan(paidWithWalletId: 'cash');
+    await pump(
+      tester,
+      LoanDetailScreen(
+        key: const Key('named-loan'),
+        debt: namedLoan,
+        liveDebt: Stream.value(namedLoan),
+        payments: Stream.value(const []),
+        wallets: Stream.value(const [cash]),
+        today: DateTime(2026, 6, 15),
+      ),
+    );
+    expect(find.byKey(const Key('advance-open')), findsOneWidget);
+    expect(find.byKey(const Key('payoff-open')), findsNothing);
 
     // An installment that never named a wallet (made before this existed).
     await pump(
@@ -339,16 +358,14 @@ void main() {
 
   testWidgets('a debt being paid offers to pay it off early', (tester) async {
     await pump(tester, detail(loan(), const []));
-    expect(find.byKey(const Key('payoff-open')), findsOneWidget);
+    // The page's own button is Pay in advance now, so finishing it in one go
+    // stays reachable from the options menu.
+    expect(find.byKey(const Key('payoff-open')), findsNothing);
     expect(find.byKey(const Key('payoff-undo')), findsNothing);
 
-    // It only opens something, so it is blue like the other openers.
-    Color? fillOf(ButtonStyle? style) =>
-        style?.backgroundColor?.resolve(const <WidgetState>{});
-    final payoffFill = fillOf(
-      tester.widget<ElevatedButton>(find.byKey(const Key('payoff-open'))).style,
-    );
-    expect(payoffFill, appPrimaryBlue);
+    await tester.tap(find.byTooltip('Options'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pay it off early'), findsOneWidget);
   });
 
   testWidgets('paid off early: says so, lists it, and can be undone', (
@@ -369,16 +386,68 @@ void main() {
     expect(find.text('Pay in Bill Planner'), findsNothing);
     expect(find.byKey(const Key('payoff-open')), findsNothing);
     expect(find.byKey(const Key('payoff-undo')), findsOneWidget);
-    // The 5 payments made, then the payoff; not the 7 never needed.
+
+    // The whole schedule still shows: 5 payments made, then the 7 the payoff
+    // made unnecessary, then the payoff itself.
     expect(find.byKey(const Key('statement-payoff')), findsOneWidget);
-    expect(find.textContaining('Payment 6 of 12'), findsNothing);
     expect(find.textContaining('Payment 5 of 12'), findsOneWidget);
+    expect(find.textContaining('Payment 6 of 12'), findsOneWidget);
+    expect(find.textContaining('Payment 12 of 12'), findsOneWidget);
+    expect(find.text('Not needed — paid off early'), findsNWidgets(7));
+    expect(find.text('—'), findsNWidgets(7));
+
+    // The payoff is still the last row on the page.
+    final lastPayment = tester
+        .getTopLeft(find.textContaining('Payment 12 of 12'))
+        .dy;
+    final payoffRow = tester.getTopLeft(
+      find.byKey(const Key('statement-payoff')),
+    );
+    expect(payoffRow.dy, greaterThan(lastPayment));
 
     await tester.tap(find.byKey(const Key('payoff-undo')));
     await tester.pumpAndSettle();
     expect(find.text('Undo paying it off?'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('an installment paid off early lists the same full schedule', (
+    tester,
+  ) async {
+    final paidOff = installment(paidWithWalletId: 'cash');
+    final paidOffDebt = Debt(
+      id: paidOff.id,
+      direction: paidOff.direction,
+      name: paidOff.name,
+      category: paidOff.category,
+      principal: paidOff.principal,
+      perPayment: paidOff.perPayment,
+      paymentCount: paidOff.paymentCount,
+      firstDueDate: paidOff.firstDueDate,
+      billId: paidOff.billId,
+      paidWithWalletId: paidOff.paidWithWalletId,
+      paidWithLabel: paidOff.paidWithLabel,
+      paidBefore: 5,
+      status: DebtStatus.settled,
+      paidOffAt: DateTime(2026, 10, 28),
+      paidOffAmount: 13500,
+    );
+    await pump(
+      tester,
+      InstallmentDetailScreen(
+        debt: paidOffDebt,
+        liveDebt: Stream.value(paidOffDebt),
+        payments: Stream.value([payoff]),
+        wallets: Stream.value(const [cash]),
+        today: DateTime(2026, 10, 28),
+      ),
+    );
+
+    expect(find.textContaining('Payment 6 of 12'), findsOneWidget);
+    expect(find.textContaining('Payment 12 of 12'), findsOneWidget);
+    expect(find.text('Not needed — paid off early'), findsNWidgets(7));
+    expect(find.byKey(const Key('statement-payoff')), findsOneWidget);
   });
 
   group('deleting an installment', () {

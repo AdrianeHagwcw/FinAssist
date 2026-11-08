@@ -1008,6 +1008,98 @@ DebtNextPayment? nextUnpaidPayment(
   return null;
 }
 
+/// The span of time the payment falling in [today] belongs to, from the
+/// [PaymentFrequency] chosen when the plan was set up.
+///
+/// Monthly plans use the calendar month, the way installments always have.
+/// Weekly plans use Monday to Sunday; fortnightly plans use 14-day blocks
+/// anchored on the first payment; twice-a-month plans use the two halves of
+/// the month. Quarterly, twice-a-year and yearly plans use their own calendar
+/// span. [instances] is only read to find the fortnightly anchor when the
+/// plan has no start date.
+///
+/// Read by Pay Now so that "this month's due" is not asked of a plan paid
+/// every day or every week: what is owed now is the payment in this period,
+/// and anything later can be paid ahead.
+({DateTime start, DateTime end}) paymentPeriod(
+  Debt debt,
+  Iterable<BillInstance> instances,
+  DateTime today,
+) {
+  final day = DateTime(today.year, today.month, today.day);
+  int daysBetween(DateTime from, DateTime to) => DateTime.utc(
+    to.year,
+    to.month,
+    to.day,
+  ).difference(DateTime.utc(from.year, from.month, from.day)).inDays;
+  DateTime addDays(DateTime from, int days) =>
+      DateTime(from.year, from.month, from.day + days);
+
+  switch (debt.frequency) {
+    case PaymentFrequency.daily:
+      return (start: day, end: addDays(day, 1));
+
+    case PaymentFrequency.weekly:
+      final start = addDays(day, -(day.weekday - DateTime.monday));
+      return (start: start, end: addDays(start, 7));
+
+    case PaymentFrequency.fortnightly:
+      final first = debt.firstDueDate;
+      final anchor = first != null
+          ? DateTime(first.year, first.month, first.day)
+          : instances.isEmpty
+          ? day
+          : instances
+                .map(
+                  (instance) => DateTime(
+                    instance.dueDate.year,
+                    instance.dueDate.month,
+                    instance.dueDate.day,
+                  ),
+                )
+                .reduce((a, b) => a.isBefore(b) ? a : b);
+      final days = daysBetween(anchor, day);
+      // Floor division, so a day before the anchor still falls in a block.
+      final block = days >= 0 ? days ~/ 14 : -((-days + 13) ~/ 14);
+      final start = addDays(anchor, block * 14);
+      return (start: start, end: addDays(start, 14));
+
+    case PaymentFrequency.semiMonthly:
+      return day.day <= 15
+          ? (
+              start: DateTime(day.year, day.month),
+              end: DateTime(day.year, day.month, 16),
+            )
+          : (
+              start: DateTime(day.year, day.month, 16),
+              end: DateTime(day.year, day.month + 1),
+            );
+
+    case PaymentFrequency.monthly:
+      return (
+        start: DateTime(day.year, day.month),
+        end: DateTime(day.year, day.month + 1),
+      );
+
+    case PaymentFrequency.quarterly:
+      final startMonth = ((day.month - 1) ~/ 3) * 3 + 1;
+      return (
+        start: DateTime(day.year, startMonth),
+        end: DateTime(day.year, startMonth + 3),
+      );
+
+    case PaymentFrequency.semiAnnual:
+      final startMonth = day.month <= 6 ? 1 : 7;
+      return (
+        start: DateTime(day.year, startMonth),
+        end: DateTime(day.year, startMonth + 6),
+      );
+
+    case PaymentFrequency.annually:
+      return (start: DateTime(day.year), end: DateTime(day.year + 1));
+  }
+}
+
 /// The occurrence of one bill that falls due on [due]'s day, or null.
 BillInstance? _occurrenceOn(Iterable<BillInstance> instances, DateTime due) {
   for (final instance in instances) {
