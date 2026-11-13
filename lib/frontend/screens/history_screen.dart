@@ -264,7 +264,8 @@ class _MonthSection extends StatelessWidget {
             child: TextButton(
               key: Key('show-all-$key'),
               onPressed: onToggle,
-              style: TextButton.styleFrom(foregroundColor: colors.primaryText),
+              // Blue, like every way to see more or less of a list.
+              style: openTextStyle(context),
               child: Text(
                 expanded ? 'Show less' : 'Show all ${flow.moneyOut.length}',
               ),

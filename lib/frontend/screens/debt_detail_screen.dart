@@ -461,7 +461,7 @@ class _DetailBody extends StatelessWidget {
                     key: const Key('set-interest-due-date'),
                     onPressed: () =>
                         _setInterestSchedule(context, debt: debt, today: today),
-                    style: openButtonStyle(),
+                    style: openOutlineStyle(context),
                     icon: const Icon(Icons.calendar_month_outlined),
                     label: const Text('Set next interest charge date'),
                   )
@@ -474,7 +474,7 @@ class _DetailBody extends StatelessWidget {
                       debt: debt,
                       date: today,
                     ),
-                    style: openButtonStyle(),
+                    style: openOutlineStyle(context),
                     icon: const Icon(Icons.add_card_outlined),
                     label: const Text('Record interest charge'),
                   )
@@ -618,6 +618,7 @@ Future<void> _undoPayoff(BuildContext context, Debt debt) async {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
+          style: cancelTextStyle(context),
           child: const Text('Cancel'),
         ),
         TextButton(
@@ -696,10 +697,12 @@ Future<void> _recordFixedInterestCharge(
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
+          style: cancelTextStyle(context),
           child: const Text('Cancel'),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
+          style: confirmTextStyle(context),
           child: const Text('Record charge'),
         ),
       ],

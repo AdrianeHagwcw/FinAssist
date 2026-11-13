@@ -243,6 +243,7 @@ class SpendingForecast {
       case TransactionType.expense:
         expenses += transaction.amount;
       case TransactionType.transfer:
+      case TransactionType.goal:
         break;
     }
   }

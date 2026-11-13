@@ -33,6 +33,7 @@ import 'package:testapp/frontend/screens/debts_screen.dart';
 import 'package:testapp/frontend/screens/financial_setup_screen.dart';
 import 'package:testapp/frontend/screens/forgot_password_screen.dart';
 import 'package:testapp/frontend/screens/goals_screen.dart';
+import 'package:testapp/frontend/screens/goal_detail_screen.dart';
 import 'package:testapp/frontend/screens/income_waterfall_screen.dart';
 import 'package:testapp/frontend/screens/login_screen.dart';
 import 'package:testapp/frontend/screens/main_shell.dart';
@@ -797,6 +798,64 @@ void main() {
         expect(opened, 1);
       },
     );
+
+    testWidgets('section links are the same blue as every other link', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 3200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: HomeScreen(
+              userName: 'Dave',
+              wallets: Stream.value(const []),
+              transactions: Stream.value(const []),
+              goals: Stream.value(const <Goal>[]),
+              safeToSpend: const SizedBox(height: 40),
+              today: DateTime(2026, 9, 28),
+              onOpenBills: () {},
+              onOpenGoals: () {},
+              onOpenTransactions: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      Color? textColorOf(String label) => tester
+          .widget<TextButton>(find.widgetWithText(TextButton, label))
+          .style
+          ?.foregroundColor
+          ?.resolve(const <WidgetState>{});
+
+      // Quick Actions folds with Show less, Recent Transactions opens with
+      // View all: both carry the app's link blue, not the quiet grey.
+      expect(textColorOf('Show less'), appPrimaryBlue);
+      expect(textColorOf('View all'), appPrimaryBlue);
+
+      await tester.tap(find.text('Show less'));
+      await tester.pump();
+
+      // Folded, the same control reads View all, next to the one that opens
+      // the transactions: both keep the same blue.
+      final folded = tester.widgetList<TextButton>(
+        find.widgetWithText(TextButton, 'View all'),
+      );
+      expect(folded, hasLength(2));
+      for (final button in folded) {
+        expect(
+          button.style?.foregroundColor?.resolve(const <WidgetState>{}),
+          appPrimaryBlue,
+        );
+      }
+    });
 
     testWidgets('the + sheet holds six actions, Goals among them', (
       tester,
@@ -1691,7 +1750,7 @@ void main() {
         find.image(const AssetImage('assets/icons/icons8-lock-96.png')),
         findsWidgets,
       );
-      // Going ahead is green; closing is red.
+      // Going ahead is green; closing is the quiet grey, not a warning.
       ButtonStyle? styleOf(String text) => tester
           .widget<ElevatedButton>(
             find.ancestor(
@@ -1704,7 +1763,11 @@ void main() {
         styleOf('Use this')?.backgroundColor?.resolve({}),
         appConfirmGreen,
       );
-      expect(styleOf('Close')?.backgroundColor?.resolve({}), appDangerRed);
+      expect(
+        styleOf('Close')?.backgroundColor?.resolve({}),
+        AppColors.light.track,
+        reason: 'reading and closing throws nothing away',
+      );
 
       // Reading about it is also how it gets picked.
       await tester.ensureVisible(find.text('Use this'));
@@ -6183,8 +6246,36 @@ void main() {
 
       await fillIncome(tester, '5000');
       await next(tester);
+      // Back is the quiet grey answer beside the blue Next: same height,
+      // same shape, no colour of its own.
+      final back = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Back'),
+      );
+      expect(
+        back.style?.backgroundColor?.resolve(const <WidgetState>{}),
+        AppColors.light.track,
+      );
+      expect(
+        tester
+            .widget<Text>(find.descendant(
+              of: find.widgetWithText(ElevatedButton, 'Back'),
+              matching: find.text('Back'),
+            ))
+            .style
+            ?.fontWeight,
+        FontWeight.bold,
+      );
       // Nothing to pay from until a bill is ticked.
       expect(find.text('Where did you pay them from?'), findsNothing);
+      // Ticking the rest is the app's link blue, like the other list actions.
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Check all'))
+            .style
+            ?.foregroundColor
+            ?.resolve(const <WidgetState>{}),
+        appPrimaryBlue,
+      );
       await tester.tap(find.text('Check all'));
       await tester.pumpAndSettle();
       expect(find.text('Where did you pay them from?'), findsOneWidget);
@@ -6886,11 +6977,38 @@ void main() {
       expect(find.text('Rent'), findsOneWidget);
       expect(find.text('Internet'), findsNothing);
 
-      await tester.tap(find.text('Show all'));
+      // The way to the whole month is the app's link blue, like Home's.
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, 'View all'))
+            .style
+            ?.foregroundColor
+            ?.resolve(const <WidgetState>{}),
+        appPrimaryBlue,
+      );
+
+      await tester.tap(find.text('View all'));
       await tester.pumpAndSettle();
 
       expect(find.text('Rent'), findsOneWidget);
       expect(find.text('Internet'), findsOneWidget);
+      expect(find.text('All bills this month'), findsOneWidget);
+
+      // And View all turns into Show less, folding back to the same day.
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Show less'))
+            .style
+            ?.foregroundColor
+            ?.resolve(const <WidgetState>{}),
+        appPrimaryBlue,
+      );
+      await tester.tap(find.text('Show less'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rent'), findsOneWidget);
+      expect(find.text('Internet'), findsNothing);
+      expect(find.text('View all'), findsOneWidget);
     });
 
     testWidgets('an overdue bill is called overdue, a paid one is not', (
@@ -6911,7 +7029,7 @@ void main() {
         ],
       );
 
-      await tester.tap(find.text('Show all'));
+      await tester.tap(find.text('View all'));
       await tester.pumpAndSettle();
 
       expect(find.text('Overdue'), findsOneWidget);
@@ -6927,7 +7045,7 @@ void main() {
         instances: [instance(amountPaid: 1000, status: BillStatus.partial)],
       );
 
-      await tester.tap(find.text('Show all'));
+      await tester.tap(find.text('View all'));
       await tester.pumpAndSettle();
 
       expect(find.text('Partly paid'), findsOneWidget);
@@ -7157,6 +7275,45 @@ void main() {
 
       expect(find.text('Put this bill back'), findsOneWidget);
       expect(find.text('Mark as Paid'), findsNothing);
+    });
+
+    testWidgets('skipping is grey, paying part of it is blue', (tester) async {
+      await pumpDetail(tester, current: instance());
+
+      // The second answer in the row is grey, so red stays for real loss.
+      final skip = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Skip this one'),
+      );
+      final payPart = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Pay part of it'),
+      );
+
+      expect(
+        skip.style?.backgroundColor?.resolve(const <WidgetState>{}),
+        isNot(appDangerRed),
+      );
+      expect(
+        skip.style?.backgroundColor?.resolve(const <WidgetState>{}),
+        isNot(appPrimaryBlue),
+      );
+      expect(
+        payPart.style?.backgroundColor?.resolve(const <WidgetState>{}),
+        appPrimaryBlue,
+      );
+    });
+
+    testWidgets('putting a skipped bill back is grey too', (tester) async {
+      await pumpDetail(tester, current: instance(status: BillStatus.skipped));
+
+      final putBack = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Put this bill back'),
+      );
+
+      expect(
+        putBack.style?.foregroundColor?.resolve(const <WidgetState>{}),
+        isNot(appPrimaryBlue),
+        reason: 'it restores a decision, it does not open anything',
+      );
     });
 
     testWidgets('a bill whose unpaid part moved on cannot be paid again', (
@@ -7866,6 +8023,85 @@ void main() {
 
       expect(colors[0], isNot(appConfirmGreen));
       expect(colors[1], isNot(appDangerRed));
+    });
+
+    /// How readable a label is on its fill, the way a reader's eye measures it.
+    double contrast(Color a, Color b) {
+      final light = a.computeLuminance() > b.computeLuminance() ? a : b;
+      final dark = identical(light, a) ? b : a;
+      return (light.computeLuminance() + 0.05) /
+          (dark.computeLuminance() + 0.05);
+    }
+
+    testWidgets('grey is the second weight, not a fourth colour', (
+      tester,
+    ) async {
+      for (final theme in [AppTheme.light, AppTheme.dark]) {
+        late ButtonStyle style;
+        late AppColors palette;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: theme,
+            home: Builder(
+              builder: (context) {
+                style = neutralButtonStyle(context);
+                palette = context.appColors;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        );
+
+        final fill = fillOf(style)!;
+        final label = style.foregroundColor!.resolve(const <WidgetState>{})!;
+        final edge = style.side!.resolve(const <WidgetState>{})!.color;
+
+        // It is a weight, not a meaning: it must not borrow one of the three.
+        expect(
+          {fill, appConfirmGreen, appDangerRed, appPrimaryBlue}.length,
+          4,
+          reason: 'grey never stands in for green, red or blue',
+        );
+        // On a card it still reads as a button.
+        expect(fill, isNot(palette.card));
+        expect(edge, isNot(fill));
+        expect(
+          contrast(label, fill),
+          greaterThanOrEqualTo(4.5),
+          reason: 'the label stays readable on the grey fill',
+        );
+      }
+    });
+
+    testWidgets('every grey button is a real, tappable button', (
+      tester,
+    ) async {
+      late ButtonStyle filled;
+      late ButtonStyle outline;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Builder(
+            builder: (context) {
+              filled = neutralButtonStyle(context);
+              outline = neutralOutlineStyle(context);
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+
+      expect(
+        filled.minimumSize!.resolve(const <WidgetState>{}),
+        const Size(0, 46),
+      );
+      expect(
+        outline.minimumSize!.resolve(const <WidgetState>{}),
+        const Size(0, 46),
+      );
+      expect(fillOf(filled), isNotNull);
     });
   });
 
@@ -8596,11 +8832,14 @@ void main() {
 
       // Nothing chosen yet: everything shows, and nothing to clear.
       expect(find.text('Show 2 results'), findsOneWidget);
+      final clearAll = tester.widget<ElevatedButton>(
+        find.byKey(const Key('filter-clear')),
+      );
+      expect(clearAll.onPressed, isNull);
+      // Solid red, the way clearing things is.
       expect(
-        tester
-            .widget<ElevatedButton>(find.byKey(const Key('filter-clear')))
-            .onPressed,
-        isNull,
+        clearAll.style?.backgroundColor?.resolve(const <WidgetState>{}),
+        appDangerRed,
       );
 
       // Tiles that keep their place when chosen.
@@ -15525,6 +15764,87 @@ void main() {
           findsOneWidget,
         );
       });
+    });
+  });
+
+  group('goal actions', () {
+    testWidgets('the two goal buttons are bold words, not icons', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(600, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const goal = Goal(
+        id: 'g1',
+        name: 'Laptop',
+        targetAmount: 50000,
+        savedAmount: 12000,
+        priority: 0,
+        status: GoalStatus.active,
+      );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: GoalDetailScreen(
+              goal: goal,
+              liveGoal: Stream.value(goal).asBroadcastStream(),
+              contributions: Stream.value(
+                const <GoalContribution>[],
+              ).asBroadcastStream(),
+              wallets: Stream.value(const <Wallet>[]).asBroadcastStream(),
+              today: DateTime(2026, 9, 28),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      for (final label in ['Goal Deposit', 'Take money out']) {
+        final button = find.ancestor(
+          of: find.text(label),
+          matching: find.byType(ElevatedButton),
+        );
+
+        expect(button, findsOneWidget);
+        // The words carry the action; no picture beside them.
+        expect(
+          find.descendant(of: button, matching: find.byType(Icon)),
+          findsNothing,
+          reason: '$label reads as a word, not a picture',
+        );
+        expect(
+          tester
+              .widget<Text>(find.descendant(of: button, matching: find.text(label)))
+              .style
+              ?.fontWeight,
+          FontWeight.bold,
+        );
+      }
+
+      ButtonStyle? styleOf(String label) => tester
+          .widget<ElevatedButton>(
+            find.ancestor(
+              of: find.text(label),
+              matching: find.byType(ElevatedButton),
+            ),
+          )
+          .style;
+
+      // Colour still says which way the money goes.
+      expect(
+        styleOf('Goal Deposit')?.backgroundColor?.resolve(const <WidgetState>{}),
+        appConfirmGreen,
+      );
+      expect(
+        styleOf('Take money out')?.backgroundColor?.resolve(const <WidgetState>{}),
+        appDangerRed,
+      );
     });
   });
 }

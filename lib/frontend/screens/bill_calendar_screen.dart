@@ -97,6 +97,10 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
   late DateTime _month = DateTime(_today.year, _today.month);
   late DateTime? _selectedDay = _today;
 
+  /// False shows only the selected day's bills; true shows the whole month.
+  /// The screen opens folded on today, so the action reads View all first.
+  bool _showAll = false;
+
   bool _showAsList = false;
 
   /// Set once when the screen opens. Which side you are on is decided by
@@ -137,6 +141,7 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
       _selectedDay = _month.year == _today.year && _month.month == _today.month
           ? _today
           : null;
+      _showAll = false;
     });
   }
 
@@ -262,9 +267,14 @@ class _BillCalendarScreenState extends State<BillCalendarScreen> {
                         month: _month,
                         today: _today,
                         selectedDay: _selectedDay,
+                        showAll: _showAll,
                         instances: instances,
-                        onSelectDay: (day) =>
-                            setState(() => _selectedDay = day),
+                        onSelectDay: (day) => setState(() {
+                          _selectedDay = day;
+                          _showAll = false;
+                        }),
+                        onViewAll: () => setState(() => _showAll = true),
+                        onShowLess: () => setState(() => _showAll = false),
                         onAdd: _addBill,
                       ),
               ),
@@ -474,25 +484,37 @@ class _CalendarAndDay extends StatelessWidget {
     required this.month,
     required this.today,
     required this.selectedDay,
+    required this.showAll,
     required this.instances,
     required this.onSelectDay,
+    required this.onViewAll,
+    required this.onShowLess,
     required this.onAdd,
   });
 
   final DateTime month;
   final DateTime today;
   final DateTime? selectedDay;
+
+  /// True shows the whole month's bills; false narrows to [selectedDay].
+  final bool showAll;
+
   final List<BillInstance> instances;
   final ValueChanged<DateTime?> onSelectDay;
+  final VoidCallback onViewAll;
+  final VoidCallback onShowLess;
   final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
-    final shown = selectedDay == null
+    // Folded on one day unless the whole month was asked for, or there is no
+    // day to fold to (a month that does not hold today).
+    final folded = !showAll && selectedDay != null;
+    final shown = folded
         ? instances
-        : instances
               .where((instance) => _isSameDay(instance.dueDate, selectedDay!))
-              .toList();
+              .toList()
+        : instances;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
@@ -500,7 +522,8 @@ class _CalendarAndDay extends StatelessWidget {
         _MonthGrid(
           month: month,
           today: today,
-          selectedDay: selectedDay,
+          // A day only looks chosen while the list is narrowed to it.
+          selectedDay: folded ? selectedDay : null,
           instances: instances,
           onSelectDay: onSelectDay,
         ),
@@ -509,9 +532,7 @@ class _CalendarAndDay extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                selectedDay == null
-                    ? 'All bills this month'
-                    : formatShortDate(selectedDay!),
+                folded ? formatShortDate(selectedDay!) : 'All bills this month',
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
@@ -519,10 +540,19 @@ class _CalendarAndDay extends StatelessWidget {
                 ),
               ),
             ),
-            if (selectedDay != null)
+            if (folded)
               TextButton(
-                onPressed: () => onSelectDay(null),
-                child: const Text('Show all'),
+                onPressed: onViewAll,
+                // Blue, like every way to see more of a list.
+                style: openTextStyle(context),
+                child: const Text('View all'),
+              )
+            else if (selectedDay != null)
+              TextButton(
+                onPressed: onShowLess,
+                // The same blue: it goes back to the one day it came from.
+                style: openTextStyle(context),
+                child: const Text('Show less'),
               ),
           ],
         ),
@@ -531,9 +561,7 @@ class _CalendarAndDay extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: Text(
-              selectedDay == null
-                  ? 'Nothing due this month.'
-                  : 'Nothing due on this day.',
+              folded ? 'Nothing due on this day.' : 'Nothing due this month.',
               textAlign: TextAlign.center,
               style: TextStyle(color: context.appColors.textMuted),
             ),

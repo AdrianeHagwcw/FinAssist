@@ -389,7 +389,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 25),
         _SectionTitle(
           'Recent Transactions',
-          action: widget.onOpenTransactions == null ? null : 'View All',
+          action: widget.onOpenTransactions == null ? null : 'View all',
           onAction: widget.onOpenTransactions,
         ),
         _RecentTransactions(transactions: transactions, wallets: wallets),
@@ -612,10 +612,9 @@ class _SectionTitle extends StatelessWidget {
           if (action != null && onAction != null)
             TextButton(
               onPressed: onAction,
-              style: TextButton.styleFrom(
-                foregroundColor: context.appColors.primaryText,
-                visualDensity: VisualDensity.compact,
-              ),
+              // Blue, like every other way on to more: it expands the section
+              // or opens the screen that holds all of it.
+              style: openTextStyle(context, compact: true),
               child: Text(action!),
             )
           else if (note != null)
@@ -1191,16 +1190,12 @@ class _TotalBalanceCard extends StatelessWidget {
             ),
           ),
           actions: [
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: openButtonStyle(),
-                child: const Text(
-                  'Got it',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              style: confirmTextStyle(context),
+              child: const Text(
+                'Got it',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
           ],

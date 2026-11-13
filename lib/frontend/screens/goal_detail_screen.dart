@@ -55,7 +55,8 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         content: Text(
           goal.setAside > 0
               ? 'Its history is removed and the ${formatPeso(goal.setAside)} '
-                    'set aside becomes spendable again. No wallet balance '
+                    'set aside becomes spendable again. It is recorded in '
+                    'Transactions as a Goal Withdrawal. No wallet balance '
                     'changes, because that money never left your wallets.'
               : 'Its history is removed.',
         ),
@@ -177,12 +178,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   else if (goal.status == GoalStatus.active)
                     SizedBox(
                       width: double.infinity,
-                      child: ElevatedButton.icon(
+                      child: ElevatedButton(
                         onPressed: () => showContributionSheet(context, goal),
                         style: confirmButtonStyle(),
-                        icon: const Icon(Icons.savings_outlined),
-                        label: const Text(
-                          'Contribute Now',
+                        child: const Text(
+                          'Goal Deposit',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -208,12 +208,23 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   if (goal.status != GoalStatus.used &&
                       goal.shownSaved > 0) ...[
                     const SizedBox(height: 10),
-                    ElevatedButton.icon(
-                      onPressed: () =>
-                          showContributionSheet(context, goal, takeOut: true),
-                      style: dangerButtonStyle(),
-                      icon: const Icon(Icons.remove, size: 18),
-                      label: const Text('Take money out'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => showContributionSheet(
+                          context,
+                          goal,
+                          takeOut: true,
+                        ),
+                        style: dangerButtonStyle(),
+                        child: const Text(
+                          'Take money out',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                   const SizedBox(height: 24),

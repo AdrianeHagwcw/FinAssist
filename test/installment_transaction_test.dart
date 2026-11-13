@@ -46,7 +46,7 @@ AppTransaction payment({
 void main() {
   group('a payment recorded within an installment', () {
     test('reads as one in Transactions', () {
-      expect(payment().title, 'Payment of installment payable');
+      expect(payment().title, 'Installment Payment');
       expect(payment().isInstallmentPayment, true);
     });
 
@@ -73,7 +73,7 @@ void main() {
       );
       expect(
         const TransactionFilter(
-          category: 'Payment of installment payable',
+          category: 'Installment Payment',
         ).matches(payment()),
         isFalse,
       );
@@ -102,7 +102,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Payment of installment payable'), findsOneWidget);
+      expect(find.text('Installment Payment'), findsOneWidget);
       // Still money out, so the minus stands and the wallet shows.
       expect(find.text('-₱4,000'), findsOneWidget);
       expect(find.textContaining('Outflow'), findsOneWidget);
@@ -135,22 +135,22 @@ void main() {
       await tester.pump();
 
       expect(find.text('Bills'), findsOneWidget);
-      expect(find.text('Payment of installment payable'), findsNothing);
+      expect(find.text('Installment Payment'), findsNothing);
     });
   });
 
   group('a payment recorded against borrowed money', () {
     test('reads as a debt payment, not an installment one', () {
       final paid = payment(loan: true);
-      expect(paid.title, 'Payment of debt payable');
-      expect(paid.title, isNot('Payment of installment payable'));
+      expect(paid.title, 'Debt Payment');
+      expect(paid.title, isNot('Installment Payment'));
       // It is still a payment of a plan, so Reports keep counting it as the
       // bill it was paid against.
       expect(paid.isInstallmentPayment, isTrue);
     });
 
     test('keeps an installment reading as an installment', () {
-      expect(payment().title, 'Payment of installment payable');
+      expect(payment().title, 'Installment Payment');
       expect(payment().loanPayment, isFalse);
     });
 
@@ -171,7 +171,7 @@ void main() {
         'loanPayment': true,
       });
       expect(read.loanPayment, isTrue);
-      expect(read.title, 'Payment of debt payable');
+      expect(read.title, 'Debt Payment');
     });
 
     test('is still counted under the bill in Reports', () {
@@ -181,7 +181,7 @@ void main() {
       );
       expect(
         const TransactionFilter(
-          category: 'Payment of debt payable',
+          category: 'Debt Payment',
         ).matches(payment(loan: true)),
         isFalse,
       );
@@ -225,8 +225,8 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Payment of debt payable'), findsOneWidget);
-      expect(find.text('Payment of installment payable'), findsNothing);
+      expect(find.text('Debt Payment'), findsOneWidget);
+      expect(find.text('Installment Payment'), findsNothing);
       expect(find.text('-₱4,000'), findsOneWidget);
       expect(find.textContaining('Outflow'), findsOneWidget);
       expect(

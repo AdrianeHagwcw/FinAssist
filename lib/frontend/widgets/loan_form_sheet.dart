@@ -846,6 +846,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           key: const Key('use-next-payment-for-interest'),
+                          style: neutralTextStyle(context),
                           onPressed: _nextPaymentDate == null
                               ? null
                               : () => setState(

@@ -653,6 +653,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           ),
           TextButton.icon(
             onPressed: _addWallet,
+            style: openTextStyle(context),
             icon: const Icon(Icons.add),
             label: const Text('Add wallet'),
           ),
@@ -732,10 +733,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               ),
               TextButton(
                 onPressed: () => _setAllPaid(!_allPaid(allocations)),
-                style: TextButton.styleFrom(
-                  foregroundColor: colors.primaryText,
-                  visualDensity: VisualDensity.compact,
-                ),
+                // Blue, the way on to ticking the rest of the list.
+                style: openTextStyle(context, compact: true),
                 child: Text(
                   _allPaid(allocations) ? 'Uncheck all' : 'Check all',
                 ),
@@ -1085,9 +1084,12 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           children: [
             if (back != null) ...[
               Expanded(
-                child: OutlinedButton(
+                child: ElevatedButton(
                   onPressed: back,
-                  style: openOutlineStyle(context, height: 52),
+                  // Grey: stepping back is the quiet second answer, not
+                  // another thing to do. Same height as the green or blue
+                  // button beside it so the pair lines up.
+                  style: neutralButtonStyle(context, height: 52),
                   child: const Text(
                     'Back',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -1421,9 +1423,8 @@ class _BillChoice extends StatelessWidget {
             alignment: Alignment.centerRight,
             child: TextButton.icon(
               onPressed: () => onSkipChanged(!skipped),
-              style: skipped
-                  ? openOutlineStyle(context, height: 36)
-                  : dangerTextStyle(context),
+              // Grey: the same "not this time" as on the bill itself.
+              style: neutralTextStyle(context),
               icon: Icon(skipped ? Icons.undo : Icons.close, size: 16),
               label: Text(skipped ? 'Undo skip' : 'Skip this bill'),
             ),

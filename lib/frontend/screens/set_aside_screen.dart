@@ -183,6 +183,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                     );
                     if (added && mounted) setState(() {});
                   },
+                  style: openTextStyle(context),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add interest that came in'),
                 ),
@@ -207,6 +208,7 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
                             : Stream.value(const <AppTransaction>[])),
                     fromWalletId: wallet.id,
                   ),
+                  style: openTextStyle(context),
                   icon: const Icon(Icons.swap_horiz, size: 18),
                   label: const Text('Move money out'),
                 ),

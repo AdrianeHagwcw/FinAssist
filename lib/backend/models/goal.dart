@@ -492,6 +492,24 @@ double totalSetAsideInPurposeWallets(
   });
 }
 
+/// What a goal holds in each wallet, ready to be given back.
+///
+/// A goal saved before the per-wallet map existed counts in the single wallet
+/// it was recorded under. A goal marked used holds nothing: that money was
+/// spent on what it was for, not kept.
+Map<String, double> goalHeldByWallet(Goal goal) {
+  if (goal.status == GoalStatus.used) return const {};
+  if (goal.savedByWallet.isNotEmpty) {
+    return {
+      for (final entry in goal.savedByWallet.entries)
+        if (entry.value > 0.005) entry.key: entry.value,
+    };
+  }
+  final walletId = goal.walletId;
+  if (walletId == null || goal.shownSaved <= 0.005) return const {};
+  return {walletId: goal.shownSaved};
+}
+
 /// What the goals already hold inside one wallet.
 ///
 /// Goal money is tracked per wallet, so asking per wallet is the only way to

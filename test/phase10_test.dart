@@ -371,6 +371,15 @@ void main() {
     // later auto-categorisation has a set list to predict.
     expect(find.text('Add category'), findsNothing);
     expect(find.byType(TextField), findsNothing);
+    // Showing or hiding the list is the app's link blue, not a quiet toggle.
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Hide all'))
+          .style
+          ?.foregroundColor
+          ?.resolve(const <WidgetState>{}),
+      appPrimaryBlue,
+    );
     await tester.ensureVisible(find.text('Food'));
     await tester.tap(find.text('Food'));
     await tester.pumpAndSettle();

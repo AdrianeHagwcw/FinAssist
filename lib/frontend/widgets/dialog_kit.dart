@@ -322,9 +322,8 @@ class _UndoNotice extends StatelessWidget {
                 const SizedBox(width: 6),
                 TextButton.icon(
                   onPressed: onUndo,
-                  style: TextButton.styleFrom(
-                    foregroundColor: colors.primaryText,
-                    minimumSize: const Size(64, 44),
+                  style: dangerTextStyle(context).copyWith(
+                    minimumSize: const WidgetStatePropertyAll(Size(64, 44)),
                   ),
                   icon: const Icon(Icons.undo, size: 18),
                   label: const Text(
@@ -353,7 +352,7 @@ class _UndoNotice extends StatelessWidget {
 }
 
 /// The one warning before anything is removed: a red icon, what will
-/// happen, a blue Cancel and a red button that does it. Returns true only
+/// happen, a red Cancel and a red button that does it. Returns true only
 /// when the user chose to go ahead.
 Future<bool> confirmDestructive(
   BuildContext context, {
@@ -382,12 +381,12 @@ Future<bool> confirmDestructive(
       ),
       actionsAlignment: MainAxisAlignment.end,
       actions: [
-        // Blue, so the only red button is the one that removes.
+        // Red, like every way out: only the colour of the confirmed action
+        // differs from the Cancel on other dialogs.
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          style: TextButton.styleFrom(
-            foregroundColor: appPrimaryBlue,
-            minimumSize: const Size(64, 44),
+          style: cancelTextStyle(context).copyWith(
+            minimumSize: const WidgetStatePropertyAll(Size(64, 44)),
           ),
           child: const Text(
             'Cancel',

@@ -6,7 +6,12 @@ import '../utils/categories.dart';
 enum TransactionType {
   expense('Expense'),
   income('Income'),
-  transfer('Transfer');
+  transfer('Transfer'),
+
+  /// Money claimed for a goal, or released from one. The money never moves:
+  /// it stays in the wallet it was in, so nothing is earned, spent, or
+  /// transferred. The row exists so Transactions can say what happened.
+  goal('Goal');
 
   const TransactionType(this.label);
 
@@ -19,6 +24,7 @@ enum TransactionType {
     TransactionType.income => 'Inflow',
     TransactionType.expense => 'Outflow',
     TransactionType.transfer => 'Transfer',
+    TransactionType.goal => 'Goal',
   };
 
   /// Reads a stored type name, falling back to [expense] for unknown values.
@@ -32,11 +38,19 @@ enum TransactionType {
 
 /// What a payment of an installment plan reads as in a list of transactions,
 /// instead of the bill category it is counted under.
-const String installmentPaymentLabel = 'Payment of installment payable';
+const String installmentPaymentLabel = 'Installment Payment';
 
 /// What a payment of borrowed money — a debt or loan — reads as in a list of
 /// transactions, instead of the bill category it is counted under.
-const String debtPaymentLabel = 'Payment of debt payable';
+const String debtPaymentLabel = 'Debt Payment';
+
+/// What putting money into a goal reads as in a list of transactions. The
+/// money stays in its wallet and only becomes claimed by the goal.
+const String goalDepositLabel = 'Goal Deposit';
+
+/// What taking money back out of a goal reads as, including when the goal is
+/// cancelled and everything it held is released.
+const String goalWithdrawalLabel = 'Goal Withdrawal';
 
 /// One entry in `users/{uid}/transactions`: an expense, an income, or a
 /// transfer between two wallets.
@@ -56,6 +70,7 @@ class AppTransaction {
     this.isLegacy = false,
     this.billInstanceId,
     this.debtId,
+    this.goalId,
     this.interest = 0,
     this.installmentPayment = false,
     this.loanPayment = false,
@@ -88,6 +103,7 @@ class AppTransaction {
       isLegacy: map['legacy'] == true,
       billInstanceId: _asString(map['billInstanceId']),
       debtId: _asString(map['debtId']),
+      goalId: _asString(map['goalId']),
       interest: _asDouble(map['interest']).abs(),
       installmentPayment: map['installmentPayment'] == true,
       loanPayment: map['loanPayment'] == true,
@@ -104,6 +120,8 @@ class AppTransaction {
   final double amount;
 
   /// Category for an expense, source for an income, "Transfer" otherwise.
+  /// A goal movement keeps its own words here: "Goal Deposit" or
+  /// "Goal Withdrawal".
   final String label;
   final DateTime date;
 
@@ -136,6 +154,13 @@ class AppTransaction {
 
   bool get isDebtMovement => debtId != null;
 
+  /// Set when this entry records money becoming claimed by a goal, or
+  /// released from one, naming the goal. Nothing moves: the money stays in
+  /// its wallet, so the row is a record of the claim, not of a transfer.
+  final String? goalId;
+
+  bool get isGoalMovement => type == TransactionType.goal;
+
   /// The part of an installment payment that is interest: what borrowing
   /// costs on top of the amount borrowed. It is still spending, only in its
   /// own category, the way an accountant splits a loan payment into the
@@ -154,18 +179,21 @@ class AppTransaction {
 
   /// True when the plan behind [installmentPayment] is borrowed money — a
   /// debt or loan — rather than something bought on installment. The row then
-  /// reads "Payment of debt payable".
+  /// reads "Debt Payment".
   final bool loanPayment;
 
-  /// True when this entry only moved money between the user's own wallets.
+  /// True when this entry only touched the user's own money: a move between
+  /// wallets, or a goal claiming or releasing what a wallet already held.
   ///
-  /// It is kept apart from [type] so a row can say "Deposit" or "Withdrawal"
-  /// while accounting still treats it as an internal move, never income or
-  /// spending. Older records have no stored flag; a transfer was always one.
+  /// It is kept apart from [type] so a row can say "Deposit", "Withdrawal" or
+  /// "Goal Deposit" while accounting still treats it as an internal move,
+  /// never income or spending. Older records have no stored flag; a transfer
+  /// was always one.
   final bool? internalTransfer;
 
   bool get isInternalTransfer =>
-      internalTransfer ?? type == TransactionType.transfer;
+      internalTransfer ??
+      (type == TransactionType.transfer || type == TransactionType.goal);
 
   /// What a list calls this transaction: what it paid, rather than the
   /// category it is grouped under.
@@ -189,7 +217,13 @@ class AppTransaction {
   /// How this transaction changes the balance of [walletId].
   double get sourceDelta {
     if (walletId == null) return 0;
-    return type == TransactionType.income ? amount : -amount;
+    return switch (type) {
+      TransactionType.income => amount,
+      // A goal claims or releases money already in the wallet. No peso
+      // arrives or leaves, so the balance does not move.
+      TransactionType.goal => 0,
+      _ => -amount,
+    };
   }
 
   /// How this transaction changes the balance of [toWalletId].

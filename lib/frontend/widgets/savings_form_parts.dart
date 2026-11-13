@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../backend/models/wallet.dart';
+import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../../backend/utils/date_format.dart';
@@ -329,8 +330,6 @@ class SavingsKindPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -362,9 +361,8 @@ class SavingsKindPicker extends StatelessWidget {
           TextButton.icon(
             key: Key('explain-savings-${kind.name}'),
             onPressed: () => onLearnMore!(kind),
-            style: TextButton.styleFrom(
-              foregroundColor: colors.primaryText,
-              padding: EdgeInsets.zero,
+            style: openTextStyle(context).copyWith(
+              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
             ),
             // A bulb, as the app's tips use: there is something to learn.
             icon: Image.asset(

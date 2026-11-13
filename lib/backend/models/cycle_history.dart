@@ -60,6 +60,7 @@ List<MonthFlow> monthFlows(
       case TransactionType.expense:
         moneyOut.putIfAbsent(monthOf(t.date), () => []).add(t);
       case TransactionType.transfer:
+      case TransactionType.goal:
         break;
     }
   }

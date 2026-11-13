@@ -28,6 +28,9 @@ String loanIconAsset(AppTransaction transaction) =>
 /// withdrawal, money out of it is a deposit, and an account to account move
 /// is a transfer. The word belongs to the transaction, so both wallets in a
 /// transfer read it the same way.
+///
+/// A goal movement has no direction word: the title already says "Goal
+/// Deposit" or "Goal Withdrawal", and no money moved.
 ({String label, String sign}) transactionDirection(
   AppTransaction transaction,
   List<Wallet> wallets,
@@ -45,6 +48,8 @@ String loanIconAsset(AppTransaction transaction) =>
         ).label,
         sign: '',
       );
+    case TransactionType.goal:
+      return (label: '', sign: '');
   }
 }
 
@@ -86,6 +91,9 @@ class TransactionRow extends StatelessWidget {
       TransactionType.expense => dangerColorOn(context),
       TransactionType.income => confirmColorOn(context),
       TransactionType.transfer => appPrimaryBlue,
+      // A goal claim moves nothing, so it takes the neutral internal blue
+      // rather than green or red.
+      TransactionType.goal => appPrimaryBlue,
     };
     final direction = transactionDirection(t, wallets);
     final masked = context.select<AppSettingsProvider, bool>(
@@ -98,7 +106,7 @@ class TransactionRow extends StatelessWidget {
         : t.title;
 
     final details = [
-      direction.label,
+      if (direction.label.isNotEmpty) direction.label,
       // Then the time, so a run of rows can be scanned down when someone is
       // looking for "the one around seven".
       ?formatTransactionTime(t.date),
@@ -146,6 +154,10 @@ class TransactionRow extends StatelessWidget {
                   ),
                   TransactionType.transfer => Icon(
                     Icons.swap_horiz,
+                    color: color,
+                  ),
+                  TransactionType.goal => Icon(
+                    Icons.flag_outlined,
                     color: color,
                   ),
                 },

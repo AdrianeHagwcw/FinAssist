@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/goal.dart';
 import 'firestore_write.dart';
+import 'wallet_service.dart';
 
 /// Reads and writes goals and the money set aside for them.
 class GoalService {
@@ -219,6 +220,17 @@ class GoalService {
         'date': Timestamp.fromDate(now),
         'createdAt': FieldValue.serverTimestamp(),
       });
+      // Money that was already set aside becomes the goal's first deposit,
+      // so Transactions can show where it came from.
+      WalletService.addGoalMovementToBatch(
+        batch,
+        goalId: reference.id,
+        walletId: entry.key,
+        amount: entry.value,
+        intoGoal: true,
+        goalName: name,
+        date: now,
+      );
     }
   }
 
@@ -314,13 +326,28 @@ class GoalService {
   /// Deletes a goal and its history. Whatever was set aside for it becomes
   /// spendable again; no wallet balance changes, because the money never
   /// left the wallet.
+  ///
+  /// Each wallet's share is recorded as a [goalWithdrawalLabel] row first,
+  /// so the ledger shows the money coming back the same way it went in.
   static Future<void> deleteGoal(Goal goal) async {
     final contributions = await _goals
         .doc(goal.id)
         .collection('contributions')
         .get();
 
+    final now = DateTime.now();
     final batch = _firestore.batch();
+    for (final entry in goalHeldByWallet(goal).entries) {
+      WalletService.addGoalMovementToBatch(
+        batch,
+        goalId: goal.id,
+        walletId: entry.key,
+        amount: entry.value,
+        intoGoal: false,
+        goalName: goal.name,
+        date: now,
+      );
+    }
     for (final doc in contributions.docs) {
       batch.delete(doc.reference);
     }
@@ -459,13 +486,26 @@ class GoalService {
       savedByWallet[walletId] = walletAmount;
     }
 
+    final when = date ?? DateTime.now();
     batch.set(reference.collection('contributions').doc(), {
       'amount': amount,
       'walletId': walletId,
-      'date': Timestamp.fromDate(date ?? DateTime.now()),
+      'date': Timestamp.fromDate(when),
       'cycleId': cycleId,
       'createdAt': FieldValue.serverTimestamp(),
     });
+
+    // The claim, as Transactions tells it: Deposit when money is put in,
+    // Withdrawal when it is let go. No balance moves either way.
+    WalletService.addGoalMovementToBatch(
+      batch,
+      goalId: goal.id,
+      walletId: walletId,
+      amount: amount.abs(),
+      intoGoal: amount > 0,
+      goalName: goal.name,
+      date: when,
+    );
 
     batch.set(reference, {
       'savedAmount': FieldValue.increment(amount),

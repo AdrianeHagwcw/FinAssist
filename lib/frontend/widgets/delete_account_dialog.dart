@@ -164,11 +164,11 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
                     : const Text('Delete My Account', style: buttonText),
               ),
               const SizedBox(height: 10),
-              // Keeping the account is the safe choice: solid blue, like
-              // Switch Account, not red.
+              // Keeping the account is the safe answer, so it is grey: the
+              // only red left on this dialog is the one that deletes.
               ElevatedButton(
                 onPressed: _working ? null : () => Navigator.pop(context),
-                style: openButtonStyle(),
+                style: neutralButtonStyle(context),
                 child: const Text('Keep My Account', style: buttonText),
               ),
             ],

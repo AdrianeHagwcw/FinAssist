@@ -2262,6 +2262,7 @@ class WalletService {
     Map<String, double>? collectDeltasInto,
     String? billInstanceId,
     String? debtId,
+    String? goalId,
     double interest = 0,
     bool installmentPayment = false,
     bool loanPayment = false,
@@ -2297,11 +2298,13 @@ class WalletService {
       'legacy': false,
       'billInstanceId': billInstanceId,
       'debtId': debtId,
+      'goalId': goalId,
       if (interest > 0) 'interest': interest,
       if (installmentPayment) 'installmentPayment': true,
       if (loanPayment) 'loanPayment': true,
       'isInternalTransfer':
-          internalTransfer ?? type == TransactionType.transfer,
+          internalTransfer ??
+          (type == TransactionType.transfer || type == TransactionType.goal),
       'createdAt': FieldValue.serverTimestamp(),
     });
 
@@ -2312,6 +2315,35 @@ class WalletService {
     if (collectDeltasInto == null) _applyDeltas(batch, deltas);
 
     return reference.id;
+  }
+
+  /// Records money being claimed by a goal, or released from one, in [batch].
+  ///
+  /// Nothing moves: [walletId] keeps every peso it had. The row is
+  /// [TransactionType.goal] so balances, Reports, Safe to Spend and the
+  /// transfer total all leave it alone; it exists so Transactions can show
+  /// what happened to the goal. [goalName] goes in the note so a row can be
+  /// told apart from another goal's.
+  static String addGoalMovementToBatch(
+    WriteBatch batch, {
+    required String goalId,
+    required String walletId,
+    required double amount,
+    required bool intoGoal,
+    String? goalName,
+    DateTime? date,
+  }) {
+    return addTransactionToBatch(
+      batch,
+      type: TransactionType.goal,
+      amount: amount,
+      label: intoGoal ? goalDepositLabel : goalWithdrawalLabel,
+      walletId: walletId,
+      note: goalName,
+      date: date,
+      goalId: goalId,
+      internalTransfer: true,
+    );
   }
 
   /// Marks how much of a payment already made was interest. Only that one
@@ -2327,8 +2359,8 @@ class WalletService {
   }
 
   /// Marks payments already recorded against a loan so their rows read
-  /// "Payment of debt payable". Idempotent, and chunked to the batch limit
-  /// because a long plan can have hundreds of payments.
+  /// "Debt Payment". Idempotent, and chunked to the batch limit because a
+  /// long plan can have hundreds of payments.
   static Future<void> markLoanPayments(Iterable<String> paymentIds) async {
     var batch = _firestore.batch();
     var writes = 0;

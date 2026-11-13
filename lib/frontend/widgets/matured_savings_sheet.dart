@@ -296,11 +296,13 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
+            style: cancelTextStyle(context),
             child: const Text('Cancel'),
           ),
           TextButton(
             key: const Key('matured-confirm'),
             onPressed: () => Navigator.pop(context, true),
+            style: confirmTextStyle(context),
             child: const Text('Confirm'),
           ),
         ],
@@ -723,6 +725,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                     child: OutlinedButton(
                       key: const Key('matured-rollover'),
                       onPressed: _saving ? null : _rollOverOther,
+                      style: confirmOutlineStyle(context),
                       child: const Text('It was renewed'),
                     ),
                   ),
@@ -730,10 +733,9 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
               Center(
                 child: TextButton(
                   onPressed: () => Navigator.pop(context, false),
-                  child: Text(
-                    'Not yet',
-                    style: TextStyle(color: colors.textBody),
-                  ),
+                  // Grey: leaving this for another day decides nothing.
+                  style: neutralTextStyle(context),
+                  child: const Text('Not yet'),
                 ),
               ),
             ],
@@ -882,6 +884,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
         height: 46,
         child: OutlinedButton(
           key: const Key('matured-rollover'),
+          style: confirmOutlineStyle(context),
           onPressed: _saving || _queuedOffline
               ? null
               : () => _renewTimeDeposit(includeInterest: true),
@@ -894,6 +897,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
         height: 46,
         child: OutlinedButton(
           key: const Key('matured-renew-capital'),
+          style: confirmOutlineStyle(context),
           onPressed: _saving || _queuedOffline
               ? null
               : () => _renewTimeDeposit(includeInterest: false),

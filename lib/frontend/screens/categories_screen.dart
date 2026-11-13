@@ -4,6 +4,7 @@ import '../../backend/models/expense_category_preferences.dart';
 import '../../backend/services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_buttons.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/info_intro_card.dart';
 
@@ -80,10 +81,8 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                               if (category != 'Others') category,
                           ],
                   }),
-                  style: TextButton.styleFrom(
-                    foregroundColor: context.appColors.primaryText,
-                    visualDensity: VisualDensity.compact,
-                  ),
+                  // Blue, like every way to see more or less of a list.
+                  style: openTextStyle(context, compact: true),
                   child: Text(_allHidden(prefs) ? 'Show all' : 'Hide all'),
                 ),
               ],
