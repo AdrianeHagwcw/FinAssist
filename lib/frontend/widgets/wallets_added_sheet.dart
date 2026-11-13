@@ -172,7 +172,7 @@ class WalletsAddedSheet extends StatelessWidget {
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => Navigator.pop(context, false),
-                        style: openOutlineStyle(context, height: 52),
+                        style: confirmOutlineStyle(context, height: 52),
                         child: const Text(
                           'Done',
                           style: TextStyle(

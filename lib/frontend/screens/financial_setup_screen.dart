@@ -223,12 +223,9 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
             style: TextStyle(color: context.appColors.textBody, height: 1.4),
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
               onPressed: () => Navigator.pop(context, false),
-              style: TextButton.styleFrom(
-                foregroundColor: appPrimaryBlue,
-                minimumSize: const Size(64, 44),
-              ),
+              style: neutralButtonStyle(context, height: 44),
               child: const Text(
                 'Keep Editing',
                 style: TextStyle(fontWeight: FontWeight.bold),
@@ -906,10 +903,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => _chooseReminders(false),
-              child: Text(
-                'Skip for now',
-                style: TextStyle(color: context.appColors.primaryText),
-              ),
+              style: neutralTextStyle(context),
+              child: const Text('Skip for now'),
             ),
           ],
         );

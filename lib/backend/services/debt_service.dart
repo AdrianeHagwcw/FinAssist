@@ -586,7 +586,7 @@ class DebtService {
 
   /// Gives loans saved before the app told their payments apart from an
   /// installment's the same marker as new ones, so what is already recorded
-  /// reads "Payment of debt payable" too, and future payments keep reading
+  /// reads "Debt Payment" too, and future payments keep reading
   /// that way. Each loan is done once; offline, it waits for the next start.
   ///
   /// Installments are never marked.

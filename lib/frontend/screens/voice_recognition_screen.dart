@@ -623,7 +623,9 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen>
                         onPressed: command.type == VoiceCommandType.navigation
                             ? _cancelCommand
                             : _listen,
-                        style: openOutlineStyle(context, height: 52),
+                        style: command.type == VoiceCommandType.navigation
+                            ? dangerOutlineStyle(context, height: 52)
+                            : openOutlineStyle(context, height: 52),
                         icon: Icon(
                           command.type == VoiceCommandType.navigation
                               ? Icons.close

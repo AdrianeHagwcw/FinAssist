@@ -164,6 +164,7 @@ class TransactionFilter {
       case TransactionType.expense:
         moneyOut += transaction.amount;
       case TransactionType.transfer:
+      case TransactionType.goal:
         break;
     }
   }
@@ -187,6 +188,7 @@ class TransactionFilter {
       case TransactionType.expense:
         moneyOut += transaction.amount;
       case TransactionType.transfer:
+      case TransactionType.goal:
         break;
     }
   }

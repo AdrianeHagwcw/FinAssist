@@ -439,8 +439,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   ElevatedButton(
                     key: const Key('create-account'),
                     onPressed: _isLoading ? null : _openCreateAccount,
-                    // Green: it makes something new.
-                    style: confirmButtonStyle(height: 50),
+                    // Blue: it continues to the form that makes the account.
+                    // The form's own Create Account button is the green one.
+                    style: openButtonStyle(height: 50),
                     child: const Text(
                       'Create an account',
                       style: TextStyle(
@@ -567,6 +568,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
+              style: openTextStyle(context),
               child: Text(
                 'Forgot Password?',
                 style: TextStyle(

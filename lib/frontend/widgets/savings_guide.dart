@@ -275,14 +275,15 @@ class _OptionSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
               ],
-              // The same full-width button as the one above, in red, so
-              // closing is as easy to find and tap as going on.
+              // The same full-width button as the one above, in grey, so
+              // closing is as easy to find and tap as going on, without
+              // looking like pressing it throws anything away.
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   key: const Key('savings-option-close'),
                   onPressed: () => Navigator.pop(context),
-                  style: dangerButtonStyle(),
+                  style: neutralButtonStyle(context),
                   child: const Text(
                     'Close',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),

@@ -79,6 +79,9 @@ String _time(AppTransaction entry, CsvLookups lookups) {
 String _type(AppTransaction entry, CsvLookups lookups) => switch (entry.type) {
   TransactionType.income => 'Inflow',
   TransactionType.expense => 'Outflow',
+  // A goal row's own words say what it was: "Goal Deposit" or
+  // "Goal Withdrawal". The label column carries them.
+  TransactionType.goal => entry.type.flowLabel,
   TransactionType.transfer => TransferDirection.betweenWallets(
     from:
         lookups.walletRecords[entry.walletId] ??

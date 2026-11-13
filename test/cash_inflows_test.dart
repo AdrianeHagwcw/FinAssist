@@ -247,6 +247,17 @@ void main() {
 
       expect(find.text('Money out (8)'), findsOneWidget);
       expect(find.text('-₱10'), findsNWidgets(5));
+
+      // Seeing the rest is the app's link blue, like every way to see more.
+      expect(
+        tester
+            .widget<TextButton>(find.byKey(const Key('show-all-2026-10')))
+            .style
+            ?.foregroundColor
+            ?.resolve(const <WidgetState>{}),
+        appPrimaryBlue,
+      );
+
       await tester.tap(find.byKey(const Key('show-all-2026-10')));
       await tester.pumpAndSettle();
       expect(find.text('-₱10'), findsNWidgets(8));

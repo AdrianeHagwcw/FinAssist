@@ -161,7 +161,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
               const SizedBox(height: 8),
               ElevatedButton.icon(
                 onPressed: _sendTest,
-                style: openButtonStyle(),
+                style: confirmButtonStyle(),
                 icon: const Icon(Icons.notifications_active_outlined),
                 label: const Text('Send a Test Reminder'),
               ),

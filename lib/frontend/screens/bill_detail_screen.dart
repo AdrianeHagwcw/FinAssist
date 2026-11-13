@@ -675,8 +675,8 @@ class _BillActions extends StatelessWidget {
         onPressed: onUnskip,
         icon: const Icon(Icons.undo),
         label: const Text('Put this bill back'),
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size(double.infinity, 48),
+        style: neutralOutlineStyle(context, height: 48).copyWith(
+          minimumSize: const WidgetStatePropertyAll(Size(double.infinity, 48)),
         ),
       );
     }
@@ -701,21 +701,31 @@ class _BillActions extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                // Blue, the way continuing a payment is: it opens the paying
+                // form, and the green button there records the money.
+                child: ElevatedButton(
                   onPressed: onPayPartial,
-                  style: openOutlineStyle(context),
-                  child: const Text('Pay part of it'),
+                  style: openButtonStyle(height: 46),
+                  child: const Text(
+                    'Pay part of it',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: OutlinedButton(
+                // Grey, the second answer to the same question: not this
+                // time. It is put back with one tap, so it is not a warning.
+                child: ElevatedButton(
                   onPressed: onSkip,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 46),
-                    foregroundColor: context.appColors.textMuted,
+                  style: neutralButtonStyle(context, height: 46),
+                  child: const Text(
+                    'Skip this one',
+                    style: TextStyle(fontSize: 15),
                   ),
-                  child: const Text('Skip this one'),
                 ),
               ),
             ],

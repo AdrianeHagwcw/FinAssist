@@ -275,6 +275,16 @@ void main() {
       expect(rowsOf(csv)[2], contains(',Outflow,Food,'));
     });
 
+    test('names a goal movement in its own words', () {
+      final csv = buildTransactionCsv([
+        entry(type: TransactionType.goal, label: goalDepositLabel),
+        entry(id: 't2', type: TransactionType.goal, label: goalWithdrawalLabel),
+      ]);
+
+      expect(rowsOf(csv)[1], contains(',Goal,Goal Deposit,'));
+      expect(rowsOf(csv)[2], contains(',Goal,Goal Withdrawal,'));
+    });
+
     test('shows how much of a payment was interest', () {
       final csv = buildTransactionCsv([
         entry(amount: 2000, interest: 333.33, billInstanceId: 'loan_20261005'),

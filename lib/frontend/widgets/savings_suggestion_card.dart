@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../backend/models/finance_snapshot.dart';
 import '../../backend/models/savings_suggestion.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_buttons.dart';
 import '../../backend/utils/money_format.dart';
 
 class SavingsSuggestionCard extends StatelessWidget {
@@ -66,6 +67,7 @@ class SavingsSuggestionCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: () => onTransfer(suggestion.amount),
+                  style: openOutlineStyle(context),
                   icon: const Icon(Icons.savings_outlined),
                   label: const Text('Review savings transfer'),
                 ),

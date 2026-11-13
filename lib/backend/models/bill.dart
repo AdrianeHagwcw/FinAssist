@@ -129,7 +129,7 @@ class Bill {
 
   /// Set when the plan behind [debtId] is borrowed money — a debt or loan —
   /// rather than something bought on installment. It follows every occurrence
-  /// and every payment of it, so their rows read "Payment of debt payable".
+  /// and every payment of it, so their rows read "Debt Payment".
   final bool isLoan;
 
   /// What the occurrence on [endDate] asks for when the contract's last

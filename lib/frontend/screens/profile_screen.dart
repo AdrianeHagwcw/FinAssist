@@ -63,6 +63,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
+            style: cancelTextStyle(context),
             child: const Text('Close'),
           ),
           if (passwordAccount)
@@ -71,6 +72,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Navigator.pop(dialogContext);
                 _open(ForgotPasswordScreen(initialEmail: _getUserEmail()));
               },
+              style: openTextStyle(context),
               child: const Text('Reset password'),
             ),
         ],

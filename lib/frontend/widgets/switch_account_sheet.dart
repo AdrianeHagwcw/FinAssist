@@ -355,6 +355,7 @@ class _AccountPasswordDialogState extends State<AccountPasswordDialog> {
                               ForgotPasswordScreen(initialEmail: account.email),
                         ),
                       ),
+                style: openTextStyle(context),
                 child: const Text('Forgot Password?'),
               ),
             ),
