@@ -70,10 +70,12 @@ class GoldPrice {
     required this.pesoPerGram,
     required this.sources,
     this.asOf,
+    this.checkedAt,
   });
 
   final double pesoPerGram;
   final DateTime? asOf;
+  final DateTime? checkedAt;
   final List<ReferenceLink> sources;
 }
 
@@ -137,6 +139,7 @@ class HomeLoanRates {
     required this.standard,
     required this.promo,
     required this.checkedOn,
+    this.standardAsOf,
     this.standardSource,
     this.promoSource,
     this.promoAsOf,
@@ -147,6 +150,7 @@ class HomeLoanRates {
 
   /// When the team last checked them.
   final DateTime checkedOn;
+  final String? standardAsOf;
   final ReferenceLink? standardSource;
   final ReferenceLink? promoSource;
 
@@ -239,6 +243,7 @@ BuildingCost _buildingCost(Map<String, dynamic> data) => BuildingCost(
 GoldPrice _gold(Map<String, dynamic> data) => GoldPrice(
   pesoPerGram: _number(data['pesoPerGram']),
   asOf: DateTime.tryParse(data['priceAsOf'] as String? ?? '')?.toLocal(),
+  checkedAt: DateTime.tryParse(data['updatedAt'] as String? ?? '')?.toLocal(),
   sources: [for (final source in _maps(data['sources'])) _link(source)],
 );
 
@@ -278,6 +283,7 @@ HomeLoanRates _homeLoans(Map<String, dynamic> data) {
     standard: _rates(standard),
     promo: promo == null ? const [] : _rates(promo),
     checkedOn: DateTime.parse(data['checkedOn'] as String),
+    standardAsOf: standard['asOf'] as String?,
     standardSource: standard['source'] == null
         ? null
         : _link(standard['source']),

@@ -319,6 +319,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     required int epoch,
   }) async {
     try {
+      if (_isOnline && shouldRefreshPriceReferencesForChat(text)) {
+        final prices = widget.loadPrices != null
+            ? await widget.loadPrices!()
+            : await loadPriceReferences(forceServer: true);
+        if (!mounted || epoch != _conversationEpoch) return;
+        _prices = prices;
+      }
       final records = _records?.at(DateTime.now());
       final productPriceQuery = productPriceLookupQuery(text);
       final categorizedExpenses = categorizeChatExpenses(text);
@@ -428,12 +435,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       final usesReportSavingsSuggestions =
           records != null && isSavingsSuggestionsQuestion(text);
       final needsRuleBasedFlow =
-          productPriceQuery == null &&
-          (action != null ||
-              localReply.useLocalAnswer ||
-              localReply.pending != null ||
-              localReply.goal != null ||
-              isPurchaseFollowUp) &&
+          (localReply.useLocalAnswer ||
+              (productPriceQuery == null &&
+                  (action != null ||
+                      localReply.pending != null ||
+                      localReply.goal != null ||
+                      isPurchaseFollowUp))) &&
           !usesReportSavingsSuggestions;
 
       if (financialTopic && !needsRuleBasedFlow && _isOnline) {
