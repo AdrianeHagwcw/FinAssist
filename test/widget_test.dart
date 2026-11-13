@@ -5198,6 +5198,15 @@ void main() {
       expect(find.text('Remove GCash?'), findsOneWidget);
       expect(find.textContaining('past transactions are kept'), findsOneWidget);
 
+      // Backing out is the blue way out; Remove keeps the red warning.
+      Color? colorOf(String label) => tester
+          .widget<TextButton>(find.widgetWithText(TextButton, label))
+          .style
+          ?.foregroundColor
+          ?.resolve(const <WidgetState>{});
+      expect(colorOf('Cancel'), appPrimaryBlue);
+      expect(colorOf('Remove'), appDangerRed);
+
       // Backing out must leave the wallet alone.
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
@@ -5952,6 +5961,7 @@ void main() {
       List<BillInstance> bills = const [],
       List<Goal> goals = const [],
       List<Wallet>? wallets,
+      String? walletId,
       void Function(
         AllocationPlan plan,
         Map<String, double> income,
@@ -5971,6 +5981,7 @@ void main() {
           theme: AppTheme.light,
           home: IncomeWaterfallScreen(
             today: today,
+            initialWalletId: walletId,
             wallets: Stream.value(wallets ?? [cash]),
             loadBills: () async => bills,
             goals: Stream.value(goals),
@@ -6028,6 +6039,31 @@ void main() {
       expect(find.text('Cash in Bank'), findsOneWidget);
       // One income lands on one side, so it has one clear source.
       expect(find.text('Both'), findsNothing);
+    });
+
+    testWidgets('opened from a wallet, the income goes there without asking', (
+      tester,
+    ) async {
+      Map<String, double>? income;
+      await pumpWaterfall(
+        tester,
+        wallets: [cash, gcash],
+        walletId: cash.id,
+        onConfirm: (plan, into, billsFrom, fees, source) => income = into,
+      );
+
+      // No second question: the wallet it was opened from is shown instead.
+      expect(find.text('Where did it go?'), findsNothing);
+      expect(find.text('Goes into'), findsOneWidget);
+      expect(find.text('Cash'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).first, '2000');
+      await pickSource(tester, 'Allowance');
+      await next(tester);
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(income, {'w1': 2000});
     });
 
     testWidgets('with no wallet yet, one can be added', (tester) async {
