@@ -742,11 +742,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       padding: const EdgeInsets.only(left: 38, bottom: 10),
       child: TextButton.icon(
         onPressed: busy ? null : () => _toggleTranslation(message),
-        style: TextButton.styleFrom(
-          foregroundColor: context.appColors.primaryText,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          visualDensity: VisualDensity.compact,
-        ),
+        style: neutralTextStyle(context, compact: true),
         icon: busy
             ? const SizedBox(
                 width: 14,
@@ -1192,10 +1188,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Widget _sourceLink(String title, String url) => TextButton.icon(
     onPressed: () => _openPriceSource(url),
-    style: TextButton.styleFrom(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      visualDensity: VisualDensity.compact,
-    ),
+    style: openTextStyle(context, compact: true),
     icon: const Icon(Icons.open_in_new, size: 14),
     label: Text(title, textAlign: TextAlign.left),
   );
@@ -1693,14 +1686,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               applicationName: 'FinAssist',
               applicationVersion: '1.0.0',
             ),
-            style: TextButton.styleFrom(foregroundColor: colors.textMuted),
+            style: openTextStyle(context),
             child: const Text('Open-source licenses'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            style: TextButton.styleFrom(
-              foregroundColor: primaryBlue,
-              minimumSize: const Size(64, 44),
+            style: cancelTextStyle(context).copyWith(
+              minimumSize: const WidgetStatePropertyAll(Size(64, 44)),
             ),
             child: const Text(
               'Close',

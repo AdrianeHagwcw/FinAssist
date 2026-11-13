@@ -144,10 +144,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                   Center(
                     child: TextButton(
                       onPressed: () => setState(() => _emailSent = false),
-                      child: Text(
-                        "Didn't get it? Send again",
-                        style: TextStyle(color: context.appColors.primaryText),
-                      ),
+                      style: confirmTextStyle(context),
+                      child: const Text("Didn't get it? Send again"),
                     ),
                   ),
                 ] else ...[
@@ -242,7 +240,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.arrow_back),
                     label: const Text('Back to Login'),
-                    style: TextButton.styleFrom(foregroundColor: primaryBlue),
+                    style: openTextStyle(context),
                   ),
                 ),
               ],

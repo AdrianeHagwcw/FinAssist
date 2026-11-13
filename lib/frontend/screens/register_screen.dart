@@ -559,6 +559,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             TextButton(
                               key: const Key('log-in-instead'),
                               onPressed: _isLoading ? null : _logInInstead,
+                              style: openTextStyle(context),
                               child: const Text('Log in instead'),
                             ),
                         ],
@@ -604,10 +605,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       TextButton(
                         onPressed: _isLoading ? null : _backToLogin,
-                        child: Text(
+                        style: openTextStyle(context),
+                        child: const Text(
                           'Log In',
                           style: TextStyle(
-                            color: colors.primaryText,
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
                           ),

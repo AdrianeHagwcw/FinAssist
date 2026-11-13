@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../backend/models/wallet.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_buttons.dart';
 import '../../backend/utils/money_format.dart';
 import 'matured_savings_sheet.dart';
 
@@ -94,9 +95,10 @@ class MaturedSavingsNotice extends StatelessWidget {
           const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerLeft,
-            child: FilledButton(
+            child: ElevatedButton(
               key: const Key('matured-review'),
               onPressed: () => _review(context, due),
+              style: openButtonStyle(height: 44),
               child: Text(many ? 'Review each one' : 'Review'),
             ),
           ),

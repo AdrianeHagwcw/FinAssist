@@ -419,6 +419,18 @@ class _InOutStrip extends StatelessWidget {
               TransactionType.transfer => [
                 figure('Moved between your wallets', moved, colors.primaryText),
               ],
+              TransactionType.goal => [
+                Expanded(
+                  child: Text(
+                    'Money set aside for goals, or released from them. '
+                    'Wallet balances do not change.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.appColors.textMuted,
+                    ),
+                  ),
+                ),
+              ],
               null => [
                 figure('Inflow', moneyIn, confirmColorOn(context)),
                 Container(
@@ -847,10 +859,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                     ),
                     TextButton(
                       onPressed: _pickRange,
-                      style: TextButton.styleFrom(
-                        foregroundColor: colors.primaryText,
-                        visualDensity: VisualDensity.compact,
-                      ),
+                      style: openTextStyle(context, compact: true),
                       child: const Text('Change'),
                     ),
                   ],

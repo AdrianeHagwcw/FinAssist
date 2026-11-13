@@ -409,6 +409,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         alignment: Alignment.centerLeft,
                         child: TextButton(
                           onPressed: () => setState(_setAside.clear),
+                          style: neutralTextStyle(context),
                           child: const Text('Count all again'),
                         ),
                       ),
@@ -433,6 +434,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 onPressed: _loadingAiSuggestions
                     ? null
                     : () => _loadAiSuggestions(financialInsights),
+                style: openOutlineStyle(context),
                 icon: _loadingAiSuggestions
                     ? const SizedBox(
                         width: 16,

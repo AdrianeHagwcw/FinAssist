@@ -393,7 +393,7 @@ class BillService {
 
   /// Marks every occurrence of a loan's schedule as a loan and returns the
   /// ids of the payments already recorded against them, so their rows can
-  /// read "Payment of debt payable" too. Null when there is nothing to mark —
+  /// read "Debt Payment" too. Null when there is nothing to mark —
   /// the schedule is gone or already marked, so it runs once per loan.
   static Future<List<String>?> markLoanPlan(String billId) async {
     final billDoc = await _bills.doc(billId).get();

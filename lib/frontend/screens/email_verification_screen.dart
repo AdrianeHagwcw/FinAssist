@@ -234,6 +234,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
+            style: confirmTextStyle(context),
             child: const Text('OK'),
           ),
         ],
@@ -388,6 +389,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                     onPressed: _isLoading || _cooldownSeconds > 0
                         ? null
                         : _sendVerificationEmail,
+                    style: confirmTextStyle(context),
                     child: Text(
                       _cooldownSeconds > 0
                           ? 'Resend in ${_formatCooldown()}'
@@ -398,6 +400,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                 else
                   TextButton(
                     onPressed: _isLoading ? null : _checkVerification,
+                    style: confirmTextStyle(context),
                     child: const Text(
                       "I've already verified it",
                       style: TextStyle(fontWeight: FontWeight.w600),
@@ -422,10 +425,11 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: _isLoading ? null : _backToLogin,
+                  style: openTextStyle(context),
                   child: Text(
                     'Back to Log In',
                     style: TextStyle(
-                      color: colors.textBody,
+                      color: colors.primaryText,
                       fontWeight: FontWeight.w600,
                     ),
                   ),

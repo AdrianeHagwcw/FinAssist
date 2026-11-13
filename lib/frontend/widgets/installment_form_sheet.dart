@@ -753,6 +753,7 @@ class _InstallmentFormSheetState extends State<InstallmentFormSheet>
                         onPressed: () => widget.onAddAsDebt!(
                           cleanText(_nameController.text),
                         ),
+                        style: openTextStyle(context),
                         child: const Text('Add it as a debt'),
                       ),
                     ),

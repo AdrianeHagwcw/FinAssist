@@ -526,6 +526,9 @@ class _TransactionRow extends StatelessWidget {
         return Colors.green;
       case TransactionType.transfer:
         return appPrimaryBlue;
+      case TransactionType.goal:
+        // No money arrived or left: the neutral internal blue.
+        return appPrimaryBlue;
     }
   }
 
@@ -549,6 +552,8 @@ class _TransactionRow extends StatelessWidget {
           width: 22,
           height: 22,
         );
+      case TransactionType.goal:
+        return Icon(Icons.flag_outlined, color: appPrimaryBlue);
     }
   }
 
@@ -556,6 +561,7 @@ class _TransactionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final delta = transaction.balanceDeltaFor(wallet.id);
+    final direction = transactionDirection(transaction, wallets);
     final note = transaction.note;
 
     return Material(
@@ -597,7 +603,7 @@ class _TransactionRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     [
-                      transactionDirection(transaction, wallets).label,
+                      if (direction.label.isNotEmpty) direction.label,
                       if (note != null && note.isNotEmpty) note,
                     ].join(' · '),
                     maxLines: 1,
@@ -613,7 +619,12 @@ class _TransactionRow extends StatelessWidget {
             const SizedBox(width: 10),
             MoneyText(
               transaction.amount,
-              sign: delta < 0 ? '-' : '+',
+              // A goal claim changes no balance, so it carries no sign.
+              sign: transaction.isGoalMovement
+                  ? null
+                  : delta < 0
+                  ? '-'
+                  : '+',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.bold,

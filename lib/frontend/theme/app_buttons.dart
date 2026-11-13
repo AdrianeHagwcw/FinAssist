@@ -6,20 +6,27 @@ import 'app_theme.dart';
 /// One colour rule for every button in the app, so a colour always means the
 /// same thing and the user can read a screen without reading every label:
 ///
-/// * **Green** — this commits what you came to do: Save, Add, Record Payment,
-///   Mark as Paid, Confirm.
-/// * **Red** — this destroys something: Delete, Remove, Log Out, Undo.
-/// * **Blue** — this opens or edits something, and nothing is decided yet:
-///   Add Wallet, Add Budget, Edit, the "+" button.
+/// * **Green** — this adds, commits or completes: Add, Save, Record Payment,
+///   Pay, Mark as Paid, Confirm, Done.
+/// * **Red** — this removes, cancels, stops or takes back: Delete, Remove,
+///   Log Out, Undo, Cancel, Discard. Only things that lose something.
+/// * **Blue** — this continues the process: opens a form, sheet or screen,
+///   starts an edit, or moves on to the next step (Pay in advance, Pay part
+///   of it, Review, Next).
+/// * **Grey** — this is the second answer, not a decision: "not now",
+///   "dismiss", "leave it as it is" (Skip this one, Not yet, Close, Keep
+///   Editing, Keep My Account).
 ///
-/// The one exception is the Add button under a list in first-time setup
-/// (Add a Bill, Add Savings, Add a Wallet, Add Goal, Add account). Those are
-/// the same solid green as the button that saves, so adding reads the same
-/// on every step.
+/// Grey is not a fourth meaning, it is the second *weight*: colour says what
+/// kind of thing a press does, fill says how much it matters. A grey button
+/// is still obviously a button and still easy to tap, it just steps back
+/// beside the coloured one. Red stays honest that way — it only appears where
+/// something is actually lost, so it still reads as a warning instead of an
+/// everyday "skip this".
 ///
-/// The split that matters is *opening* versus *committing*. "Add Wallet" on
-/// the wallets screen is blue because it only opens a form; "Add Wallet"
-/// inside that form is green because it is the one that saves.
+/// The same meanings carry through the filled buttons, the outlined buttons
+/// and the text buttons in dialogs, so a blue outline and a solid blue button
+/// are the same blue, and a button never carries a colour of its own.
 const Color appConfirmGreen = Color(0xFF2E7D32);
 const Color appDangerRed = Color(0xFFD32F2F);
 
@@ -57,6 +64,24 @@ ButtonStyle dangerButtonStyle({double height = 52}) =>
 ButtonStyle openButtonStyle({double height = 52}) =>
     _filledStyle(appPrimaryBlue, height: height);
 
+/// The grey button: the second answer on a screen, not a decision of its own.
+/// Same size and shape as the coloured fills so a pair of buttons line up,
+/// with the page's own grey behind it and a thin edge so it still reads as a
+/// button on a white card, in both modes.
+ButtonStyle neutralButtonStyle(BuildContext context, {double height = 46}) {
+  final colors = context.appColors;
+  return ElevatedButton.styleFrom(
+    backgroundColor: colors.track,
+    foregroundColor: colors.textPrimary,
+    disabledBackgroundColor: colors.track.withValues(alpha: 0.5),
+    disabledForegroundColor: colors.textMuted,
+    elevation: 0,
+    minimumSize: Size(0, height),
+    side: BorderSide(color: colors.inputBorder),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  );
+}
+
 /// Dialog actions, where a filled button would shout. The colour still
 /// carries the meaning.
 ButtonStyle confirmTextStyle(BuildContext context) =>
@@ -70,12 +95,46 @@ ButtonStyle dangerTextStyle(BuildContext context) =>
 ButtonStyle cancelTextStyle(BuildContext context) =>
     TextButton.styleFrom(foregroundColor: dangerColorOn(context));
 
+/// Blue text, for a text action that opens or continues: a link, a review
+/// step, the way on to another screen.
+ButtonStyle openTextStyle(BuildContext context, {bool compact = false}) =>
+    TextButton.styleFrom(
+      foregroundColor: context.appColors.primaryText,
+      visualDensity: compact ? VisualDensity.compact : null,
+      padding: compact
+          ? const EdgeInsets.symmetric(horizontal: 8)
+          : null,
+    );
+
+/// Quiet text, for a show/hide toggle or a soft "not now" inside a row. These
+/// carry no decision of their own, so they stay colourless rather than
+/// borrowing a colour that would suggest one.
+ButtonStyle neutralTextStyle(BuildContext context, {bool compact = false}) =>
+    TextButton.styleFrom(
+      foregroundColor: context.appColors.textBody,
+      visualDensity: compact ? VisualDensity.compact : null,
+      padding: compact
+          ? const EdgeInsets.symmetric(horizontal: 8)
+          : null,
+    );
+
 /// A red outlined button, for a destructive action that isn't the main thing
 /// on the screen.
 ButtonStyle dangerOutlineStyle(BuildContext context, {double height = 46}) {
   return OutlinedButton.styleFrom(
     foregroundColor: dangerColorOn(context),
     side: BorderSide(color: dangerColorOn(context), width: 1.2),
+    minimumSize: Size(0, height),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  );
+}
+
+/// A green outlined button, for a secondary action that commits or completes
+/// without being the main button on the screen.
+ButtonStyle confirmOutlineStyle(BuildContext context, {double height = 46}) {
+  return OutlinedButton.styleFrom(
+    foregroundColor: confirmColorOn(context),
+    side: BorderSide(color: confirmColorOn(context), width: 1.2),
     minimumSize: Size(0, height),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   );
@@ -89,6 +148,18 @@ ButtonStyle openOutlineStyle(BuildContext context, {double height = 46}) {
   return OutlinedButton.styleFrom(
     foregroundColor: blue,
     side: BorderSide(color: blue, width: 1.2),
+    minimumSize: Size(0, height),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  );
+}
+
+/// A grey outlined button, for the quiet full-width twin of a grey fill: the
+/// way back from something that was set aside (Put this bill back).
+ButtonStyle neutralOutlineStyle(BuildContext context, {double height = 46}) {
+  final colors = context.appColors;
+  return OutlinedButton.styleFrom(
+    foregroundColor: colors.textPrimary,
+    side: BorderSide(color: colors.inputBorder, width: 1.2),
     minimumSize: Size(0, height),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   );

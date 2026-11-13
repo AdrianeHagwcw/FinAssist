@@ -118,9 +118,7 @@ class DueSoonNotice extends StatelessWidget {
                     ),
                     TextButton(
                       onPressed: () => onOpen(bill),
-                      style: TextButton.styleFrom(
-                        foregroundColor: colors.primaryText,
-                      ),
+                      style: openTextStyle(context),
                       child: const Text('Pay'),
                     ),
                   ],

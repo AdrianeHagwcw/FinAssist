@@ -492,6 +492,7 @@ void showSafeToSpendWorking(BuildContext context, SafeToSpend s) {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
+          style: confirmTextStyle(context),
           child: const Text('Got it'),
         ),
       ],
