@@ -144,6 +144,27 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       widget.initialWalletId!: widget.initialAmount!,
   };
 
+  /// The wallet this income was opened from, once it is known and can still
+  /// take income. Null from Home, or when that wallet is gone or is a time
+  /// deposit, and the user is asked as before.
+  Wallet? get _openedWallet {
+    final id = widget.initialWalletId;
+    if (id == null) return null;
+    for (final wallet in _walletList) {
+      if (wallet.id == id) return wallet;
+    }
+    return null;
+  }
+
+  /// Where the income goes, by wallet. Opened from a wallet, all of it goes
+  /// there and the user is not asked again; otherwise it is the picker's
+  /// answer. Read rather than stored, so the two can never disagree.
+  Map<String, double> get _incomeByWallet {
+    if (_openedWallet == null) return _incomeSplit;
+    final amount = _income;
+    return amount > 0 ? {widget.initialWalletId!: amount} : const {};
+  }
+
   /// The wallets the bills were paid from, and what each was charged.
   Map<String, double> _billsFrom = const {};
   Map<String, double> _billFees = const {};
@@ -158,7 +179,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// paid. Negative when a wallet pays more than it received, from money
   /// already in it.
   Map<String, double> get _afterBills {
-    final left = <String, double>{..._incomeSplit};
+    final left = <String, double>{..._incomeByWallet};
     for (final entry in _billsFrom.entries) {
       left[entry.key] = (left[entry.key] ?? 0) - entry.value;
     }
@@ -413,7 +434,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     }
     return walletSplitProblem(
       purpose: SplitPurpose.receiving,
-      amounts: _incomeSplit,
+      amounts: _incomeByWallet,
       wallets: _walletList,
       goals: _allGoals,
       target: _income,
@@ -434,7 +455,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           goals: _allGoals,
           target: _plan.toBills,
           matchTarget: true,
-          adding: _incomeSplit,
+          adding: _incomeByWallet,
           allowBoth: false,
         );
 
@@ -504,7 +525,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
 
     save(
       plan: plan,
-      incomeByWallet: _incomeSplit,
+      incomeByWallet: _incomeByWallet,
       billsPaidFrom: billsFrom,
       billFees: billFees,
       goalKeptIn: goalFrom,
@@ -657,7 +678,21 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             icon: const Icon(Icons.add),
             label: const Text('Add wallet'),
           ),
-        ] else
+        ] else if (_openedWallet case final wallet?)
+          // Opened from a wallet, the money goes straight into it. No second
+          // question about where it went.
+          InputDecorator(
+            key: const ValueKey('income-goes-to-fixed'),
+            decoration: dialogFieldDecoration(context, 'Goes into'),
+            child: Row(
+              children: [
+                Image.asset(wallet.iconAsset, width: 24, height: 24),
+                const SizedBox(width: 10),
+                Expanded(child: Text(wallet.name)),
+              ],
+            ),
+          )
+        else
           WalletSplitPicker(
             key: const ValueKey('income-goes-to'),
             wallets: _walletList,
@@ -777,7 +812,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             withFees: true,
             // Bills are paid from cash on hand or the bank, not both.
             allowBoth: false,
-            adding: _incomeSplit,
+            adding: _incomeByWallet,
             initialAmounts: _billsFrom,
             totalLabel: 'Paying bills',
             onChanged: (amounts) => setState(() => _billsFrom = amounts),
@@ -953,7 +988,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
         _SummaryCard(
           children: [
             _SummaryLine(
-              label: '$_resolvedSource into ${_walletNames(_incomeSplit)}',
+              label: '$_resolvedSource into ${_walletNames(_incomeByWallet)}',
               detail: formatShortDate(_receivedAt),
               amount: formatPeso(plan.income, sign: '+'),
               color: confirmColorOn(context),
@@ -1032,7 +1067,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     final billsFrom = plan.toBills > 0 ? _billsFrom : const <String, double>{};
     final fees = plan.toBills > 0 ? _billFees : const <String, double>{};
     final goalFrom = plan.toGoal > 0 ? _goalFrom : const <String, double>{};
-    final income = _incomeSplit;
+    final income = _incomeByWallet;
     var cashBefore = 0.0;
     var cashAfter = 0.0;
     var bankBefore = 0.0;
