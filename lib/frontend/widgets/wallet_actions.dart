@@ -50,7 +50,7 @@ Future<bool> removeWallet(BuildContext context, Wallet wallet) async {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          style: cancelTextStyle(context),
+          style: openTextStyle(context),
           child: const Text('Cancel'),
         ),
         TextButton(
