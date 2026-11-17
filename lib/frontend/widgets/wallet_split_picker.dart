@@ -620,7 +620,8 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
         }
       }
     }
-    if (!fees) {
+    if (!fees &&
+        (!widget.showSavingsGroup || option == WalletGroupChoice.savings)) {
       for (final wallet in _separateSavingsWallets) {
         final amount = _amountFrom(_controllers[wallet.id]);
         if (amount > 0) values[wallet.id] = amount;
@@ -894,7 +895,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
                 ),
             ],
           ],
-          if (savingsWallets.isNotEmpty) ...[
+          if (!widget.showSavingsGroup && savingsWallets.isNotEmpty) ...[
             groupTitle(
               widget.purpose == SplitPurpose.giving
                   ? 'Savings already assigned to this goal'

@@ -5709,9 +5709,15 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byKey(const Key('goes-to-b')), findsOneWidget);
         expect(find.byKey(const Key('goes-to-demand')), findsNothing);
-        expect(find.text('Savings accounts'), findsOneWidget);
-        expect(find.byKey(const Key('goes-to-savings')), findsOneWidget);
+        // Savings wallets are kept only under the Savings choice now.
+        expect(find.text('Savings accounts'), findsNothing);
+        expect(find.byKey(const Key('goes-to-savings')), findsNothing);
         expect(find.byKey(const Key('goes-to-time')), findsNothing);
+
+        await tester.tap(find.text('Savings'));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('goes-to-savings')), findsOneWidget);
+        expect(find.byKey(const Key('goes-to-demand')), findsNothing);
 
         // A savings deposit can also be the source, with the demand deposit
         // available as a separate destination.
@@ -5767,6 +5773,8 @@ void main() {
 
       await pumpTransfer(tester, wallets: [cash, savings, demand, time]);
       expect(find.text('Savings'), findsOneWidget);
+      // The old section below the choices is gone; Savings lives in its tile.
+      expect(find.text('Savings accounts'), findsNothing);
 
       await tester.tap(find.text('Savings'));
       await tester.pumpAndSettle();
@@ -13767,6 +13775,13 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const Key('transfer-savings-interest')), findsNothing);
+      final savingsTile = find.descendant(
+        of: find.byType(TransferSheet),
+        matching: find.text('Savings'),
+      );
+      await tester.ensureVisible(savingsTile);
+      await tester.tap(savingsTile);
+      await tester.pumpAndSettle();
       expect(find.byKey(const Key('goes-to-demand')), findsOneWidget);
     });
 
