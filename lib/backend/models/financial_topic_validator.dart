@@ -21,6 +21,13 @@ bool isFinancialTopic(String message, {bool hasFinancialContext = false}) {
 
   if (hasFinancialContext && isFinancialFollowUp(normalized)) return true;
 
+  if (RegExp(
+    r'\b(audit\s*logs?|audit history|change history|history of changes|'
+    r'record changes)\b',
+  ).hasMatch(normalized)) {
+    return true;
+  }
+
   final asksPurchaseAffordability = RegExp(
     r'\b(kaya ko|kaya kong|kaya ko bang|kaya ko ba|kakayanin ko|'
     r'makakaya ko|afford|affordable|can i buy|can i get|should i buy|'
