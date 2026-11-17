@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -8,10 +9,13 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../backend/models/chat_answers.dart';
 import '../../backend/models/chat_action.dart';
 import '../../backend/models/chat_language.dart';
+import '../../backend/models/app_transaction.dart';
 import '../../backend/models/financial_topic_validator.dart';
 import '../../backend/models/financial_ai_guardrails.dart';
 import '../../backend/models/finance_snapshot.dart';
 import '../../backend/models/financial_insights.dart';
+import '../../backend/models/financial_chart.dart';
+import '../../backend/models/financial_chart_context.dart';
 import '../../backend/models/goal.dart';
 import '../../backend/models/price_references.dart';
 import '../../backend/models/wallet.dart';
@@ -19,6 +23,8 @@ import 'add_expense_screen.dart';
 import 'income_waterfall_screen.dart';
 import '../../backend/services/finance_snapshot_service.dart';
 import '../../backend/services/financial_ai_service.dart';
+import '../../backend/services/financial_chart_service.dart';
+import '../../backend/services/financial_response_router.dart';
 import '../../backend/services/goal_service.dart';
 import '../../backend/services/price_references_service.dart';
 import '../../backend/services/wallet_service.dart';
@@ -28,6 +34,7 @@ import '../theme/app_icons.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/transfer_sheet.dart';
+import '../widgets/financial_chart_card.dart';
 import '../widgets/wallet_split_picker.dart';
 import '../../backend/utils/money_format.dart';
 
@@ -227,6 +234,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   /// A "Can I buy it?" question still being worked out.
   PurchaseQuestion? _pending;
+  FinancialChartContext? _chartContext;
 
   final List<Map<String, dynamic>> _messages = [
     {
@@ -327,6 +335,38 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         _prices = prices;
       }
       final records = _records?.at(DateTime.now());
+      final knownCategories = records == null
+          ? const <String>[]
+          : records.transactions
+                .where(
+                  (transaction) => transaction.type == TransactionType.expense,
+                )
+                .map((transaction) => transaction.label)
+                .where((label) => label.trim().isNotEmpty);
+      final chartFollowUp = resolveFinancialChartFollowUp(
+        text,
+        _chartContext,
+        knownCategories: knownCategories,
+      );
+      final chartQuestion = chartFollowUp?.question ?? text;
+      final route = routeFinancialResponse(chartQuestion);
+      if (kDebugMode) {
+        debugPrint(
+          'FinAssist route: intent=${route.intent}, mode=${route.mode.name}, '
+          'financialData=${route.requiresFinancialData}, '
+          'interpretation=${route.requiresInterpretation}',
+        );
+      }
+      final chartRequest = isFinancialChartRequest(chartQuestion);
+      final chartData = chartRequest
+          ? (records == null
+                ? const FinancialChartData.unavailable(
+                    title: 'Financial chart',
+                    periodLabel: 'Requested period',
+                    reason: 'Your financial records are still loading.',
+                  )
+                : buildFinancialChart(chartQuestion, records))
+          : null;
       final productPriceQuery = productPriceLookupQuery(text);
       final categorizedExpenses = categorizeChatExpenses(text);
       final hasMultipleCategorizedExpenses = categorizedExpenses != null;
@@ -379,6 +419,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         language: shownLanguage,
         prices: _prices,
       );
+      final auditQuestion = isAuditLogQuestion(text);
+      final auditAnswer = auditQuestion
+          ? auditLogAnswer(records, shownLanguage)
+          : null;
       // Fin's own Tagalog, for the button on a Taglish answer.
       final tagalogReply = taglish
           ? answerChat(
@@ -393,7 +437,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       if (tagalogReply != null && tagalogReply.filipino) {
         tagalogOf[localReply.text] = tagalogReply.text;
       }
-      if (localReply.useLocalAnswer || action != null) {
+      if (localReply.useLocalAnswer || action != null || auditAnswer != null) {
         _messages.last['financialContext'] = true;
       }
       var usedAi = false;
@@ -420,7 +464,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           'the existing form, then save it yourself. Nothing is saved '
           'until you confirm.',
         ),
-        null => localReply.text,
+        null =>
+          chartData == null
+              ? auditAnswer ?? localReply.text
+              : financialChartExplanation(
+                  chartData,
+                  shownLanguage == ChatLanguage.tagalog ? 'Tagalog' : 'English',
+                ),
       };
 
       final isPurchaseFollowUp =
@@ -435,9 +485,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       final usesReportSavingsSuggestions =
           records != null && isSavingsSuggestionsQuestion(text);
       final needsRuleBasedFlow =
-          (localReply.useLocalAnswer ||
+          ((route.mode == FinancialResponseMode.ruleBased &&
+                  localReply.useLocalAnswer) ||
               (productPriceQuery == null &&
                   (action != null ||
+                      auditAnswer != null ||
+                      chartData != null ||
                       localReply.pending != null ||
                       localReply.goal != null ||
                       isPurchaseFollowUp))) &&
@@ -475,13 +528,29 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 insights,
                 responseLanguage: shownLanguage,
               );
+              final allowsGeneralAdviceNumbers =
+                  localReply.keepUnderAi && !localReply.isVerifiedGoalPlan;
               if (suggestions.isEmpty ||
-                  !suggestions.every(isUsableFinancialExplanation)) {
+                  !suggestions.every(
+                    (suggestion) =>
+                        isUsableFinancialExplanation(
+                          suggestion,
+                          allowNumbers: true,
+                        ) &&
+                        (allowsGeneralAdviceNumbers ||
+                            isVerifiedFinancialExplanation(
+                              suggestion,
+                              records,
+                            )),
+                  )) {
                 throw const FinancialAssistantFailure(
                   'Gemini returned unusable savings suggestions.',
                 );
               }
-              return suggestions.join('\n\n');
+              final generated = suggestions.join('\n\n');
+              return localReply.keepUnderAi
+                  ? '$generated\n\n${localReply.text}'
+                  : generated;
             }
             return assistant.answerQuestion(
               question: text,
@@ -493,16 +562,35 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   : null,
             );
           });
+          final allowsGeneralAdviceNumbers =
+              localReply.keepUnderAi && !localReply.isVerifiedGoalPlan;
           if (productPriceQuery == null &&
-              !isUsableFinancialExplanation(geminiAnswer)) {
+              (!isUsableFinancialExplanation(
+                    geminiAnswer,
+                    allowNumbers: true,
+                  ) ||
+                  (!allowsGeneralAdviceNumbers &&
+                      !isVerifiedFinancialExplanation(
+                        geminiAnswer,
+                        records,
+                      )))) {
+            if (kDebugMode) {
+              debugPrint(
+                'FinAssist rejected Gemini response: '
+                'numericContext=${!allowsGeneralAdviceNumbers}',
+              );
+            }
             throw const FinancialAssistantFailure('Unverified AI response.');
           }
           usedAi = true;
           if (groundedPriceAnswer != null) {
             answer = geminiAnswer;
-          } else if (localReply.isVerifiedGoalPlan || localReply.keepUnderAi) {
-            // Generated text has no amounts, so the verified figures stay
-            // under it.
+          } else if (chartData != null) {
+            answer = geminiAnswer;
+          } else if (route.mode == FinancialResponseMode.hybrid ||
+              localReply.isVerifiedGoalPlan ||
+              localReply.keepUnderAi) {
+            // Keep the app's deterministic figures alongside the explanation.
             answer =
                 RegExp(
                   r"\bnot sure what you're asking\b",
@@ -544,6 +632,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   'bills, or a savings target. Include the amount and time '
                   'period you mean.',
                 )
+              : chartData != null
+              ? financialChartExplanation(
+                  chartData,
+                  shownLanguage == ChatLanguage.tagalog ? 'Tagalog' : 'English',
+                )
+              : route.mode == FinancialResponseMode.hybrid
+              ? '${say((language) => language == ChatLanguage.tagalog ? 'Hindi ko nabuo ang AI explanation ngayon, kaya ito ang '
+                              'verified na sagot mula sa records mo:' : 'I could not complete the AI explanation right now, so '
+                              'here is the verified answer from your records:')}\n\n'
+                    '${localReply.text}'
               : '${say((language) => _aiUnavailableNotice(language, error.message))}'
                     '\n\n${localReply.text}';
         }
@@ -565,7 +663,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       }
 
       if (usedAi) {
-        debugPrint('FinAssist answer source: Gemini');
+        debugPrint(
+          'FinAssist answer source: Gemini '
+          '(mode=${route.mode.name}, financialData=${records != null})',
+        );
       } else {
         final reason = action != null
             ? 'chat action'
@@ -575,6 +676,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             ? 'verified savings goal plan'
             : !_isOnline
             ? 'offline'
+            : route.mode == FinancialResponseMode.ruleBased
+            ? 'deterministic factual answer'
             : financialTopic
             ? 'verified app data or Gemini fallback'
             : 'unsupported or non-financial question';
@@ -582,6 +685,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       }
 
       if (!mounted || epoch != _conversationEpoch) return;
+      if (chartData != null && records != null && chartData.available) {
+        _chartContext = chartContextFor(chartQuestion, chartData, records.now);
+      }
       setState(() {
         _pending = localReply.pending;
         _messages.add({
@@ -598,8 +704,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           if (localReply.sources.isNotEmpty && answer.contains(localReply.text))
             'referenceLinks': localReply.sources,
           'searchSuggestionsHtml': groundedPriceAnswer?.searchSuggestionsHtml,
+          'financialChart': chartData,
           'financialContext':
-              financialTopic || action != null || localReply.useLocalAnswer,
+              financialTopic ||
+              action != null ||
+              auditAnswer != null ||
+              chartData != null ||
+              localReply.useLocalAnswer,
           if (taglish && expenseBatchMessage.isEmpty) ...{
             'english': answer,
             'tagalogOf': tagalogOf,
@@ -1089,6 +1200,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       : CrossAxisAlignment.start,
                   children: [
                     _messageBubble(message: message['message'], isUser: isUser),
+                    if (!isUser &&
+                        message['financialChart'] is FinancialChartData)
+                      FinancialChartCard(
+                        data: message['financialChart'] as FinancialChartData,
+                      ),
                     if (!isUser && message['english'] != null)
                       _translateButton(message),
                     if (!isUser && priceSources.isNotEmpty)
@@ -1596,6 +1712,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       _isSending = false;
       _messages.clear();
       _pending = null;
+      _chartContext = null;
       _messages.add({
         'message':
             'Hello! I\'m Fin. How can I help you with your finances today?',
@@ -1698,9 +1815,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            style: cancelTextStyle(context).copyWith(
-              minimumSize: const WidgetStatePropertyAll(Size(64, 44)),
-            ),
+            style: cancelTextStyle(
+              context,
+            ).copyWith(minimumSize: const WidgetStatePropertyAll(Size(64, 44))),
             child: const Text(
               'Close',
               style: TextStyle(fontWeight: FontWeight.bold),

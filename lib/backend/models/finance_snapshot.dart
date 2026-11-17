@@ -1,4 +1,5 @@
 import 'app_transaction.dart';
+import 'account_audit_log.dart';
 import 'bill.dart';
 import 'debt.dart';
 import 'goal.dart';
@@ -15,6 +16,7 @@ class FinanceSnapshot {
     this.bills = const [],
     this.goals = const [],
     this.debts = const [],
+    this.auditLogs = const [],
     this.incomeFrequency,
     this.usualIncome,
     this.lastIncomeAt,
@@ -29,6 +31,7 @@ class FinanceSnapshot {
   final List<BillInstance> bills;
   final List<Goal> goals;
   final List<Debt> debts;
+  final List<AccountAuditLog> auditLogs;
 
   /// Legacy fields retained so older callers still deserialize safely. They
   /// are not used by current calculations.
@@ -52,6 +55,7 @@ class FinanceSnapshot {
     bills: bills,
     goals: goals,
     debts: debts,
+    auditLogs: auditLogs,
     incomeFrequency: incomeFrequency,
     usualIncome: usualIncome,
     lastIncomeAt: lastIncomeAt,

@@ -14,6 +14,7 @@ class _FakeFinancialAssistant implements FinancialAssistant {
   int insightRequests = 0;
   FinancialInsights? requestedInsights;
   bool fail = false;
+  bool includeAmount = false;
 
   @override
   Future<String> answerQuestion({
@@ -40,8 +41,11 @@ class _FakeFinancialAssistant implements FinancialAssistant {
     if (fail) {
       throw const FinancialAssistantFailure('simulated Gemini failure');
     }
-    return const [
-      'Review optional recurring costs before changing essentials.',
+    return [
+      if (includeAmount)
+        'Review your food spending recorded at ₱200 before changing essentials.'
+      else
+        'Review optional recurring costs before changing essentials.',
     ];
   }
 
@@ -168,5 +172,18 @@ void main() {
       find.text('You kept 80% of what came in this month.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('accepts AI suggestions that include peso amounts', (
+    tester,
+  ) async {
+    final assistant = _FakeFinancialAssistant()..includeAmount = true;
+    await _pumpReports(tester, assistant: assistant);
+
+    await tester.tap(find.text('Get AI suggestions'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('recorded at ₱200'), findsOneWidget);
   });
 }

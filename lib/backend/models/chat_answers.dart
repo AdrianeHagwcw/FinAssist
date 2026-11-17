@@ -123,6 +123,59 @@ bool isSavingsSuggestionsQuestion(String question) {
   ]);
 }
 
+bool isAuditLogQuestion(String question) => RegExp(
+  r'\b(audit\s*logs?|audit history|change history|history of changes|'
+  r'record changes)\b',
+  caseSensitive: false,
+).hasMatch(question);
+
+String auditLogAnswer(FinanceSnapshot? records, ChatLanguage language) {
+  final logs = records?.auditLogs ?? const [];
+  if (logs.isEmpty) {
+    return switch (language) {
+      ChatLanguage.tagalog =>
+        'Wala pang verified audit logs na naitala para sa account na ito. '
+            'Hindi maaaring buuin mula sa kasalukuyang records ang mga dating '
+            'pagdagdag, pagbabago, o pagbura.',
+      ChatLanguage.taglish =>
+        'Wala pang verified audit logs na recorded para sa account na ito. '
+            'Hindi puwedeng i-reconstruct ang past additions, edits, o '
+            'deletions mula sa current records lang.',
+      ChatLanguage.english =>
+        'No verified audit logs have been recorded for this account yet. '
+            'Past additions, edits, or deletions cannot be reconstructed from '
+            'current records alone.',
+    };
+  }
+
+  final lines = <String>[
+    switch (language) {
+      ChatLanguage.tagalog =>
+        'Narito ang ${logs.length} verified audit log${logs.length == 1 ? '' : 's'} '
+            'mula sa account mo:',
+      ChatLanguage.taglish =>
+        'Ito ang ${logs.length} verified audit log${logs.length == 1 ? '' : 's'} '
+            'mula sa account mo:',
+      ChatLanguage.english =>
+        'Here are ${logs.length} verified audit log${logs.length == 1 ? '' : 's'} '
+            'from your account:',
+    },
+  ];
+  for (final log in logs.take(20)) {
+    final date = log.occurredAt.toLocal();
+    final dateText =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    final amount = log.updatedAmount ?? log.previousAmount;
+    final amountText = amount == null ? '' : ' (${formatPeso(amount)})';
+    lines.add('• ${log.action} ${log.collection} on $dateText$amountText');
+  }
+  if (logs.length > 20) {
+    lines.add('Showing the 20 most recent entries.');
+  }
+  return lines.join('\n');
+}
+
 /// What the assistant is waiting to hear in a "Can I buy it?" conversation.
 enum PurchaseStep { item, brand, price }
 
