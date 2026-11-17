@@ -491,6 +491,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   (action != null ||
                       auditAnswer != null ||
                       chartData != null ||
+                      localReply.useLocalAnswer ||
                       localReply.pending != null ||
                       localReply.goal != null ||
                       isPurchaseFollowUp))) &&
@@ -637,11 +638,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   chartData,
                   shownLanguage == ChatLanguage.tagalog ? 'Tagalog' : 'English',
                 )
-              : route.mode == FinancialResponseMode.hybrid
-              ? '${say((language) => language == ChatLanguage.tagalog ? 'Hindi ko nabuo ang AI explanation ngayon, kaya ito ang '
-                              'verified na sagot mula sa records mo:' : 'I could not complete the AI explanation right now, so '
-                              'here is the verified answer from your records:')}\n\n'
-                    '${localReply.text}'
               : '${say((language) => _aiUnavailableNotice(language, error.message))}'
                     '\n\n${localReply.text}';
         }

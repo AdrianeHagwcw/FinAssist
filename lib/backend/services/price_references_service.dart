@@ -12,31 +12,38 @@ Future<PriceReferences?> loadPriceReferences({
   FirebaseFirestore? firestore,
   bool forceServer = false,
 }) async {
-  final collection = (firestore ?? FirebaseFirestore.instance).collection(
-    'priceReferences',
-  );
   try {
-    final snapshot = await collection.get(
-      forceServer
-          ? const GetOptions(source: Source.server)
-          : const GetOptions(),
+    final collection = (firestore ?? FirebaseFirestore.instance).collection(
+      'priceReferences',
     );
-    return _priceReferencesFromSnapshot(snapshot);
-  } on Object catch (error) {
-    if (forceServer) {
-      debugPrint(
-        'FinAssist live price refresh failed; trying Firestore cache: $error',
+    try {
+      final snapshot = await collection.get(
+        forceServer
+            ? const GetOptions(source: Source.server)
+            : const GetOptions(),
       );
-      try {
-        return _priceReferencesFromSnapshot(
-          await collection.get(const GetOptions(source: Source.cache)),
-        );
-      } on Object catch (cacheError) {
+      return _priceReferencesFromSnapshot(snapshot);
+    } on Object catch (error) {
+      if (forceServer) {
         debugPrint(
-          'FinAssist cached price references unavailable: $cacheError',
+          'FinAssist live price refresh failed; trying Firestore cache: $error',
         );
+        try {
+          return _priceReferencesFromSnapshot(
+            await collection.get(const GetOptions(source: Source.cache)),
+          );
+        } on Object catch (cacheError) {
+          debugPrint(
+            'FinAssist cached price references unavailable: $cacheError',
+          );
+        }
       }
+      debugPrint('FinAssist price references unavailable: $error');
+      return null;
     }
+  } on Object catch (error) {
+    // Firebase is not set up (for example, in widget tests): answer from the
+    // user's own records instead of failing the price lookup.
     debugPrint('FinAssist price references unavailable: $error');
     return null;
   }
