@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+
+import '../models/account_audit_log.dart';
 import '../models/allocation.dart';
 import '../models/app_transaction.dart';
 import '../models/bill.dart';
@@ -10,6 +14,7 @@ import '../models/wallet.dart';
 import 'allocation_service.dart';
 import 'bill_service.dart';
 import 'debt_service.dart';
+import 'financial_data_service.dart';
 import 'goal_service.dart';
 import 'wallet_service.dart';
 
@@ -26,6 +31,7 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
   Stream<List<Goal>>? goalStream,
   Stream<List<Debt>>? debtStream,
   Stream<List<Bill>>? billStream,
+  Stream<List<AccountAuditLog>>? auditLogStream,
   Future<List<BillInstance>> Function()? loadBills,
   DateTime Function()? clock,
 }) {
@@ -37,6 +43,7 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
   var goals = const <Goal>[];
   var debts = const <Debt>[];
   var bills = const <BillInstance>[];
+  var auditLogs = const <AccountAuditLog>[];
 
   // The first answer waits for these, so it is never worked out from half
   // the picture.
@@ -46,6 +53,7 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
   var debtsRead = false;
   var billsRead = false;
   var schedulesRead = false;
+  var auditLogsRead = false;
 
   void send() {
     if (!walletsRead ||
@@ -53,7 +61,8 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
         !goalsRead ||
         !debtsRead ||
         !billsRead ||
-        !schedulesRead) {
+        !schedulesRead ||
+        !auditLogsRead) {
       return;
     }
     if (controller.isClosed) return;
@@ -65,6 +74,7 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
         bills: bills,
         goals: goals,
         debts: debts,
+        auditLogs: auditLogs,
       ),
     );
   }
@@ -127,17 +137,23 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
 
   controller = StreamController<FinanceSnapshot>(
     onListen: () {
-      watch(() => walletStream ?? WalletService.watchWallets(), (value) {
-        wallets = value;
-        walletsRead = true;
-      }, onFail: () => walletsRead = false);
-      watch(() => transactionStream ?? WalletService.watchTransactions(), (
-        value,
-      ) {
-        transactions = value;
-        transactionsRead = true;
-        readBills();
-      }, onFail: () => transactionsRead = false);
+      watch(
+        () => walletStream ?? WalletService.watchWallets(),
+        (value) {
+          wallets = value;
+          walletsRead = true;
+        },
+        onFail: () => walletsRead = false,
+      );
+      watch(
+        () => transactionStream ?? WalletService.watchTransactions(),
+        (value) {
+          transactions = value;
+          transactionsRead = true;
+          readBills();
+        },
+        onFail: () => transactionsRead = false,
+      );
       watch(() => goalStream ?? GoalService.watchGoals(), (value) {
         goals = value;
         goalsRead = true;
@@ -146,11 +162,29 @@ Stream<FinanceSnapshot> watchFinanceSnapshot({
         debts = value;
         debtsRead = true;
       }, onFail: () => debtsRead = false);
-      watch(() => billStream ?? BillService.watchBills(), (_) {
-        schedulesRead = true;
-        billsVersion++;
-        readBills();
-      }, onFail: () => schedulesRead = false);
+      watch(
+        () => billStream ?? BillService.watchBills(),
+        (_) {
+          schedulesRead = true;
+          billsVersion++;
+          readBills();
+        },
+        onFail: () => schedulesRead = false,
+      );
+      final hasAuthenticatedUser =
+          Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null;
+      if (auditLogStream != null || hasAuthenticatedUser) {
+        watch(
+          () => auditLogStream ?? FinancialDataService.watchAuditLogs(),
+          (value) {
+            auditLogs = value;
+            auditLogsRead = true;
+          },
+          onFail: () => auditLogsRead = false,
+        );
+      } else {
+        auditLogsRead = true;
+      }
     },
     onCancel: () async {
       for (final subscription in subscriptions) {

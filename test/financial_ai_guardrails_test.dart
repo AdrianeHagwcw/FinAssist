@@ -149,6 +149,8 @@ void main() {
       );
       final summary = FirebaseFinancialAssistant.financialSummary(records);
       expect(summary['spendingWalletBalance'], 1600);
+      expect(summary['currencySymbol'], '₱');
+      expect(summary['monetaryFormat'], contains('₱'));
       expect(summary['safeToSpendToday'], records.safeToSpend.leftToday);
       expect(
         summary['planningEndExclusive'],
@@ -206,6 +208,33 @@ void main() {
     expect(latestRecord['label'], 'Food');
     expect(latestRecord['type'], 'expense');
     expect(summary.toString(), isNot(contains('private note')));
+  });
+
+  test('splits formatted AI suggestions into separate items', () {
+    expect(
+      parseFinancialSuggestions(
+        'Here are three suggestions:\n'
+        '1. Review food spending.\n'
+        '2. Save after income arrives.\n'
+        '3. Check the report next month.',
+      ),
+      [
+        'Review food spending.',
+        'Save after income arrives.',
+        'Check the report next month.',
+      ],
+    );
+    expect(
+      parseFinancialSuggestions(
+        '1. Review food spending. 2. Save after income arrives. '
+        '3. Check the report next month.',
+      ),
+      [
+        'Review food spending.',
+        'Save after income arrives.',
+        'Check the report next month.',
+      ],
+    );
   });
 
   test(

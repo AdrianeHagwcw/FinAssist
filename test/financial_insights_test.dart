@@ -63,11 +63,7 @@ void main() {
 
     test('rejects a zero-length comparison window', () {
       expect(
-        () => compareSpendingPeriods(
-          const [],
-          now: now,
-          days: 0,
-        ),
+        () => compareSpendingPeriods(const [], now: now, days: 0),
         throwsArgumentError,
       );
     });
@@ -268,6 +264,8 @@ void main() {
         isTrue,
       );
       expect(isFinancialTopic('How do I track expenses in FinAssist?'), isTrue);
+      expect(isFinancialTopic('Give me my audit logs'), isTrue);
+      expect(isFinancialTopic('Can you show my audit history?'), isTrue);
       expect(
         isFinancialTopic(
           'pero gusto ko ring bumili ng cellphones, computers and etx sa '

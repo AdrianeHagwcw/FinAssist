@@ -127,12 +127,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
         () => (widget.assistant ?? FirebaseFinancialAssistant())
             .explainInsights(metrics),
       );
+      final cleanedSuggestions = suggestions
+          .map(_cleanAiSuggestion)
+          .where(
+            (suggestion) =>
+                isUsableFinancialExplanation(suggestion, allowNumbers: true),
+          );
+      final candidates = <String>[...cleanedSuggestions];
+      if (_records != null) {
+        candidates.addAll(moneyTipsFor(_records!.at(_now), limit: 3));
+      }
+      candidates.addAll(const [
+        'Review one optional expense before changing essential costs.',
+        'Set aside savings after recorded income arrives, if your cash flow allows it.',
+        'Check your report again next period to see whether the change helped.',
+      ]);
+      final completeSuggestions = <String>[];
+      for (final suggestion in candidates) {
+        if (suggestion.isEmpty ||
+            completeSuggestions.any(
+              (existing) => existing.toLowerCase() == suggestion.toLowerCase(),
+            )) {
+          continue;
+        }
+        completeSuggestions.add(suggestion);
+        if (completeSuggestions.length == 3) break;
+      }
       if (!mounted || requestKey != _currentInsightsKey) return;
-      if (suggestions.isEmpty ||
-          !suggestions.every(isUsableFinancialExplanation)) {
+      if (completeSuggestions.isEmpty) {
         throw const FinancialAssistantFailure('Unverified AI suggestions.');
       }
-      setState(() => _aiSuggestions = suggestions);
+      setState(() => _aiSuggestions = completeSuggestions);
     } on FinancialAssistantFailure catch (error) {
       debugPrint('FinAssist Gemini insights failed: ${error.message}');
       if (!mounted || requestKey != _currentInsightsKey) return;
@@ -467,6 +492,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   icon: Icons.cloud_off_outlined,
                   text: _aiSuggestionsError!,
                 ),
+              if (suggestionsAreCurrent && _aiSuggestions.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Suggestions based on this report',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: context.appColors.textPrimary,
+                    ),
+                  ),
+                ),
               for (final suggestion
                   in suggestionsAreCurrent ? _aiSuggestions : const <String>[])
                 _Line(text: suggestion),
@@ -493,6 +529,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 }
+
+String _cleanAiSuggestion(String text) => text
+    .replaceAll(RegExp(r'\*\*|__'), '')
+    .replaceFirst(RegExp(r'^\s*#+\s*'), '')
+    .trim();
 
 class _SummaryGrid extends StatelessWidget {
   const _SummaryGrid({required this.summary});

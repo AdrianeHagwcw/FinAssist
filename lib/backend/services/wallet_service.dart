@@ -14,6 +14,7 @@ import '../utils/unique_name.dart';
 import '../utils/text_limits.dart';
 import '../utils/ph_time.dart';
 import 'firestore_write.dart';
+import 'financial_data_service.dart';
 import 'goal_service.dart';
 import '../utils/categories.dart';
 
@@ -2307,6 +2308,13 @@ class WalletService {
           (type == TransactionType.transfer || type == TransactionType.goal),
       'createdAt': FieldValue.serverTimestamp(),
     });
+    FinancialDataService.recordInBatch(
+      batch,
+      action: 'added',
+      collection: 'transactions',
+      documentId: reference.id,
+      updatedAmount: transaction.amount,
+    );
 
     final deltas = collectDeltasInto ?? <String, double>{};
     _collectDeltas(deltas, transaction, reverse: false);
@@ -2393,6 +2401,13 @@ class WalletService {
     AppTransaction transaction,
   ) {
     batch.delete(_transactionsCollection.doc(transaction.id));
+    FinancialDataService.recordInBatch(
+      batch,
+      action: 'deleted',
+      collection: 'transactions',
+      documentId: transaction.id,
+      previousAmount: transaction.amount,
+    );
 
     final deltas = <String, double>{};
     _collectDeltas(deltas, transaction, reverse: true);
