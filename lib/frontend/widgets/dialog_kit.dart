@@ -114,10 +114,11 @@ class AmountField extends StatelessWidget {
   }
 }
 
-/// One look for every field in these dialogs.
+/// One look for every field in these dialogs. A null [label] leaves the
+/// field with only its [hint].
 InputDecoration dialogFieldDecoration(
   BuildContext context,
-  String label, {
+  String? label, {
   String? hint,
   String? helper,
 }) {
@@ -385,9 +386,9 @@ Future<bool> confirmDestructive(
         // differs from the Cancel on other dialogs.
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          style: cancelTextStyle(context).copyWith(
-            minimumSize: const WidgetStatePropertyAll(Size(64, 44)),
-          ),
+          style: cancelTextStyle(
+            context,
+          ).copyWith(minimumSize: const WidgetStatePropertyAll(Size(64, 44))),
           child: const Text(
             'Cancel',
             style: TextStyle(fontWeight: FontWeight.bold),

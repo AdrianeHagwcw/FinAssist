@@ -19,12 +19,14 @@ import 'goal_funding_picker.dart'
         goalMoneyInterestNote;
 import 'wallet_picker.dart';
 
-/// Cash on hand, cash in bank, or both: asked first wherever money comes out
-/// of or goes into the user's wallets, so only those wallets are shown.
+/// Cash on hand, cash in bank, both, or savings: asked first wherever money
+/// comes out of or goes into the user's wallets, so only those wallets are
+/// shown.
 enum WalletGroupChoice {
   cash('Cash on Hand'),
   bank('Cash in Bank'),
-  both('Both');
+  both('Both'),
+  savings('Savings');
 
   const WalletGroupChoice(this.label);
 
@@ -39,10 +41,13 @@ enum WalletGroupChoice {
       WalletType.cash.iconAsset,
       WalletType.bank.iconAsset,
     ],
+    WalletGroupChoice.savings => [WalletPurpose.savings.iconAsset!],
   };
 
-  bool get showsCash => this != WalletGroupChoice.bank;
-  bool get showsBank => this != WalletGroupChoice.cash;
+  bool get showsCash =>
+      this == WalletGroupChoice.cash || this == WalletGroupChoice.both;
+  bool get showsBank =>
+      this == WalletGroupChoice.bank || this == WalletGroupChoice.both;
 }
 
 /// Cash wallets are cash on hand; savings records are never cash wallets.
@@ -243,6 +248,7 @@ class WalletSplitPicker extends StatefulWidget {
     this.withFees = false,
     this.onFeesChanged,
     this.includeSavings = false,
+    this.showSavingsGroup = false,
     this.excludeWalletId,
     this.prefill = true,
     this.question,
@@ -285,6 +291,11 @@ class WalletSplitPicker extends StatefulWidget {
   /// For money coming in: savings records that can take more are offered
   /// with the banks.
   final bool includeSavings;
+
+  /// Offers a Savings choice that shows every savings record, including the
+  /// ones that cannot take money yet. Used by the transfer destination, so
+  /// all of the user's savings wallets are seen in one place.
+  final bool showSavingsGroup;
 
   /// A wallet that cannot take part, such as the one a transfer comes from.
   final String? excludeWalletId;
@@ -336,10 +347,17 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     final option => option,
   };
 
-  /// The choices offered: Both only where money may come from both.
-  List<WalletGroupChoice> get _choices => widget.allowBoth
-      ? WalletGroupChoice.values
-      : const [WalletGroupChoice.cash, WalletGroupChoice.bank];
+  /// The choices offered: Both only where money may come from both, and
+  /// Savings only where there is a savings record to show.
+  List<WalletGroupChoice> get _choices => [
+    WalletGroupChoice.cash,
+    WalletGroupChoice.bank,
+    if (widget.allowBoth) WalletGroupChoice.both,
+    if (widget.showSavingsGroup &&
+        (_separateSavingsWallets.isNotEmpty ||
+            _lockedSavingsWallets.isNotEmpty))
+      WalletGroupChoice.savings,
+  ];
 
   /// One field per cash wallet, kept while switching options so nothing
   /// typed is lost.
@@ -383,6 +401,9 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     if (cash && bank) return WalletGroupChoice.both;
     if (cash) return WalletGroupChoice.cash;
     if (bank) return WalletGroupChoice.bank;
+    if (widget.showSavingsGroup && used.any((wallet) => wallet.isSetAside)) {
+      return WalletGroupChoice.savings;
+    }
     return null;
   }
 
@@ -452,6 +473,25 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
           .toList();
     }
     return const [];
+  }
+
+  /// Savings records that cannot take money yet. They are shown in the
+  /// Savings choice so every savings wallet is visible, but they never get
+  /// an amount field.
+  List<Wallet> get _lockedSavingsWallets {
+    if (!widget.showSavingsGroup ||
+        widget.purpose != SplitPurpose.receiving ||
+        !widget.includeSavings) {
+      return const [];
+    }
+    return [
+      for (final wallet in widget.wallets)
+        if (!wallet.archived &&
+            wallet.id != widget.excludeWalletId &&
+            wallet.isSetAside &&
+            wallet.isLockedSavings)
+          wallet,
+    ];
   }
 
   /// Money going out needs a recorded balance to come from.
@@ -738,10 +778,13 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     final eligible = _eligible;
     final cashWallets = eligible.where(isCashOnHand).toList();
     final bankWallets = _accountWallets;
+    final savingsWallets = _separateSavingsWallets;
+    final lockedSavingsWallets = _lockedSavingsWallets;
 
     if (cashWallets.isEmpty &&
         bankWallets.isEmpty &&
-        _separateSavingsWallets.isEmpty) {
+        savingsWallets.isEmpty &&
+        lockedSavingsWallets.isEmpty) {
       return const DialogNote(
         text:
             'Add Cash on Hand, a bank or e-wallet, or a demand deposit first.',
@@ -771,6 +814,34 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
       ),
     );
 
+    Widget optionTile(WalletGroupChoice choice) => Expanded(
+      child: _OptionTile(
+        option: choice,
+        selected: option == choice,
+        enabled: switch (choice) {
+          WalletGroupChoice.cash => cashWallets.isNotEmpty,
+          WalletGroupChoice.bank => bankWallets.isNotEmpty,
+          WalletGroupChoice.both =>
+            cashWallets.isNotEmpty && bankWallets.isNotEmpty,
+          WalletGroupChoice.savings =>
+            savingsWallets.isNotEmpty || lockedSavingsWallets.isNotEmpty,
+        },
+        onTap: () => _choose(choice),
+      ),
+    );
+
+    Widget optionRow(List<WalletGroupChoice> choices) => IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (index, choice) in choices.indexed) ...[
+            if (index > 0) const SizedBox(width: 8),
+            optionTile(choice),
+          ],
+        ],
+      ),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -782,75 +853,64 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
           ),
         ),
         const SizedBox(height: 10),
-        IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final (index, choice) in _choices.indexed) ...[
-                if (index > 0) const SizedBox(width: 8),
-                Expanded(
-                  child: _OptionTile(
-                    option: choice,
-                    selected: option == choice,
-                    enabled: switch (choice) {
-                      WalletGroupChoice.cash => cashWallets.isNotEmpty,
-                      WalletGroupChoice.bank => bankWallets.isNotEmpty,
-                      WalletGroupChoice.both =>
-                        cashWallets.isNotEmpty && bankWallets.isNotEmpty,
-                    },
-                    onTap: () => _choose(choice),
-                  ),
-                ),
-              ],
+        if (_choices.length > 3) ...[
+          optionRow(_choices.sublist(0, 2)),
+          const SizedBox(height: 8),
+          optionRow(_choices.sublist(2)),
+        ] else
+          optionRow(_choices),
+        if (option == WalletGroupChoice.savings) ...[
+          groupTitle('Savings'),
+          for (final wallet in savingsWallets) _cashCard(wallet),
+          for (final wallet in lockedSavingsWallets) _lockedSavingsCard(wallet),
+        ] else ...[
+          if (option != null) ...[
+            if (option.showsCash) ...[
+              if (option == WalletGroupChoice.both) groupTitle('Cash on Hand'),
+              for (final wallet in cashWallets) _cashCard(wallet),
             ],
-          ),
-        ),
-        if (option != null) ...[
-          if (option.showsCash) ...[
-            if (option == WalletGroupChoice.both) groupTitle('Cash on Hand'),
-            for (final wallet in cashWallets) _cashCard(wallet),
-          ],
-          if (option.showsBank) ...[
-            if (option == WalletGroupChoice.both) groupTitle('Cash in Bank'),
-            for (final row in _accountRows) _accountRowCard(row, bankWallets),
-            if (_nextAccount != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                // The same look as the Add button on every setup step.
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _addAccount,
-                    style: confirmButtonStyle(),
-                    child: const Text(
-                      'Add account',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+            if (option.showsBank) ...[
+              if (option == WalletGroupChoice.both) groupTitle('Cash in Bank'),
+              for (final row in _accountRows) _accountRowCard(row, bankWallets),
+              if (_nextAccount != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  // The same look as the Add button on every setup step.
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: _addAccount,
+                      style: confirmButtonStyle(),
+                      child: const Text(
+                        'Add account',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
+            ],
           ],
-        ],
-        if (_separateSavingsWallets.isNotEmpty) ...[
-          groupTitle(
-            widget.purpose == SplitPurpose.giving
-                ? 'Savings already assigned to this goal'
-                : 'Savings accounts',
-          ),
-          if (widget.purpose == SplitPurpose.giving)
-            const Padding(
-              padding: EdgeInsets.only(top: 6),
-              child: Text(
-                'Release these amounts here first. Then move them from Savings '
-                'to Cash on Hand or a bank account.',
-                style: TextStyle(fontSize: 12),
-              ),
+          if (savingsWallets.isNotEmpty) ...[
+            groupTitle(
+              widget.purpose == SplitPurpose.giving
+                  ? 'Savings already assigned to this goal'
+                  : 'Savings accounts',
             ),
-          for (final wallet in _separateSavingsWallets) _cashCard(wallet),
+            if (widget.purpose == SplitPurpose.giving)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'Release these amounts here first. Then move them from '
+                  'Savings to Cash on Hand or a bank account.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            for (final wallet in savingsWallets) _cashCard(wallet),
+          ],
         ],
         if (amounts.isNotEmpty)
           _allFit(amounts) ? _summary(amounts) : _summaryOnHold(),
@@ -1029,6 +1089,71 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
             const SizedBox(height: 10),
             _amountFields(wallet, controller, _feeFor(wallet.id)),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// A savings record that cannot take money yet. It is shown in the Savings
+  /// choice so every savings wallet is visible, but it has no amount field.
+  Widget _lockedSavingsCard(Wallet wallet) {
+    final now = DateTime.now();
+    final ready = wallet.readyOn(now);
+    final status = wallet.timeDepositStatusAt(now);
+    final reason = switch (status) {
+      TimeDepositStatus.active =>
+        ready == null
+            ? 'Locked until maturity.'
+            : 'Locked until ${formatShortDate(ready)}.',
+      TimeDepositStatus.matured => 'Matured. Claim it from Savings.',
+      TimeDepositStatus.closed => 'Already claimed or renewed.',
+      TimeDepositStatus.notTimeDeposit =>
+        'This savings record cannot take money.',
+    };
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: _cardDecoration(),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Opacity(
+            opacity: 0.45,
+            child: Image.asset(wallet.iconAsset, width: 28, height: 28),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  wallet.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: context.appColors.textMuted,
+                  ),
+                ),
+                Text(
+                  '${fundingWalletKind(wallet)} · '
+                  '${formatPeso(wallet.balance)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.appColors.textBody,
+                  ),
+                ),
+                Text(
+                  reason,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.appColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1304,7 +1429,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
   }
 }
 
-/// One of the three choices, large enough to tap comfortably.
+/// One of the choices, large enough to tap comfortably.
 class _OptionTile extends StatelessWidget {
   const _OptionTile({
     required this.option,

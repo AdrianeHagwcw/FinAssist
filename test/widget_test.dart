@@ -5724,6 +5724,66 @@ void main() {
       },
     );
 
+    testWidgets('the Savings choice shows every savings wallet', (
+      tester,
+    ) async {
+      final savings = Wallet(
+        id: 'savings',
+        name: 'BPI Savings',
+        type: WalletType.other,
+        balance: 5000,
+        startingBalance: 5000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 1,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+      );
+      final demand = Wallet(
+        id: 'demand',
+        name: 'BPI Demand',
+        type: WalletType.other,
+        balance: 3000,
+        startingBalance: 3000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 2,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.demandDeposit.name,
+      );
+      final time = Wallet(
+        id: 'time',
+        name: 'BPI Time',
+        type: WalletType.other,
+        balance: 20000,
+        startingBalance: 20000,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 3,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.timeDeposit.name,
+        maturityDate: DateTime.now().add(const Duration(days: 30)),
+      );
+
+      await pumpTransfer(tester, wallets: [cash, savings, demand, time]);
+      expect(find.text('Savings'), findsOneWidget);
+
+      await tester.tap(find.text('Savings'));
+      await tester.pumpAndSettle();
+
+      // Every savings record is visible, but only the ones that can take
+      // money have an amount field.
+      expect(find.text('BPI Savings'), findsOneWidget);
+      expect(find.text('BPI Demand'), findsOneWidget);
+      expect(find.text('BPI Time'), findsOneWidget);
+      expect(find.byKey(const Key('goes-to-savings')), findsOneWidget);
+      expect(find.byKey(const Key('goes-to-demand')), findsOneWidget);
+      expect(find.byKey(const Key('goes-to-time')), findsNothing);
+      expect(find.textContaining('Locked until'), findsOneWidget);
+      // The section below the other choices is not repeated here.
+      expect(find.text('Savings accounts'), findsNothing);
+    });
+
     testWidgets('with one wallet there is nowhere to move it', (tester) async {
       await pumpTransfer(tester, wallets: [cash]);
 
@@ -6293,10 +6353,12 @@ void main() {
       );
       expect(
         tester
-            .widget<Text>(find.descendant(
-              of: find.widgetWithText(ElevatedButton, 'Back'),
-              matching: find.text('Back'),
-            ))
+            .widget<Text>(
+              find.descendant(
+                of: find.widgetWithText(ElevatedButton, 'Back'),
+                matching: find.text('Back'),
+              ),
+            )
             .style
             ?.fontWeight,
         FontWeight.bold,
@@ -7512,11 +7574,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The charge is an input of its own now, optional until typed.
+      // The charge is an input of its own now, with its own heading and a
+      // plain amount box. What the wallet charged last time is not shown.
+      expect(find.text('Service Charge (Optional)'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('service-charge-amount')),
+          matching: find.text('Amount'),
+        ),
+        findsOneWidget,
+      );
       expect(
         find.text('Last time this wallet charged ₱15.'),
-        findsOneWidget,
-        reason: "GCash's usual fee",
+        findsNothing,
+        reason: "GCash's usual fee is no longer shown",
       );
       final charge = find.byKey(const Key('service-charge-amount'));
       await tester.ensureVisible(charge);
@@ -8110,9 +8181,7 @@ void main() {
       }
     });
 
-    testWidgets('every grey button is a real, tappable button', (
-      tester,
-    ) async {
+    testWidgets('every grey button is a real, tappable button', (tester) async {
       late ButtonStyle filled;
       late ButtonStyle outline;
 
@@ -12331,6 +12400,8 @@ void main() {
       expect(tileImages('Cash on Hand'), findsOneWidget);
       expect(tileImages('Cash in Bank'), findsOneWidget);
       expect(tileImages('Both'), findsNWidgets(2));
+      // Savings is a transfer-only choice.
+      expect(find.text('Savings'), findsNothing);
 
       expect(find.byKey(const Key('goal-funding-cash')), findsNothing);
       await choose(tester, 'Cash on Hand');
@@ -15856,7 +15927,9 @@ void main() {
         );
         expect(
           tester
-              .widget<Text>(find.descendant(of: button, matching: find.text(label)))
+              .widget<Text>(
+                find.descendant(of: button, matching: find.text(label)),
+              )
               .style
               ?.fontWeight,
           FontWeight.bold,
@@ -15874,11 +15947,15 @@ void main() {
 
       // Colour still says which way the money goes.
       expect(
-        styleOf('Goal Deposit')?.backgroundColor?.resolve(const <WidgetState>{}),
+        styleOf(
+          'Goal Deposit',
+        )?.backgroundColor?.resolve(const <WidgetState>{}),
         appConfirmGreen,
       );
       expect(
-        styleOf('Take money out')?.backgroundColor?.resolve(const <WidgetState>{}),
+        styleOf(
+          'Take money out',
+        )?.backgroundColor?.resolve(const <WidgetState>{}),
         appDangerRed,
       );
     });

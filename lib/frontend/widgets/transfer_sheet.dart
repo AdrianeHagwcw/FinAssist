@@ -385,11 +385,11 @@ class _TransferSheetState extends State<TransferSheet>
                                 ? null
                                 : free < balance - 0.005
                                 ? '${source.name} has ${formatPeso(free)} free to move'
-                            : _usesCalculatedInterest(source) &&
-                                  _interestFor(source, transactions) > 0
-                            ? '${source.name} holds ${formatPeso(balance)}, '
-                                  'including ${formatPeso(_interestFor(source, transactions))} '
-                                  'simple interest'
+                                : _usesCalculatedInterest(source) &&
+                                      _interestFor(source, transactions) > 0
+                                ? '${source.name} holds ${formatPeso(balance)}, '
+                                      'including ${formatPeso(_interestFor(source, transactions))} '
+                                      'simple interest'
                                 : '${source.name} holds ${formatPeso(balance)}',
                             onChanged: (value) => setState(() {
                               _fromId = value;
@@ -404,6 +404,7 @@ class _TransferSheetState extends State<TransferSheet>
                             purpose: SplitPurpose.receiving,
                             question: 'Where is it going?',
                             includeSavings: true,
+                            showSavingsGroup: true,
                             excludeWalletId: from,
                             initialAmounts: _to,
                             totalLabel: 'Moving',
@@ -411,12 +412,7 @@ class _TransferSheetState extends State<TransferSheet>
                                 setState(() => _to = amounts),
                           ),
                           const SizedBox(height: 8),
-                          ServiceChargeField(
-                            controller: _chargeController,
-                            // What this wallet charged last time, told here
-                            // rather than filled in.
-                            lastFee: source?.serviceCharge,
-                          ),
+                          ServiceChargeField(controller: _chargeController),
                           const SizedBox(height: 16),
                           if (error != null) ...[
                             Text(

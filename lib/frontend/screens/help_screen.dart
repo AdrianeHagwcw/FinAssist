@@ -46,7 +46,7 @@ class HelpScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(
-                'Tap + and choose Expense, Income or Transfer. Then choose where the money is: Cash on Hand, Cash in Bank, or Both. A transfer moves money between your own wallets, so it is not counted as money in or money out.',
+                'Tap + and choose Expense, Income or Transfer. Then choose where the money is: Cash on Hand, Cash in Bank, Both, or Savings. A transfer moves money between your own wallets, so it is not counted as money in or money out.',
               ),
             ),
           ],
