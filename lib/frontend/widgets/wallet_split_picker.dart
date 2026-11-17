@@ -377,6 +377,12 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
   TextEditingController? _prefilled;
   double _prefilledAmount = 0;
 
+  /// Cards taken off with their own X, put back one at a time through the
+  /// button under their section. Kept while switching choices, so a card
+  /// does not come back by itself.
+  final _hiddenCash = <String>{};
+  final _hiddenSavings = <String>{};
+
   /// While true, a field changed by the picker itself does not report.
   bool _quiet = false;
 
@@ -623,6 +629,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     if (!fees &&
         (!widget.showSavingsGroup || option == WalletGroupChoice.savings)) {
       for (final wallet in _separateSavingsWallets) {
+        if (_hiddenSavings.contains(wallet.id)) continue;
         final amount = _amountFrom(_controllers[wallet.id]);
         if (amount > 0) values[wallet.id] = amount;
       }
@@ -631,7 +638,11 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
 
     if (option.showsCash) {
       for (final wallet in _eligible) {
-        if (!isCashOnHand(wallet) || !_takesAmount(wallet)) continue;
+        if (!isCashOnHand(wallet) ||
+            !_takesAmount(wallet) ||
+            _hiddenCash.contains(wallet.id)) {
+          continue;
+        }
         final amount = _amountFrom(_controllers[wallet.id]);
         if (amount <= 0) continue;
         values[wallet.id] = fees
@@ -706,7 +717,10 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     TextEditingController? controller;
     if (option.showsCash) {
       final cash = _eligible.where(
-        (wallet) => isCashOnHand(wallet) && _takesAmount(wallet),
+        (wallet) =>
+            isCashOnHand(wallet) &&
+            _takesAmount(wallet) &&
+            !_hiddenCash.contains(wallet.id),
       );
       if (cash.isNotEmpty) controller = _controllerFor(cash.first.id);
     }
@@ -728,10 +742,11 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     // Tapping the chosen option again takes it back.
     setState(() {
       _option = _option == option ? null : option;
-      if (_option?.showsBank != true) return;
+      if (_option?.showsBank != true || _listedAllAccounts) return;
       // Cash in Bank lists every account at once, the same way every cash
       // wallet is listed: what the money can come from is seen in one look,
-      // instead of added one by one.
+      // instead of added one by one. Only once, so a row taken off with its
+      // X comes back only through the button.
       _listAllAccounts();
     });
     _prefill();
@@ -764,6 +779,69 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     _emit();
   }
 
+  /// Takes a cash or savings card off the screen and drops what was typed
+  /// there, so a hidden card cannot still count in the total.
+  void _hideWallet(Wallet wallet, {required bool savings}) {
+    final controller = _controllers[wallet.id];
+    _quiet = true;
+    controller?.clear();
+    _feeControllers[wallet.id]?.clear();
+    _quiet = false;
+    if (_prefilled == controller) _prefilled = null;
+    setState(() {
+      (savings ? _hiddenSavings : _hiddenCash).add(wallet.id);
+    });
+    _emit();
+  }
+
+  /// The next cash card to put back, in the order the section lists them.
+  Wallet? get _nextHiddenCash {
+    for (final wallet in _eligible) {
+      if (isCashOnHand(wallet) && _hiddenCash.contains(wallet.id)) {
+        return wallet;
+      }
+    }
+    return null;
+  }
+
+  /// The next savings card to put back, usable records first.
+  Wallet? get _nextHiddenSavings {
+    for (final wallet in [
+      ..._separateSavingsWallets,
+      ..._lockedSavingsWallets,
+    ]) {
+      if (_hiddenSavings.contains(wallet.id)) return wallet;
+    }
+    return null;
+  }
+
+  void _showWallet(Wallet wallet, {required bool savings}) {
+    setState(() {
+      (savings ? _hiddenSavings : _hiddenCash).remove(wallet.id);
+    });
+    _emit();
+  }
+
+  /// The blue filled button that brings back one card taken off with its X.
+  Widget _showExistingButton(String section, VoidCallback onPressed) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: ElevatedButton(
+          key: Key('show-existing-$section'),
+          onPressed: onPressed,
+          style: openButtonStyle(),
+          child: const Text(
+            'Show Existing Account',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ),
+    );
+  }
+
   String get _question =>
       widget.question ??
       switch (widget.purpose) {
@@ -777,20 +855,35 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final eligible = _eligible;
-    final cashWallets = eligible.where(isCashOnHand).toList();
+    final allCashWallets = eligible.where(isCashOnHand).toList();
     final bankWallets = _accountWallets;
-    final savingsWallets = _separateSavingsWallets;
-    final lockedSavingsWallets = _lockedSavingsWallets;
+    final allSavingsWallets = _separateSavingsWallets;
+    final allLockedSavingsWallets = _lockedSavingsWallets;
 
-    if (cashWallets.isEmpty &&
+    if (allCashWallets.isEmpty &&
         bankWallets.isEmpty &&
-        savingsWallets.isEmpty &&
-        lockedSavingsWallets.isEmpty) {
+        allSavingsWallets.isEmpty &&
+        allLockedSavingsWallets.isEmpty) {
       return const DialogNote(
         text:
             'Add Cash on Hand, a bank or e-wallet, or a demand deposit first.',
       );
     }
+
+    final cashWallets = [
+      for (final wallet in allCashWallets)
+        if (!_hiddenCash.contains(wallet.id)) wallet,
+    ];
+    final savingsWallets = [
+      for (final wallet in allSavingsWallets)
+        if (!_hiddenSavings.contains(wallet.id)) wallet,
+    ];
+    final lockedSavingsWallets = [
+      for (final wallet in allLockedSavingsWallets)
+        if (!_hiddenSavings.contains(wallet.id)) wallet,
+    ];
+    final nextHiddenCash = _nextHiddenCash;
+    final nextHiddenSavings = _nextHiddenSavings;
 
     final option = _option;
     // A form opened straight on Cash in Bank (one being edited, with an
@@ -820,12 +913,12 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
         option: choice,
         selected: option == choice,
         enabled: switch (choice) {
-          WalletGroupChoice.cash => cashWallets.isNotEmpty,
+          WalletGroupChoice.cash => allCashWallets.isNotEmpty,
           WalletGroupChoice.bank => bankWallets.isNotEmpty,
           WalletGroupChoice.both =>
-            cashWallets.isNotEmpty && bankWallets.isNotEmpty,
+            allCashWallets.isNotEmpty && bankWallets.isNotEmpty,
           WalletGroupChoice.savings =>
-            savingsWallets.isNotEmpty || lockedSavingsWallets.isNotEmpty,
+            allSavingsWallets.isNotEmpty || allLockedSavingsWallets.isNotEmpty,
         },
         onTap: () => _choose(choice),
       ),
@@ -862,37 +955,32 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
           optionRow(_choices),
         if (option == WalletGroupChoice.savings) ...[
           groupTitle('Savings'),
-          for (final wallet in savingsWallets) _cashCard(wallet),
-          for (final wallet in lockedSavingsWallets) _lockedSavingsCard(wallet),
+          for (final wallet in savingsWallets)
+            _cashCard(wallet, removable: true),
+          for (final wallet in lockedSavingsWallets)
+            _lockedSavingsCard(wallet, removable: true),
+          if (nextHiddenSavings != null)
+            _showExistingButton(
+              'savings',
+              () => _showWallet(nextHiddenSavings, savings: true),
+            ),
         ] else ...[
           if (option != null) ...[
             if (option.showsCash) ...[
               if (option == WalletGroupChoice.both) groupTitle('Cash on Hand'),
-              for (final wallet in cashWallets) _cashCard(wallet),
+              for (final wallet in cashWallets)
+                _cashCard(wallet, removable: true),
+              if (nextHiddenCash != null)
+                _showExistingButton(
+                  'cash',
+                  () => _showWallet(nextHiddenCash, savings: false),
+                ),
             ],
             if (option.showsBank) ...[
               if (option == WalletGroupChoice.both) groupTitle('Cash in Bank'),
               for (final row in _accountRows) _accountRowCard(row, bankWallets),
               if (_nextAccount != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  // The same look as the Add button on every setup step.
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: _addAccount,
-                      style: confirmButtonStyle(),
-                      child: const Text(
-                        'Add account',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                _showExistingButton('bank', _addAccount),
             ],
           ],
           if (!widget.showSavingsGroup && savingsWallets.isNotEmpty) ...[
@@ -1053,7 +1141,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     );
   }
 
-  Widget _cashCard(Wallet wallet) {
+  Widget _cashCard(Wallet wallet, {bool removable = false}) {
     final controller = _controllerFor(wallet.id);
 
     return Container(
@@ -1084,6 +1172,14 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
                   ],
                 ),
               ),
+              if (removable)
+                IconButton(
+                  tooltip: 'Remove ${wallet.name}',
+                  onPressed: () =>
+                      _hideWallet(wallet, savings: wallet.isSetAside),
+                  color: dangerColorOn(context),
+                  icon: const Icon(Icons.close),
+                ),
             ],
           ),
           if (_takesAmount(wallet)) ...[
@@ -1097,10 +1193,13 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
 
   /// A savings record that cannot take money yet. It is shown in the Savings
   /// choice so every savings wallet is visible, but it has no amount field.
-  Widget _lockedSavingsCard(Wallet wallet) {
+  Widget _lockedSavingsCard(Wallet wallet, {bool removable = false}) {
     final now = DateTime.now();
     final ready = wallet.readyOn(now);
     final status = wallet.timeDepositStatusAt(now);
+    final canTakeOff =
+        status == TimeDepositStatus.matured ||
+        status == TimeDepositStatus.closed;
     final reason = switch (status) {
       TimeDepositStatus.active =>
         ready == null
@@ -1155,6 +1254,16 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
               ],
             ),
           ),
+          if (removable && (wallet.isTimeDeposit || wallet.isLockedSavings))
+            IconButton(
+              tooltip: 'Remove ${wallet.name}',
+              onPressed: canTakeOff
+                  ? () => _hideWallet(wallet, savings: true)
+                  : null,
+              color: dangerColorOn(context),
+              disabledColor: context.appColors.textMuted,
+              icon: const Icon(Icons.close),
+            ),
         ],
       ),
     );

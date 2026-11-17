@@ -244,4 +244,105 @@ void main() {
       expect(find.text('Covered · ₱9,000 available'), findsOneWidget);
     });
   });
+
+  testWidgets('hides a cash wallet and restores it one at a time', (
+    tester,
+  ) async {
+    Map<String, double> changed = {};
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: WalletSplitPicker(
+            wallets: [cash, gcash],
+            goals: const [trip],
+            purpose: SplitPurpose.paying,
+            target: 3000,
+            onChanged: (amounts) => changed = amounts,
+            allowBoth: false,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Cash on Hand'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('pay-from-Cash')), '1000');
+    await tester.pump();
+    expect(changed['Cash'], 1000);
+
+    await tester.tap(find.byTooltip('Remove Cash'));
+    await tester.pumpAndSettle();
+
+    expect(changed, isEmpty);
+    expect(find.text('Show Existing Account'), findsOneWidget);
+
+    await tester.tap(find.text('Show Existing Account'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('pay-from-Cash')), findsOneWidget);
+    expect(find.text('Show Existing Account'), findsNothing);
+  });
+
+  testWidgets('locked savings show a disabled X until maturity, then restore', (
+    tester,
+  ) async {
+    final active = Wallet(
+      id: 'active',
+      name: 'Active Time Deposit',
+      type: WalletType.bank,
+      balance: 5000,
+      startingBalance: 5000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+      purpose: WalletPurpose.savings,
+      savingsKind: SavingsKind.timeDeposit.name,
+      maturityDate: DateTime.now().add(const Duration(days: 30)),
+    );
+    final matured = Wallet(
+      id: 'matured',
+      name: 'Matured Time Deposit',
+      type: WalletType.bank,
+      balance: 5000,
+      startingBalance: 5000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 2,
+      purpose: WalletPurpose.savings,
+      savingsKind: SavingsKind.timeDeposit.name,
+      maturityDate: DateTime.now().subtract(const Duration(days: 30)),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: WalletSplitPicker(
+            wallets: [active, matured],
+            goals: const [],
+            purpose: SplitPurpose.receiving,
+            includeSavings: true,
+            showSavingsGroup: true,
+            onChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Savings'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Remove Active Time Deposit'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Remove Matured Time Deposit'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Show Existing Account'), findsOneWidget);
+
+    await tester.tap(find.text('Show Existing Account'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Matured Time Deposit'), findsOneWidget);
+  });
 }

@@ -7737,10 +7737,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Every account is there to pay from in one look, the way every cash
-      // wallet is — none of them waiting behind an Add account button.
+      // wallet is — none of them waiting behind a Show Existing Account button.
       expect(find.byKey(const Key('pay-from-w2')), findsOneWidget);
       expect(find.byKey(const Key('pay-from-w3')), findsOneWidget);
-      expect(find.text('Add account'), findsNothing);
+      expect(find.text('Show Existing Account'), findsNothing);
 
       // Cash on Hand still lists its own wallets the same way.
       await tester.tap(find.text('Cash on Hand'));
@@ -12418,7 +12418,7 @@ void main() {
       expect(find.text('Cash earns no interest.'), findsOneWidget);
 
       // Every account is there at once, the same way every cash wallet is:
-      // none of them waiting behind an Add account button.
+      // none of them waiting behind a Show Existing Account button.
       await choose(tester, 'Cash in Bank');
       expect(find.byKey(const Key('goal-funding-cash')), findsNothing);
       expect(find.byKey(const Key('goal-funding-bpi')), findsOneWidget);
@@ -12428,7 +12428,7 @@ void main() {
       expect(find.text('GCash · ₱3,000 available'), findsOneWidget);
       expect(find.text('No yearly interest rate recorded.'), findsOneWidget);
       // Every account is in, so there is nothing left to add.
-      expect(find.text('Add account'), findsNothing);
+      expect(find.text('Show Existing Account'), findsNothing);
     });
 
     testWidgets(
@@ -12638,7 +12638,7 @@ void main() {
 
       await choose(tester, 'Cash in Bank');
       // Every account is listed at once, so there is nothing to add.
-      expect(find.text('Add account'), findsNothing);
+      expect(find.text('Show Existing Account'), findsNothing);
       await enterFunding(tester, 'bpi', '8000');
       await enterFunding(tester, 'maya', '15000');
       await enterFunding(tester, 'gcash', '2000');
@@ -12683,7 +12683,7 @@ void main() {
       expect(find.byKey(const Key('goal-funding-maya')), findsNothing);
       expect(find.text('₱10,000'), findsOneWidget);
       expect(find.text('₱40,000'), findsOneWidget);
-      expect(find.text('Add account'), findsOneWidget);
+      expect(find.text('Show Existing Account'), findsOneWidget);
 
       // Switching a row to another account keeps its amount.
       await tester.tap(find.byType(DropdownButtonFormField<String>).last);
