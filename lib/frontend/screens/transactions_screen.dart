@@ -187,7 +187,15 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     // per row would also let a list built across midnight head one day twice.
     final now = DateTime.now();
 
+    // Payments made ahead keep the later due date they cover, folded into
+    // one group, soonest first, instead of sitting above today.
+    final ahead = [
+      for (final transaction in shown)
+        if (isPaidAhead(transaction, now: now)) transaction,
+    ]..sort((a, b) => a.date.compareTo(b.date));
+
     for (final transaction in shown) {
+      if (isPaidAhead(transaction, now: now)) continue;
       final label = transactionDateLabel(transaction.date, now: now);
 
       if (label != lastLabel) {
@@ -252,6 +260,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           sliver: SliverToBoxAdapter(child: top),
         ),
+        if (ahead.isNotEmpty)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            sliver: SliverToBoxAdapter(
+              child: _PaidAhead(transactions: ahead, wallets: wallets),
+            ),
+          ),
         for (final day in days)
           // Keeps a day's heading with its rows, so the heading can hold the
           // top of the screen for exactly as long as that day is being read.
@@ -285,6 +300,93 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         // Room for the bottom bar and the docked "+" button.
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ],
+    );
+  }
+}
+
+/// Payments made ahead, folded into one row with their count and total, so
+/// a run of them never pushes today's records down. Opens to each payment
+/// under the due date it covers.
+class _PaidAhead extends StatelessWidget {
+  const _PaidAhead({required this.transactions, required this.wallets});
+
+  final List<AppTransaction> transactions;
+  final List<Wallet> wallets;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final count = transactions.length;
+    final total = transactions.fold<double>(0, (sum, t) => sum + t.amount);
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.border),
+      ),
+      child: ExpansionTile(
+        key: const Key('paid-ahead'),
+        shape: const Border(),
+        collapsedShape: const Border(),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+        childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
+        leading: Image.asset(
+          'assets/icons/icons8-calendar-96.png',
+          width: 26,
+          height: 26,
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Paid ahead',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: colors.textPrimary,
+                ),
+              ),
+            ),
+            MoneyText(
+              total,
+              sign: '-',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: dangerColorOn(context),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text(
+          '$count ${count == 1 ? 'payment' : 'payments'} for later due dates',
+          style: TextStyle(fontSize: 12, color: colors.textMuted),
+        ),
+        children: [
+          for (final transaction in transactions) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Due ${formatShortDate(transaction.date)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textMuted,
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: TransactionRow(transaction: transaction, wallets: wallets),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

@@ -20,6 +20,7 @@ import '../widgets/bill_form_sheet.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/goal_progress.dart';
 import '../widgets/money_text.dart';
 import 'debts_screen.dart';
 
@@ -820,6 +821,11 @@ class _BillRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    // Part paid: what is left is the amount to pay, with the full bill and a
+    // bar of what is paid beside it.
+    final partlyPaid =
+        instance.status == BillStatus.partial && !instance.isCarriedForward;
+    final muted = TextStyle(fontSize: 11, color: colors.textMuted);
 
     return Material(
       color: colors.card,
@@ -838,86 +844,115 @@ class _BillRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: colors.border),
           ),
-          child: Row(
+          child: Column(
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: colors.primaryTint,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: CategoryIcon(instance.category, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      instance.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: colors.textPrimary,
-                      ),
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: colors.primaryTint,
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
+                    child: CategoryIcon(instance.category, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        BillStatusBadge(instance: instance, now: today),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            formatShortDate(instance.dueDate),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: context.appColors.textMuted,
-                            ),
+                        Text(
+                          instance.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: colors.textPrimary,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            BillStatusBadge(instance: instance, now: today),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                formatShortDate(instance.dueDate),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: context.appColors.textMuted,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (instance.carriedOver > 0) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Includes what was left from last time',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: colors.textBody,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                    if (instance.carriedOver > 0) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Includes what was left from last time',
-                        style: TextStyle(fontSize: 11, color: colors.textBody),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  MoneyText(
-                    instance.amount,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
-                    ),
                   ),
-                  if (instance.status == BillStatus.partial &&
-                      !instance.isCarriedForward) ...[
-                    const SizedBox(height: 2),
-                    MoneyText(
-                      instance.remaining,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: context.appColors.textMuted,
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      MoneyText(
+                        partlyPaid ? instance.remaining : instance.amount,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: colors.textPrimary,
+                        ),
                       ),
-                    ),
-                  ],
+                      if (partlyPaid) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('left of ', style: muted),
+                            MoneyText(instance.amount, style: muted),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
+              if (partlyPaid) ...[
+                const SizedBox(height: 12),
+                // Colored by how far along it is, the same as goals.
+                GoalProgressBar(
+                  progress: instance.amount > 0
+                      ? instance.amountPaid / instance.amount
+                      : 0,
+                  reached: false,
+                  height: 5,
+                  showLabel: false,
+                ),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Paid ', style: muted),
+                      MoneyText(instance.amountPaid, style: muted),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),

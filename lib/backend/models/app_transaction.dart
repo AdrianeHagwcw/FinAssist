@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../utils/categories.dart';
+import '../utils/ph_time.dart';
 
 /// What a transaction does to the money in a wallet.
 enum TransactionType {
@@ -34,6 +35,17 @@ enum TransactionType {
       orElse: () => TransactionType.expense,
     );
   }
+}
+
+/// A payment made ahead: money out dated on a later due date than today, by
+/// the Philippine calendar. Lists fold these away so a run of them never sits
+/// above what really happened today.
+bool isPaidAhead(AppTransaction transaction, {DateTime? now}) {
+  if (transaction.type != TransactionType.expense) return false;
+  final today = philippineTime(now ?? DateTime.now());
+  return !transaction.date.isBefore(
+    philippineDayStart(DateTime(today.year, today.month, today.day + 1)),
+  );
 }
 
 /// What a payment of an installment plan reads as in a list of transactions,

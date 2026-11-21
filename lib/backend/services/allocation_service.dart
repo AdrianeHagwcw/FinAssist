@@ -127,6 +127,9 @@ class AllocationService {
 
     final payments = <Map<String, dynamic>>[];
     final skipped = <String>[];
+    // Bills are paid out of the income once it is in, so a moment after it:
+    // newest-first lists then show the payment above the income.
+    final paidAt = receivedAt.add(const Duration(milliseconds: 1));
 
     // Each bill is paid from the chosen wallets in turn, in centavos, so
     // every peso is recorded against the wallet it really left.
@@ -160,7 +163,7 @@ class AllocationService {
           instance: bill.instance,
           walletId: walletId,
           amount: amount,
-          date: receivedAt,
+          date: paidAt,
           collectDeltasInto: deltas,
           paidBefore: paidSoFar,
         );
@@ -195,7 +198,7 @@ class AllocationService {
           walletId: entry.key,
           amount: entry.value,
           note: 'For paying bills',
-          date: receivedAt,
+          date: paidAt,
           collectDeltasInto: deltas,
         );
         WalletService.rememberServiceChargeInBatch(

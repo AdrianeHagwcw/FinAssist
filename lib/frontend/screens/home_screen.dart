@@ -1622,7 +1622,8 @@ class _RecentTransactions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final list = transactions;
+    // Payments made ahead happen on later dates: not recent, so left out.
+    final list = transactions?.where((t) => !isPaidAhead(t)).toList();
     if (list == null) {
       return const _Card(
         child: SizedBox(

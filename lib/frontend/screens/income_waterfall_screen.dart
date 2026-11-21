@@ -135,7 +135,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// The bills being decided on, once loaded. Null until then.
   List<BillAllocation>? _allocations;
 
-  /// Bills the user chose to leave alone this time, neither paid nor skipped.
+  /// Bills not ticked: left in Bill Planner, unpaid.
   final Set<String> _leftAlone = {};
 
   /// Where the income went, by wallet: as much as came in, no more.
@@ -165,25 +165,28 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     return amount > 0 ? {widget.initialWalletId!: amount} : const {};
   }
 
-  /// The wallets the bills were paid from, and what each was charged.
-  Map<String, double> _billsFrom = const {};
-  Map<String, double> _billFees = const {};
+  /// Bills are paid out of this income, so from the wallets it went into,
+  /// filling each in turn. Never asked: the bills can't cost more than
+  /// came in.
+  Map<String, double> get _billsFrom {
+    var left = _plan.toBills;
+    final from = <String, double>{};
+    for (final entry in _incomeByWallet.entries) {
+      if (left < 0.005) break;
+      final take = entry.value < left ? entry.value : left;
+      from[entry.key] = take;
+      left -= take;
+    }
+    return from;
+  }
 
   /// The wallets the goal's money stays in.
   Map<String, double> _goalFrom = const {};
 
-  double get _feesTotal =>
-      _billFees.values.fold<double>(0, (sum, fee) => sum + fee);
-
-  /// What each wallet has left of this income once its bills and fees are
-  /// paid. Negative when a wallet pays more than it received, from money
-  /// already in it.
+  /// What each wallet has left of this income once its bills are paid.
   Map<String, double> get _afterBills {
     final left = <String, double>{..._incomeByWallet};
     for (final entry in _billsFrom.entries) {
-      left[entry.key] = (left[entry.key] ?? 0) - entry.value;
-    }
-    for (final entry in _billFees.entries) {
       left[entry.key] = (left[entry.key] ?? 0) - entry.value;
     }
     return left;
@@ -342,13 +345,10 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       bills.add(allocation.copyWith(amount: typed ?? -1));
     }
 
-    final withBills = AllocationPlan(
-      income: _income,
-      bills: bills,
-      serviceCharge: _feesTotal,
-    );
+    final withBills = AllocationPlan(income: _income, bills: bills);
 
-    final goal = _toGoal ? _selectedGoal : null;
+    // Nothing left of this income after bills: nothing to set aside.
+    final goal = _toGoal && withBills.afterBills > 0.005 ? _selectedGoal : null;
     if (goal == null) return withBills;
 
     final double amount;
@@ -388,7 +388,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   List<_Step> get _steps => [
     _Step.income,
     if (_allocations?.isNotEmpty ?? true) _Step.bills,
-    if (_goals?.isNotEmpty ?? false) _Step.goal,
+    if ((_goals?.isNotEmpty ?? false) && _plan.afterBills > 0.005) _Step.goal,
     _Step.summary,
   ];
 
@@ -443,21 +443,12 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     );
   }
 
-  /// The bills paid must come out of wallets that have the money, this
-  /// income included.
-  String? get _billsProblem => _plan.toBills <= 0
-      ? null
-      : walletSplitProblem(
-          purpose: SplitPurpose.paying,
-          amounts: _billsFrom,
-          fees: _billFees,
-          wallets: _walletList,
-          goals: _allGoals,
-          target: _plan.toBills,
-          matchTarget: true,
-          adding: _incomeByWallet,
-          allowBoth: false,
-        );
+  /// Bills are paid out of this income only, so together they can't be
+  /// more than came in.
+  String? get _billsProblem => _plan.toBills > _income + 0.005
+      ? 'You only received ${formatPeso(_income)}. Lower the amounts so '
+            'they add up to ${formatPeso(_income)} or less.'
+      : null;
 
   /// Goal money must stay in wallets that still have it after the bills.
   String? get _goalProblem => _plan.toGoal <= 0
@@ -496,7 +487,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     final plan = _plan;
     // A step the user stepped back out of leaves nothing behind.
     final billsFrom = plan.toBills > 0 ? _billsFrom : const <String, double>{};
-    final billFees = plan.toBills > 0 ? _billFees : const <String, double>{};
     final goalFrom = plan.toGoal > 0 ? _goalFrom : const <String, double>{};
 
     final save =
@@ -527,7 +517,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       plan: plan,
       incomeByWallet: _incomeByWallet,
       billsPaidFrom: billsFrom,
-      billFees: billFees,
+      billFees: const {},
       goalKeptIn: goalFrom,
       source: _resolvedSource,
       receivedAt: _receivedAt,
@@ -748,8 +738,8 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Tick only the bills you paid, and lower the amount if you paid '
-          'part. The rest stay in Bill Planner.',
+          'Tick the bills you paid from this ${formatPeso(_income)}. Lower '
+          'the amount if you paid part; the rest stays in Bill Planner.',
           style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
         ),
         if (allocations.length > 1) ...[
@@ -783,42 +773,14 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             allocation: allocation,
             controller: _billControllers[allocation.instance.id]!,
             leftAlone: _leftAlone.contains(allocation.instance.id),
-            skipped: allocation.skipped,
             today: _today,
-            onPayChanged: (pay) => setState(() {
+            onPayChanged: (pay) {
               final id = allocation.instance.id;
-              pay ? _leftAlone.remove(id) : _leftAlone.add(id);
-              _setSkipped(allocation, false);
-            }),
-            onSkipChanged: (skip) => setState(() {
-              _leftAlone.remove(allocation.instance.id);
-              _setSkipped(allocation, skip);
-            }),
+              if (pay) _fillBill(allocation.instance, _income - _plan.toBills);
+              setState(() => pay ? _leftAlone.remove(id) : _leftAlone.add(id));
+            },
           ),
           const SizedBox(height: 10),
-        ],
-        // Only while a bill is being paid: where the money came from, this
-        // income included, and what each wallet was charged.
-        if (plan.toBills > 0) ...[
-          const SizedBox(height: 6),
-          WalletSplitPicker(
-            key: const ValueKey('bills-paid-from'),
-            wallets: _walletList,
-            goals: _allGoals,
-            purpose: SplitPurpose.paying,
-            question: 'Where did you pay them from?',
-            target: plan.toBills,
-            matchTarget: true,
-            withFees: true,
-            // Bills are paid from cash on hand or the bank, not both.
-            allowBoth: false,
-            adding: _incomeByWallet,
-            initialAmounts: _billsFrom,
-            totalLabel: 'Paying bills',
-            onChanged: (amounts) => setState(() => _billsFrom = amounts),
-            onFeesChanged: (fees) => setState(() => _billFees = fees),
-          ),
-          const SizedBox(height: 12),
         ],
         const SizedBox(height: 6),
         _RunningTotal(plan: plan),
@@ -826,45 +788,52 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     );
   }
 
-  /// True when every bill on the list is ticked to be paid now.
-  bool _allPaid(List<BillAllocation> allocations) {
-    return allocations.every(
-      (allocation) =>
-          !allocation.skipped && !_leftAlone.contains(allocation.instance.id),
+  /// True when at least one bill is ticked to be paid now.
+  bool get _anyTicked => (_allocations ?? const <BillAllocation>[]).any(
+    (allocation) => !_leftAlone.contains(allocation.instance.id),
+  );
+
+  /// Starts a newly ticked bill on what is still [free] of this income,
+  /// never more than the bill owes.
+  void _fillBill(BillInstance bill, double free) {
+    _billControllers[bill.id]?.text = formatAmountInput(
+      free <= 0 ? 0 : (free < bill.remaining ? free : bill.remaining),
     );
   }
 
-  /// Ticks or unticks every bill at once. Ticking one that was skipped brings
-  /// it back, so "Check all" really does cover the whole list.
+  /// True when every bill on the list is ticked to be paid now.
+  bool _allPaid(List<BillAllocation> allocations) {
+    return allocations.every(
+      (allocation) => !_leftAlone.contains(allocation.instance.id),
+    );
+  }
+
+  /// Ticks or unticks every bill at once.
   void _setAllPaid(bool pay) {
     final allocations = _allocations;
     if (allocations == null) return;
 
+    if (pay) {
+      // Fill the bills not ticked yet, in order, from what the ticked ones
+      // leave of this income.
+      var free = _income - _plan.toBills;
+      for (final allocation in allocations) {
+        final bill = allocation.instance;
+        if (!_leftAlone.contains(bill.id)) continue;
+        _fillBill(bill, free);
+        free -= bill.remaining;
+      }
+    }
+
     setState(() {
       if (pay) {
         _leftAlone.clear();
-        _allocations = [
-          for (final allocation in allocations)
-            allocation.skipped
-                ? allocation.copyWith(skipped: false)
-                : allocation,
-        ];
       } else {
         _leftAlone.addAll(
           allocations.map((allocation) => allocation.instance.id),
         );
       }
     });
-  }
-
-  void _setSkipped(BillAllocation allocation, bool skipped) {
-    final list = _allocations!;
-    final index = list.indexWhere(
-      (item) => item.instance.id == allocation.instance.id,
-    );
-    if (index < 0) return;
-
-    _allocations = [...list]..[index] = list[index].copyWith(skipped: skipped);
   }
 
   // ------------------------------------------------------------ goal step
@@ -980,7 +949,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   Widget _buildSummaryStep(BuildContext context) {
     final plan = _plan;
     final paying = plan.bills.where((bill) => bill.pays).toList();
-    final skipped = plan.bills.where((bill) => bill.skipped).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -997,7 +965,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               _SummaryLine(
                 label: bill.instance.name,
                 detail: bill.amount + 0.005 < bill.instance.remaining
-                    ? 'Part payment'
+                    ? 'Part payment · '
+                          '${formatPeso(bill.instance.remaining - bill.amount)}'
+                          ' left to pay'
                     : 'Paid in full',
                 amount: formatPeso(bill.amount, sign: '-'),
                 color: dangerColorOn(context),
@@ -1008,13 +978,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 detail: 'For paying these bills',
                 amount: formatPeso(plan.billsServiceCharge, sign: '-'),
                 color: dangerColorOn(context),
-              ),
-            for (final bill in skipped)
-              _SummaryLine(
-                label: bill.instance.name,
-                detail: 'Skipped this time',
-                amount: formatPeso(0),
-                color: context.appColors.textMuted,
               ),
             if (plan.goal != null && plan.toGoal > 0)
               _SummaryLine(
@@ -1065,7 +1028,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   _tally(AllocationPlan plan) {
     final goals = _goals ?? const <Goal>[];
     final billsFrom = plan.toBills > 0 ? _billsFrom : const <String, double>{};
-    final fees = plan.toBills > 0 ? _billFees : const <String, double>{};
     final goalFrom = plan.toGoal > 0 ? _goalFrom : const <String, double>{};
     final income = _incomeByWallet;
     var cashBefore = 0.0;
@@ -1079,7 +1041,6 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           before +
           (income[wallet.id] ?? 0) -
           (billsFrom[wallet.id] ?? 0) -
-          (fees[wallet.id] ?? 0) -
           (goalFrom[wallet.id] ?? 0);
       if (wallet.type == WalletType.cash) {
         cashBefore += before;
@@ -1110,6 +1071,12 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
     };
 
     final isLast = _step == _Step.summary;
+    // With no bill ticked, the bills step is passed over, not answered.
+    final label = isLast
+        ? 'Confirm'
+        : _step == _Step.bills && !_anyTicked
+        ? 'Skip'
+        : 'Next';
 
     return SafeArea(
       top: false,
@@ -1140,7 +1107,7 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                 // Only the last step commits anything, so only it is green.
                 style: isLast ? confirmButtonStyle() : openButtonStyle(),
                 child: Text(
-                  isLast ? 'Confirm' : 'Next',
+                  label,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -1359,25 +1326,24 @@ class _BillChoice extends StatelessWidget {
     required this.allocation,
     required this.controller,
     required this.leftAlone,
-    required this.skipped,
     required this.today,
     required this.onPayChanged,
-    required this.onSkipChanged,
   });
 
   final BillAllocation allocation;
   final TextEditingController controller;
   final bool leftAlone;
-  final bool skipped;
   final DateTime today;
   final ValueChanged<bool> onPayChanged;
-  final ValueChanged<bool> onSkipChanged;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final bill = allocation.instance;
-    final paying = !leftAlone && !skipped;
+    final paying = !leftAlone;
+    final typed =
+        double.tryParse(controller.text.trim().replaceAll(',', '')) ?? 0;
+    final leftAfter = bill.remaining - typed;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 8, 14, 12),
@@ -1410,7 +1376,6 @@ class _BillChoice extends StatelessWidget {
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                         color: colors.textPrimary,
-                        decoration: skipped ? TextDecoration.lineThrough : null,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -1446,24 +1411,23 @@ class _BillChoice extends StatelessWidget {
                   decimal: true,
                 ),
                 inputFormatters: const [ThousandsSeparatorFormatter()],
-                decoration: dialogFieldDecoration(
-                  context,
-                  'Pay now',
-                  helper: 'Still owes ${formatPeso(bill.remaining)}',
-                ).copyWith(prefixText: '₱ ', hintText: '0.00'),
+                decoration:
+                    dialogFieldDecoration(
+                      context,
+                      'Pay now',
+                      // A part payment shows what the bill still needs after it.
+                      helper: typed > 0 && leftAfter > 0.005
+                          ? 'Owes ${formatPeso(bill.remaining)} · '
+                                '${formatPeso(leftAfter)} left after this'
+                          : 'Still owes ${formatPeso(bill.remaining)}',
+                    ).copyWith(
+                      prefixText: '₱ ',
+                      hintText: '0.00',
+                      helperMaxLines: 2,
+                    ),
               ),
             ),
           ],
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => onSkipChanged(!skipped),
-              // Grey: the same "not this time" as on the bill itself.
-              style: neutralTextStyle(context),
-              icon: Icon(skipped ? Icons.undo : Icons.close, size: 16),
-              label: Text(skipped ? 'Undo skip' : 'Skip this bill'),
-            ),
-          ),
         ],
       ),
     );

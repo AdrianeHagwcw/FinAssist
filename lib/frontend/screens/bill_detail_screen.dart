@@ -15,6 +15,7 @@ import '../widgets/bill_payment_sheet.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/check_after_save.dart';
+import '../widgets/goal_progress.dart';
 import '../widgets/money_text.dart';
 import '../../backend/utils/money_format.dart';
 
@@ -598,14 +599,11 @@ class _BillHeader extends StatelessWidget {
           ],
           if (instance.amountPaid > 0) ...[
             const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 8,
-                backgroundColor: colors.track,
-                valueColor: const AlwaysStoppedAnimation(Colors.green),
-              ),
+            // Colored by how far along it is, the same as goals.
+            GoalProgressBar(
+              progress: progress,
+              reached: !instance.isCarriedForward && instance.remaining <= 0,
+              showLabel: false,
             ),
             const SizedBox(height: 8),
             Row(

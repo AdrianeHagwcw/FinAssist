@@ -6332,7 +6332,7 @@ void main() {
       expect(find.text('Far future'), findsNothing);
     });
 
-    testWidgets('bills paid here come from the wallets, each with its fee', (
+    testWidgets('bills are paid from this income, without asking where', (
       tester,
     ) async {
       AllocationPlan? confirmed;
@@ -6371,8 +6371,6 @@ void main() {
             ?.fontWeight,
         FontWeight.bold,
       );
-      // Nothing to pay from until a bill is ticked.
-      expect(find.text('Where did you pay them from?'), findsNothing);
       // Ticking the rest is the app's link blue, like the other list actions.
       expect(
         tester
@@ -6384,24 +6382,18 @@ void main() {
       );
       await tester.tap(find.text('Check all'));
       await tester.pumpAndSettle();
-      expect(find.text('Where did you pay them from?'), findsOneWidget);
-
-      // The cash, with this income in it, pays both, and charged ₱15.
-      await tester.tap(find.text('Cash on Hand'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('pay-from-fee-w1')), '15');
-      await tester.pumpAndSettle();
-      // ₱5,000 less ₱1,800 of bills and the ₱15 charge.
-      expect(find.text('₱3,185'), findsOneWidget);
+      // The money comes out of where this income went: no second question.
+      expect(find.text('Where did you pay them from?'), findsNothing);
+      expect(find.text('Cash on Hand'), findsNothing);
+      // ₱5,000 less ₱1,800 of bills.
+      expect(find.text('₱3,200'), findsOneWidget);
 
       await next(tester);
-      expect(find.text('Service charge'), findsOneWidget);
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
-      expect(confirmed?.billsServiceCharge, 15);
-      expect(confirmed?.remaining, 3185);
+      expect(confirmed?.remaining, 3200);
       expect(paidFrom, {'w1': 1800});
-      expect(fees, {'w1': 15});
+      expect(fees, isEmpty);
     });
 
     test('a charge only counts while a bill is being paid', () {
@@ -6471,18 +6463,29 @@ void main() {
 
       expect(find.text('Check all'), findsOneWidget);
       expect(find.text('₱5,000'), findsOneWidget);
+      // Nothing ticked: the step is skipped, not answered.
+      expect(find.text('Skip'), findsOneWidget);
+      expect(find.text('Next'), findsNothing);
 
       await tester.tap(find.text('Check all'));
       await tester.pump();
 
       expect(find.text('₱3,200'), findsOneWidget);
       expect(find.text('Uncheck all'), findsOneWidget);
+      expect(find.text('Next'), findsOneWidget);
+      expect(find.text('Skip'), findsNothing);
 
       await tester.tap(find.text('Uncheck all'));
       await tester.pump();
 
       expect(find.text('₱5,000'), findsWidgets);
       expect(find.text('Check all'), findsOneWidget);
+      expect(find.text('Skip'), findsOneWidget);
+
+      // Skip goes on with no bill paid.
+      await tester.tap(find.text('Skip'));
+      await tester.pumpAndSettle();
+      expect(find.text('Step 3 of 3'), findsOneWidget);
     });
 
     testWidgets('a bill cannot be paid more than it owes', (tester) async {
@@ -6524,8 +6527,6 @@ void main() {
 
       await tester.tap(find.byType(Checkbox).first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Cash on Hand'));
-      await tester.pumpAndSettle();
       await next(tester);
 
       // What this income leaves after the rent, and what all the wallets
@@ -6545,43 +6546,99 @@ void main() {
       expect(savedSource, 'Allowance');
     });
 
-    testWidgets('bills paid only from what a wallet really has', (
+    testWidgets('bills take no more than came in; a part shows what is left', (
+      tester,
+    ) async {
+      AllocationPlan? saved;
+      Map<String, double>? paidFrom;
+      await pumpWaterfall(
+        tester,
+        wallets: [cash, gcash],
+        bills: [bill('Rent', 1500), bill('Load', 300)],
+        onConfirm: (plan, income, billsFrom, fees, source) {
+          saved = plan;
+          paidFrom = billsFrom;
+        },
+      );
+
+      await fillIncome(tester, '500');
+      await next(tester);
+
+      // Ticked, the rent starts on all ₱500 that came in, and shows what
+      // it still needs after.
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
+      expect(find.text('500'), findsOneWidget);
+      expect(find.text('Owes ₱1,500 · ₱1,000 left after this'), findsOneWidget);
+      // Not ticking a bill already leaves it for later: no skip button.
+      expect(find.text('Skip this bill'), findsNothing);
+      // Nothing of the ₱500 is left for the load.
+      await tester.tap(find.byType(Checkbox).last);
+      await tester.pumpAndSettle();
+      expect(find.text('0'), findsOneWidget);
+
+      // More than came in is refused, even though the wallets have it.
+      await tester.enterText(find.widgetWithText(TextField, '500'), '1500');
+      await next(tester);
+      expect(
+        find.text(
+          'You only received ₱500. Lower the amounts so they add up to '
+          '₱500 or less.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Step 2 of 3'), findsOneWidget);
+
+      await tester.enterText(find.widgetWithText(TextField, '1,500'), '500');
+      await next(tester);
+      expect(find.text('Part payment · ₱1,000 left to pay'), findsOneWidget);
+      expect(find.text('More than came in'), findsNothing);
+
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(saved?.toBills, 500);
+      expect(saved?.remaining, 0);
+      expect(paidFrom, {'w1': 500});
+    });
+
+    testWidgets('with nothing left after bills, the goal step is not asked', (
       tester,
     ) async {
       await pumpWaterfall(
         tester,
-        wallets: [cash, gcash],
-        bills: [bill('Rent', 2000)],
+        bills: [bill('Rent', 1500)],
+        goals: const [
+          Goal(
+            id: 'g',
+            name: 'Laptop',
+            targetAmount: 5000,
+            savedAmount: 0,
+            priority: 0,
+            status: GoalStatus.active,
+          ),
+        ],
       );
 
-      await fillIncome(tester, '1000');
+      await fillIncome(tester, '500');
       await next(tester);
+      expect(find.text('Step 2 of 4'), findsOneWidget);
 
+      // All ₱500 goes to the rent, so there is nothing to set aside.
       await tester.tap(find.byType(Checkbox).first);
       await tester.pumpAndSettle();
-      expect(find.text('Short by'), findsOneWidget);
+      expect(find.text('Step 2 of 3'), findsOneWidget);
 
-      // The cash has its ₱500 and the ₱1,000 that just came in: no more.
-      await tester.tap(find.text('Cash on Hand'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('pay-from-w1')), '2000');
-      await tester.pumpAndSettle();
-      expect(find.textContaining('Only ₱1,500 in Cash is free'), findsWidgets);
+      await next(tester);
+      expect(find.text('Save some toward a goal?'), findsNothing);
+      expect(find.text('Here is what is left'), findsOneWidget);
 
-      // Bills are paid from one side, never part of each: all of it from
-      // the bank, from money already there.
-      expect(find.text('Both'), findsNothing);
-      await tester.tap(find.text('Cash in Bank'));
+      // Lowered so some is left, the goal step comes back.
+      await tester.tap(find.text('Back'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('pay-from-w2')), '2000');
+      await tester.enterText(find.widgetWithText(TextField, '500'), '400');
       await tester.pumpAndSettle();
       await next(tester);
-
-      expect(find.text('More than came in'), findsOneWidget);
-      expect(
-        find.textContaining('comes out of what was already in your wallets'),
-        findsOneWidget,
-      );
+      expect(find.text('Save some toward a goal?'), findsOneWidget);
     });
   });
 
@@ -7156,6 +7213,11 @@ void main() {
 
       expect(find.text('Partly paid'), findsOneWidget);
       expect(find.text('₱2,000'), findsWidgets, reason: 'still owed');
+      // The full bill and what is paid stay in sight, with a bar.
+      expect(find.text('left of '), findsOneWidget);
+      expect(find.text('₱3,000'), findsWidgets);
+      expect(find.text('Paid '), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
     });
 
     testWidgets('the list view shows every bill without picking a day', (
@@ -14261,6 +14323,72 @@ void main() {
     expect(find.textContaining('7:42 PM'), findsOneWidget);
     // Nothing is invented for the one that only ever carried a day.
     expect(find.textContaining('12:00 AM'), findsNothing);
+  });
+
+  testWidgets('payments made ahead fold into one group, not on top', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day, 12);
+    AppTransaction pay(
+      String id,
+      DateTime date,
+      double amount, {
+      String label = installmentPaymentLabel,
+    }) => AppTransaction(
+      id: id,
+      type: TransactionType.expense,
+      amount: amount,
+      label: label,
+      date: date,
+    );
+    final transactions = [
+      pay('jan', DateTime(now.year, now.month + 2, 30), 1000),
+      pay('dec', DateTime(now.year, now.month + 1, 30), 1000),
+      pay('lunch', today, 150, label: 'Food'),
+    ];
+    // Read on Philippine days, as the app does.
+    expect(isPaidAhead(transactions[0], now: now), isTrue);
+    expect(isPaidAhead(transactions[2], now: now), isFalse);
+
+    tester.view.physicalSize = const Size(700, 2000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: TransactionsScreen(
+            showLegacyImport: false,
+            wallets: Stream.value(const []),
+            transactions: Stream.value(transactions),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // One folded row with the count and total; today's record is in view.
+    expect(find.text('Paid ahead'), findsOneWidget);
+    expect(find.text('2 payments for later due dates'), findsOneWidget);
+    expect(find.text('-₱2,000'), findsOneWidget);
+    expect(find.text('Today'), findsOneWidget);
+    expect(find.text(installmentPaymentLabel), findsNothing);
+
+    // Opened, each payment sits under the due date it covers, soonest first.
+    await tester.tap(find.text('Paid ahead'));
+    await tester.pumpAndSettle();
+    expect(find.text(installmentPaymentLabel), findsNWidgets(2));
+    final dec = tester.getTopLeft(
+      find.text('Due ${formatShortDate(transactions[1].date)}'),
+    );
+    final jan = tester.getTopLeft(
+      find.text('Due ${formatShortDate(transactions[0].date)}'),
+    );
+    expect(dec.dy, lessThan(jan.dy));
   });
 
   testWidgets('Transactions heads each day once, newest first', (tester) async {

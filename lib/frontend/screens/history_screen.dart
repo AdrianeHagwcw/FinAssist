@@ -209,7 +209,7 @@ class _MonthSection extends StatelessWidget {
                 sign: flow.left < -0.005 ? '-' : null,
                 color: flow.left < -0.005
                     ? dangerColorOn(context)
-                    : colors.textPrimary,
+                    : colors.primaryText,
                 strong: true,
               ),
               if (flow.left < -0.005)
