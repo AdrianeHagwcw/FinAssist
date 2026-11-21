@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../backend/utils/ph_time.dart';
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/financial_insights.dart';
 import '../../backend/models/financial_ai_guardrails.dart';
@@ -69,7 +70,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   late final Stream<List<GoalContribution>> _contributions =
       widget.contributions ?? GoalService.watchAllContributions();
 
-  DateTime get _now => widget.today ?? DateTime.now();
+  // By the Philippine calendar, as each record is placed in a period.
+  DateTime get _now => widget.today ?? philippineNow();
 
   /// Categories the reader has tapped out of the spending breakdown, so the
   /// rest can be read on its own. This is how the screen is being looked at,

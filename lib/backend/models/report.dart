@@ -151,9 +151,25 @@ ReportSummary summarize(
   ReportPeriod period,
 ) {
   final totals = inAndOut(transactionsIn(transactions, period));
-  final saved = contributions
-      .where((c) => period.contains(c.date))
-      .fold<double>(0, (total, c) => total + c.amount);
+  final inPeriod = contributions.where((c) => period.contains(c.date));
+  // A deleted goal takes its contributions with it, but its Goal Deposit and
+  // Goal Withdrawal rows stay in Transactions. Those are read for any goal
+  // with no contributions left, so deleting a goal never rewrites a past
+  // period, and letting its money go counts in the period it happened.
+  final liveGoals = {for (final c in contributions) c.goalId};
+  final fromDeletedGoals = transactions.where(
+    (t) =>
+        t.isGoalMovement &&
+        t.goalId != null &&
+        !liveGoals.contains(t.goalId) &&
+        period.contains(t.date),
+  );
+  final saved =
+      inPeriod.fold<double>(0, (total, c) => total + c.amount) +
+      fromDeletedGoals.fold<double>(
+        0,
+        (total, t) => total + (t.isGoalWithdrawal ? -t.amount : t.amount),
+      );
 
   return ReportSummary(
     income: totals.moneyIn,

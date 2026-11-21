@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:testapp/backend/models/app_transaction.dart';
 import 'package:testapp/backend/models/goal.dart';
 import 'package:testapp/backend/models/transaction_filter.dart';
+import 'package:testapp/backend/models/transfer_direction.dart';
 import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/frontend/providers/app_settings_provider.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
@@ -99,11 +100,13 @@ void main() {
         const TransactionFilter(type: TransactionType.goal).matches(deposit()),
         isTrue,
       );
+      // It reads as a deposit, withdrawal or transfer, so the transfer
+      // choices find it too.
       expect(
-        const TransactionFilter(type: TransactionType.transfer).matches(
-          deposit(),
-        ),
-        isFalse,
+        const TransactionFilter(
+          type: TransactionType.transfer,
+        ).matches(deposit()),
+        isTrue,
       );
     });
 
@@ -141,14 +144,119 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Goal Deposit'), findsOneWidget);
+      // Cash on hand into a goal reads as a deposit.
+      expect(find.text('Deposit to Vacation'), findsOneWidget);
       // Not "Cash on Hand → Cash on Hand", and no + or -: nothing moved.
       expect(find.textContaining('→'), findsNothing);
       expect(find.text('₱1,500'), findsOneWidget);
       // The wallet and the goal it belongs to are still nameable.
       expect(find.textContaining('Cash on Hand'), findsOneWidget);
       expect(find.textContaining('Vacation'), findsOneWidget);
-      expect(find.byIcon(Icons.flag_outlined), findsOneWidget);
+      // The Goals icon, the same as on Home.
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Image &&
+              widget.image is AssetImage &&
+              (widget.image as AssetImage).assetName ==
+                  'assets/icons/icons8-goal-96.png',
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('a goal reads as an account', () {
+    const maya = Wallet(
+      id: 'maya',
+      name: 'Maya',
+      type: WalletType.gcash,
+      balance: 5000,
+      startingBalance: 5000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 1,
+    );
+    AppTransaction from(AppTransaction t, String walletId) => AppTransaction(
+      id: t.id,
+      type: t.type,
+      amount: t.amount,
+      label: t.label,
+      date: t.date,
+      walletId: walletId,
+      note: t.note,
+      goalId: t.goalId,
+    );
+    const wallets = [cash, maya];
+
+    test(
+      'cash on hand deposits and withdraws; a bank or e-wallet transfers',
+      () {
+        expect(
+          movementDirection(deposit(), wallets),
+          TransferDirection.deposit,
+        );
+        expect(
+          movementDirection(withdrawal(), wallets),
+          TransferDirection.withdrawal,
+        );
+        expect(
+          movementDirection(from(deposit(), 'maya'), wallets),
+          TransferDirection.transfer,
+        );
+        expect(
+          movementDirection(from(withdrawal(), 'maya'), wallets),
+          TransferDirection.transfer,
+        );
+      },
+    );
+
+    testWidgets('the row says which, to or from the goal', (tester) async {
+      for (final (transaction, words) in [
+        (deposit(), 'Deposit to Vacation'),
+        (withdrawal(), 'Withdrawal from Vacation'),
+        (from(deposit(), 'maya'), 'Transfer to Vacation'),
+        (from(withdrawal(), 'maya'), 'Transfer from Vacation'),
+      ]) {
+        await tester.pumpWidget(
+          ChangeNotifierProvider(
+            create: (_) => AppSettingsProvider(),
+            child: MaterialApp(
+              theme: AppTheme.light,
+              home: Scaffold(
+                body: TransactionRow(
+                  transaction: transaction,
+                  wallets: wallets,
+                ),
+              ),
+            ),
+          ),
+        );
+        expect(find.text(words), findsOneWidget);
+      }
+    });
+
+    test('the Deposit and Transfer filters find goal rows too', () {
+      final depositOnly = const TransactionFilter(
+        type: TransactionType.transfer,
+        direction: TransferDirection.deposit,
+      );
+      expect(depositOnly.matches(deposit(), wallets: wallets), isTrue);
+      expect(
+        depositOnly.matches(from(deposit(), 'maya'), wallets: wallets),
+        isFalse,
+      );
+      const transfers = TransactionFilter(type: TransactionType.transfer);
+      expect(
+        transfers.matches(from(withdrawal(), 'maya'), wallets: wallets),
+        isTrue,
+      );
+      expect(
+        const TransactionFilter(
+          query: 'withdrawal',
+        ).matches(withdrawal(), wallets: wallets),
+        isTrue,
+      );
     });
   });
 
@@ -163,10 +271,9 @@ void main() {
     });
 
     test('falls back to the one wallet of an older goal', () {
-      expect(
-        goalHeldByWallet(goal(walletId: 'cash', savedAmount: 700)),
-        {'cash': 700},
-      );
+      expect(goalHeldByWallet(goal(walletId: 'cash', savedAmount: 700)), {
+        'cash': 700,
+      });
     });
 
     test('is nothing once the money was used', () {
@@ -183,10 +290,9 @@ void main() {
     });
 
     test('leaves out a wallet with nothing left in the goal', () {
-      expect(
-        goalHeldByWallet(goal(savedByWallet: {'cash': 0, 'bank': 500})),
-        {'bank': 500},
-      );
+      expect(goalHeldByWallet(goal(savedByWallet: {'cash': 0, 'bank': 500})), {
+        'bank': 500,
+      });
     });
   });
 }

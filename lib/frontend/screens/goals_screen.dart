@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../backend/models/goal.dart';
+import '../../backend/models/wallet.dart';
 import '../../backend/services/goal_service.dart';
+import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -18,10 +20,17 @@ import 'goal_detail_screen.dart';
 /// Goals: what the user is saving toward, in the order money reaches each
 /// goal.
 class GoalsScreen extends StatefulWidget {
-  const GoalsScreen({this.goals, this.onReorder, this.onOpen, super.key});
+  const GoalsScreen({
+    this.goals,
+    this.wallets,
+    this.onReorder,
+    this.onOpen,
+    super.key,
+  });
 
-  /// Replaces the live goals. Used by tests.
+  /// Replaces the live goals and wallets. Used by tests.
   final Stream<List<Goal>>? goals;
+  final Stream<List<Wallet>>? wallets;
 
   /// Replaces saving a new order. Used by tests.
   final void Function(List<Goal> ordered)? onReorder;
@@ -36,6 +45,10 @@ class GoalsScreen extends StatefulWidget {
 class _GoalsScreenState extends State<GoalsScreen> {
   late final Stream<List<Goal>> _goals =
       widget.goals ?? GoalService.watchGoals();
+
+  // Archived wallets too: goal money in them is still there.
+  late final Stream<List<Wallet>> _wallets =
+      widget.wallets ?? WalletService.watchWallets(includeArchived: true);
 
   bool _showFinished = false;
 
@@ -79,6 +92,18 @@ class _GoalsScreenState extends State<GoalsScreen> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
           children: [
+            if (goals.isNotEmpty) ...[
+              StreamBuilder<List<Wallet>>(
+                stream: _wallets,
+                builder: (context, walletSnapshot) {
+                  final wallets = walletSnapshot.data;
+                  if (wallets == null) return const SizedBox.shrink();
+                  final split = goalMoneyOnHandAndInBank(goals, wallets);
+                  return _GoalMoneyCard(cash: split.cash, bank: split.bank);
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
             _GoalsFilter(
               showFinished: _showFinished,
               activeCount: active.length,
@@ -177,6 +202,102 @@ class _GoalsScreenState extends State<GoalsScreen> {
         leading: backToHomeButton(context),
       ),
       body: _buildSavings(context),
+    );
+  }
+}
+
+/// Every peso set aside for goals, and where it sits: cash on hand or in
+/// the bank. Shaped like Home's Available Balance, so the two read alike.
+class _GoalMoneyCard extends StatelessWidget {
+  const _GoalMoneyCard({required this.cash, required this.bank});
+
+  final double cash;
+  final double bank;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget part(String label, String iconAsset, double amount) => Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Image.asset(iconAsset, width: 24, height: 24),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                  MoneyText(
+                    amount,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return Container(
+      key: const Key('goal-money-card'),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+      decoration: BoxDecoration(
+        color: appPrimaryBlue,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Set aside for goals',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          MoneyText(
+            cash + bank,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              part('Cash on Hand', WalletType.cash.iconAsset, cash),
+              const SizedBox(width: 8),
+              part('Cash in Bank', WalletType.bank.iconAsset, bank),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Still in your wallets, but not counted as money you can spend.',
+            style: TextStyle(color: Colors.white, fontSize: 12),
+          ),
+        ],
+      ),
     );
   }
 }

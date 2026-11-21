@@ -54,7 +54,13 @@ class GoalService {
         .snapshots()
         .map(
           (snapshot) => snapshot.docs
-              .map((doc) => GoalContribution.fromMap(doc.id, doc.data()))
+              .map(
+                (doc) => GoalContribution.fromMap(
+                  doc.id,
+                  doc.data(),
+                  goalId: goalId,
+                ),
+              )
               .toList(),
         );
   }

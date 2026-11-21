@@ -326,16 +326,16 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     final nameProblem = itemNameProblem(
       _nameController.text,
       maxLength: maxItemNameLength,
-      empty: 'Enter a name for this debt.',
+      empty: 'Enter a description for this debt.',
     );
     if (nameProblem != null) {
       return nameProblem;
     }
     if (!isRecordableAmount(_balance)) {
-      return 'Enter a remaining balance above zero.';
+      return 'Enter a debt balance above zero.';
     }
     if (!isRecordableAmount(_payment)) {
-      return 'Enter a payment amount above zero.';
+      return 'Enter an amount above zero.';
     }
     if (_fixedInterestController.text.trim().isNotEmpty &&
         !isRecordableAmount(_fixedInterestAmount ?? 0)) {
@@ -351,7 +351,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
         (_duration == null || _duration! < 1)) {
       return 'Enter a debt duration above zero.';
     }
-    if (_paymentCount < 1) return 'Enter a valid payment amount or duration.';
+    if (_paymentCount < 1) return 'Enter a valid amount or duration.';
     if (_paymentCount > _mostPayments) {
       return 'The payment schedule is too long. Check the duration.';
     }
@@ -359,9 +359,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       return 'The duration is longer than needed for this balance and payment.';
     }
     if (_payment * _paymentCount + 0.005 < _balance) {
-      return 'The payments over that duration are less than the remaining balance.';
+      return 'The payments over that duration are less than the debt balance.';
     }
-    if (_nextPaymentDate == null) return 'Choose the next payment date.';
+    if (_nextPaymentDate == null) return 'Choose the payment date.';
     return null;
   }
 
@@ -678,9 +678,11 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                   color: colors.textPrimary,
                 ),
               ),
-              const SizedBox(height: 16),
-              _sectionTitle(context, 'Basic Information'),
-              const SizedBox(height: 10),
+              const SizedBox(height: 20),
+              // What is owed, then how it is paid: the order a statement
+              // of account reads in.
+              _sectionTitle(context, 'About the debt'),
+              const SizedBox(height: 12),
               TextField(
                 key: const Key('loan-name'),
                 controller: _nameController,
@@ -690,11 +692,13 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                 onChanged: (_) => setState(() => _pickedKind = null),
                 decoration: dialogFieldDecoration(
                   context,
-                  'Debt name',
+                  'Description',
                   hint: amountHint,
                 ).copyWith(floatingLabelBehavior: FloatingLabelBehavior.always),
               ),
               const SizedBox(height: 8),
+              // The description already suggests the lender, so this shows
+              // the guess and lets it be changed.
               DropdownButtonFormField<DebtCategory>(
                 key: ValueKey('loan-kind-${_kind.name}'),
                 initialValue: _kind,
@@ -710,7 +714,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                 onChanged: (kind) => setState(() => _pickedKind = kind),
               ),
               if (_kind == DebtCategory.otherLoan) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 TextField(
                   key: const Key('loan-other-kind'),
                   controller: _otherKindController,
@@ -727,32 +731,34 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                       ),
                 ),
               ],
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
               AmountField(
                 key: const Key('loan-balance'),
                 controller: _balanceController,
-                label: 'Remaining debt balance',
+                label: 'Debt balance',
                 hint: 'e.g. 15,000',
+                helper: 'What you still owe today.',
                 alwaysShowHint: true,
                 autofocus: false,
               ),
-              const SizedBox(height: 20),
-              _sectionTitle(context, 'Payment Information'),
-              const SizedBox(height: 10),
+              const SizedBox(height: 24),
+              _sectionTitle(context, 'Payments'),
+              const SizedBox(height: 12),
               AmountField(
                 key: const Key('loan-payment'),
                 controller: _paymentController,
-                label: 'Payment amount',
+                label: 'Amount',
                 hint: 'e.g. 1,000',
+                helper: 'What you pay each time.',
                 alwaysShowHint: true,
                 autofocus: false,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               DropdownButtonFormField<PaymentFrequency>(
                 key: ValueKey('loan-frequency-${_frequency.name}'),
                 initialValue: _frequency,
                 isExpanded: true,
-                decoration: dialogFieldDecoration(context, 'Payment frequency'),
+                decoration: dialogFieldDecoration(context, 'Frequency'),
                 items: [
                   for (final frequency in PaymentFrequency.values)
                     DropdownMenuItem(
@@ -765,16 +771,23 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                   _refresh();
                 },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               _dateField(
                 context,
                 key: const Key('loan-next-payment-date'),
-                label: 'Next payment date',
+                label: 'Payment Date',
                 date: _nextPaymentDate,
                 onTap: () => _pickDate(loanStart: false),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               _walletPicker(),
+              // What the numbers above come to, so a typo shows before it
+              // is saved.
+              if (_preview case final preview?
+                  when preview.lastDueDate != null) ...[
+                const SizedBox(height: 16),
+                _LoanSummary(debt: preview),
+              ],
               const SizedBox(height: 12),
               Theme(
                 data: Theme.of(context).copyWith(
@@ -789,75 +802,20 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                       setState(() => _showAdditionalDetails = expanded),
                   tilePadding: EdgeInsets.zero,
                   childrenPadding: EdgeInsets.zero,
-                  title: Text(
-                    'Additional Debt Details (Optional)',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: colors.textBody,
-                    ),
+                  title: _sectionTitle(context, 'More details (optional)'),
+                  subtitle: Text(
+                    'When it started, how long it runs, and interest.',
+                    style: TextStyle(fontSize: 12, color: colors.textMuted),
                   ),
                   children: [
                     const SizedBox(height: 8),
-                    AmountField(
-                      key: const Key('loan-fixed-interest'),
-                      controller: _fixedInterestController,
-                      label: 'Fixed Interest Amount',
-                      hint: 'e.g. 180',
-                      helper:
-                          'The lender charges this exact amount each period. '
-                          'Interest is recorded separately from payments.',
-                      alwaysShowHint: true,
-                      autofocus: false,
+                    _dateField(
+                      context,
+                      label: 'Debt start date',
+                      date: _loanStartDate,
+                      onTap: () => _pickDate(loanStart: true),
                     ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<PaymentFrequency>(
-                      key: ValueKey(
-                        'loan-interest-charged-per-'
-                        '${_interestChargedPer?.name ?? 'none'}',
-                      ),
-                      initialValue: _interestChargedPer,
-                      isExpanded: true,
-                      decoration: dialogFieldDecoration(
-                        context,
-                        'Interest Charged Per',
-                      ),
-                      items: [
-                        for (final period in PaymentFrequency.values)
-                          DropdownMenuItem(
-                            value: period,
-                            child: Text(period.label),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _interestChargedPer = value),
-                    ),
-                    if (_fixedInterestAmount != null &&
-                        _interestChargedPer != null) ...[
-                      const SizedBox(height: 12),
-                      _dateField(
-                        context,
-                        key: const Key('loan-first-interest-date'),
-                        label: 'Next Interest Charge Date',
-                        date: _firstInterestChargeDate,
-                        onTap: _pickInterestDueDate,
-                      ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          key: const Key('use-next-payment-for-interest'),
-                          style: neutralTextStyle(context),
-                          onPressed: _nextPaymentDate == null
-                              ? null
-                              : () => setState(
-                                  () => _firstInterestChargeDate =
-                                      _nextPaymentDate,
-                                ),
-                          child: const Text('Use Next Payment Date'),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -878,6 +836,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                                 ).copyWith(
                                   floatingLabelBehavior:
                                       FloatingLabelBehavior.always,
+                                  helperMaxLines: 3,
                                   helperText: _durationIsAutomatic
                                       ? 'Estimated from your balance, '
                                             'payment, and frequency.'
@@ -921,13 +880,79 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    _dateField(
-                      context,
-                      label: 'Debt start date',
-                      date: _loanStartDate,
-                      onTap: () => _pickDate(loanStart: true),
+                    const SizedBox(height: 20),
+                    // Interest kept together, after what the debt is.
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Interest',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: colors.textPrimary,
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 12),
+                    AmountField(
+                      key: const Key('loan-fixed-interest'),
+                      controller: _fixedInterestController,
+                      label: 'Fixed interest amount',
+                      hint: 'e.g. 180',
+                      helper:
+                          'The lender charges this exact amount each period. '
+                          'Interest is recorded separately from payments.',
+                      alwaysShowHint: true,
+                      autofocus: false,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<PaymentFrequency>(
+                      key: ValueKey(
+                        'loan-interest-charged-per-'
+                        '${_interestChargedPer?.name ?? 'none'}',
+                      ),
+                      initialValue: _interestChargedPer,
+                      isExpanded: true,
+                      decoration: dialogFieldDecoration(
+                        context,
+                        'Interest charged per',
+                      ),
+                      items: [
+                        for (final period in PaymentFrequency.values)
+                          DropdownMenuItem(
+                            value: period,
+                            child: Text(period.label),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _interestChargedPer = value),
+                    ),
+                    if (_fixedInterestAmount != null &&
+                        _interestChargedPer != null) ...[
+                      const SizedBox(height: 16),
+                      _dateField(
+                        context,
+                        key: const Key('loan-first-interest-date'),
+                        label: 'Next interest charge date',
+                        date: _firstInterestChargeDate,
+                        onTap: _pickInterestDueDate,
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          key: const Key('use-next-payment-for-interest'),
+                          style: neutralTextStyle(context),
+                          onPressed: _nextPaymentDate == null
+                              ? null
+                              : () => setState(
+                                  () => _firstInterestChargeDate =
+                                      _nextPaymentDate,
+                                ),
+                          child: const Text('Use Payment Date'),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -941,7 +966,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -969,6 +994,53 @@ Widget _sectionTitle(BuildContext context, String text) => Text(
     color: context.appColors.textPrimary,
   ),
 );
+
+/// What the debt comes to, once the balance, amount and payment date are in:
+/// how many payments, and when the last one falls due.
+class _LoanSummary extends StatelessWidget {
+  const _LoanSummary({required this.debt});
+
+  final Debt debt;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final count = debt.paymentCount;
+    final last = debt.lastDueDate!;
+
+    return Container(
+      key: const Key('loan-summary'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.primaryTint,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$count ${count == 1 ? 'payment' : 'payments'} of '
+            '${formatPeso(debt.perPayment)}',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            debt.hasDifferentLastPayment
+                ? 'The last one is ${formatPeso(debt.finalPayment)}, on '
+                      '${formatShortDate(last)}.'
+                : 'The last one is on ${formatShortDate(last)}.',
+            style: TextStyle(fontSize: 13, height: 1.4, color: colors.textBody),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 Widget _dateField(
   BuildContext context, {

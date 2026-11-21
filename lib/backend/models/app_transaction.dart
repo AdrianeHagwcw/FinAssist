@@ -173,6 +173,9 @@ class AppTransaction {
 
   bool get isGoalMovement => type == TransactionType.goal;
 
+  /// Money let go from a goal, rather than set aside for it.
+  bool get isGoalWithdrawal => isGoalMovement && label == goalWithdrawalLabel;
+
   /// The part of an installment payment that is interest: what borrowing
   /// costs on top of the amount borrowed. It is still spending, only in its
   /// own category, the way an accountant splits a loan payment into the

@@ -1120,10 +1120,13 @@ void main() {
       await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
       await tester.pump();
 
-      expect(find.text('Additional Debt Details (Optional)'), findsOneWidget);
+      expect(find.text('More details (optional)'), findsOneWidget);
       expect(find.byKey(const Key('loan-rate')), findsNothing);
       expect(find.text('Debt start date'), findsNothing);
       await pickDate(tester, const Key('loan-next-payment-date'));
+      // What it comes to, before saving: 15 payments, the last in Dec 2027.
+      expect(find.text('15 payments of ₱1,000'), findsOneWidget);
+      expect(find.text('The last one is on Dec 28, 2027.'), findsOneWidget);
       await tester.tap(find.byKey(const Key('loan-additional-details')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Save Debt'));
@@ -1299,10 +1302,7 @@ void main() {
       await tester.enterText(find.byKey(const Key('loan-name')), 'BPI loan');
       await tester.tap(find.text('Save Debt'));
       await tester.pump();
-      expect(
-        find.text('Enter a remaining balance above zero.'),
-        findsOneWidget,
-      );
+      expect(find.text('Enter a debt balance above zero.'), findsOneWidget);
       expect(saved, isNull);
     });
   });

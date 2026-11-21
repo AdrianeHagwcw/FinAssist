@@ -69,15 +69,17 @@ class TransactionFilter {
       return false;
     }
 
-    if (type != null && transaction.type != type) return false;
+    // Money set aside for a goal, or let go from one, reads as a deposit,
+    // withdrawal or transfer, so the transfer choices take it in.
+    if (type != null &&
+        transaction.type != type &&
+        !(type == TransactionType.transfer && transaction.isGoalMovement)) {
+      return false;
+    }
 
-    if (direction != null) {
-      if (transaction.type != TransactionType.transfer) return false;
-      final actual = TransferDirection.betweenWallets(
-        from: _wallet(wallets, transaction.walletId),
-        to: _wallet(wallets, transaction.toWalletId),
-      );
-      if (actual != direction) return false;
+    if (direction != null &&
+        movementDirection(transaction, wallets) != direction) {
+      return false;
     }
 
     if (category != null &&
@@ -94,11 +96,7 @@ class TransactionFilter {
           transaction.note ?? '',
           transaction.type.label,
           transaction.type.flowLabel,
-          if (transaction.type == TransactionType.transfer)
-            TransferDirection.betweenWallets(
-              from: _wallet(wallets, transaction.walletId),
-              to: _wallet(wallets, transaction.toWalletId),
-            ).label,
+          ?movementDirection(transaction, wallets)?.label,
         ].any((value) => value.toLowerCase().contains(search))) {
       return false;
     }
@@ -138,12 +136,6 @@ class TransactionFilter {
   static DateTime _dateOnly(DateTime date) =>
       DateTime(date.year, date.month, date.day);
 
-  static Wallet? _wallet(List<Wallet> wallets, String? id) {
-    for (final wallet in wallets) {
-      if (wallet.id == id) return wallet;
-    }
-    return null;
-  }
 }
 
 /// Money in and money out for a set of transactions. Transfers are left out

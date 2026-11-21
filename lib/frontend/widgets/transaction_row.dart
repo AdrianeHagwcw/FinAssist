@@ -29,8 +29,8 @@ String loanIconAsset(AppTransaction transaction) =>
 /// is a transfer. The word belongs to the transaction, so both wallets in a
 /// transfer read it the same way.
 ///
-/// A goal movement has no direction word: the title already says "Goal
-/// Deposit" or "Goal Withdrawal", and no money moved.
+/// A goal movement carries its word in the title instead, "Deposit to
+/// Laptop" and the like, and no sign: no money left the wallet.
 ({String label, String sign}) transactionDirection(
   AppTransaction transaction,
   List<Wallet> wallets,
@@ -100,10 +100,17 @@ class TransactionRow extends StatelessWidget {
       (settings) => settings.amountsMasked,
     );
 
-    final title = t.type == TransactionType.transfer
-        ? '${walletNameFor(wallets, t.walletId)} → '
-              '${walletNameFor(wallets, t.toWalletId)}'
-        : t.title;
+    final title = switch (t.type) {
+      TransactionType.transfer =>
+        '${walletNameFor(wallets, t.walletId)} → '
+            '${walletNameFor(wallets, t.toWalletId)}',
+      // The goal reads as an account: Deposit, Withdrawal or Transfer, by
+      // whether the money is in cash on hand or in a bank or e-wallet.
+      TransactionType.goal =>
+        '${movementDirection(t, wallets)!.label} '
+            '${t.isGoalWithdrawal ? 'from' : 'to'} ${t.note ?? 'a goal'}',
+      _ => t.title,
+    };
 
     final details = [
       if (direction.label.isNotEmpty) direction.label,
@@ -115,7 +122,8 @@ class TransactionRow extends StatelessWidget {
       if (t.isBillPayment) 'Bill payment',
       // What this installment payment cost in interest, as Reports counts it.
       if (t.interest > 0) '${formatPeso(t.interest, masked: masked)} interest',
-      if ((t.note ?? '').isNotEmpty) t.note!,
+      // A goal's name is already in its title.
+      if ((t.note ?? '').isNotEmpty && !t.isGoalMovement) t.note!,
     ].join(' · ');
 
     return Material(
@@ -156,9 +164,11 @@ class TransactionRow extends StatelessWidget {
                     Icons.swap_horiz,
                     color: color,
                   ),
-                  TransactionType.goal => Icon(
-                    Icons.flag_outlined,
-                    color: color,
+                  // The same icon as Goals on Home, so the row is known.
+                  TransactionType.goal => Image.asset(
+                    'assets/icons/icons8-goal-96.png',
+                    width: 22,
+                    height: 22,
                   ),
                 },
               ),

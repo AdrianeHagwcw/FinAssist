@@ -10376,6 +10376,7 @@ void main() {
       WidgetTester tester,
       List<Goal> goals, {
       void Function(List<Goal>)? onReorder,
+      List<Wallet> wallets = const [],
     }) async {
       tester.view.physicalSize = const Size(700, 1800);
       tester.view.devicePixelRatio = 1.0;
@@ -10389,6 +10390,7 @@ void main() {
             theme: AppTheme.light,
             home: GoalsScreen(
               goals: Stream.value(goals),
+              wallets: Stream.value(wallets),
               onReorder: onReorder,
               onOpen: (_) {},
             ),
@@ -10397,6 +10399,66 @@ void main() {
       );
       await tester.pump();
     }
+
+    testWidgets('the top card adds up goal money on hand and in the bank', (
+      tester,
+    ) async {
+      Wallet wallet(String id, String name, WalletType type) => Wallet(
+        id: id,
+        name: name,
+        type: type,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 0,
+      );
+      await pumpGoals(
+        tester,
+        const [
+          Goal(
+            id: 'laptop',
+            name: 'Laptop',
+            targetAmount: 25000,
+            savedAmount: 2500,
+            priority: 0,
+            status: GoalStatus.active,
+            savedByWallet: {'cash': 1000, 'maya': 1500},
+          ),
+          Goal(
+            id: 'trip',
+            name: 'Trip',
+            targetAmount: 5000,
+            savedAmount: 500,
+            priority: 1,
+            status: GoalStatus.active,
+            savedByWallet: {'maya': 500},
+          ),
+        ],
+        wallets: [
+          wallet('cash', 'Cash', WalletType.cash),
+          wallet('maya', 'Maya', WalletType.gcash),
+        ],
+      );
+
+      // The wallets load after the goals.
+      await tester.pump();
+      final card = find.byKey(const Key('goal-money-card'));
+      expect(
+        find.descendant(of: card, matching: find.text('₱3,000')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('₱1,000')),
+        findsOneWidget,
+        reason: 'Cash on Hand',
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('₱2,000')),
+        findsOneWidget,
+        reason: 'Cash in Bank: Maya is not cash',
+      );
+    });
 
     testWidgets('each goal card shows its plan once it is set up', (
       tester,
@@ -13085,6 +13147,51 @@ void main() {
       expect(summary.expenses, 1300, reason: 'bills count, lending does not');
       expect(summary.saved, 600);
       expect(summary.netChange, 3700);
+    });
+
+    test('saved to goals keeps a deleted goal in the periods it happened', () {
+      AppTransaction goalRow(
+        String id,
+        String goalId,
+        String label,
+        DateTime d,
+      ) => AppTransaction(
+        id: id,
+        type: TransactionType.goal,
+        amount: 1000,
+        label: label,
+        date: d,
+        goalId: goalId,
+      );
+      final october = ReportPeriod.monthOf(DateTime(2026, 10, 1));
+      final november = ReportPeriod.monthOf(DateTime(2026, 11, 1));
+      final transactions = [
+        // A live goal: its rows mirror its contribution, never counted twice.
+        goalRow('a', 'laptop', goalDepositLabel, DateTime(2026, 10, 5)),
+        // A deleted goal: set aside in October, let go in November.
+        goalRow('b', 'trip', goalDepositLabel, DateTime(2026, 10, 9)),
+        goalRow('c', 'trip', goalWithdrawalLabel, DateTime(2026, 11, 2)),
+      ];
+      final contributions = [
+        GoalContribution(
+          id: '1',
+          amount: 1000,
+          date: DateTime(2026, 10, 5),
+          goalId: 'laptop',
+        ),
+      ];
+
+      expect(summarize(transactions, contributions, october).saved, 2000);
+      expect(summarize(transactions, contributions, november).saved, -1000);
+      // A custom stretch covering both nets out what is still set aside.
+      expect(
+        summarize(
+          transactions,
+          contributions,
+          ReportPeriod(DateTime(2026, 10, 1), DateTime(2026, 11, 30)),
+        ).saved,
+        1000,
+      );
     });
 
     test('the trend covers six months, oldest first', () {
@@ -16018,6 +16125,71 @@ void main() {
   });
 
   group('goal actions', () {
+    testWidgets('a goal shows where its money is, on hand and in the bank', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(600, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      Wallet wallet(String id, String name, WalletType type) => Wallet(
+        id: id,
+        name: name,
+        type: type,
+        balance: 10000,
+        startingBalance: 10000,
+        receivesIncome: true,
+        archived: false,
+        sortOrder: 0,
+      );
+      // Deposited into, never set up with a funding source.
+      const goal = Goal(
+        id: 'g1',
+        name: 'Laptop',
+        targetAmount: 25000,
+        savedAmount: 2500,
+        priority: 0,
+        status: GoalStatus.active,
+        savedByWallet: {'cash': 1000, 'maya': 1500},
+      );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AppSettingsProvider(),
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: GoalDetailScreen(
+              goal: goal,
+              liveGoal: Stream.value(goal).asBroadcastStream(),
+              contributions: Stream.value(
+                const <GoalContribution>[],
+              ).asBroadcastStream(),
+              wallets: Stream.value([
+                wallet('cash', 'Wallet Cash', WalletType.cash),
+                wallet('maya', 'Maya', WalletType.gcash),
+              ]).asBroadcastStream(),
+              today: DateTime(2026, 9, 28),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Where the money is'), findsOneWidget);
+      expect(find.text('Cash on Hand'), findsOneWidget);
+      expect(find.text('Wallet Cash'), findsOneWidget);
+      expect(find.text('Cash in Bank'), findsOneWidget);
+      expect(find.text('Maya'), findsOneWidget);
+      expect(find.text('₱1,500'), findsNWidgets(2), reason: 'subtotal, row');
+      expect(find.text('In these wallets'), findsOneWidget);
+      // The two money buttons sit side by side, above the card.
+      expect(
+        tester.getTopLeft(find.text('Take money out')).dy,
+        tester.getTopLeft(find.text('Goal Deposit')).dy,
+      );
+    });
+
     testWidgets('the two goal buttons are bold words, not icons', (
       tester,
     ) async {

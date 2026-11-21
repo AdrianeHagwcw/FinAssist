@@ -1,4 +1,32 @@
+import 'app_transaction.dart';
 import 'wallet.dart';
+
+/// The bookkeeper's word for money moved between the user's own pockets: a
+/// transfer between two wallets, or money set aside for a goal or let go
+/// from one. Null for income and expenses, which are inflow and outflow.
+TransferDirection? movementDirection(
+  AppTransaction transaction,
+  List<Wallet> wallets,
+) {
+  Wallet? find(String? id) {
+    for (final wallet in wallets) {
+      if (wallet.id == id) return wallet;
+    }
+    return null;
+  }
+
+  return switch (transaction.type) {
+    TransactionType.transfer => TransferDirection.betweenWallets(
+      from: find(transaction.walletId),
+      to: find(transaction.toWalletId),
+    ),
+    TransactionType.goal => TransferDirection.forGoal(
+      wallet: find(transaction.walletId),
+      intoGoal: !transaction.isGoalWithdrawal,
+    ),
+    _ => null,
+  };
+}
 
 /// Which way money moved between the user's own wallets, in the words a
 /// bookkeeper uses.
@@ -35,6 +63,15 @@ enum TransferDirection {
     if (fromCash == toCash) return TransferDirection.transfer;
 
     return toCash ? TransferDirection.withdrawal : TransferDirection.deposit;
+  }
+
+  /// The direction of money set aside for a goal, or let go from one. The
+  /// goal reads as an account: cash on hand into it is a deposit, out of it
+  /// a withdrawal, and a bank or e-wallet either way is a transfer. An
+  /// unknown wallet falls back to a transfer rather than guessing.
+  static TransferDirection forGoal({Wallet? wallet, required bool intoGoal}) {
+    if (wallet?.type != WalletType.cash) return TransferDirection.transfer;
+    return intoGoal ? TransferDirection.deposit : TransferDirection.withdrawal;
   }
 
   /// The direction of a move when the wallets' savings purposes are known.

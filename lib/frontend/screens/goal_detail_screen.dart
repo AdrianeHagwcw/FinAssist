@@ -169,35 +169,66 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     now: widget.today ?? DateTime.now(),
                   ),
                   const SizedBox(height: 16),
-                  if (goal.status == GoalStatus.completed)
+                  if (goal.status == GoalStatus.completed) ...[
                     _CompletedCard(
                       goal: goal,
                       onNewGoal: () => showGoalFormSheet(context),
                       onUsed: () => _markUsed(goal),
-                    )
-                  else if (goal.status == GoalStatus.active)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () => showContributionSheet(context, goal),
-                        style: confirmButtonStyle(),
-                        child: const Text(
-                          'Goal Deposit',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  // Both ways to move the goal's money, side by side, so
+                  // the card below reads as what the goal holds, not as
+                  // something between two buttons.
+                  Row(
+                    children: [
+                      if (goal.status != GoalStatus.used && goal.shownSaved > 0)
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () => showContributionSheet(
+                              context,
+                              goal,
+                              takeOut: true,
+                            ),
+                            style: dangerButtonStyle(),
+                            child: const Text(
+                              'Take money out',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
+                      if (goal.status == GoalStatus.active &&
+                          goal.shownSaved > 0)
+                        const SizedBox(width: 10),
+                      if (goal.status == GoalStatus.active)
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () =>
+                                showContributionSheet(context, goal),
+                            style: confirmButtonStyle(),
+                            child: const Text(
+                              'Goal Deposit',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                   StreamBuilder<List<Wallet>>(
                     stream: _wallets,
                     builder: (context, walletSnapshot) {
-                      if (goal.fundingSource == null || goal.walletId == null) {
+                      // Whenever the goal holds money, however it got there.
+                      if (goalHeldByWallet(goal).isEmpty) {
                         return const SizedBox.shrink();
                       }
                       return Padding(
-                        padding: const EdgeInsets.only(top: 14),
+                        padding: const EdgeInsets.only(top: 16),
                         child: _GoalFundingCard(
                           goal: goal,
                           wallets: walletSnapshot.data ?? const [],
@@ -205,28 +236,6 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       );
                     },
                   ),
-                  if (goal.status != GoalStatus.used &&
-                      goal.shownSaved > 0) ...[
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () => showContributionSheet(
-                          context,
-                          goal,
-                          takeOut: true,
-                        ),
-                        style: dangerButtonStyle(),
-                        child: const Text(
-                          'Take money out',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 24),
                   Text(
                     'History',
@@ -264,14 +273,18 @@ class _GoalFundingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final byId = {for (final wallet in wallets) wallet.id: wallet};
-    // A goal saved before the per-wallet amounts existed is all in one.
-    final amounts = goal.savedByWallet.isNotEmpty
-        ? goal.savedByWallet
-        : {goal.walletId!: goal.shownSaved};
+    final amounts = goalHeldByWallet(goal);
     final sources = [
       for (final entry in amounts.entries)
         if (byId[entry.key] case final wallet?) (wallet, entry.value),
     ];
+    // Cash wallets first, the way Home lists money.
+    sources.sort(
+      (a, b) => (a.$1.type == WalletType.cash ? 0 : 1).compareTo(
+        b.$1.type == WalletType.cash ? 0 : 1,
+      ),
+    );
+    final split = goalMoneyOnHandAndInBank([goal], wallets);
     // Only once the wallets have loaded, so nothing flashes as missing.
     final missing = wallets.isEmpty
         ? 0.0
@@ -291,14 +304,56 @@ class _GoalFundingCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // The summary: how much, and on which side, like Home's boxes.
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Where the money is',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+              MoneyText(
+                split.cash + split.bank,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _PlaceTile(
+                label: 'Cash on Hand',
+                iconAsset: WalletType.cash.iconAsset,
+                amount: split.cash,
+              ),
+              const SizedBox(width: 8),
+              _PlaceTile(
+                label: 'Cash in Bank',
+                iconAsset: WalletType.bank.iconAsset,
+                amount: split.bank,
+              ),
+            ],
+          ),
+          // The detail: each wallet the money sits in.
+          const SizedBox(height: 14),
           Text(
-            'Set aside from',
+            'In these wallets',
             style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: colors.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: colors.textMuted,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           GoalFundingList(sources: sources),
           if (missing > 0.005)
             Padding(
@@ -309,13 +364,71 @@ class _GoalFundingCard extends StatelessWidget {
                 style: note,
               ),
             ),
-          const SizedBox(height: 8),
+          Divider(height: 20, color: colors.border),
           Text(
-            'This only marks the money for this goal. No money moves and no '
-            'balance changes.',
+            'The money stays in these wallets. It is only marked for this '
+            'goal, so it is not counted as money you can spend.',
             style: note,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One side of where a goal's money sits, Cash on Hand or Cash in Bank, as a
+/// small box like the ones on Home.
+class _PlaceTile extends StatelessWidget {
+  const _PlaceTile({
+    required this.label,
+    required this.iconAsset,
+    required this.amount,
+  });
+
+  final String label;
+  final String iconAsset;
+  final double amount;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: colors.primaryTint,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Image.asset(iconAsset, width: 22, height: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: colors.textBody),
+                  ),
+                  MoneyText(
+                    amount,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

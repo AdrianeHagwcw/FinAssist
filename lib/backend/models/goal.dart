@@ -404,9 +404,14 @@ class GoalContribution {
     required this.amount,
     required this.date,
     this.walletId,
+    this.goalId,
   });
 
-  factory GoalContribution.fromMap(String id, Map<String, dynamic>? data) {
+  factory GoalContribution.fromMap(
+    String id,
+    Map<String, dynamic>? data, {
+    String? goalId,
+  }) {
     final map = data ?? const <String, dynamic>{};
     final date = map['date'];
 
@@ -415,6 +420,7 @@ class GoalContribution {
       amount: map['amount'] is num ? (map['amount'] as num).toDouble() : 0,
       date: date is Timestamp ? date.toDate() : DateTime.now(),
       walletId: map['walletId'] is String ? map['walletId'] as String : null,
+      goalId: goalId,
     );
   }
 
@@ -426,6 +432,9 @@ class GoalContribution {
 
   /// The wallet the money was set aside in.
   final String? walletId;
+
+  /// The goal it went to, when loaded from one.
+  final String? goalId;
 
   bool get isWithdrawal => amount < 0;
 }
@@ -508,6 +517,30 @@ Map<String, double> goalHeldByWallet(Goal goal) {
   final walletId = goal.walletId;
   if (walletId == null || goal.shownSaved <= 0.005) return const {};
   return {walletId: goal.shownSaved};
+}
+
+/// What [goals] hold, split the way Home splits money: in cash wallets
+/// (Cash on Hand) and in every other account (Cash in Bank). Money in an
+/// account no longer listed is left out of both.
+({double cash, double bank}) goalMoneyOnHandAndInBank(
+  Iterable<Goal> goals,
+  Iterable<Wallet> wallets,
+) {
+  final byId = {for (final wallet in wallets) wallet.id: wallet};
+  var cash = 0.0;
+  var bank = 0.0;
+  for (final goal in goals) {
+    for (final entry in goalHeldByWallet(goal).entries) {
+      final wallet = byId[entry.key];
+      if (wallet == null) continue;
+      if (wallet.type == WalletType.cash) {
+        cash += entry.value;
+      } else {
+        bank += entry.value;
+      }
+    }
+  }
+  return (cash: cash, bank: bank);
 }
 
 /// What the goals already hold inside one wallet.
