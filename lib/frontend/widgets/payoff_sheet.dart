@@ -239,7 +239,10 @@ class _PayoffSheetState extends State<PayoffSheet>
                 if (wallet.hasRecordedBalance) ...[
                   Text('$kind · ${formatPeso(room)} available', style: note),
                   if (held > 0.005)
-                    Text('${formatPeso(held)} set aside for goals', style: note),
+                    Text(
+                      '${formatPeso(held)} set aside for goals',
+                      style: note,
+                    ),
                 ] else
                   Text(
                     '$kind · No balance recorded, so nothing can come '
@@ -269,8 +272,8 @@ class _PayoffSheetState extends State<PayoffSheet>
       }
       return 'All of it goes to the payments left: no interest.';
     }
-    final left = debt.loanLeft(widget.progress.paid);
-    final split = debt.payoffSplit(amount, widget.progress.paid);
+    final left = debt.loanLeft(widget.progress.towardLoan);
+    final split = debt.payoffSplit(amount, widget.progress.towardLoan);
     if (split.interest > 0.005) {
       return 'Of this, ${formatPeso(split.toLoan)} finishes paying what you '
           'borrowed, and ${formatPeso(split.interest)} is interest or a fee '
@@ -409,7 +412,8 @@ class _PayoffSheetState extends State<PayoffSheet>
                       matchTarget: true,
                       // Like any bill: from cash on hand or the bank, not both.
                       allowBoth: false,
-                      onChanged: (amounts) => setState(() => _amounts = amounts),
+                      onChanged: (amounts) =>
+                          setState(() => _amounts = amounts),
                     ),
                   if (error != null) ...[
                     const SizedBox(height: 12),

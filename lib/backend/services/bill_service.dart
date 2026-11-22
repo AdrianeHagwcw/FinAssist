@@ -97,16 +97,18 @@ class BillService {
 
   /// Every cycle of one bill, newest first, so the user can see what they
   /// paid last month and the month before.
+  /// A loan's fixed interest charges come with it, kept under their own id.
   static Stream<List<BillInstance>> watchInstancesForBill(String billId) {
-    return _instances.where('billId', isEqualTo: billId).snapshots().map((
-      snapshot,
-    ) {
-      final instances = snapshot.docs
-          .map((doc) => BillInstance.fromMap(doc.id, doc.data()))
-          .toList();
-      instances.sort((a, b) => b.dueDate.compareTo(a.dueDate));
-      return instances;
-    });
+    return _instances
+        .where('billId', whereIn: [billId, fixedInterestBillId(billId)])
+        .snapshots()
+        .map((snapshot) {
+          final instances = snapshot.docs
+              .map((doc) => BillInstance.fromMap(doc.id, doc.data()))
+              .toList();
+          instances.sort((a, b) => b.dueDate.compareTo(a.dueDate));
+          return instances;
+        });
   }
 
   /// Reads one bill schedule once, or null when it is gone.
@@ -443,11 +445,13 @@ class BillService {
   }
 
   /// The date that records paying [billId]'s schedule off early.
-  static String payoffInstanceId(String billId) => '${billId}_payoff';
+  static String payoffInstanceId(String billId) => payoffInstanceIdFor(billId);
 
   /// Every date made so far for [billId].
   static Future<List<BillInstance>> loadInstancesForBill(String billId) async {
-    final snapshot = await _instances.where('billId', isEqualTo: billId).get();
+    final snapshot = await _instances
+        .where('billId', whereIn: [billId, fixedInterestBillId(billId)])
+        .get();
     return [
       for (final doc in snapshot.docs) BillInstance.fromMap(doc.id, doc.data()),
     ];
@@ -574,7 +578,7 @@ class BillService {
   /// unaccounted for.
   static Future<void> deleteBill(String billId) async {
     final outstanding = await _instances
-        .where('billId', isEqualTo: billId)
+        .where('billId', whereIn: [billId, fixedInterestBillId(billId)])
         .get();
 
     final batch = _firestore.batch()..delete(_bills.doc(billId));

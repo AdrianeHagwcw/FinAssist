@@ -496,6 +496,19 @@ String billInstanceId(String billId, DateTime dueDate) {
   return '${billId}_${date.year}$month$day';
 }
 
+/// The id of the occurrence that records paying [billId]'s schedule off
+/// early.
+String payoffInstanceIdFor(String billId) => '${billId}_payoff';
+
+/// The schedule id a loan's fixed interest charges are kept under. Their own,
+/// so an unpaid charge is never carried into one of the loan's payments.
+String fixedInterestBillId(String billId) => '$billId-interest';
+
+/// Whether [instance] is a lender's fixed interest charge rather than one of
+/// a schedule's own dates.
+bool isFixedInterestCharge(BillInstance instance) =>
+    instance.billId.endsWith('-interest');
+
 /// What an unpaid occurrence should roll into the next cycle.
 ///
 /// Only bills whose date has passed carry over; a bill due later this month
@@ -622,4 +635,4 @@ double interestPartOf(double paid, double share) =>
 
 /// A stored share between 0 and 1, or 0 when missing or out of range.
 double _shareOf(Object? value) =>
-    value is num && value > 0 && value < 1 ? value.toDouble() : 0;
+    value is num && value > 0 && value <= 1 ? value.toDouble() : 0;

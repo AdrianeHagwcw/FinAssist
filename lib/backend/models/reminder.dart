@@ -164,9 +164,13 @@ String reminderTimingText(ReminderKind kind, int times) {
       2 => 'Wednesday and Sunday · 8 PM',
       _ => 'Sundays · 8 PM',
     },
+    // Savings Deposits add their interest on Transfer, and time deposits
+    // on claiming, so neither needs a reminder here.
     ReminderKind.interest =>
-      'The 1st after an account pays interest, unless you added it · 9 AM\n'
-          'Every January 1: the interest your debts cost last year',
+      'Banks and e-wallets: on the 1st after interest is paid, to add it '
+          '· 9 AM\n'
+          'Loans: every January 1, the interest they cost you last year\n'
+          'Savings: added for you when you take the money out',
   };
 }
 
@@ -267,6 +271,7 @@ List<PlannedReminder> planReminders({
   required List<BillInstance> bills,
   List<Bill> schedules = const [],
   List<Debt> debts = const [],
+  Map<String, List<FixedInterestCharge>> interestCharges = const {},
   required List<Goal> goals,
   List<Wallet> wallets = const [],
   required List<AppTransaction> transactions,
@@ -365,7 +370,8 @@ List<PlannedReminder> planReminders({
       var installment = 0;
       var debt = 0;
       for (final (bill, _) in due) {
-        final debtId = debtIdBySchedule[bill.billId];
+        // A fixed interest charge has no schedule, but names its loan.
+        final debtId = debtIdBySchedule[bill.billId] ?? bill.debtId;
         if (debtId == null) {
           plain++;
         } else if (loanDebtIds.contains(debtId)) {
@@ -708,36 +714,41 @@ List<PlannedReminder> planReminders({
     }
   }
 
-  // Loans: on January 1, what the year's payments cost in interest, the
-  // yearly figure an accountant would give. Only payments really recorded
-  // count, and recording one plans this again, so the figure is the year's
-  // own by the time it comes. Installments no longer carry interest, so
-  // their payments have nothing to report here.
+  // Loans: on January 1, what borrowing cost in interest over the year, the
+  // yearly figure an accountant would give. Interest counts when it is
+  // charged, paid yet or not, and every peso only once: the interest inside
+  // each payment made, each fixed charge dated in the year, and of an early
+  // payoff only what it paid beyond those charges, which it settled.
+  // Recording a payment or a charge plans this again, so the figure is the
+  // year's own by the time it comes. Installments carry no interest.
   if (settings.isOn(ReminderKind.interest)) {
     final year = today.year;
-    final byInstallment = <String, double>{};
-    for (final t in transactions) {
-      if (t.type != TransactionType.expense || t.interest <= 0) continue;
-      if (t.date.year != year) continue;
-      final name = t.note ?? 'Installment';
-      byInstallment[name] = (byInstallment[name] ?? 0) + t.interest;
-    }
-    final total = byInstallment.values.fold<double>(0, (sum, v) => sum + v);
+    final cost = loanInterestForYear(
+      year,
+      debts: debts,
+      transactions: transactions,
+      interestCharges: interestCharges,
+    );
+    final total = cost.byLoan.values.fold<double>(0, (sum, v) => sum + v);
 
     if (isRecordableAmount(total)) {
-      final largest = byInstallment.entries.toList()
+      final largest = cost.byLoan.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
+      final unpaid = isRecordableAmount(cost.unpaid)
+          ? ' ${formatPeso(cost.unpaid)} of it is still unpaid.'
+          : '';
       add(
         PlannedReminder(
           kind: ReminderKind.interest,
           key: 'installment-interest:$year',
           at: at(DateTime(year + 1, 1, 1), morningHour),
-          title: 'Interest you paid in $year',
+          title: 'Interest on your loans in $year',
           body: largest.length == 1
-              ? '${formatPeso(total)} of your ${largest.first.key} payments '
-                    'was interest. Tap to see what it has cost.'
-              : '${formatPeso(total)} of your installment and debt payments '
-                    'was interest: ${[for (final e in largest.take(3)) '${e.key} ${formatPeso(e.value)}'].join(', ')}.',
+              ? 'Your ${largest.first.key} cost ${formatPeso(total)} in '
+                    'interest.$unpaid'
+              : 'Your loans cost ${formatPeso(total)} in interest: '
+                    '${[for (final e in largest.take(3)) '${e.key} ${formatPeso(e.value)}'].join(', ')}.'
+                    '$unpaid',
           payload: 'debts',
         ),
       );
@@ -819,4 +830,101 @@ List<BillInstance> billsDueSoon(
       )
       .toList()
     ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+}
+
+/// What borrowing cost in interest in [year], by loan, and how much of the
+/// fixed charges dated in it is still owed.
+///
+/// Interest counts when it is charged, the way an accountant reports the
+/// cost of a loan, and each peso once:
+/// - the interest inside each payment made in the year;
+/// - each fixed interest charge the lender made in the year, by its own
+///   date, paid yet or not;
+/// - of an early payoff in the year, only what it paid beyond the money
+///   still owed and the charges still unpaid, since it settled them.
+///
+/// Paying a fixed charge is not counted again. What is unpaid is the
+/// newest of the charges, since a payment covers the oldest first.
+///
+/// Payments of a debt no longer listed keep the name they were saved with.
+({Map<String, double> byLoan, double unpaid}) loanInterestForYear(
+  int year, {
+  required List<Debt> debts,
+  required List<AppTransaction> transactions,
+  Map<String, List<FixedInterestCharge>> interestCharges = const {},
+}) {
+  final byLoan = <String, double>{};
+  void count(String name, double amount) {
+    if (amount > 0) byLoan[name] = (byLoan[name] ?? 0) + amount;
+  }
+
+  // What each loan's fixed interest charges have had paid on them, in any
+  // year. Paying one is not counted again: it counted when it was charged.
+  final chargesPaid = <Debt, double>{};
+  Debt? chargeOf(AppTransaction t) {
+    final id = t.billInstanceId;
+    if (id == null) return null;
+    for (final debt in debts) {
+      final billId = debt.billId;
+      if (billId != null && id.startsWith('${fixedInterestBillId(billId)}_')) {
+        return debt;
+      }
+    }
+    return null;
+  }
+
+  for (final t in transactions) {
+    if (t.type != TransactionType.expense) continue;
+    final debt = chargeOf(t);
+    if (debt != null) chargesPaid[debt] = (chargesPaid[debt] ?? 0) + t.amount;
+  }
+
+  Debt? debtOf(AppTransaction t) {
+    final id = t.billInstanceId;
+    if (id == null) return null;
+    for (final debt in debts) {
+      final billId = debt.billId;
+      if (billId != null && id.startsWith('${billId}_')) return debt;
+    }
+    return null;
+  }
+
+  // Early payoffs' interest, held back until the charges they settled are
+  // known.
+  final payoffInterest = <Debt, double>{};
+  for (final t in transactions) {
+    if (t.type != TransactionType.expense || t.interest <= 0) continue;
+    if (t.date.year != year) continue;
+    if (chargeOf(t) != null) continue;
+    final debt = debtOf(t);
+    if (debt == null) {
+      count(t.note ?? 'Loan', t.interest);
+    } else if (t.billInstanceId == payoffInstanceIdFor(debt.billId!)) {
+      payoffInterest[debt] = (payoffInterest[debt] ?? 0) + t.interest;
+    } else {
+      count(debt.name, t.interest);
+    }
+  }
+
+  var unpaid = 0.0;
+  for (final debt in debts) {
+    final charges = interestCharges[debt.id] ?? const <FixedInterestCharge>[];
+    final inYear = charges
+        .where((c) => c.periodDueDate.year == year)
+        .fold<double>(0, (sum, c) => sum + c.amount);
+    count(debt.name, inYear);
+    // Paying covers the oldest charges first, so what is still owed is the
+    // newest: this year's, up to what is owed in all.
+    final allCharges = charges.fold<double>(0, (sum, c) => sum + c.amount);
+    final owed = allCharges - (chargesPaid[debt] ?? 0);
+    if (debt.status == DebtStatus.active && !debt.paidOffEarly && owed > 0) {
+      unpaid += owed < inYear ? owed : inYear;
+    }
+
+    // A payoff settled what was still owed of the charges.
+    final paidOff = payoffInterest[debt];
+    if (paidOff != null) count(debt.name, paidOff - (owed > 0 ? owed : 0));
+  }
+
+  return (byLoan: byLoan, unpaid: unpaid);
 }

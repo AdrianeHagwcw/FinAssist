@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../backend/models/bill.dart';
@@ -307,7 +309,11 @@ class _DetailBody extends StatelessWidget {
     final owing = pay.dueNow ? next : null;
     final canPayAhead = pay.canPayAhead;
     final fallsDueThisMonth = pay.fallsDueThisMonth;
-    final payNowNote = owing != null
+    final unpaidCharge = unpaidInterestCharges(instances).firstOrNull;
+    final payNowNote = unpaidCharge != null
+        ? '${formatPeso(unpaidCharge.remaining)} of interest is unpaid. Pay '
+              'Now takes it first, before the next payment.'
+        : owing != null
         ? 'Payment ${owing.number} of ${debt.paymentCount} is '
               '${DueSoonNotice.whenLabel(owing.due, today)}. Pay it from the '
               'wallet you want.'
@@ -388,7 +394,7 @@ class _DetailBody extends StatelessWidget {
               const Divider(height: 28),
               _Line(
                 debt.balanceBasedSchedule
-                    ? 'Principal at setup'
+                    ? 'Debt balance at setup'
                     : debt.category.isLoan
                     ? 'Borrowed'
                     : 'Price',
@@ -396,11 +402,17 @@ class _DetailBody extends StatelessWidget {
               ),
               if (debt.balanceBasedSchedule) ...[
                 _Line(
-                  'Outstanding principal',
-                  formatPeso(debt.loanLeft(progress.paid)),
+                  'Still owed on the loan',
+                  formatPeso(debt.loanLeft(progress.towardLoan)),
                 ),
-                _Line('Accrued interest', formatPeso(debt.accruedInterest)),
-                _Line('Total amount due', formatPeso(progress.remaining)),
+                // The lender's charges less what has been paid on them.
+                _Line(
+                  'Interest still owed',
+                  formatPeso(
+                    math.max(0.0, debt.accruedInterest - progress.chargesPaid),
+                  ),
+                ),
+                _Line('Total still owed', formatPeso(progress.remaining)),
               ],
               _Line(debt.frequency.eachLabel, formatPeso(debt.perPayment)),
               if (debt.paidWithWalletId != null || debt.paidWithLabel != null)
@@ -1049,9 +1061,10 @@ List<Widget> _statementRows(
       ? null
       : BillService.payoffInstanceId(debt.billId!);
   final payoff = instances.where((i) => i.id == payoffId).firstOrNull;
+  // Fixed interest charges are listed as charges, not as payments.
   instances = [
     for (final instance in instances)
-      if (instance.id != payoffId) instance,
+      if (instance.id != payoffId && !isFixedInterestCharge(instance)) instance,
   ];
 
   // Counted down from the income side of the plan, so the last row reads

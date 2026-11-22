@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/bill.dart';
 import '../models/debt.dart';
+import '../utils/categories.dart';
 import 'bill_service.dart';
 import 'firestore_write.dart';
 import 'wallet_service.dart';
@@ -83,7 +84,9 @@ class DebtService {
   static Stream<List<FixedInterestCharge>> watchFixedInterestCharges(
     String debtId,
   ) {
-    return _debts.doc(debtId).collection('interestCharges').snapshots().map((s) {
+    return _debts.doc(debtId).collection('interestCharges').snapshots().map((
+      s,
+    ) {
       final charges = <FixedInterestCharge>[];
       for (final doc in s.docs) {
         final data = doc.data();
@@ -356,6 +359,16 @@ class DebtService {
         return FixedInterestChargeResult.alreadyRecorded;
       }
 
+      // Owed from its date, in the Bill Planner, until it is paid.
+      final billId = stored.billId;
+      if (billId != null) {
+        transaction.set(
+          BillService.instanceReference(
+            billInstanceId(fixedInterestBillId(billId), due),
+          ),
+          _chargeEntry(stored, amount, due),
+        );
+      }
       transaction.set(chargeReference, {
         'amount': amount,
         'period': period.name,
@@ -389,6 +402,66 @@ class DebtService {
     });
   }
 
+  /// The Bill Planner entry a fixed interest charge is owed as, until paid.
+  /// All of it is interest.
+  static Map<String, dynamic> _chargeEntry(
+    Debt debt,
+    double amount,
+    DateTime due,
+  ) => {
+    'billId': fixedInterestBillId(debt.billId!),
+    'name': '${debt.name} interest',
+    'amount': amount,
+    'category': interestCategory,
+    'dueDate': Timestamp.fromDate(DateTime(due.year, due.month, due.day)),
+    'status': BillStatus.unpaid.name,
+    'amountPaid': 0,
+    'carriedOver': 0,
+    'paymentIds': <String>[],
+    'walletId': debt.paidWithWalletId,
+    'debtId': debt.id,
+    'isLoan': true,
+    'interestShare': 1.0,
+    'createdAt': FieldValue.serverTimestamp(),
+  };
+
+  /// Gives each fixed interest charge recorded before charges could be paid
+  /// its Bill Planner entry, unpaid. Only for a loan still running: a payoff
+  /// settled the charges of one paid off.
+  static Future<void> _addMissingChargeEntries(Debt debt) async {
+    final billId = debt.billId;
+    if (billId == null || debt.accruedInterest <= 0) return;
+    final charges = await _debts
+        .doc(debt.id)
+        .collection('interestCharges')
+        .get();
+    if (charges.docs.isEmpty) return;
+    final existing = {
+      for (final instance in await BillService.loadInstancesForBill(billId))
+        instance.id,
+    };
+
+    final batch = _firestore.batch();
+    var added = 0;
+    for (final doc in charges.docs) {
+      final data = doc.data();
+      final amount = data['amount'];
+      final dueAt = data['periodDueDate'] ?? data['chargedAt'];
+      if (amount is! num || amount <= 0 || dueAt is! Timestamp) continue;
+      final due = dueAt.toDate();
+      final id = billInstanceId(fixedInterestBillId(billId), due);
+      if (existing.contains(id)) continue;
+      batch.set(
+        BillService.instanceReference(id),
+        _chargeEntry(debt, amount.toDouble(), due),
+      );
+      added++;
+    }
+    if (added > 0) {
+      commitFirestoreWrite(batch.commit(), 'add interest charge entries');
+    }
+  }
+
   /// Reconciles overdue fixed-interest charges after launch or app resume.
   /// Each period is its own transaction, so a retry or a second device cannot
   /// add the same charge twice. The scheduled date is retained in history even
@@ -400,6 +473,12 @@ class DebtService {
       final snapshot = await _debts.get();
       for (final document in snapshot.docs) {
         var debt = Debt.fromMap(document.id, document.data());
+        if (debt.status == DebtStatus.active &&
+            !debt.paidOffEarly &&
+            debt.direction == DebtDirection.iOwe &&
+            debt.fixedInterestAmount != null) {
+          await _addMissingChargeEntries(debt);
+        }
         while (debt.status == DebtStatus.active &&
             debt.direction == DebtDirection.iOwe &&
             debt.fixedInterestAmount != null &&
@@ -412,6 +491,14 @@ class DebtService {
               : debt.nextInterestDueDate!;
           final dueOnly = DateTime(due.year, due.month, due.day);
           if (dueOnly.isAfter(todayOnly)) break;
+          // Not charged on its own past the loan's last payment: a loan paid
+          // to the end owes nothing more. A later charge the lender confirms
+          // is still recorded from the debt's page.
+          final last = debt.lastDueDate;
+          if (last != null &&
+              dueOnly.isAfter(DateTime(last.year, last.month, last.day))) {
+            break;
+          }
 
           final result = await recordFixedInterestCharge(
             debt: debt,
@@ -648,7 +735,7 @@ class DebtService {
     final instances = await BillService.loadInstancesForBill(billId);
     final progress = DebtProgress.of(debt, instances);
     final amount = parts.fold<double>(0, (total, part) => total + part.amount);
-    final split = debt.payoffSplit(amount, progress.paid);
+    final split = debt.payoffSplit(amount, progress.towardLoan);
 
     final batch = _firestore.batch();
     final deltas = <String, double>{};

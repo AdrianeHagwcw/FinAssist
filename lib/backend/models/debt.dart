@@ -442,9 +442,9 @@ class Debt {
           _asDate(map['interestScheduleAnchor']),
       interestScheduleAnchor: _asDate(map['interestScheduleAnchor']),
       nextInterestDueDate: _asDate(map['nextInterestDueDate']),
-      interestPeriodsCharged: _asDouble(map['interestPeriodsCharged'])
-          .toInt()
-          .clamp(0, 1 << 20),
+      interestPeriodsCharged: _asDouble(
+        map['interestPeriodsCharged'],
+      ).toInt().clamp(0, 1 << 20),
       accruedInterest: _asDouble(map['accruedInterest']).abs(),
       fees: _asDouble(map['fees']).abs(),
       otherKind: _asString(map['otherKind']),
@@ -869,6 +869,7 @@ class DebtProgress {
     required this.paymentsMade,
     required this.total,
     required this.paymentCount,
+    this.chargesPaid = 0,
   });
 
   /// Worked out from the payments recorded against the installment's bill,
@@ -881,8 +882,14 @@ class DebtProgress {
       paid += debt.amountOf(number);
     }
 
+    var charges = 0.0;
     for (final instance in instances) {
       paid += instance.amountPaid;
+      // A fixed interest charge is paid, but it is not one of the payments.
+      if (isFixedInterestCharge(instance)) {
+        charges += instance.amountPaid;
+        continue;
+      }
       if (instance.status == BillStatus.paid) made++;
     }
 
@@ -893,6 +900,7 @@ class DebtProgress {
         paymentsMade: debt.paymentCount,
         total: paid,
         paymentCount: debt.paymentCount,
+        chargesPaid: charges,
       );
     }
 
@@ -901,10 +909,20 @@ class DebtProgress {
       paymentsMade: made,
       total: debt.totalWithAccruedInterest,
       paymentCount: debt.paymentCount,
+      chargesPaid: charges,
     );
   }
 
+  /// Everything paid, the lender's fixed interest charges included.
   final double paid;
+
+  /// What went to the lender's fixed interest charges.
+  final double chargesPaid;
+
+  /// What went to the payments themselves, which is what pays the amount
+  /// borrowed down.
+  double get towardLoan => paid - chargesPaid;
+
   final int paymentsMade;
   final double total;
   final int paymentCount;
@@ -970,7 +988,11 @@ DebtNextPayment? nextUnpaidPayment(
   Iterable<BillInstance> instances,
 ) {
   final first = debt.firstDueDate;
-  final known = [...instances];
+  // The lender's fixed interest charges are not dates of the plan.
+  final known = [
+    for (final instance in instances)
+      if (!isFixedInterestCharge(instance)) instance,
+  ];
 
   if (first == null) {
     // Without a start date there is no schedule to lay out, so the
@@ -1248,3 +1270,17 @@ int? _paymentNumberOn(DateTime first, DateTime due) {
   if (lands.day != due.day) return null;
   return months + 1;
 }
+
+/// A loan's fixed interest charges still owed, oldest first. A payment
+/// covers interest before the amount borrowed (Civil Code, Art. 1253), so
+/// Pay Now takes these first.
+List<BillInstance> unpaidInterestCharges(Iterable<BillInstance> instances) =>
+    instances
+        .where(
+          (instance) =>
+              isFixedInterestCharge(instance) &&
+              !instance.isSettled &&
+              instance.remaining > 0.005,
+        )
+        .toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));

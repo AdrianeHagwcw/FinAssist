@@ -143,11 +143,19 @@ class ReminderScheduler {
           ? await AllocationService.loadOutstandingBills(now: now)
           : const <Never>[];
 
+      // The lender's fixed interest charges, for the year's interest.
+      final interestCharges = <String, List<FixedInterestCharge>>{
+        for (final debt in _debts)
+          if (settings.enabled && debt.fixedInterestAmount != null)
+            debt.id: await DebtService.watchFixedInterestCharges(debt.id).first,
+      };
+
       final planned = planReminders(
         settings: settings,
         bills: bills,
         schedules: _schedules,
         debts: _debts,
+        interestCharges: interestCharges,
         goals: _goals,
         wallets: _wallets,
         transactions: _transactions,

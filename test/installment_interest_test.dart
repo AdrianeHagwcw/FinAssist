@@ -175,6 +175,8 @@ void main() {
     List<PlannedReminder> plan({
       required List<AppTransaction> transactions,
       Map<ReminderKind, bool> overrides = const {},
+      List<Debt> debts = const [],
+      Map<String, List<FixedInterestCharge>> charges = const {},
     }) => planReminders(
       settings: ReminderSettings(
         enabled: true,
@@ -182,10 +184,92 @@ void main() {
         overrides: overrides,
       ),
       bills: const [],
+      debts: debts,
+      interestCharges: charges,
       goals: const [],
       transactions: transactions,
       now: DateTime(2026, 10, 26, 10),
     ).where((r) => r.key.startsWith('installment-interest')).toList();
+
+    /// A bank loan whose lender charges ₱180 of interest each month.
+    Debt bankLoan({DateTime? paidOffAt}) => Debt(
+      id: 'bpi',
+      direction: DebtDirection.iOwe,
+      name: 'BPI loan',
+      category: DebtCategory.personalLoan,
+      principal: 15000,
+      status: DebtStatus.active,
+      perPayment: 1500,
+      paymentCount: 10,
+      billId: 'bpi-bill',
+      fixedInterestAmount: 180,
+      interestChargedPer: PaymentFrequency.monthly,
+      paidOffAt: paidOffAt,
+    );
+
+    FixedInterestCharge charge(DateTime due) => FixedInterestCharge(
+      periodKey: '${due.year}-${due.month}',
+      amount: 180,
+      chargedAt: due,
+      periodDueDate: due,
+      period: PaymentFrequency.monthly,
+    );
+
+    final charges = {
+      'bpi': [
+        // Last year's is last year's.
+        charge(DateTime(2025, 12, 5)),
+        charge(DateTime(2026, 3, 5)),
+        charge(DateTime(2026, 4, 5)),
+      ],
+    };
+
+    test('counts the lender\'s fixed charges, and says what is unpaid', () {
+      final reminder = plan(
+        transactions: const [],
+        debts: [bankLoan()],
+        charges: charges,
+      ).single;
+      expect(reminder.title, 'Interest on your loans in 2026');
+      expect(
+        reminder.body,
+        'Your BPI loan cost ₱360 in interest. ₱360 of it is still unpaid.',
+      );
+    });
+
+    test('an early payoff adds only what it paid beyond the charges', () {
+      // ₱500 of the payoff was not the money borrowed: ₱540 of charges it
+      // settled, so nothing more. ₱900 would be ₱360 beyond them.
+      AppTransaction payoff(double interest) => AppTransaction(
+        id: 'off-$interest',
+        type: TransactionType.expense,
+        amount: 9000,
+        label: 'Bills',
+        date: DateTime(2026, 6, 1),
+        note: 'BPI loan (paid off early)',
+        billInstanceId: 'bpi-bill_payoff',
+        interest: interest,
+      );
+      final paidOff = bankLoan(paidOffAt: DateTime(2026, 6, 1));
+
+      final settled = loanInterestForYear(
+        2026,
+        debts: [paidOff],
+        transactions: [payoff(500)],
+        interestCharges: charges,
+      );
+      expect(settled.byLoan, {'BPI loan': 360.0});
+      expect(settled.unpaid, 0);
+      expect(
+        loanInterestForYear(
+          2026,
+          debts: [paidOff],
+          transactions: [payoff(900)],
+          interestCharges: charges,
+        ).byLoan,
+        {'BPI loan': 720.0},
+      );
+    });
 
     test('comes on January 1 with the year\'s interest', () {
       final reminders = plan(
@@ -199,12 +283,8 @@ void main() {
 
       final reminder = reminders.single;
       expect(reminder.at, DateTime(2027, 1, 1, morningHour));
-      expect(reminder.title, 'Interest you paid in 2026');
-      expect(
-        reminder.body,
-        '₱800 of your Phone payments was interest. Tap to see what it has '
-        'cost.',
-      );
+      expect(reminder.title, 'Interest on your loans in 2026');
+      expect(reminder.body, 'Your Phone cost ₱800 in interest.');
       expect(reminder.payload, 'debts');
     });
 

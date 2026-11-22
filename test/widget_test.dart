@@ -16218,6 +16218,33 @@ void main() {
         expect(find.text('3 days before'), findsNothing);
       });
 
+      testWidgets('the reminders follow the ranking, interest last', (
+        tester,
+      ) async {
+        await pumpScreen(
+          tester,
+          data: profile(const [
+            FinancialPriority.trackSpending,
+            FinancialPriority.saveForGoal,
+            FinancialPriority.payBills,
+          ]),
+        );
+
+        double top(String title) => tester.getTopLeft(find.text(title)).dy;
+        expect(top('Log your spending'), lessThan(top('Saving plans')));
+        expect(top('Saving plans'), lessThan(top('Bills due')));
+        expect(top('Bills due'), lessThan(top('Interest')));
+        expect(
+          find.text(
+            'Banks and e-wallets: on the 1st after interest is paid, to add '
+            'it · 9 AM\n'
+            'Loans: every January 1, the interest they cost you last year\n'
+            'Savings: added for you when you take the money out',
+          ),
+          findsOneWidget,
+        );
+      });
+
       testWidgets('moving a priority up saves the new order', (tester) async {
         List<FinancialPriority>? saved;
         await pumpScreen(

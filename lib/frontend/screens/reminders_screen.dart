@@ -177,8 +177,17 @@ class _RemindersScreenState extends State<RemindersScreen> {
                 child: _Card(
                   child: Column(
                     children: [
-                      for (final (index, kind)
-                          in ReminderKind.values.indexed) ...[
+                      // In the order of the ranking above; interest
+                      // follows no ranking, so it comes last.
+                      for (final (index, kind) in [
+                        for (final priority in settings.priorities)
+                          ...ReminderKind.values.where(
+                            (k) => ReminderSettings.priorityFor(k) == priority,
+                          ),
+                        ...ReminderKind.values.where(
+                          (k) => ReminderSettings.priorityFor(k) == null,
+                        ),
+                      ].indexed) ...[
                         if (index > 0) Divider(height: 1, color: colors.border),
                         _KindRow(
                           kind: kind,
@@ -359,7 +368,7 @@ class _KindRow extends StatelessWidget {
     ReminderKind.bills => 'Bills due',
     ReminderKind.goals => 'Saving plans',
     ReminderKind.dailyLog => 'Log your spending',
-    ReminderKind.interest => 'Interest paid',
+    ReminderKind.interest => 'Interest',
   };
 
   /// Why it gets what it gets, in a few words: its place in the ranking

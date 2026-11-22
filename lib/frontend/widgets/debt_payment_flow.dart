@@ -42,7 +42,9 @@ class PayNowState {
         ? instances
         : [
             for (final instance in instances)
-              if (instance.id != BillService.payoffInstanceId(billId)) instance,
+              if (instance.id != BillService.payoffInstanceId(billId) &&
+                  !isFixedInterestCharge(instance))
+                instance,
           ];
     final next = billId == null ? null : nextUnpaidPayment(debt, known);
     final period = paymentPeriod(debt, known, today);
@@ -116,6 +118,10 @@ Future<bool> payDebtNow(
   required DateTime today,
   Stream<List<Wallet>>? wallets,
 }) async {
+  final charge = unpaidInterestCharges(instances).firstOrNull;
+  if (charge != null) {
+    return _payInterestFirst(context, debt, charge, wallets);
+  }
   final state = PayNowState.read(debt, instances, today);
 
   if (!state.dueNow) {
@@ -226,6 +232,21 @@ Future<bool> payDebtNow(
   );
 }
 
+/// Pays the lender's oldest fixed interest charge still owed. A payment
+/// covers interest before the amount borrowed (Civil Code, Art. 1253), so
+/// Pay Now and paying ahead both take it before any payment of the plan.
+Future<bool> _payInterestFirst(
+  BuildContext context,
+  Debt debt,
+  BillInstance charge,
+  Stream<List<Wallet>>? wallets,
+) => showBillPaymentSheet(
+  context,
+  instance: charge,
+  wallets: wallets,
+  initialWalletId: debt.paidWithWalletId,
+);
+
 /// Pays [debt]'s next payment ahead of its date, out of the wallet the plan
 /// was charged to when it was set up. The payment this period is owed comes
 /// first: while it is owed, paying ahead says so and offers Pay Now instead.
@@ -241,6 +262,10 @@ Future<bool> payDebtInAdvance(
   required DateTime today,
   Stream<List<Wallet>>? wallets,
 }) async {
+  final charge = unpaidInterestCharges(instances).firstOrNull;
+  if (charge != null) {
+    return _payInterestFirst(context, debt, charge, wallets);
+  }
   final state = PayNowState.read(debt, instances, today);
 
   if (state.dueNow) {
