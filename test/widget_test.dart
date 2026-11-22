@@ -41,6 +41,7 @@ import 'package:testapp/frontend/screens/home_screen.dart';
 import 'package:testapp/frontend/screens/reports_screen.dart';
 import 'package:testapp/frontend/screens/reminders_screen.dart';
 import 'package:testapp/frontend/screens/register_screen.dart';
+import 'package:testapp/frontend/widgets/choice_grid.dart';
 import 'package:testapp/frontend/widgets/quick_add_sheet.dart';
 import 'package:testapp/frontend/screens/splash_screen.dart';
 import 'package:testapp/backend/services/launch_screen.dart';
@@ -1911,13 +1912,13 @@ void main() {
       );
       await tester.pump();
 
-      // ₱10,000 × 3% for 365 days = ₱300, less the 20% tax banks keep.
+      // ₱10,000 × 3% for 365 days = ₱300, with no tax taken off.
       expect(find.text('Original money'), findsOneWidget);
       expect(find.text('₱10,000'), findsWidgets);
       expect(find.text('Interest earned'), findsOneWidget);
-      expect(find.text('₱240'), findsWidgets);
+      expect(find.text('₱300'), findsWidgets);
       expect(find.text('Total at maturity'), findsOneWidget);
-      expect(find.text('₱10,240'), findsWidgets);
+      expect(find.text('₱10,300'), findsWidgets);
 
       // Where it goes, filled with the whole amount.
       await tester.tap(find.text('Cash on Hand'));
@@ -1934,7 +1935,7 @@ void main() {
       await tester.tap(find.byKey(const Key('matured-confirm')));
       await tester.pumpAndSettle();
       expect(renewedTo, isNotNull);
-      expect(interest, 240);
+      expect(interest, 300);
     });
 
     testWidgets('a matured time deposit can claim capital and interest', (
@@ -1949,7 +1950,7 @@ void main() {
         id: 'td',
         name: 'Time Deposit',
         type: WalletType.other,
-        balance: 10240,
+        balance: 10300,
         startingBalance: 10000,
         receivesIncome: false,
         archived: false,
@@ -2001,8 +2002,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(capital, 10000);
-      expect(interest, 240);
-      expect(capitalTo, {'cash': 10240});
+      expect(interest, 300);
+      expect(capitalTo, {'cash': 10300});
       expect(interestTo, isEmpty, reason: 'it goes where the capital goes');
     });
 
@@ -2015,7 +2016,7 @@ void main() {
         id: 'td-override',
         name: 'Time Deposit',
         type: WalletType.other,
-        balance: 10240,
+        balance: 10300,
         startingBalance: 10000,
         receivesIncome: false,
         archived: false,
@@ -2085,7 +2086,7 @@ void main() {
         id: 'td',
         name: 'Time Deposit',
         type: WalletType.other,
-        balance: 10240,
+        balance: 10300,
         startingBalance: 10000,
         receivesIncome: false,
         archived: false,
@@ -2140,8 +2141,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(renewedTo, isNotNull);
-      expect(paidInterest, 240);
-      expect(interestTo, {'cash': 240});
+      expect(paidInterest, 300);
+      expect(interestTo, {'cash': 300});
     });
 
     test('the end-date reminder says what interest to look for', () {
@@ -3577,9 +3578,9 @@ void main() {
       expect(find.text('₱150'), findsOneWidget);
       expect(find.text('₱1,499'), findsOneWidget);
       expect(find.text('₱1,649'), findsOneWidget);
-      // ₱13.75 a year less the 20% tax banks keep.
-      expect(find.text('₱11'), findsOneWidget);
-      expect(find.text('Interest in a Year (after tax)'), findsOneWidget);
+      // ₱13.75 a year, with no tax taken off.
+      expect(find.text('₱13.75'), findsOneWidget);
+      expect(find.text('Interest in a Year'), findsOneWidget);
       // The same colored icons the wallets and goals use. The total is
       // cash plus bank, so it shows both of theirs.
       expect(
@@ -3617,8 +3618,9 @@ void main() {
       // Worded as on every other card, with no stray ".0".
       expect(find.text('Interest: 2.5% a year'), findsOneWidget);
       expect(find.text('Interest: 1.25% a year'), findsOneWidget);
-      expect(find.text('Interest in a year, after tax: ₱4'), findsNWidgets(2));
-      expect(find.text('Interest in a year, after tax: ₱3'), findsOneWidget);
+      // ₱200 × 2.5% = ₱5 and ₱999 × 0.5% ≈ ₱5; ₱300 × 1.25% = ₱3.75.
+      expect(find.text('Interest in a year: ₱5'), findsNWidgets(2));
+      expect(find.text('Interest in a year: ₱3.75'), findsOneWidget);
       expect(find.text('Total · ₱1,499'), findsOneWidget);
       expect(find.text('₱200'), findsOneWidget);
       expect(find.text('₱300'), findsOneWidget);
@@ -3727,7 +3729,7 @@ void main() {
       await tester.enterText(fundingField(0), '2000');
       await tester.enterText(fundingField(1), '5000');
       await tester.pump();
-      expect(find.text('about ₱120'), findsOneWidget);
+      expect(find.text('about ₱150'), findsOneWidget);
       await tapText(tester, 'Save Changes');
 
       expect(find.text('₱7,000 of ₱10,000 saved'), findsOneWidget);
@@ -3740,8 +3742,8 @@ void main() {
       expect(find.text('₱5,000'), findsOneWidget);
       expect(
         find.text(
-          'May earn about ₱120 a year after tax from BDO Unibank. Add it as '
-          'income when it is paid.',
+          'May earn about ₱150 a year from BDO Unibank. Add it as income '
+          'when it is paid.',
         ),
         findsOneWidget,
       );
@@ -5464,6 +5466,85 @@ void main() {
       expect(find.text('Bills'), findsNothing);
       expect(find.text('Savings'), findsNothing);
       expect(find.text('My GCash'), findsWidgets);
+    });
+
+    Wallet saved(String id, String name, SavingsKind kind, {DateTime? ends}) =>
+        Wallet(
+          id: id,
+          name: name,
+          type: WalletType.other,
+          balance: 5000,
+          startingBalance: 5000,
+          receivesIncome: false,
+          archived: false,
+          sortOrder: 2,
+          purpose: WalletPurpose.savings,
+          savingsKind: kind.name,
+          depositStartDate: DateTime.now().subtract(const Duration(days: 30)),
+          maturityDate: ends,
+        );
+
+    Future<void> pumpFromSavings(
+      WidgetTester tester,
+      List<Wallet> wallets,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: TransferSheet(
+              wallets: Stream.value(wallets),
+              initialTransactions: const [],
+              fromSavings: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('from Savings: out of savings, into wallets only', (
+      tester,
+    ) async {
+      await pumpFromSavings(tester, [
+        cash,
+        gcash,
+        saved('demand', 'Demand Deposit', SavingsKind.demandDeposit),
+        saved('other', 'Rainy Day', SavingsKind.demandDeposit),
+      ]);
+
+      expect(
+        find.text('Move money out of your savings into your wallets.'),
+        findsOneWidget,
+      );
+      // It starts on a savings record, not on a wallet.
+      expect(find.textContaining('Demand Deposit holds'), findsOneWidget);
+      // Savings are never where it goes: no Savings group to pick.
+      expect(find.text('Where is it going?'), findsOneWidget);
+      expect(find.text('Savings'), findsNothing);
+    });
+
+    testWidgets('from Savings: a time deposit waits for its maturity', (
+      tester,
+    ) async {
+      await pumpFromSavings(tester, [
+        cash,
+        saved(
+          'td',
+          'Time Deposit',
+          SavingsKind.timeDeposit,
+          ends: DateTime.now().add(const Duration(days: 30)),
+        ),
+      ]);
+
+      expect(
+        find.text(
+          'No savings are ready to move. A time deposit can be moved once '
+          'it matures.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.widgetWithText(ElevatedButton, 'Transfer'), findsNothing);
     });
 
     testWidgets('savings transfer uses the computed simple interest', (
@@ -8698,6 +8779,61 @@ void main() {
       expect(find.text('No transactions yet'), findsOneWidget);
     });
 
+    testWidgets('the Wallet filter lists wallets, then savings apart', (
+      tester,
+    ) async {
+      final savings = Wallet(
+        id: 'sd',
+        name: 'Savings Deposit',
+        type: WalletType.other,
+        balance: 7500,
+        startingBalance: 7500,
+        receivesIncome: false,
+        archived: false,
+        sortOrder: 5,
+        purpose: WalletPurpose.savings,
+        savingsKind: SavingsKind.savingsDeposit.name,
+      );
+      await pumpList(
+        tester,
+        [
+          AppTransaction(
+            id: 'e',
+            type: TransactionType.expense,
+            amount: 80,
+            label: 'Food',
+            date: now,
+            walletId: 'cash',
+          ),
+        ],
+        extraWallets: [savings],
+      );
+      await tester.tap(find.byKey(const Key('transaction-search-filters')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Wallet'));
+      await tester.pumpAndSettle();
+
+      // A heading that cannot be picked, with the savings record under it,
+      // after the wallets the user set up.
+      final heading = tester.widget<DropdownMenuItem<String?>>(
+        find.ancestor(
+          of: find.text('Savings'),
+          matching: find.byType(DropdownMenuItem<String?>),
+        ),
+      );
+      expect(heading.enabled, isFalse);
+      expect(
+        tester.getTopLeft(find.text('Savings')).dy,
+        greaterThan(tester.getTopLeft(find.text('GCash').last).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('Savings Deposit').last).dy,
+        greaterThan(tester.getTopLeft(find.text('Savings')).dy),
+      );
+      // Each with its balance, so two of the same name can be told apart.
+      expect(find.text('₱7,500'), findsWidgets);
+    });
+
     testWidgets('lists every kind, with transfers naming both wallets', (
       tester,
     ) async {
@@ -8915,12 +9051,19 @@ void main() {
       await tester.tap(find.byKey(const Key('transaction-search-filters')));
       await tester.pumpAndSettle();
 
-      // Both words sit in the Type section beside the stored kinds.
-      expect(find.byKey(const Key('filter-type-withdrawal')), findsOneWidget);
-      expect(find.byKey(const Key('filter-type-deposit')), findsOneWidget);
+      // Both words are Type choices beside the stored kinds.
+      await tester.tap(find.text('Type'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('filter-type-item-withdrawal')),
+        findsWidgets,
+      );
+      expect(find.byKey(const Key('filter-type-item-deposit')), findsWidgets);
 
-      await tester.tap(find.byKey(const Key('filter-type-withdrawal')));
-      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('filter-type-item-withdrawal')).last,
+      );
+      await tester.pumpAndSettle();
       expect(find.text('Show 1 result'), findsOneWidget);
 
       await tester.tap(find.text('Show 1 result'));
@@ -8956,40 +9099,35 @@ void main() {
 
       // Nothing chosen yet: everything shows, and nothing to clear.
       expect(find.text('Show 2 results'), findsOneWidget);
-      final clearAll = tester.widget<ElevatedButton>(
+      // A quiet text button, not a second big button beside Show results.
+      final clearAll = tester.widget<TextButton>(
         find.byKey(const Key('filter-clear')),
       );
       expect(clearAll.onPressed, isNull);
-      // Solid red, the way clearing things is.
-      expect(
-        clearAll.style?.backgroundColor?.resolve(const <WidgetState>{}),
-        appDangerRed,
-      );
+      // No rows of tiles: four plain choices.
+      expect(find.byType(ChoiceGrid<String?>), findsNothing);
 
-      // Tiles that keep their place when chosen.
-      final before = tester.getRect(
-        find.byKey(const Key('filter-type-income')),
-      );
-      await tester.tap(find.byKey(const Key('filter-type-expense')));
-      await tester.pump();
-      expect(
-        tester.getRect(find.byKey(const Key('filter-type-income'))),
-        before,
-      );
-      expect(find.text('Show 1 result'), findsOneWidget);
+      Future<void> choose(String field, String item) async {
+        await tester.tap(find.text(field));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(Key(item)).last);
+        await tester.pumpAndSettle();
+      }
 
-      await tester.tap(find.byKey(const Key('filter-date-thisMonth')));
-      await tester.pump();
+      await choose('Type', 'filter-type-item-expense');
       expect(find.text('Show 1 result'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('filter-date-lastMonth')));
-      await tester.pump();
+      await choose('Date', 'filter-date-item-thisMonth');
+      expect(find.text('Show 1 result'), findsOneWidget);
+      await choose('Date', 'filter-date-item-lastMonth');
       expect(find.text('No matches'), findsOneWidget);
 
-      // Clear all starts over here, without closing.
+      // Clear all starts over here, without closing, and the boxes say so.
       await tester.tap(find.byKey(const Key('filter-clear')));
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.text('Search & filters'), findsOneWidget);
       expect(find.text('Show 2 results'), findsOneWidget);
+      expect(find.text('All'), findsOneWidget);
+      expect(find.text('Any time'), findsOneWidget);
     });
   });
 
@@ -9136,11 +9274,11 @@ void main() {
       );
 
       expect(find.text('Savings'), findsWidgets);
-      expect(find.text('Total balance'), findsOneWidget);
+      expect(find.text('Total savings'), findsOneWidget);
       // The goal itself is in Goals, not listed again here.
       expect(find.text('Emergency fund'), findsNothing);
       expect(find.text('What it is for'), findsNothing);
-      expect(find.text('Transfer money'), findsOneWidget);
+      expect(find.widgetWithText(ElevatedButton, 'Transfer'), findsOneWidget);
 
       // The headline total is what remains available after ₱1,500 is
       // contributed to the goal. The record below still shows the wallet's
@@ -9170,7 +9308,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.text('Total balance'), findsOneWidget);
+      expect(find.text('Total savings'), findsOneWidget);
     });
 
     testWidgets('deleting a savings record asks first and can be cancelled', (
@@ -9284,7 +9422,7 @@ void main() {
       expect(find.text('Manage goals'), findsNothing);
     });
 
-    testWidgets('money can be moved out of a savings deposit, not a time '
+    testWidgets('Transfer moves money out of a savings deposit, not a time '
         'deposit', (tester) async {
       await pumpSetAside(
         tester,
@@ -9316,12 +9454,17 @@ void main() {
         ],
       );
 
-      expect(find.byKey(const Key('move-out-s')), findsOneWidget);
-      expect(find.byKey(const Key('move-out-td')), findsNothing);
-      await tester.tap(find.byKey(const Key('move-out-s')));
+      // One way out, the Savings card's Transfer: no button on each record.
+      expect(find.text('Move money out'), findsNothing);
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Transfer'));
       await tester.pumpAndSettle();
-      expect(find.text('Transfer'), findsWidgets);
+      // It starts on the savings deposit; the locked time deposit is not
+      // offered until it matures.
       expect(find.text('Savings holds ₱2,000'), findsOneWidget);
+      expect(
+        find.text('Move money out of your savings into your wallets.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('an account with nothing set aside says so', (tester) async {
@@ -11095,9 +11238,9 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('cost more than 1% a month'), findsOneWidget);
-      // 4% a year, less the 20% tax banks keep.
+      // 4% a year, with no tax taken off.
       expect(
-        find.textContaining('Your savings earn up to 3.2% a year after tax.'),
+        find.textContaining('Your savings earn up to 4% a year.'),
         findsOneWidget,
       );
       expect(
@@ -12652,12 +12795,12 @@ void main() {
       expect(find.text('₱0'), findsOneWidget);
       // Only BPI has a rate: ₱5,000 × 3% = ₱150. Cash earns nothing and
       // GCash has no rate, so neither adds to the guess.
-      // ₱5,000 × 3% = ₱150, less the 20% tax banks keep.
-      expect(find.text('about ₱120'), findsOneWidget);
+      // ₱5,000 × 3% = ₱150, with no tax taken off.
+      expect(find.text('about ₱150'), findsOneWidget);
       expect(find.textContaining('No rate recorded for GCash'), findsOneWidget);
       expect(
         find.text(
-          '3% interest a year · ₱5,000 may earn about ₱120 a year after tax',
+          '3% interest a year · ₱5,000 may earn about ₱150 a year',
         ),
         findsOneWidget,
       );
@@ -12791,12 +12934,11 @@ void main() {
 
       expect(find.text('₱25,000'), findsNWidgets(2));
       // Each rate counts only for its own account: ₱8,000 × 3% = ₱240 and
-      // ₱15,000 × 3.5% = ₱525, ₱765 less 20% tax. GCash has no rate.
-      expect(find.text('about ₱612'), findsOneWidget);
+      // ₱15,000 × 3.5% = ₱525, ₱765 in all. GCash has no rate.
+      expect(find.text('about ₱765'), findsOneWidget);
       expect(
         find.text(
-          '3.5% interest a year · ₱15,000 may earn about ₱420 a year after '
-          'tax',
+          '3.5% interest a year · ₱15,000 may earn about ₱525 a year',
         ),
         findsOneWidget,
       );
@@ -12981,8 +13123,8 @@ void main() {
       // rate, so neither is named.
       expect(
         find.text(
-          'May earn about ₱168 a year after tax from BPI and Old BDO. Add it '
-          'as income when it is paid.',
+          'May earn about ₱210 a year from BPI and Old BDO. Add it as '
+          'income when it is paid.',
         ),
         findsOneWidget,
       );
@@ -13003,8 +13145,8 @@ void main() {
         annualInterestRatePercent: rate,
       );
 
-      // After the 20% tax banks keep: ₱150 becomes ₱120.
-      expect(yearlyInterestOnGoalMoney(bpi, 5000), closeTo(120, 0.001));
+      // The exact simple-interest amount: ₱5,000 × 3% = ₱150.
+      expect(yearlyInterestOnGoalMoney(bpi, 5000), closeTo(150, 0.001));
       expect(yearlyInterestOnGoalMoney(cash, 5000), 0);
       // A rate typed on a demand deposit still earns nothing.
       expect(
@@ -13019,7 +13161,7 @@ void main() {
           savingsRecord(SavingsKind.savingsDeposit, 2.5),
           4000,
         ),
-        closeTo(80, 0.001),
+        closeTo(100, 0.001),
       );
       // No rate, no made-up figure.
       expect(yearlyInterestOnGoalMoney(gcash, 5000), isNull);
@@ -14101,7 +14243,7 @@ void main() {
         reason: 'no goal money to take off',
       );
       // GCash has no rate here, so no interest line.
-      expect(inSheet('Interest in a Year (after tax)'), findsNothing);
+      expect(inSheet('Interest in a Year'), findsNothing);
       expect(
         find.textContaining('Money in Savings is not included.'),
         findsOneWidget,
@@ -15360,10 +15502,10 @@ void main() {
         DateTime(2027, 5, 1, 9),
       ]);
       expect(planned.first.title, 'Interest from BPI may be in');
-      // ₱100,000 × 3% ÷ 12 = ₱250, less the 20% tax banks keep.
+      // ₱100,000 × 3% ÷ 12 = ₱250, with no tax taken off.
       expect(
         planned.first.body,
-        'About ₱200 after tax. Check your app and add what it paid.',
+        'About ₱250. Check your app and add what it paid.',
       );
       expect(planned.first.payload, 'interest:bpi');
       expect(planned.first.key, 'interest:bpi:2027-4');
@@ -15405,8 +15547,7 @@ void main() {
       ]);
       expect(
         daily.first.body,
-        "About ₱200 this month after tax. Check your app and add the month's "
-        'total.',
+        "About ₱250 this month. Check your app and add the month's total.",
       );
       expect(
         days(
@@ -15492,7 +15633,6 @@ void main() {
     });
 
     test('which accounts pay interest, and what each payment brings', () {
-      expect(afterTax(100), 80);
       expect(InterestPayout.quarterly.remindsOn(DateTime(2027)), isTrue);
       expect(InterestPayout.quarterly.remindsOn(DateTime(2027, 4)), isTrue);
       expect(InterestPayout.quarterly.remindsOn(DateTime(2027, 2)), isFalse);
@@ -15524,12 +15664,11 @@ void main() {
         InterestPayout.quarterly,
       );
       expect(InterestPayout.fromStored(months: 40), InterestPayout.monthly);
-      expect(interestAccount().interestPerPayoutAfterTax, closeTo(200, 1e-9));
+      // The exact simple-interest amount, with no tax taken off.
+      expect(interestAccount().interestPerPayout, closeTo(250, 1e-9));
       expect(
-        interestAccount(
-          payout: InterestPayout.quarterly,
-        ).interestPerPayoutAfterTax,
-        closeTo(600, 1e-9),
+        interestAccount(payout: InterestPayout.quarterly).interestPerPayout,
+        closeTo(750, 1e-9),
       );
       expect(interestAccount(rate: 0).paysRegularInterest, isFalse);
       expect(
@@ -15593,12 +15732,12 @@ void main() {
       );
 
       expect(find.text('Interest from BPI'), findsOneWidget);
-      // It starts on the estimate after tax, to be changed to the real one.
-      expect(find.text('200'), findsOneWidget);
+      // It starts on the exact simple-interest amount, and can be changed.
+      expect(find.text('250'), findsOneWidget);
       expect(
         find.text(
-          'We expected about ₱200 after tax. Change it to what your app '
-          'shows.',
+          'From the rate: about ₱250. Change it if your app shows another '
+          'amount.',
         ),
         findsOneWidget,
       );
@@ -15714,8 +15853,8 @@ void main() {
       );
 
       expect(find.text('3% a year · paid every month'), findsOneWidget);
-      expect(find.text('about ₱200'), findsOneWidget);
-      expect(find.text('about ₱2,400'), findsOneWidget);
+      expect(find.text('about ₱250'), findsOneWidget);
+      expect(find.text('about ₱3,000'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('interest-payout-quarterly')));
       await tester.pump();

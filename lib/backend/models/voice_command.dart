@@ -180,7 +180,7 @@ VoiceCommand interpretVoiceCommand(
     return command(VoiceCommandType.payNow, name: nameAfter());
   }
 
-  if (_has(text, _moveVerbs)) {
+  if (_has(text, _moveVerbs) && !_has(text, _feeWords)) {
     final (from, to) = _walletsIn(text);
     final savings = to != null && _has(to.toLowerCase(), _savingsWords);
     return VoiceCommand(
@@ -376,7 +376,16 @@ const _alreadyPaid =
 
 const _moveVerbs =
     r'transfer|move|moved|ilipat|lipat|maglipat|inilipat|nilipat|'
-    r'mag transfer|itransfer|i transfer|nagtransfer';
+    r'mag transfer|itransfer|i transfer|nagtransfer|'
+    // Cash in and cash out move money between cash and an e-wallet or bank.
+    r'cash in|cashin|mag cash in|nag cash in|cash out|cashout|'
+    r'withdraw|withdrew|nag withdraw|mag withdraw|magwithdraw|nagwithdraw|'
+    r'winithdraw';
+
+/// What a bank or e-wallet charged: an expense of its own, so "transfer
+/// fee 25" or "cash in fee 15" is never read as the transfer itself.
+const _feeWords =
+    r'fee|fees|service charge|bank charge|convenience fee|processing fee';
 
 const _scan = r'scan|iscan|i scan|mag scan|magscan';
 const _receipt = r'receipt|receipts|resibo';
@@ -403,11 +412,22 @@ const _walletWords =
 const _incomeWords =
     r'income|salary|sweldo|suweldo|sahod|paycheck|payday|wage|wages|arawan|'
     r'allowance|baon|scholarship|freelance|sideline|raket|kinita|kumita|'
-    r'inflow|got paid|received|natanggap|nakatanggap|tumanggap|earned';
+    r'inflow|got paid|received|natanggap|nakatanggap|tumanggap|earned|'
+    // Pay on top of the usual, and earnings said as such.
+    r'bonus|13th month|thirteenth month|13th month pay|mid year bonus|'
+    r'commission|komisyon|incentive|incentives|kita ko|kita namin|'
+    r'kita ngayon|tips ko|'
+    // Money sent by family to the user, not sent by the user.
+    r'padala ni|padala ng|padala galing|padala mula|remittance from|'
+    r'natanggap na padala|ayuda|'
+    // Money given back.
+    r'refund|refunded|ibinalik|binalik';
 const _incomeVerbs =
     r'received|receive|earned|earn|natanggap|nakatanggap|tumanggap|'
     r'binigyan|nabigyan|sold|nabenta|naibenta|nagbenta|binenta|benta|'
-    r'got paid|nakakuha';
+    r'got paid|nakakuha|'
+    // From someone: "galing kay lola", "mula kay tito".
+    r'galing kay|galing kina|mula kay|mula kina|from my';
 
 /// "12 months", "12 na buwan", "12 payments", "12 gives", "12 hulog".
 final _paymentCount = RegExp(
@@ -444,7 +464,11 @@ String? _incomeSourceFor(String words) {
   // Pay by the day or the hour is a wage; checked first, so "daily wage"
   // is never read as a salary.
   if (_has(words, r'wage|wages|arawan|daily pay|daily rate')) return 'Wage';
-  if (_has(words, r'salary|paycheck|payday|sweldo|suweldo|sahod')) {
+  if (_has(
+    words,
+    r'salary|paycheck|payday|sweldo|suweldo|sahod|bonus|13th month|'
+    r'thirteenth month|mid year bonus|incentive|incentives',
+  )) {
     return 'Salary';
   }
   if (_has(words, r'allowance|allowances|baon')) return 'Allowance';
@@ -452,11 +476,20 @@ String? _incomeSourceFor(String words) {
     return 'Part-time Job';
   }
   if (_has(words, r'business|negosyo|tindahan|paninda')) return 'Business';
-  if (_has(words, r'freelance|freelancing|sideline|raket|commission')) {
+  if (_has(
+    words,
+    r'freelance|freelancing|sideline|raket|commission|komisyon',
+  )) {
     return 'Freelance';
   }
   if (_has(words, r'scholarship|iskolarship')) return 'Scholarship';
-  if (_has(words, r'gift|regalo|pamasko|aguinaldo|bigay')) return 'Gift';
+  if (_has(
+    words,
+    r'gift|regalo|pamasko|aguinaldo|bigay|binigyan|nabigyan|bigyan|'
+    r'padala|remittance|ayuda',
+  )) {
+    return 'Gift';
+  }
   if (_has(words, r'refund|ibinalik|binalik|sukli')) return 'Refund';
   if (_has(
     words,

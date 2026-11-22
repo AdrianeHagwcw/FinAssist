@@ -117,23 +117,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String confirmLabel,
     bool isDestructive = false,
   }) async {
+    const buttonText = TextStyle(fontSize: 16, fontWeight: FontWeight.bold);
+    // Laid out like Delete account: icon title, the message, then
+    // full-width buttons, the safe answer grey under the action.
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
+        shape: dialogShape,
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+        title: DialogTitle(
+          text: title,
+          iconAsset: 'assets/icons/icons8-logout-96.png',
+        ),
+        content: Text(
+          message,
+          style: TextStyle(color: context.appColors.textBody, height: 1.45),
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            style: cancelTextStyle(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: isDestructive
-                ? dangerTextStyle(context)
-                : confirmTextStyle(context),
-            child: Text(confirmLabel),
+          SizedBox(
+            width: double.infinity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  style: isDestructive
+                      ? dangerButtonStyle()
+                      : confirmButtonStyle(),
+                  child: Text(confirmLabel, style: buttonText),
+                ),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  style: neutralButtonStyle(context),
+                  child: const Text('Cancel', style: buttonText),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -242,8 +264,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final confirmed = await _confirmSignOut(
       title: 'Log out?',
       message:
-          'You can log back in anytime. Connect to the internet first so '
-          'your latest changes are saved.',
+          'You can log back in anytime. Go online first so your latest '
+          'changes are saved.',
       confirmLabel: 'Log Out',
       isDestructive: true,
     );

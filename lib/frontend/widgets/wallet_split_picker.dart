@@ -1522,17 +1522,13 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
           ),
         ),
       if (hasEstimate)
-        _summaryRow(
-          'Interest in a year, after tax',
-          'about ${formatPeso(interest)}',
-        ),
+        _summaryRow('Interest in a year', 'about ${formatPeso(interest)}'),
       if (hasEstimate || noRate.isNotEmpty) ...[
         const SizedBox(height: 4),
         Text(
           [
             if (hasEstimate)
-              "Interest is an estimate at today's rate, after the "
-                  '${(interestTaxRate * 100).round()}% tax banks keep. It '
+              "Interest is the simple-interest amount at today's rate. It "
                   'goes to the account, not this goal: add it as income '
                   'when it is paid.',
             if (noRate.isNotEmpty)

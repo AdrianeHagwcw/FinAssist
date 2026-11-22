@@ -5,7 +5,8 @@ import '../models/app_transaction.dart';
 import '../models/transfer_direction.dart';
 import '../models/wallet.dart';
 
-/// Builds the spreadsheet the user exports from Reports.
+/// Builds the spreadsheet the user exports from Settings > Export
+/// transactions.
 ///
 /// Nothing here touches Firebase, so the whole file can be checked by tests.
 /// Adding a field to the export means adding one entry to [csvColumns].

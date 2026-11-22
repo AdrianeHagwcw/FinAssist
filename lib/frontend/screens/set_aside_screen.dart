@@ -3,9 +3,6 @@ import 'package:flutter/material.dart';
 import '../../backend/models/app_transaction.dart';
 import '../../backend/models/goal.dart';
 import '../../backend/models/wallet.dart';
-import '../../backend/models/finance_snapshot.dart';
-import '../../backend/services/finance_snapshot_service.dart';
-import '../widgets/savings_suggestion_card.dart';
 import '../widgets/transfer_sheet.dart';
 import '../../backend/services/goal_service.dart';
 import '../../backend/services/wallet_service.dart';
@@ -14,7 +11,6 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dialog_kit.dart';
 import '../../backend/utils/money_format.dart';
-import '../widgets/interest_sheet.dart';
 import '../widgets/item_card.dart';
 import '../widgets/money_text.dart';
 import '../widgets/savings_form_parts.dart';
@@ -32,7 +28,6 @@ class SetAsideScreen extends StatefulWidget {
     this.transactions,
     this.goals,
     this.today,
-    this.finances,
     super.key,
   });
 
@@ -47,7 +42,6 @@ class SetAsideScreen extends StatefulWidget {
 
   /// Replaces the clock. Used by tests.
   final DateTime? today;
-  final Stream<FinanceSnapshot>? finances;
 
   @override
   State<SetAsideScreen> createState() => _SetAsideScreenState();
@@ -59,12 +53,6 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
 
   late final Stream<List<Goal>> _goals =
       widget.goals ?? GoalService.watchGoals();
-
-  late final Stream<FinanceSnapshot> _finances =
-      widget.finances ??
-      (widget.wallets == null
-          ? watchFinanceSnapshot()
-          : const Stream<FinanceSnapshot>.empty());
 
   DateTime get _now => widget.today ?? DateTime.now();
 
@@ -93,23 +81,16 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          return StreamBuilder<FinanceSnapshot>(
-            stream: _finances,
-            builder: (context, financeSnapshot) {
-              return StreamBuilder<List<Goal>>(
-                stream: _goals,
-                builder: (context, goalsSnapshot) {
-                  return ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
-                    children: _savings(
-                      wallets,
-                      finance: financeSnapshot.data,
-                      financeHasError: financeSnapshot.hasError,
-                      goals: goalsSnapshot.data ?? const <Goal>[],
-                      goalsLoaded: goalsSnapshot.hasData,
-                    ),
-                  );
-                },
+          return StreamBuilder<List<Goal>>(
+            stream: _goals,
+            builder: (context, goalsSnapshot) {
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+                children: _savings(
+                  wallets,
+                  goals: goalsSnapshot.data ?? const <Goal>[],
+                  goalsLoaded: goalsSnapshot.hasData,
+                ),
               );
             },
           );
@@ -171,48 +152,8 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
               today: _now,
               payout: wallet.interestPayout,
             ),
-            if (wallet.paysRegularInterest)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  key: Key('add-interest-${wallet.id}'),
-                  onPressed: () async {
-                    final added = await showAddInterestSheet(
-                      context,
-                      wallet: wallet,
-                    );
-                    if (added && mounted) setState(() {});
-                  },
-                  style: openTextStyle(context),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add interest that came in'),
-                ),
-              ),
-            // Savings deposits and demand deposits use the transfer flow;
-            // savings deposit interest comes from the simple-interest estimate.
-            if (!wallet.isLockedSavings && wallet.balance > 0)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  key: Key('move-out-${wallet.id}'),
-                  onPressed: () => showTransferSheet(
-                    context,
-                    wallets: widget.wallets == null
-                        ? WalletService.watchWallets()
-                        : Stream.value(wallets),
-                    initialWallets: wallets,
-                    transactions:
-                        widget.transactions ??
-                        (widget.wallets == null
-                            ? WalletService.watchTransactions()
-                            : Stream.value(const <AppTransaction>[])),
-                    fromWalletId: wallet.id,
-                  ),
-                  style: openTextStyle(context),
-                  icon: const Icon(Icons.swap_horiz, size: 18),
-                  label: const Text('Move money out'),
-                ),
-              ),
+            // Money is moved out with Transfer on the Savings card above,
+            // which adds a savings deposit's simple interest as it goes.
           ],
         ),
       const SizedBox(height: 10),
@@ -287,56 +228,19 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
 
   List<Widget> _savings(
     List<Wallet> wallets, {
-    FinanceSnapshot? finance,
-    bool financeHasError = false,
     List<Goal> goals = const [],
     bool goalsLoaded = false,
   }) {
     // Matches Home: only savings that can actually be drawn on. A time
     // deposit is named on its own.
     final walletTotal = walletBalanceFor(wallets, WalletPurpose.savings);
-    final locked = lockedSavingsBalance(wallets);
-    final savingsNote = locked > 0
-        ? '${formatPeso(locked)} is locked away and unavailable to spend.'
-        : 'Available after money promised to your goals.';
 
     return [
-      if (financeHasError)
-        const Padding(
-          padding: EdgeInsets.only(bottom: 16),
-          child: Text(
-            'Savings suggestion is unavailable while your records '
-            'cannot be loaded. Please try again later.',
-          ),
-        )
-      else if (finance != null)
-        SavingsSuggestionCard(
-          records: finance.at(_now),
-          onTransfer: (amount) {
-            // Saving needs a savings account to go into: with none yet,
-            // the user adds one, moving the money in from their wallets.
-            final destinations = promisableSavingsRecords(
-              wallets,
-            ).where((wallet) => !wallet.isLockedSavings).toList();
-            if (destinations.isEmpty) {
-              _addRecord(wallets);
-              return;
-            }
-            showTransferSheet(
-              context,
-              toWalletId: destinations.length == 1
-                  ? destinations.single.id
-                  : null,
-              initialAmount: amount,
-            );
-          },
-        ),
       _savingsTotals(
         wallets,
         goals: goals,
         goalsLoaded: goalsLoaded,
         walletTotal: walletTotal,
-        savingsNote: savingsNote,
       ),
     ];
   }
@@ -346,7 +250,6 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     required List<Goal> goals,
     required bool goalsLoaded,
     required double walletTotal,
-    required String savingsNote,
   }) {
     final assignedToGoals = totalSetAsideInPurposeWallets(
       goals,
@@ -359,6 +262,9 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
     final available = (walletTotal - assignedToGoals)
         .clamp(0.0, double.infinity)
         .toDouble();
+    // A time deposit can't be touched until it matures, so the total says
+    // how much of it is ready and how much is locked.
+    final locked = lockedSavingsBalance(wallets);
 
     // The goals themselves live in Goals; here is only the money:
     // what is free, what goals hold, and the records it sits in.
@@ -366,15 +272,40 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _TotalCard(
-          title: 'Savings',
           total: available,
-          iconAsset: 'assets/icons/icons8-money-box-96.png',
-          note: savingsNote,
-          onTransfer: () => showTransferSheet(context),
-          // Show only money that has been assigned to goals.
-          breakdown: assignedToGoals <= 0
-              ? const []
-              : [(label: 'Towards your goals', amount: assignedToGoals)],
+          // From Savings, money comes out of savings into everyday wallets.
+          onTransfer: () => showTransferSheet(
+            context,
+            fromSavings: true,
+            wallets: widget.wallets == null
+                ? WalletService.watchWallets()
+                : Stream.value(wallets),
+            initialWallets: wallets,
+            transactions:
+                widget.transactions ??
+                (widget.wallets == null
+                    ? WalletService.watchTransactions()
+                    : Stream.value(const <AppTransaction>[])),
+          ),
+          parts: [
+            if (locked > 0) ...[
+              (
+                label: 'Ready to use',
+                amount: (available - locked)
+                    .clamp(0.0, double.infinity)
+                    .toDouble(),
+                icon: Icons.check_circle_outline,
+              ),
+              (label: 'Locked', amount: locked, icon: Icons.lock_outline),
+            ],
+            // Money promised to goals, held apart from the total.
+            if (assignedToGoals > 0)
+              (
+                label: 'Towards your goals',
+                amount: assignedToGoals,
+                icon: Icons.flag_outlined,
+              ),
+          ],
         ),
         const SizedBox(height: 24),
         ..._records(wallets, goals: goals, goalsLoaded: goalsLoaded),
@@ -384,133 +315,132 @@ class _SetAsideScreenState extends State<SetAsideScreen> {
   }
 }
 
-/// The balance at the top, named for what it is, then the total in it.
+/// What is saved, at the top of Savings: the total, how it splits, and,
+/// under the card rather than on it, the way to move it.
+///
+/// The screen's title already says Savings, so the card does not repeat it,
+/// and the green button stays off the blue so the two never fight.
 class _TotalCard extends StatelessWidget {
   const _TotalCard({
-    required this.title,
     required this.total,
-    required this.note,
-    required this.iconAsset,
-    this.breakdown = const [],
+    this.parts = const [],
     this.onTransfer,
   });
 
-  final String title;
   final double total;
-  final String note;
 
-  /// How the total is spoken for, read under it. Empty when there is
-  /// nothing to split.
-  final List<({String label, double amount})> breakdown;
-
-  /// The same icon this money carries on Home, so the two read as one thing.
-  final String iconAsset;
+  /// How the total splits, or what is held apart from it, each in a tile
+  /// under it. Empty when there is nothing to split.
+  final List<({String label, double amount, IconData icon})> parts;
   final VoidCallback? onTransfer;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: appPrimaryBlue,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    Widget tile(({String label, double amount, IconData icon}) part) =>
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(12),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                padding: const EdgeInsets.all(8),
-                child: Image.asset(iconAsset),
+              Row(
+                children: [
+                  Icon(part.icon, size: 14, color: Colors.white70),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      part.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Text(
-                title,
+              const SizedBox(height: 4),
+              MoneyText(
+                part.amount,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          const Text(
-            'Total balance',
-            style: TextStyle(color: Colors.white70, fontSize: 14),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: appPrimaryBlue,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          MoneyText(
-            total,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          if (breakdown.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            const Divider(color: Colors.white24, height: 1),
-            for (final row in breakdown)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        row.label,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                    MoneyText(
-                      row.amount,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Total savings',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              MoneyText(
+                total,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-          ],
-          const SizedBox(height: 8),
-          Text(
-            note,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
+              // Two to a row, as Home shows cash on hand and cash in bank.
+              if (parts.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                for (var start = 0; start < parts.length; start += 2) ...[
+                  if (start > 0) const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: tile(parts[start])),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: start + 1 < parts.length
+                            ? tile(parts[start + 1])
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ],
           ),
-          if (onTransfer != null) ...[
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: onTransfer,
-                icon: const Icon(Icons.swap_horiz),
-                label: const Text('Transfer money'),
-                style: openOutlineStyle(context),
-              ),
+        ),
+        if (onTransfer != null) ...[
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: onTransfer,
+            style: confirmButtonStyle(),
+            child: const Text(
+              'Transfer',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-          ],
+          ),
         ],
-      ),
+      ],
     );
   }
 }

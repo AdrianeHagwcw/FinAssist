@@ -1168,7 +1168,7 @@ ChatReply _formula(String text, FinanceSnapshot? records, bool fil) {
           '$available.\n'
           'Estimated everyday costs for the remaining days: $costs.\n'
           'Suggested to save: $amount (rounded down '
-          'to a centavo). The other 90% stays as a buffer. Everyday costs use '
+          'to a whole ₱50). The other 90% stays as a buffer. Everyday costs use '
           'your recent average spending per day, with today’s spending already '
           'accounted for. This depends on complete records; you choose whether '
           'and how much to save.',
@@ -1177,7 +1177,7 @@ ChatReply _formula(String text, FinanceSnapshot? records, bool fil) {
           'Available mong pera pagkatapos ng bills at perang naipon na: '
           '$available.\n'
           'Tantiyang araw-araw na gastos sa natitirang mga araw: $costs.\n'
-          'Iminumungkahing ipunin: $amount (ibinaba sa sentimo). Ang '
+          'Iminumungkahing ipunin: $amount (ibinaba sa buong ₱50). Ang '
           'natitirang 90% ay reserba. Ang araw-araw na gastos ay batay sa '
           'karaniwang gastos mo kada araw kamakailan, at nabilang na ang gastos '
           'ngayon. Nakadepende ito sa kumpletong records; ikaw ang magpapasya '

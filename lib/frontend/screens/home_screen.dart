@@ -393,9 +393,13 @@ class _HomeScreenState extends State<HomeScreen> {
           onOpenInflows: () => _openMonth(TransactionType.income, now),
           onOpenOutflows: () => _openMonth(TransactionType.expense, now),
         ),
-        // The tip comes after the numbers it talks about.
-        const SizedBox(height: 16),
-        _tip(wallets: wallets, transactions: transactions, now: now),
+        // A nudge only when something needs doing; where the money went is
+        // for Reports.
+        if (_tip(wallets: wallets, transactions: transactions, now: now)
+            case final tip?) ...[
+          const SizedBox(height: 16),
+          tip,
+        ],
 
         const SizedBox(height: 25),
         _SectionTitle(
@@ -410,20 +414,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// The tip needs the bills the Safe to Spend card already loaded, so it is
   /// built from the same inputs further down the screen.
-  Widget _tip({
+  Widget? _tip({
     required List<Wallet>? wallets,
     required List<AppTransaction>? transactions,
     required DateTime now,
   }) {
-    return DashboardTipCard(
-      tip: dashboardTipFor(
-        wallets: wallets,
-        transactions: transactions,
-        bills: _bills,
-        now: now,
-        days: _dueSoonDays,
-      ),
+    final tip = dashboardTipFor(
+      wallets: wallets,
+      transactions: transactions,
+      bills: _bills,
+      now: now,
+      days: _dueSoonDays,
     );
+    return tip == null ? null : DashboardTipCard(tip: tip);
   }
 
   /// Opens the user's savings.
@@ -1007,11 +1010,12 @@ class _TotalBalanceCard extends StatelessWidget {
     SafeToSpend? safeToSpend,
   }) {
     final available = cashOnHand + inBank;
-    // What the accounts with a rate earn in a year, after the bank's tax.
+    // What the accounts with a rate earn in a year: the exact
+    // simple-interest amount, with no tax taken off.
     final interest = bankWallets
         .map((wallet) => wallet.estimatedAnnualInterestIncome)
         .whereType<double>()
-        .fold<double>(0, (total, gross) => total + afterTax(gross));
+        .fold<double>(0, (total, gross) => total + gross);
     showDialog<void>(
       context: context,
       builder: (context) {
@@ -1125,15 +1129,15 @@ class _TotalBalanceCard extends StatelessWidget {
                       width: 22,
                       height: 22,
                     ),
-                    'Interest in a Year (after tax)',
+                    'Interest in a Year',
                     interest,
                   ),
                   Padding(
                     padding: const EdgeInsets.only(left: 44),
                     child: Text(
-                      'An estimate after the ${(interestTaxRate * 100).round()}% '
-                      'tax banks keep. It is not in Cash in Bank until it is '
-                      'paid; FinAssist reminds you to add it as income.',
+                      'The simple-interest amount from each rate. It is not '
+                      'in Cash in Bank until it is paid; FinAssist reminds you '
+                      'to add it as income.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,

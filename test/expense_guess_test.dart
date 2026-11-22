@@ -17,6 +17,13 @@ void main() {
       expect(guess.description, 'Lunch at jollibee');
     });
 
+    test('a Jolly Hotdog said aloud is Food with its amount', () {
+      final guess = say('jolly hot dog 45');
+      expect(guess.amount, 45);
+      expect(guess.category, 'Food');
+      expect(guess.description, 'Jolly hot dog');
+    });
+
     test('drops "I spent" and dangling words', () {
       final guess = say('I spent 150 on lunch');
       expect(guess.amount, 150);
@@ -88,6 +95,136 @@ void main() {
       expect(suggest('Shopee order'), 'Shopping');
       expect(suggest('ML diamonds'), 'Entertainment');
       expect(suggest('tuition fee'), 'Education');
+    });
+
+    test('Filipino food, chichirya, biscuits, candies and drinks are Food', () {
+      for (final said in [
+        'sinigang na baboy',
+        'adobo sa karinderya',
+        'lechon kawali',
+        'pancit canton',
+        'lucky me',
+        'taho',
+        'kwek kwek at kikiam',
+        'bibingka at puto',
+        'piattos',
+        'boy bawang',
+        'oishi pillows',
+        'skyflakes',
+        'fita at rebisco',
+        'white rabbit',
+        'choc nut',
+        'kendi',
+        'coke',
+        'c2',
+        'milo',
+        'buko juice',
+        'sardinas at corned beef',
+        'andoks',
+        'unli rice',
+      ]) {
+        expect(suggest(said), 'Food', reason: said);
+      }
+    });
+
+    test('everyday budget ulam to high-end food, local and international', () {
+      for (final said in [
+        // Budget ulam.
+        'ginisang monggo',
+        'tokwat baboy',
+        'misua',
+        'longsilog',
+        'pritong isda at kanin',
+        'baboy at kangkong',
+        'mangga at saging',
+        // High-end.
+        'wagyu steak',
+        'lobster',
+        'salmon sashimi',
+        'omakase',
+        'tiramisu',
+        // International dishes and places here.
+        'ramen',
+        'korean bbq',
+        'samgyupsalamat',
+        'shake shack',
+        'bubble tea',
+        'tiger sugar',
+        // Grocery brands.
+        'century tuna',
+        'purefoods hotdog',
+        'magic sarap',
+      ]) {
+        expect(suggest(said), 'Food', reason: said);
+      }
+    });
+
+    test('a mall says where, so what was bought decides', () {
+      // Alone, a mall or shopping district is Shopping.
+      for (final place in [
+        'SM Megamall',
+        'MOA',
+        'Glorietta',
+        'Robinsons Magnolia',
+        'Ayala Malls Manila Bay',
+        'Divisoria',
+        'Gaisano',
+        'mall',
+      ]) {
+        expect(suggest(place), 'Shopping', reason: place);
+      }
+      // With what was bought named, that decides.
+      expect(suggest('lunch at SM Megamall'), 'Food');
+      expect(suggest('Pepper Lunch sa Glorietta'), 'Food');
+      expect(suggest('food court sa Trinoma'), 'Food');
+      expect(suggest('kain sa mall'), 'Food');
+      expect(suggest('sapatos sa SM North'), 'Shopping');
+      expect(suggest('sine sa Gateway Mall'), 'Entertainment');
+      expect(suggest('grab papunta sa MOA'), 'Transportation');
+      // A mall's own name is not the food brand inside it.
+      expect(suggest('Robinsons Magnolia'), isNot('Food'));
+      // A supermarket in a mall is still groceries.
+      expect(suggest('SM Supermarket'), 'Food');
+      expect(suggest('Rustans'), 'Shopping');
+    });
+
+    test('a food heard as split words is never Pets', () {
+      // Speech hears "Jolly Hotdog" many ways; the "dog" in it is not a pet.
+      for (final said in [
+        'Jolly Hotdog',
+        'jolly hot dog',
+        'Jollihotdog',
+        'hot dog',
+        'hot dogs',
+        'hatdog',
+        'corn dog',
+        'corndog',
+        'corn dogs',
+        'Korean corndog',
+        'korean corn dog 85',
+        'cat fish',
+        'chicken joy',
+        'yum burger',
+        'mc chicken',
+        'mc flurry',
+      ]) {
+        expect(suggest(said), 'Food', reason: said);
+      }
+      // What really is for a pet stays Pets.
+      expect(suggest('dog food'), 'Pets');
+      expect(suggest('pagkain ng aso'), 'Pets');
+      expect(suggest('vet'), 'Pets');
+      expect(suggest('dog'), 'Pets');
+    });
+
+    test('food words never pull other expenses into Food', () {
+      // Words that are also something else were left out on purpose.
+      expect(suggest('mani pedi'), isNot('Food'));
+      expect(suggest('bingo'), isNot('Food'));
+      expect(suggest('roller coaster'), isNot('Food'));
+      // Other categories keep their own words.
+      expect(suggest('water bill'), 'Bills');
+      expect(suggest('beer'), 'Entertainment');
     });
 
     test('a longer phrase wins over a shorter one inside it', () {

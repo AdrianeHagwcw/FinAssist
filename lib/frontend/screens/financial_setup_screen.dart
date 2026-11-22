@@ -595,8 +595,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
                   const SizedBox(height: 4),
                   Text(
                     wallet.estimatedAnnualInterestIncome != null
-                        ? 'Interest in a year, after tax: '
-                              '${formatPeso(afterTax(wallet.estimatedAnnualInterestIncome!))}'
+                        ? 'Interest in a year: '
+                              '${formatPeso(wallet.estimatedAnnualInterestIncome!)}'
                         : 'Interest in a year: no rate yet',
                     style: TextStyle(color: colors.textBody),
                   ),
@@ -2026,11 +2026,10 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
       (total, wallet) =>
           total + (wallet.balanceRecorded ? _goalMoneyIn(wallet) : 0),
     );
-    // What reaches the accounts once the bank keeps its tax.
+    // The exact simple-interest amount, with no tax taken off.
     final annualInterestEstimates = accounts
         .map((wallet) => wallet.estimatedAnnualInterestIncome)
         .whereType<double>()
-        .map(afterTax)
         .toList(growable: false);
     final estimatedInterestText =
         annualInterestEstimates.isEmpty && accounts.isNotEmpty
@@ -2080,7 +2079,7 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
         ),
         _cashSummaryRow(
           iconAssets: ['assets/icons/icons8-combo-chart-100.png'],
-          label: 'Interest in a Year (after tax)',
+          label: 'Interest in a Year',
           amount: 0,
           amountText: estimatedInterestText,
         ),
@@ -2091,9 +2090,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
         _featureRow(
           'assets/icons/icons8-combo-chart-100.png',
           'Interest is not in Cash in Bank or Total Available Money until it '
-              'is paid. It is an estimate after the '
-              '${(interestTaxRate * 100).round()}% tax banks keep, and FinAssist '
-              'reminds you to add it as income when it comes.',
+              'is paid. It is the simple-interest amount from the rate, and '
+              'FinAssist reminds you to add it as income when it comes.',
         ),
       ],
     );

@@ -560,7 +560,9 @@ List<PlannedReminder> planReminders({
   // milestones; government savings keep the older day-of and one-week-later
   // nudge. FinAssist cannot see a real account, so it asks rather than moving
   // anything. Settling or renewing a record clears these reminders.
-  if (settings.isOn(ReminderKind.goals)) {
+  // Money coming due isn't a saving plan's nudge, so turning Saving plans
+  // off leaves these on; only turning reminders off stops them.
+  {
     for (final wallet in wallets) {
       final due = wallet.maturityDate;
       if (due == null) continue;
@@ -615,10 +617,10 @@ List<PlannedReminder> planReminders({
       // Older government savings: once on the day, once a week later.
       // Older than a fortnight is the card's job now, not a notification's.
       if (day.isBefore(today.subtract(const Duration(days: 14)))) continue;
-      // What it should have earned, after tax, so the user knows what to
-      // look for.
+      // What it should have earned, so the user knows what to look for:
+      // the exact simple-interest amount.
       final gross = wallet.estimatedTimeDepositInterest();
-      final interest = gross == null || gross <= 0 ? null : afterTax(gross);
+      final interest = gross == null || gross <= 0 ? null : gross;
 
       add(
         PlannedReminder(
@@ -630,7 +632,7 @@ List<PlannedReminder> planReminders({
               ? '${formatPeso(wallet.balance)} is recorded. Open FinAssist to '
                     'say what you did with it.'
               : '${formatPeso(wallet.balance)} is recorded, plus about '
-                    '${formatPeso(interest)} interest after tax. Open '
+                    '${formatPeso(interest)} interest. Open '
                     'FinAssist to say what you got back.',
           payload: 'savings:${wallet.id}',
         ),
@@ -663,7 +665,7 @@ List<PlannedReminder> planReminders({
         continue;
       }
 
-      final expected = wallet.interestPerPayoutAfterTax;
+      final expected = wallet.interestPerPayout;
       if (expected == null || !isRecordableAmount(expected)) continue;
 
       final payout = wallet.interestPayout;
@@ -695,10 +697,10 @@ List<PlannedReminder> planReminders({
             title: 'Interest from ${wallet.name} may be in',
             // Paid daily, it is the month's total that is added.
             body: payout.isDaily
-                ? 'About ${formatPeso(expected)} this month after tax. Check '
-                      "your app and add the month's total."
-                : 'About ${formatPeso(expected)} after tax. Check your app '
-                      'and add what it paid.',
+                ? 'About ${formatPeso(expected)} this month. Check your '
+                      "app and add the month's total."
+                : 'About ${formatPeso(expected)}. Check your app and add '
+                      'what it paid.',
             payload: 'interest:${wallet.id}',
           ),
         );

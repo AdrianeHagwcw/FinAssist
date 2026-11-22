@@ -92,16 +92,13 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'This deletes your FinAssist account and everything in it: '
-              'wallets, transactions, bills, installments, debts and goals. '
-              'It cannot be undone.',
+              'Your account and all its records are deleted for good. This '
+              "can't be undone.",
               style: TextStyle(color: colors.textBody, height: 1.45),
             ),
             const SizedBox(height: 12),
             const DialogNote(
-              text:
-                  'Want a copy first? Export your transactions in Settings '
-                  'before you delete.',
+              text: 'Want a copy? Export your transactions in Settings first.',
             ),
             const SizedBox(height: 16),
             if (widget.usesPassword)
@@ -124,8 +121,7 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
               )
             else
               Text(
-                'Google will ask you to choose your account, to make sure it '
-                'is you.',
+                "Google will ask you to confirm it's you.",
                 style: TextStyle(color: colors.textBody, height: 1.45),
               ),
             if (_error != null) ...[

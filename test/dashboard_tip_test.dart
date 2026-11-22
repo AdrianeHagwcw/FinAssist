@@ -28,7 +28,7 @@ AppTransaction spent(double amount, String category, DateTime date) =>
       walletId: 'cash',
     );
 
-DashboardTip tipFor(List<AppTransaction> transactions) => dashboardTipFor(
+DashboardTip? tipFor(List<AppTransaction> transactions) => dashboardTipFor(
   wallets: const [cash],
   transactions: transactions,
   bills: const [],
@@ -36,35 +36,30 @@ DashboardTip tipFor(List<AppTransaction> transactions) => dashboardTipFor(
 );
 
 void main() {
-  test('says where most of the month went', () {
-    final tip = tipFor([
-      spent(800, 'Food', now),
-      spent(200, 'Transportation', DateTime(2026, 10, 3)),
-    ]);
-    expect(tip.title, 'Where most of it goes');
-    expect(tip.message, 'Food is 80% of your spending this month.');
+  test('where the month went is left to Reports, not Home', () {
+    // Logged today, nothing due: no nudge is needed, so no tip at all,
+    // however the month's spending splits.
+    expect(
+      tipFor([
+        spent(800, 'Food', now),
+        spent(200, 'Transportation', DateTime(2026, 10, 3)),
+      ]),
+      isNull,
+    );
+    expect(
+      tipFor([
+        spent(250, 'Food', now),
+        spent(1000, 'Food', DateTime(2026, 9, 10)),
+      ]),
+      isNull,
+    );
   });
 
-  test('compares with the same days of last month', () {
-    // ₱600 this month, none of it mostly one thing.
-    final tip = tipFor([
-      spent(250, 'Food', now),
-      spent(200, 'Transportation', DateTime(2026, 10, 5)),
-      spent(150, 'Bills', DateTime(2026, 10, 6)),
-      // By Sep 20: ₱1,000. Later in September does not count.
-      spent(1000, 'Food', DateTime(2026, 9, 10)),
-      spent(5000, 'Food', DateTime(2026, 9, 28)),
-    ]);
-    expect(tip.title, 'Compared with last month');
-    expect(tip.message, "You've spent ₱400 less than by this day last month.");
-  });
-
-  test('with nothing to compare, names the biggest spending', () {
-    final tip = tipFor([
-      spent(300, 'Food', now),
-      spent(300, 'Transportation', DateTime(2026, 10, 5)),
-      spent(250, 'Bills', DateTime(2026, 10, 6)),
-    ]);
-    expect(tip.message, 'Food is your biggest spending this month, at ₱300.');
+  test('a nudge still shows when something needs doing', () {
+    // Nothing logged today.
+    expect(
+      tipFor([spent(300, 'Food', DateTime(2026, 10, 5))])?.title,
+      'Nothing logged today',
+    );
   });
 }

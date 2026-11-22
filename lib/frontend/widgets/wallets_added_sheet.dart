@@ -82,7 +82,7 @@ class WalletsAddedSheet extends StatelessWidget {
           final interest = spending
               .map((wallet) => wallet.estimatedAnnualInterestIncome)
               .whereType<double>()
-              .fold<double>(0, (total, gross) => total + afterTax(gross));
+              .fold<double>(0, (total, gross) => total + gross);
 
           return SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
@@ -163,7 +163,7 @@ class WalletsAddedSheet extends StatelessWidget {
                     iconAssets: const [
                       'assets/icons/icons8-combo-chart-100.png',
                     ],
-                    label: 'Interest in a Year (after tax)',
+                    label: 'Interest in a Year',
                     amount: interest,
                   ),
                 const SizedBox(height: 8),

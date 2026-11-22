@@ -87,7 +87,7 @@ String goalMoneyInterestNote(Wallet wallet, double amount) {
   final yearly = yearlyInterestOnGoalMoney(wallet, amount);
   if (amount <= 0 || yearly == null) return '${_percent(rate)} interest a year';
   return '${_percent(rate)} interest a year · ${formatPeso(amount)} may earn '
-      'about ${formatPeso(yearly)} a year after tax';
+      'about ${formatPeso(yearly)} a year';
 }
 
 String _percent(double rate) =>
@@ -184,9 +184,8 @@ class GoalFundingList extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'May earn about ${formatPeso(interest)} a year after tax '
-                  'from ${_joinNames(earning)}. Add it as income when it is '
-                  'paid.',
+                  'May earn about ${formatPeso(interest)} a year from '
+                  '${_joinNames(earning)}. Add it as income when it is paid.',
                   style: TextStyle(fontSize: 12, color: colors.textBody),
                 ),
               ),

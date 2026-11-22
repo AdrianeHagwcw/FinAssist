@@ -125,13 +125,13 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
     with CheckAfterSave, WatchesGoals {
   bool get _isTimeDeposit => widget.wallet.isTimeDeposit;
 
-  /// The interest the deposit should have paid, after tax, when its rate and
-  /// dates are recorded. The amount starts on the balance plus this, so the
+  /// The interest the deposit should have paid, the exact simple-interest
+  /// amount with no tax taken off, when its rate and dates are recorded. The amount starts on the balance plus this, so the
   /// user only changes it if the bank paid something else.
   late final double? _expectedInterest = (() {
     if (!widget.isMatured) return null;
     final gross = widget.wallet.estimatedTimeDepositInterest();
-    return gross == null || gross <= 0 ? null : afterTax(gross);
+    return gross == null || gross <= 0 ? null : gross;
   })();
 
   late final _amountController = TextEditingController(
@@ -654,7 +654,7 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                             ? 'With any interest your bank paid.'
                             : 'Starts on ${formatPeso(widget.wallet.balance)} '
                                   'plus about ${formatPeso(_expectedInterest)} '
-                                  'interest after tax. Change it to what '
+                                  'interest. Change it to what '
                                   'your bank paid.',
                         helperMaxLines: 3,
                       ),

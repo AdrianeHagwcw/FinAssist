@@ -403,7 +403,6 @@ final screens = <String, Widget Function()>{
     transactions: live(transactions),
     goals: live(goals),
     today: today,
-    finances: live(snapshot),
   ),
   'Reports': () => ReportsScreen(
     transactions: live(transactions),

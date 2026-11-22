@@ -102,13 +102,6 @@ class InterestPayout {
   int get hashCode => months.hashCode;
 }
 
-/// The share of interest on peso deposits that banks keep as tax before
-/// paying it.
-const double interestTaxRate = 0.20;
-
-/// What reaches the account of [gross] interest, once the tax is taken.
-double afterTax(double gross) => gross * (1 - interestTaxRate);
-
 /// The label every interest income is recorded under, wherever it is added.
 const String interestIncomeLabel = 'Interest';
 
@@ -467,12 +460,12 @@ class Wallet {
         : TimeDepositStatus.matured;
   }
 
-  /// The interest this deposit should have earned, net of the 20% final tax,
-  /// once it matures. Zero when the record has no usable rate or dates.
-  double get timeDepositMaturityInterest =>
-      afterTax(estimatedTimeDepositInterest() ?? 0);
+  /// The interest this deposit earns by maturity: the exact simple-interest
+  /// amount, with no tax taken off, as the team's CPA set. Zero when the
+  /// record has no usable rate or dates.
+  double get timeDepositMaturityInterest => estimatedTimeDepositInterest() ?? 0;
 
-  /// What the deposit is worth at maturity: original money plus net interest.
+  /// What the deposit is worth at maturity: original money plus interest.
   double get timeDepositMaturityValue =>
       timeDepositPrincipal + timeDepositMaturityInterest;
 
@@ -490,13 +483,14 @@ class Wallet {
         : isBankOrEWallet;
   }
 
-  /// About what one interest payment brings in after tax, at today's
-  /// balance; null when this account does not pay interest regularly.
-  double? get interestPerPayoutAfterTax {
+  /// About what one interest payment brings in, at today's balance: the
+  /// exact simple-interest amount, with no tax taken off. Null when this
+  /// account does not pay interest regularly.
+  double? get interestPerPayout {
     if (!paysRegularInterest || balance <= 0) return null;
     final yearly = balance * annualInterestRatePercent! / 100;
     // One payment, or a month of daily ones: what comes between reminders.
-    return afterTax(yearly * interestPayout.remindEvery / 12);
+    return yearly * interestPayout.remindEvery / 12;
   }
 
   /// True once that day has arrived and the money is still recorded here.

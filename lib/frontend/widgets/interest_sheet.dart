@@ -12,9 +12,9 @@ import 'savings_form_parts.dart';
 
 /// Asks how much interest [wallet] paid and adds it as income there.
 ///
-/// It starts on what FinAssist expects after tax, to save typing, but the
-/// user is asked to change it to what their app shows: only the real figure
-/// keeps the balance matching the account. Returns whether it was added.
+/// It starts on the exact simple-interest amount from the rate, with no
+/// tax taken off, and can be changed if the app shows another figure.
+/// Returns whether it was added.
 Future<bool> showAddInterestSheet(
   BuildContext context, {
   required Wallet wallet,
@@ -60,7 +60,7 @@ class _AddInterestSheetState extends State<AddInterestSheet>
       widget.wallet.isSetAside &&
           widget.wallet.savingsType == SavingsKind.savingsDeposit
       ? null
-      : widget.wallet.interestPerPayoutAfterTax;
+      : widget.wallet.interestPerPayout;
 
   late final _amountController = TextEditingController(
     text: _expected == null || !isRecordableAmount(_expected)
@@ -164,9 +164,8 @@ class _AddInterestSheetState extends State<AddInterestSheet>
               const SizedBox(height: 8),
               DialogNote(
                 text:
-                    'Check your ${wallet.name} app for the interest it paid. '
-                    'Banks keep ${(interestTaxRate * 100).round()}% as tax '
-                    'first, so enter what actually came in.',
+                    'Check your ${wallet.name} app for the interest it '
+                    'paid, and enter that amount.',
               ),
               const SizedBox(height: 16),
               AmountField(
@@ -175,8 +174,8 @@ class _AddInterestSheetState extends State<AddInterestSheet>
                 autofocus: false,
                 helper: expected == null || !isRecordableAmount(expected)
                     ? null
-                    : 'We expected about ${formatPeso(expected)} after tax. '
-                          'Change it to what your app shows.',
+                    : 'From the rate: about ${formatPeso(expected)}. '
+                          'Change it if your app shows another amount.',
               ),
               const FieldLabel('Date it came in'),
               PickDateField(
@@ -240,7 +239,7 @@ class InterestCard extends StatelessWidget {
     final isSavingsDeposit =
         wallet.isSetAside && wallet.savingsType == SavingsKind.savingsDeposit;
     final payout = wallet.interestPayout;
-    final each = wallet.interestPerPayoutAfterTax;
+    final each = wallet.interestPerPayout;
     final rate = wallet.annualInterestRatePercent!;
 
     return Container(
@@ -292,11 +291,11 @@ class InterestCard extends StatelessWidget {
             const SizedBox(height: 8),
             // Paid daily, what is added is the month's total.
             ItemCardDetail(
-              payout.isDaily ? 'Each month, after tax' : 'Each time, after tax',
+              payout.isDaily ? 'Each month' : 'Each time',
               'about ${formatPeso(each)}',
             ),
             ItemCardDetail(
-              'In a year, after tax',
+              'In a year',
               'about ${formatPeso(each * 12 / payout.remindEvery)}',
             ),
           ],

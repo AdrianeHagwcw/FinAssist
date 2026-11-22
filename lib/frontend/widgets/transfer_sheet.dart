@@ -24,6 +24,7 @@ Future<bool> showTransferSheet(
   String? fromWalletId,
   String? toWalletId,
   double? initialAmount,
+  bool fromSavings = false,
 }) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
@@ -41,6 +42,7 @@ Future<bool> showTransferSheet(
       initialFromWalletId: fromWalletId,
       initialToWalletId: toWalletId,
       initialAmount: initialAmount,
+      fromSavings: fromSavings,
     ),
   );
 
@@ -58,11 +60,16 @@ class TransferSheet extends StatefulWidget {
     this.initialFromWalletId,
     this.initialToWalletId,
     this.initialAmount,
+    this.fromSavings = false,
     super.key,
   });
 
   /// Replaces the live wallet list. Used by tests, which can't load Firebase.
   final Stream<List<Wallet>>? wallets;
+
+  /// Opened from Savings: the money comes out of a savings record (a time
+  /// deposit only once it has matured) and goes into everyday wallets.
+  final bool fromSavings;
 
   /// Wallets already loaded by the screen that opened this sheet.
   final List<Wallet>? initialWallets;
@@ -144,6 +151,7 @@ class _TransferSheetState extends State<TransferSheet>
   List<Wallet> _transferSources(List<Wallet> wallets) => [
     for (final wallet in wallets)
       if (canBeTransferSource(wallet) &&
+          (!widget.fromSavings || wallet.isSetAside) &&
           (!wallet.isSetAside ||
               wallet.isDemandDeposit ||
               wallet.savingsType == SavingsKind.savingsDeposit ||
@@ -354,15 +362,24 @@ class _TransferSheetState extends State<TransferSheet>
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Move money you already have from one wallet to others. '
-                          'Your total stays the same.',
+                          widget.fromSavings
+                              ? 'Move money out of your savings into your '
+                                    'wallets.'
+                              : 'Move money you already have from one wallet '
+                                    'to others. Your total stays the same.',
                           style: TextStyle(
                             fontSize: 13,
                             color: colors.textMuted,
                           ),
                         ),
                         const SizedBox(height: 20),
-                        if (sources.isEmpty || wallets.length < 2)
+                        if (widget.fromSavings &&
+                            (sources.isEmpty ||
+                                !wallets.any(
+                                  (w) => !w.archived && !w.isSetAside,
+                                )))
+                          _NothingToMove(noSavings: sources.isEmpty)
+                        else if (sources.isEmpty || wallets.length < 2)
                           _NeedsTwoWallets(walletCount: sources.length)
                         else ...[
                           WalletPicker(
@@ -403,8 +420,9 @@ class _TransferSheetState extends State<TransferSheet>
                             goals: heldGoals,
                             purpose: SplitPurpose.receiving,
                             question: 'Where is it going?',
-                            includeSavings: true,
-                            showSavingsGroup: true,
+                            // From Savings it goes to everyday wallets only.
+                            includeSavings: !widget.fromSavings,
+                            showSavingsGroup: !widget.fromSavings,
                             excludeWalletId: from,
                             initialAmounts: _to,
                             totalLabel: 'Moving',
@@ -481,6 +499,32 @@ class _NeedsTwoWallets extends StatelessWidget {
             ? 'Add a wallet first, then you can move money between them.'
             : 'You need a second wallet before you can transfer. Add one from '
                   'the Wallet tab.',
+        style: TextStyle(
+          fontSize: 14,
+          color: context.appColors.textMuted,
+          height: 1.4,
+        ),
+      ),
+    );
+  }
+}
+
+/// Opened from Savings with nothing to move: no savings ready yet (a time
+/// deposit waits for its maturity date), or no wallet to move it into.
+class _NothingToMove extends StatelessWidget {
+  const _NothingToMove({required this.noSavings});
+
+  final bool noSavings;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Text(
+        noSavings
+            ? 'No savings are ready to move. A time deposit can be moved once '
+                  'it matures.'
+            : 'Add a wallet first, so the money has somewhere to go.',
         style: TextStyle(
           fontSize: 14,
           color: context.appColors.textMuted,

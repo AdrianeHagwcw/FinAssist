@@ -68,9 +68,9 @@ class SavingsSuggestion {
         average * math.max(0, s.daysLeft - 1) +
         math.max(0.0, average - s.spentToday);
     final remaining = math.max(0.0, available - dailyCosts);
-    // Leave 90% of the remainder as a buffer. Round down to a centavo so
-    // the suggestion can never exceed the calculated share.
-    final amount = (remaining * 0.10 * 100).floor() / 100;
+    // Leave 90% of the remainder as a buffer. Round down to a whole ₱50, the
+    // way people set money aside, and never above the calculated share.
+    final amount = (remaining * 0.10 / 50).floor() * 50.0;
     return SavingsSuggestion(
       available: available,
       dailyCosts: dailyCosts,

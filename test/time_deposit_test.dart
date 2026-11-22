@@ -105,8 +105,9 @@ void main() {
         TimeDepositStatus.matured,
       );
       // ₱10,000 × 2% for a year = ₱200, less the 20% tax.
-      expect(old.timeDepositMaturityInterest, 160);
-      expect(old.timeDepositMaturityValue, 10160);
+      // The exact simple-interest amount, with no tax taken off.
+      expect(old.timeDepositMaturityInterest, 200);
+      expect(old.timeDepositMaturityValue, 10200);
     });
 
     test('a Firestore timestamp resolves to its Manila calendar date', () {
@@ -155,7 +156,7 @@ void main() {
 
       expect(pending, hasLength(1));
       expect(pending.single.wallet.id, 'matured');
-      expect(pending.single.interest, 281.42);
+      expect(pending.single.interest, 351.78);
       expect(pending.single.date, DateTime.utc(2027, 3, 4, 16));
       expect(pending.single.entryId, 'td-interest-matured');
     });
@@ -371,13 +372,17 @@ void main() {
       required DateTime now,
       DateTime? matures,
       bool closed = false,
+      ReminderSettings settings = const ReminderSettings(
+        enabled: true,
+        priorities: [],
+      ),
     }) {
       final td = timeDeposit(
         matures: matures ?? DateTime(2027, 3, 5),
         closedAt: closed ? DateTime(2027, 3, 6) : null,
       );
       return planReminders(
-        settings: const ReminderSettings(enabled: true, priorities: []),
+        settings: settings,
         bills: const [],
         goals: const [],
         wallets: [td],
@@ -434,6 +439,26 @@ void main() {
       expect(keys, contains('savings:td:matured:3'));
       expect(keys, contains('savings:td:matured:1'));
       expect(keys, contains('savings:td:matured'));
+    });
+
+    test('Saving plans off still warns of money coming due', () {
+      final reminders = planned(
+        now: DateTime(2027, 2, 20),
+        settings: const ReminderSettings(
+          enabled: true,
+          priorities: [],
+          overrides: {ReminderKind.goals: false},
+        ),
+      );
+      expect(reminders, hasLength(4));
+      // Only turning reminders off stops them.
+      expect(
+        planned(
+          now: DateTime(2027, 2, 20),
+          settings: const ReminderSettings(enabled: false, priorities: []),
+        ),
+        isEmpty,
+      );
     });
 
     test('after the maturity day nothing more is sent', () {

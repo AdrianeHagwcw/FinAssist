@@ -8,11 +8,9 @@ import '../../backend/services/wallet_service.dart';
 import '../theme/app_buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../utils/category_options.dart';
 import 'history_screen.dart';
 import '../../backend/utils/date_format.dart';
 import '../widgets/back_to_home.dart';
-import '../widgets/choice_grid.dart';
 import '../widgets/dialog_kit.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/legacy_import_card.dart';
@@ -72,11 +70,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         initial: _filter,
         wallets: wallets,
         transactions: transactions,
-        historicalCategories: transactions
-            .where((t) => t.type == TransactionType.expense)
-            .map((t) => t.label)
-            .toSet()
-            .toList(),
       ),
     );
 
@@ -634,9 +627,7 @@ class _FilterSheet extends StatefulWidget {
     required this.initial,
     required this.wallets,
     required this.transactions,
-    required this.historicalCategories,
   });
-  final List<String> historicalCategories;
 
   final TransactionFilter initial;
   final List<Wallet> wallets;
@@ -706,6 +697,10 @@ class _FilterSheetState extends State<_FilterSheet> {
     () => _filter = _filter.copyWith(from: () => from, to: () => to),
   );
 
+  /// Counts date picks, so the Date box shows the real choice again when
+  /// picking dates is cancelled.
+  int _picks = 0;
+
   /// What the Type tiles offer. The stored type names keep their keys; the
   /// two directions sit beside them because a transfer row reads as a
   /// withdrawal or a deposit.
@@ -771,6 +766,7 @@ class _FilterSheetState extends State<_FilterSheet> {
       case _DateChoice.custom:
         await _pickRange();
     }
+    if (mounted) setState(() => _picks++);
   }
 
   Future<void> _pickRange() async {
@@ -802,17 +798,40 @@ class _FilterSheetState extends State<_FilterSheet> {
         .where((t) => _filter.matches(t, wallets: widget.wallets))
         .length;
 
-    Widget section(String title) => Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: colors.textBody,
+    // The wallets the user set up first, then savings under their own
+    // heading, then removed ones, whose old entries can still be found.
+    final walletOptions = <({String? value, String label, Wallet? wallet})>[
+      (value: null, label: 'All wallets', wallet: null),
+      for (final (heading, group) in [
+        (
+          null,
+          [
+            for (final w in widget.wallets)
+              if (!w.archived && !w.isSetAside) w,
+          ],
         ),
-      ),
-    );
+        (
+          'Savings',
+          [
+            for (final w in widget.wallets)
+              if (!w.archived && w.isSetAside) w,
+          ],
+        ),
+        (
+          'Removed',
+          [
+            for (final w in widget.wallets)
+              if (w.archived) w,
+          ],
+        ),
+      ])
+        if (group.isNotEmpty) ...[
+          if (heading != null)
+            (value: '__heading_$heading', label: heading, wallet: null),
+          for (final wallet in group)
+            (value: wallet.id, label: wallet.name, wallet: wallet),
+        ],
+    ];
 
     return Padding(
       // Keeps the search above the on-screen keyboard.
@@ -862,7 +881,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                     dialogFieldDecoration(
                       context,
                       'Search',
-                      hint: 'Category or type',
+                      hint: 'Description, category or type',
                     ).copyWith(
                       prefixIcon: const Icon(Icons.search),
                       floatingLabelBehavior: FloatingLabelBehavior.always,
@@ -885,68 +904,56 @@ class _FilterSheetState extends State<_FilterSheet> {
                   () => _filter = _filter.copyWith(query: () => value),
                 ),
               ),
-              const SizedBox(height: 20),
-              section('Type'),
-              ChoiceGrid<String?>(
-                options: _typeChoices,
-                selected: _typeChoice,
-                label: _typeChoiceLabel,
-                keyOf: (choice) => 'filter-type-${choice ?? 'all'}',
-                columns: 3,
-                onPick: _pickType,
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String?>(
-                initialValue: _filter.walletId,
-                isExpanded: true,
-                decoration: dialogFieldDecoration(context, 'Wallet'),
-                items: [
-                  const DropdownMenuItem(
-                    value: null,
-                    child: Text('All wallets'),
-                  ),
-                  for (final wallet in widget.wallets)
-                    DropdownMenuItem(
-                      value: wallet.id,
-                      child: Text(wallet.name),
-                    ),
-                ],
-                onChanged: (value) => setState(
-                  () => _filter = _filter.copyWith(walletId: () => value),
-                ),
-              ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String?>(
-                initialValue: _filter.category,
-                isExpanded: true,
-                decoration: dialogFieldDecoration(context, 'Category'),
-                items: [
-                  const DropdownMenuItem(
-                    value: null,
-                    child: Text('All categories'),
-                  ),
-                  for (final category in {
-                    ...categoryOptions(
-                      context,
-                      selected: _filter.category,
-                      includeHidden: true,
+              // Four plain choices, two to a row, in place of rows of tiles:
+              // each shows what is picked and opens to the rest.
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String?>(
+                      // Rebuilt when the choice changes, so Clear all shows.
+                      key: ValueKey('filter-type-${_typeChoice ?? 'all'}'),
+                      initialValue: _typeChoice,
+                      isExpanded: true,
+                      decoration: dialogFieldDecoration(context, 'Type'),
+                      items: [
+                        for (final choice in _typeChoices)
+                          DropdownMenuItem(
+                            value: choice,
+                            child: Text(
+                              _typeChoiceLabel(choice),
+                              key: Key('filter-type-item-${choice ?? 'all'}'),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: _pickType,
                     ),
-                    ...widget.historicalCategories,
-                  })
-                    DropdownMenuItem(value: category, child: Text(category)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<_DateChoice>(
+                      key: ValueKey('filter-date-${_dateChoice.name}-$_picks'),
+                      initialValue: _dateChoice,
+                      isExpanded: true,
+                      decoration: dialogFieldDecoration(context, 'Date'),
+                      items: [
+                        for (final choice in _DateChoice.values)
+                          DropdownMenuItem(
+                            value: choice,
+                            child: Text(
+                              choice.label,
+                              key: Key('filter-date-item-${choice.name}'),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (choice) {
+                        if (choice != null) _pickDate(choice);
+                      },
+                    ),
+                  ),
                 ],
-                onChanged: (value) => setState(
-                  () => _filter = _filter.copyWith(category: () => value),
-                ),
-              ),
-              const SizedBox(height: 20),
-              section('Date'),
-              ChoiceGrid<_DateChoice>(
-                options: _DateChoice.values,
-                selected: _dateChoice,
-                label: (choice) => choice.label,
-                keyOf: (choice) => 'filter-date-${choice.name}',
-                onPick: _pickDate,
               ),
               if (_dateChoice == _DateChoice.custom)
                 Row(
@@ -966,28 +973,65 @@ class _FilterSheetState extends State<_FilterSheet> {
                     ),
                   ],
                 ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+              // The account it moved through, for checking against a bank or
+              // e-wallet statement. A category is found by Search, or from a
+              // Reports bar, which opens this list already filtered.
+              DropdownButtonFormField<String?>(
+                key: ValueKey('filter-wallet-${_filter.walletId}'),
+                initialValue: _filter.walletId,
+                isExpanded: true,
+                decoration: dialogFieldDecoration(context, 'Wallet'),
+                items: [
+                  for (final option in walletOptions)
+                    DropdownMenuItem(
+                      value: option.value,
+                      // A group's name is a heading, not a choice.
+                      enabled: option.wallet != null || option.value == null,
+                      child: option.wallet != null
+                          ? _WalletOption(option.wallet!, showBalance: true)
+                          : Text(
+                              option.label,
+                              style: option.value == null
+                                  ? null
+                                  : TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: colors.textMuted,
+                                    ),
+                            ),
+                    ),
+                ],
+                // In the box itself, just the icon and name.
+                selectedItemBuilder: (context) => [
+                  for (final option in walletOptions)
+                    option.wallet != null
+                        ? _WalletOption(option.wallet!)
+                        : Text(option.value == null ? option.label : ''),
+                ],
+                onChanged: (value) => setState(
+                  () => _filter = _filter.copyWith(walletId: () => value),
+                ),
+              ),
+              const SizedBox(height: 24),
               Row(
                 children: [
-                  Expanded(
-                    // Solid red, like Log Out. Nothing to clear: nothing to
-                    // press, so it shows paler until a filter is set.
-                    child: ElevatedButton(
-                      key: const Key('filter-clear'),
-                      onPressed: _filter.isEmpty ? null : _clear,
-                      style: dangerButtonStyle(height: 52),
-                      child: const Text(
-                        'Clear all',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                  // A quiet text button: clearing is not the main thing to
+                  // do here, and nothing to clear leaves it pale.
+                  TextButton(
+                    key: const Key('filter-clear'),
+                    onPressed: _filter.isEmpty ? null : _clear,
+                    style: openTextStyle(context),
+                    child: const Text(
+                      'Clear all',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    flex: 2,
                     child: ElevatedButton(
                       key: const Key('filter-apply'),
                       onPressed: () => Navigator.pop(context, _filter),
@@ -1011,6 +1055,34 @@ class _FilterSheetState extends State<_FilterSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// One wallet in the Wallet filter: its icon and name, and in the open list
+/// its balance too, so two records with the same name can be told apart.
+class _WalletOption extends StatelessWidget {
+  const _WalletOption(this.wallet, {this.showBalance = false});
+
+  final Wallet wallet;
+  final bool showBalance;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Row(
+      children: [
+        Image.asset(wallet.iconAsset, width: 20, height: 20),
+        const SizedBox(width: 10),
+        Expanded(child: Text(wallet.name, overflow: TextOverflow.ellipsis)),
+        if (showBalance) ...[
+          const SizedBox(width: 8),
+          MoneyText(
+            wallet.balance,
+            style: TextStyle(fontSize: 12, color: colors.textMuted),
+          ),
+        ],
+      ],
     );
   }
 }

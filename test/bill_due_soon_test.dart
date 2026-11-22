@@ -196,7 +196,7 @@ void main() {
         now: now,
         days: 1,
       );
-      expect(short.title, isNot('A bill needs you soon'));
+      expect(short?.title, isNot('A bill needs you soon'));
 
       final longer = dashboardTipFor(
         wallets: const [cash],
@@ -205,7 +205,7 @@ void main() {
         now: now,
         days: 3,
       );
-      expect(longer.title, 'A bill needs you soon');
+      expect(longer?.title, 'A bill needs you soon');
     });
   });
 }

@@ -10,6 +10,7 @@ import '../../backend/services/user_profile_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/back_to_home.dart';
+import '../widgets/matured_savings_sheet.dart';
 import '../widgets/quick_add_sheet.dart';
 import '../widgets/transfer_sheet.dart';
 import '../../backend/services/bill_service.dart';
@@ -40,6 +41,7 @@ import 'set_aside_screen.dart';
 import 'voice_recognition_screen.dart';
 import 'history_screen.dart';
 import 'transactions_screen.dart';
+import 'wallet_detail_screen.dart';
 import 'wallets_screen.dart';
 
 /// The signed-in app: four bottom tabs (Home / Transactions / Goals / Wallet)
@@ -109,9 +111,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // as debt payments, once each.
     DebtService.fillPlanKinds();
     // Apply any fixed-interest charges that came due while the app was away.
-    unawaited(
-      DebtService.processDueFixedInterestCharges(now: philippineNow()),
-    );
+    unawaited(DebtService.processDueFixedInterestCharges(now: philippineNow()));
     ReminderService.opened.addListener(_openReminder);
     // A reminder may have opened the app before this screen existed.
     WidgetsBinding.instance.addPostFrameCallback((_) => _openReminder());
@@ -132,9 +132,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
-    unawaited(
-      DebtService.processDueFixedInterestCharges(now: philippineNow()),
-    );
+    unawaited(DebtService.processDueFixedInterestCharges(now: philippineNow()));
     // A new day may have started, so "nothing logged today" is planned again.
     _reminders.refresh();
     unawaited(WalletService.syncLoadedTimeDeposits());
@@ -204,6 +202,29 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       if (wallet.isNotEmpty && mounted) {
         final added = await showAddInterestSheet(context, wallet: wallet.first);
         if (added && mounted) setState(() => _homeRefreshKey++);
+      }
+    } else if (payload.startsWith('savings:')) {
+      // A time deposit or government savings coming due: on the day, the
+      // claim or renew questions straight away; before it, its own page.
+      _selectTab(_homeIndex);
+      final id = payload.substring(8);
+      final wallets = await WalletService.loadWallets();
+      final match = wallets.where((w) => w.id == id && !w.archived);
+      if (match.isEmpty || !mounted) return;
+      final wallet = match.first;
+      if (wallet.maturedBy(DateTime.now())) {
+        final answered = await showMaturedSavingsSheet(
+          context,
+          wallet: wallet,
+          wallets: wallets,
+        );
+        if (answered == true && mounted) setState(() => _homeRefreshKey++);
+      } else {
+        navigator.push(
+          MaterialPageRoute(
+            builder: (context) => WalletDetailScreen(wallet: wallet),
+          ),
+        );
       }
     } else if (payload == 'installments') {
       _openInstallments();

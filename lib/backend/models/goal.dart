@@ -212,8 +212,8 @@ String? mainFundingWallet(Map<String, double> amounts) {
 }
 
 /// About what [amount] kept in [wallet] may earn in a year at the recorded
-/// rate, after the tax banks keep: zero where the money earns nothing, null
-/// when no rate is recorded.
+/// rate, the exact simple-interest amount with no tax taken off: zero where
+/// the money earns nothing, null when no rate is recorded.
 ///
 /// It is a share of what the account already earns, so it is never added to
 /// the account's own estimate, and it is never counted as money saved: it is
@@ -224,7 +224,7 @@ double? yearlyInterestOnGoalMoney(Wallet wallet, double amount) {
     balance: amount,
     annualInterestRatePercent: wallet.annualInterestRatePercent,
   );
-  return gross == null ? null : afterTax(gross);
+  return gross;
 }
 
 /// Something the user is saving toward.

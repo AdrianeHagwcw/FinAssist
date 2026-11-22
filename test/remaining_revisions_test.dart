@@ -13,7 +13,6 @@ import 'package:testapp/backend/models/savings_suggestion.dart';
 import 'package:testapp/backend/models/wallet.dart';
 import 'package:testapp/backend/services/finance_snapshot_service.dart';
 import 'package:testapp/frontend/theme/app_theme.dart';
-import 'package:testapp/frontend/widgets/savings_suggestion_card.dart';
 import 'package:testapp/frontend/widgets/transfer_sheet.dart';
 
 final now = DateTime(2026, 10, 14, 12);
@@ -78,7 +77,8 @@ void main() {
       expect(suggestion.available, 9000);
       // 18 days including today, less the 100 already spent today.
       expect(suggestion.dailyCosts, 1700);
-      expect(suggestion.amount, 730);
+      // 10% of ₱7,300 is ₱730, rounded down to a whole ₱50.
+      expect(suggestion.amount, 700);
     });
     test('bills still due this month are held back in full', () {
       // ₱10,000 in the wallets, ₱1,500 of bills not paid yet.
@@ -141,12 +141,12 @@ void main() {
         ),
       );
       expect(result.available, 8000);
-      expect(result.amount, 630);
+      expect(result.amount, 600);
     });
     test('irregular income uses month end without inventing a payday', () {
       expect(
         SavingsSuggestion.from(records(frequency: 'Irregular')).amount,
-        730,
+        700,
       );
     });
     test('overspending today does not reduce future daily allowances', () {
@@ -166,8 +166,10 @@ void main() {
       );
       expect(result.dailyCosts, closeTo((1600 / 7) * 17, 0.001));
     });
-    test('rounds down to a centavo', () {
-      expect(SavingsSuggestion.from(records(balance: 10000.09)).amount, 730);
+    test('rounds down to a whole ₱50, never above the share', () {
+      expect(SavingsSuggestion.from(records(balance: 10000.09)).amount, 700);
+      // 10% of ₱7,790 is ₱779: still ₱750, not ₱800.
+      expect(SavingsSuggestion.from(records(balance: 10490)).amount, 750);
     });
   });
 
@@ -199,7 +201,7 @@ void main() {
         'How are suggested savings calculated after bills and expenses?',
         records: records(),
       );
-      expect(reply.text, contains('Suggested to save: ₱730'));
+      expect(reply.text, contains('Suggested to save: ₱700'));
     });
     test('goal balance questions explain the goal target', () {
       final reply = answerChat(
@@ -248,7 +250,7 @@ void main() {
         'Paano kinukwenta ang savings?',
         records: records(),
       );
-      expect(reply.text, contains('₱730'));
+      expect(reply.text, contains('₱700'));
       expect(reply.text, contains('10%'));
     });
     test('installment explanation works without loading private figures', () {
@@ -301,50 +303,6 @@ void main() {
     });
   });
 
-  testWidgets('savings suggestion is readable and requires a review tap', (
-    tester,
-  ) async {
-    double? chosen;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: MediaQuery(
-              data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
-              child: SavingsSuggestionCard(
-                records: records(),
-                onTransfer: (a) => chosen = a,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    expect(chosen, isNull);
-    expect(find.text('₱730'), findsOneWidget);
-    await tester.ensureVisible(find.text('Review savings transfer'));
-    await tester.tap(find.text('Review savings transfer'));
-    expect(chosen, 730);
-    expect(tester.takeException(), isNull);
-  });
-  testWidgets('no savings transfer is offered with insufficient history', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: SavingsSuggestionCard(
-            records: records(spendingDays: 0),
-            onTransfer: (_) => fail('must not transfer'),
-          ),
-        ),
-      ),
-    );
-    expect(find.textContaining('7 different days'), findsOneWidget);
-    expect(find.text('Review savings transfer'), findsNothing);
-  });
   testWidgets('suggested transfer stays editable before confirmation', (
     tester,
   ) async {

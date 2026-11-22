@@ -24,6 +24,9 @@ const _googleScopes = ['email'];
 
 /// Signs out of FinAssist, the same way for Log Out and Switch account.
 Future<void> signOutOfApp() async {
+  // Changes still waiting to upload get a moment to reach the server, as
+  // when switching accounts, so logging out right after an entry keeps it.
+  await saveChangesBeforeSwitching();
   await FirebaseAuth.instance.signOut();
   await _signOutOfGoogle();
 }

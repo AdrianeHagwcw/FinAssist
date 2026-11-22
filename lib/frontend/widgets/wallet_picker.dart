@@ -114,7 +114,7 @@ class WalletPicker extends StatelessWidget {
         context,
         label,
         helper: note,
-      ).copyWith(errorText: errorText, helperMaxLines: 2),
+      ).copyWith(errorText: errorText, helperMaxLines: 3),
       items: [
         for (final wallet in choices)
           DropdownMenuItem(

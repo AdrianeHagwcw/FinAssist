@@ -743,15 +743,14 @@ class _CostOfBorrowing extends StatelessWidget {
   /// Everything paid on it so far, before FinAssist too.
   final double paid;
 
-  /// The best yearly rate the user's own accounts earn, after the 20% tax
-  /// banks keep, or null when no rate was entered.
+  /// The best yearly rate the user's own accounts earn, or null when no
+  /// rate was entered.
   static double? _bestSavingsRate(List<Wallet> wallets) {
     double? best;
     for (final wallet in wallets) {
       final rate = wallet.annualInterestRatePercent;
       if (wallet.archived || rate == null || rate <= 0) continue;
-      final kept = afterTax(rate);
-      if (best == null || kept > best) best = kept;
+      if (best == null || rate > best) best = rate;
     }
     return best;
   }
@@ -900,7 +899,7 @@ class _CostOfBorrowing extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(top: 10),
                   child: Text(
-                    '${savings == null ? 'Savings usually earn far less than this.' : 'Your savings earn up to ${roundedPercent(savings)} a year after tax.'} '
+                    '${savings == null ? 'Savings usually earn far less than this.' : 'Your savings earn up to ${roundedPercent(savings)} a year.'} '
                     'Paying this off early usually saves you more than '
                     'keeping that money in savings, if there is no fee for '
                     'paying early. Keep some emergency money first.',

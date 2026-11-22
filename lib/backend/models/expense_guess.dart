@@ -36,8 +36,23 @@ String? suggestCategory(String text, {required Iterable<String> from}) {
   final allowed = from.toSet();
   final scores = _categoryScores(text, allowed);
   if (scores.isNotEmpty) return _best(scores);
-  final occasions = _categoryScores(text, allowed, keywords: occasionKeywords);
+  final occasions = _categoryScores(
+    text,
+    allowed,
+    keywords: occasionKeywords,
+    places: const {},
+  );
   if (occasions.isNotEmpty) return _best(occasions);
+  // A mall says where, not what: it decides only when nothing bought is
+  // named, so "lunch at SM Megamall" is Food and "SM Megamall" alone is
+  // Shopping.
+  final places = _categoryScores(
+    text,
+    allowed,
+    keywords: placeKeywords,
+    places: const {},
+  );
+  if (places.isNotEmpty) return _best(places);
 
   // A word of three letters or more is something to go on; one or two are
   // only the start of typing, and an amount with "pesos" names nothing.
@@ -87,13 +102,19 @@ Map<String, int> _categoryScores(
   String text,
   Set<String> from, {
   Map<String, List<String>> keywords = categoryKeywords,
+  // Places take their words in the same pass, so "Robinsons Magnolia" is
+  // never read as the Magnolia food brand, but count for nothing here.
+  Map<String, List<String>> places = placeKeywords,
 }) {
   final words = _words(text);
   if (words.isEmpty) return <String, int>{};
 
   final matches = <({int start, int end, String category})>[];
-  for (final entry in keywords.entries) {
-    if (!from.contains(entry.key)) continue;
+  for (final entry in [
+    ...keywords.entries,
+    for (final place in places.entries) MapEntry('', place.value),
+  ]) {
+    if (entry.key.isNotEmpty && !from.contains(entry.key)) continue;
     for (final keyword in entry.value) {
       final phrase = _words(keyword);
       if (phrase.isEmpty) continue;
@@ -101,6 +122,14 @@ Map<String, int> _categoryScores(
         var same = true;
         for (var j = 0; j < phrase.length && same; j++) {
           same = _sameWord(words[i + j], phrase[j]);
+        }
+        // A Tagalog verb said onto a one-word name: "nagpavet", "nagnetflix",
+        // "magpagupit". Only an exact name left over counts, so words that
+        // simply start the same way, like "pamasahe", never do.
+        if (!same && phrase.length == 1) {
+          same = _withoutVerbPrefix(
+            words[i],
+          ).any((rest) => _sameWord(rest, phrase.single));
         }
         if (same) {
           matches.add((start: i, end: i + phrase.length, category: entry.key));
@@ -143,6 +172,8 @@ Map<String, int> _categoryScores(
 
   final scores = <String, int>{};
   for (final match in kept) {
+    // A place only took its words; it names nothing bought.
+    if (match.category.isEmpty) continue;
     if (hasRide &&
         match.category != 'Transportation' &&
         isDestination(match.start)) {
@@ -160,8 +191,31 @@ Map<String, int> _categoryScores(
 bool _sameWord(String word, String listed) =>
     word == listed || word == '${listed}s' || word == '${listed}es';
 
-/// Words before a place someone went to.
-const _towards = {'to', 'papunta', 'pauwi', 'punta', 'galing', 'from'};
+/// [word] without a Tagalog verb prefix said onto it, longest first:
+/// "nagpavet" gives "vet". Nothing shorter than three letters is left.
+Iterable<String> _withoutVerbPrefix(String word) sync* {
+  for (final prefix in const ['nagpa', 'magpa', 'ipina', 'nag', 'mag', 'pa']) {
+    if (word.startsWith(prefix) && word.length - prefix.length >= 3) {
+      yield word.substring(prefix.length);
+    }
+  }
+}
+
+/// Words before a place someone went to, with the "-ng" Tagalog joins:
+/// "papuntang school".
+const _towards = {
+  'to',
+  'papunta',
+  'papuntang',
+  'pauwi',
+  'pauwing',
+  'punta',
+  'puntang',
+  'patungo',
+  'patungong',
+  'galing',
+  'from',
+};
 
 /// Words before what something is for.
 const _forWords = {'for', 'pang', 'para'};

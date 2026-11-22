@@ -438,4 +438,116 @@ void main() {
       expect(rows[2], contains('Oldest'));
     });
   });
+
+  test('a month of records reads as the app shows them', () {
+    Wallet account(
+      String id,
+      String name,
+      WalletType type, {
+      WalletPurpose purpose = WalletPurpose.spending,
+      SavingsKind? kind,
+    }) => Wallet(
+      id: id,
+      name: name,
+      type: type,
+      balance: 1000,
+      startingBalance: 1000,
+      receivesIncome: false,
+      archived: false,
+      sortOrder: 0,
+      purpose: purpose,
+      savingsKind: kind?.name,
+    );
+    final accounts = [
+      account('cash', 'Cash', WalletType.cash),
+      account('maya', 'Maya', WalletType.maya),
+      account('bank', 'GoTyme Bank', WalletType.bank),
+      account(
+        'sd',
+        'Savings Deposit',
+        WalletType.other,
+        purpose: WalletPurpose.savings,
+        kind: SavingsKind.savingsDeposit,
+      ),
+    ];
+    AppTransaction row(
+      TransactionType type,
+      double amount,
+      String label, {
+      required String from,
+      String? to,
+      String? note,
+      String? bill,
+      double interest = 0,
+    }) => entry(
+      type: type,
+      amount: amount,
+      label: label,
+      walletId: from,
+      toWalletId: to,
+      note: note,
+      billInstanceId: bill,
+      interest: interest,
+    );
+
+    final rows = rowsOf(
+      buildTransactionCsv(
+        [
+          row(TransactionType.income, 15000, 'Salary', from: 'cash'),
+          row(
+            TransactionType.transfer,
+            500,
+            'Transfer',
+            from: 'cash',
+            to: 'bank',
+          ),
+          row(
+            TransactionType.transfer,
+            200,
+            'Transfer',
+            from: 'maya',
+            to: 'bank',
+          ),
+          // Out of savings: a withdrawal, with its interest as income.
+          row(TransactionType.income, 24.66, 'Interest', from: 'sd'),
+          row(
+            TransactionType.transfer,
+            2000,
+            'Transfer',
+            from: 'sd',
+            to: 'cash',
+          ),
+          row(
+            TransactionType.goal,
+            500,
+            goalDepositLabel,
+            from: 'cash',
+            note: 'Laptop',
+          ),
+          row(
+            TransactionType.expense,
+            1716.67,
+            'Bills',
+            from: 'bank',
+            bill: 'loan_2026-11',
+            interest: 50,
+          ),
+        ],
+        walletNames: {for (final a in accounts) a.id: a.name},
+        walletTypes: {for (final a in accounts) a.id: a.type},
+        walletRecords: {for (final a in accounts) a.id: a},
+        billTags: const {'loan': 'Debt payment'},
+      ),
+    ).skip(1).map((line) => line.substring(17)).toList();
+
+    expect(rows, [
+      'Inflow,Salary,15000.00,,Cash,,Regular',
+      'Deposit,Transfer,500.00,,Cash,GoTyme Bank,Regular',
+      'Transfer,Transfer,200.00,,Maya,GoTyme Bank,Regular',
+      'Inflow,Interest,24.66,,Savings Deposit,,Regular',
+      'Withdrawal,Transfer,2000.00,,Savings Deposit,Cash,Regular',
+      'Deposit,Goal,500.00,,Cash,Laptop,Regular',
+      'Outflow,Bills,1716.67,50.00,GoTyme Bank,,Debt payment',
+    ]);
+  });
 }
