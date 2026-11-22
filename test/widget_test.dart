@@ -5083,7 +5083,7 @@ void main() {
       expect(find.text('Total Balance'), findsNothing);
     });
 
-    testWidgets('lists each wallet with its balance and the total', (
+    testWidgets('lists each wallet with its balance, with no total card', (
       tester,
     ) async {
       await pumpWallets(
@@ -5105,63 +5105,9 @@ void main() {
       expect(find.text('GCash'), findsOneWidget, reason: 'the type label');
       expect(find.text('₱1,200'), findsOneWidget);
       expect(find.text('₱300.50'), findsOneWidget);
-      expect(find.text('₱1,500.50'), findsOneWidget, reason: 'the total');
-      expect(find.text('Across 2 wallets'), findsOneWidget);
-    });
-
-    testWidgets('the total reads like a sum that adds up', (tester) async {
-      tester.view.physicalSize = const Size(700, 2000);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      await pumpWallets(
-        tester,
-        wallets: [
-          wallet(id: 'cash', name: 'Cash', balance: 15000),
-          wallet(
-            id: 'bank',
-            name: 'BDO',
-            type: WalletType.bank,
-            balance: 4000,
-            sortOrder: 1,
-          ),
-          Wallet(
-            id: 'td',
-            name: 'Time Deposit',
-            type: WalletType.other,
-            balance: 10000,
-            startingBalance: 10000,
-            receivesIncome: false,
-            archived: false,
-            sortOrder: 2,
-            purpose: WalletPurpose.savings,
-          ),
-        ],
-        goals: const [
-          Goal(
-            id: 'g',
-            name: 'Graduation',
-            targetAmount: 20000,
-            savedAmount: 12000,
-            priority: 0,
-            status: GoalStatus.active,
-            savedByWallet: {'cash': 12000},
-          ),
-        ],
-      );
-
-      // ₱19,000 in cash and bank, less ₱12,000 for the goal: ₱7,000, the
-      // figure at the top and the end of the sum.
-      expect(find.text('In these wallets'), findsOneWidget);
-      expect(find.text('₱19,000'), findsOneWidget);
-      expect(find.text('-₱12,000'), findsOneWidget);
-      expect(find.text('Available balance'), findsOneWidget);
-      expect(find.text('₱7,000'), findsNWidgets(2));
-      // Nothing outside the sum sits on the card, so it always adds up.
-      expect(find.text('Kept apart, not counted above'), findsNothing);
-      expect(find.text('Savings wallet'), findsNothing);
-      expect(find.textContaining('bills and savings'), findsNothing);
+      expect(find.text('Available Balance'), findsNothing);
+      expect(find.text('₱1,500.50'), findsNothing, reason: 'no total');
+      expect(find.text('Across 2 wallets'), findsNothing);
     });
 
     testWidgets('no wallet is marked as where income goes', (tester) async {
@@ -6318,7 +6264,7 @@ void main() {
       await fillIncome(tester, '2000');
       await next(tester);
 
-      expect(find.text('Did you pay any bills from it?'), findsOneWidget);
+      expect(find.text('Pay any bills from it?'), findsOneWidget);
       expect(find.text('Overdue'), findsWidgets);
       expect(find.text('Today'), findsOneWidget);
       expect(find.text('Due today'), findsOneWidget);
@@ -6527,6 +6473,8 @@ void main() {
 
       await tester.tap(find.byType(Checkbox).first);
       await tester.pumpAndSettle();
+      // Paid in full, the hint says so instead of what it owed.
+      expect(find.text('Owes ₱1,500 · paid in full after this'), findsOneWidget);
       await next(tester);
 
       // What this income leaves after the rent, and what all the wallets
@@ -6576,6 +6524,7 @@ void main() {
       await tester.tap(find.byType(Checkbox).last);
       await tester.pumpAndSettle();
       expect(find.text('0'), findsOneWidget);
+      expect(find.text('Owes ₱300'), findsOneWidget);
 
       // More than came in is refused, even though the wallets have it.
       await tester.enterText(find.widgetWithText(TextField, '500'), '1500');
@@ -10899,13 +10848,20 @@ void main() {
 
       await tester.tap(find.text('Yes'));
       await tester.pumpAndSettle();
-      // "Use what is left" is capped at what the goal still needs.
-      expect(find.text('₱3,800, all this goal needs'), findsOneWidget);
+      // "All that's left" is capped at what the goal still needs.
+      expect(find.text('All it needs\n₱3,800'), findsOneWidget);
 
-      // It stays in the cash the income went into, marked for the goal.
-      expect(find.text('Which wallets keep it?'), findsOneWidget);
-      await tester.tap(find.text('Cash on Hand'));
-      await tester.pumpAndSettle();
+      // It stays in the cash the income went into, marked for the goal,
+      // without asking again where it is.
+      expect(find.text('Which wallets keep it?'), findsNothing);
+      expect(find.text('Stays in Cash'), findsOneWidget);
+      // The goal's bar shows where this leaves it.
+      expect(find.text('Toward Laptop'), findsOneWidget);
+      expect(find.text('This reaches your goal'), findsOneWidget);
+      expect(find.text('₱1,200 → ₱5,000 of ₱5,000'), findsOneWidget);
+      // One goal: shown, with no dropdown to open.
+      expect(find.byKey(const ValueKey('only-goal')), findsOneWidget);
+      expect(find.text('Which goal?'), findsNothing);
 
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
@@ -10916,6 +10872,72 @@ void main() {
       expect(confirmed?.toGoal, 3800);
       expect(confirmed?.remaining, 6200);
       expect(keptIn, {'cash': 3800});
+    });
+
+    testWidgets('a goal can take no more than this income has left', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(700, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: IncomeWaterfallScreen(
+            today: DateTime(2026, 3, 10),
+            wallets: Stream.value([cash]),
+            loadBills: () async => const [],
+            goals: Stream.value(const [laptop]),
+            cycles: Stream.value(const []),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField).first, '500');
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Allowance').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cash on Hand'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Yes'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Other amount'));
+      await tester.pumpAndSettle();
+      // Before anything is typed, the card shows what the goal still needs,
+      // in place of a hint under the box.
+      expect(find.text('₱1,200 of ₱5,000'), findsOneWidget);
+      expect(find.text('₱3,800 to go'), findsOneWidget);
+      expect(find.text('Laptop needs ₱3,800 more'), findsNothing);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Amount to set aside'),
+        '300',
+      );
+      await tester.pump();
+      expect(find.text('₱3,500 to go after this'), findsOneWidget);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Amount to set aside'),
+        '1000',
+      );
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      // Older money goes to a goal from the goal itself.
+      expect(
+        find.text(
+          'You only received ₱500. To set aside more, use Goal Deposit on '
+          'the goal.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Save some toward a goal?'), findsOneWidget);
     });
   });
 

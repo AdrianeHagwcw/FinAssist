@@ -19,7 +19,7 @@ import '../widgets/wallet_picker.dart';
 import 'income_waterfall_screen.dart';
 import 'wallet_detail_screen.dart';
 
-/// The Wallet tab: the combined balance, then one card per wallet.
+/// The Wallet tab: one card per wallet.
 class WalletsScreen extends StatefulWidget {
   const WalletsScreen({this.wallets, this.goals, super.key});
 
@@ -139,7 +139,7 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
           }
 
           // Bills and savings money has its own tab, so only spending
-          // wallets are listed here; their total is named underneath.
+          // wallets are listed here.
           final spending = wallets.where((w) => !w.isSetAside).toList();
 
           return ListView(
@@ -147,15 +147,6 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
             children: [
               const LegacyImportCard(),
-              _TotalBalanceCard(
-                total: spending.fold<double>(
-                  0,
-                  (sum, wallet) => sum + freeInWallet(wallet, heldGoals),
-                ),
-                inWallets: totalWalletBalance(wallets),
-                walletCount: spending.length,
-              ),
-              const SizedBox(height: 20),
               Text(
                 'My Wallets',
                 style: TextStyle(
@@ -184,110 +175,6 @@ class _WalletsScreenState extends State<WalletsScreen> with WatchesGoals {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-/// The top of the Wallets tab, read like a statement so it adds up: what is
-/// in these wallets, less what goals hold in them, is the available
-/// balance. Only these wallets, so every figure on it belongs to the sum.
-class _TotalBalanceCard extends StatelessWidget {
-  const _TotalBalanceCard({
-    required this.total,
-    required this.inWallets,
-    required this.walletCount,
-  });
-
-  /// What can be spent: the spending wallets less what goals hold in them.
-  final double total;
-
-  /// What the spending wallets hold in all, goal money included.
-  final double inWallets;
-  final int walletCount;
-
-  double get _forGoals => inWallets - total;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget line(
-      String label,
-      double amount, {
-      String sign = '',
-      bool result = false,
-    }) => Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: result ? Colors.white : Colors.white70,
-                fontSize: result ? 13 : 12,
-                fontWeight: result ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ),
-          MoneyText(
-            amount,
-            sign: sign.isEmpty ? null : sign,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: result ? 13 : 12,
-              fontWeight: result ? FontWeight.bold : FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: appPrimaryBlue,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Available Balance',
-            style: TextStyle(color: Colors.white70, fontSize: 14),
-          ),
-          const SizedBox(height: 14),
-          MoneyText(
-            total,
-            style: TextStyle(
-              color: total < 0 ? Colors.redAccent : Colors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            'Across $walletCount wallet${walletCount == 1 ? '' : 's'}',
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-          // How the figure above is reached, only when goals hold some:
-          // in these wallets, less what goals hold, is what is available.
-          if (_forGoals > 0.005) ...[
-            const SizedBox(height: 8),
-            line('In these wallets', inWallets),
-            line('Set aside for goals', _forGoals, sign: '-'),
-            const SizedBox(height: 6),
-            const Divider(height: 1, color: Colors.white24),
-            line('Available balance', total, result: true),
-          ],
-        ],
       ),
     );
   }

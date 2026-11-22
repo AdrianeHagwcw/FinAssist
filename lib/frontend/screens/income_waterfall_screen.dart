@@ -19,7 +19,9 @@ import '../../backend/utils/income_sources.dart';
 import '../../backend/utils/money_format.dart';
 import '../widgets/bill_status_badge.dart';
 import '../widgets/category_icon.dart';
+import '../widgets/choice_grid.dart';
 import '../widgets/dialog_kit.dart';
+import '../widgets/goal_progress.dart';
 import '../widgets/wallet_form_sheet.dart';
 import '../widgets/wallet_split_picker.dart';
 
@@ -168,20 +170,32 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
   /// Bills are paid out of this income, so from the wallets it went into,
   /// filling each in turn. Never asked: the bills can't cost more than
   /// came in.
-  Map<String, double> get _billsFrom {
-    var left = _plan.toBills;
-    final from = <String, double>{};
-    for (final entry in _incomeByWallet.entries) {
+  Map<String, double> get _billsFrom =>
+      _fillInTurn(_incomeByWallet, _plan.toBills);
+
+  /// Goal money from this income stays where the income went, after its
+  /// bills, filling each wallet in turn. Never asked, as with bills: picking
+  /// another wallet would mark older money for the goal and leave this
+  /// income free to spend.
+  Map<String, double> get _goalFrom => _fillInTurn(_afterBills, _plan.toGoal);
+
+  /// [amount] taken from the wallets in [from], in order, each giving what it
+  /// has until the amount is met.
+  static Map<String, double> _fillInTurn(
+    Map<String, double> from,
+    double amount,
+  ) {
+    var left = amount;
+    final taken = <String, double>{};
+    for (final entry in from.entries) {
       if (left < 0.005) break;
+      if (entry.value < 0.005) continue;
       final take = entry.value < left ? entry.value : left;
-      from[entry.key] = take;
+      taken[entry.key] = take;
       left -= take;
     }
-    return from;
+    return taken;
   }
-
-  /// The wallets the goal's money stays in.
-  Map<String, double> _goalFrom = const {};
 
   /// What each wallet has left of this income once its bills are paid.
   Map<String, double> get _afterBills {
@@ -450,18 +464,18 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
             'they add up to ${formatPeso(_income)} or less.'
       : null;
 
-  /// Goal money must stay in wallets that still have it after the bills.
-  String? get _goalProblem => _plan.toGoal <= 0
-      ? null
-      : walletSplitProblem(
-          purpose: SplitPurpose.giving,
-          amounts: _goalFrom,
-          wallets: _walletList,
-          goals: _allGoals,
-          target: _plan.toGoal,
-          matchTarget: true,
-          adding: _afterBills,
-        );
+  /// Goal money comes out of what this income has left after its bills, as
+  /// bills come out of the income. Older money goes to a goal from the goal
+  /// itself, with Goal Deposit.
+  String? get _goalProblem {
+    final plan = _plan;
+    if (plan.toGoal <= plan.afterBills + 0.005) return null;
+    final left = formatPeso(plan.afterBills);
+    final only = plan.toBills > 0
+        ? 'Only $left of this income is left after bills.'
+        : 'You only received $left.';
+    return '$only To set aside more, use Goal Deposit on the goal.';
+  }
 
   /// Notes that Next was tapped on this step, so its problem shows, and
   /// says whether it can be left.
@@ -600,6 +614,13 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
                   ],
                 ),
               ),
+              // Pinned by Next, so what is left stays in sight however long
+              // the list above, and never jumps as choices open.
+              if (_runningTotalLabel case final label?)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                  child: _RunningTotal(plan: _plan, label: label),
+                ),
               _buildButtons(context),
             ],
           );
@@ -613,7 +634,9 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       case _Step.income:
         return 'What came in?';
       case _Step.bills:
-        return 'Did you pay any bills from it?';
+        // Confirming records the payment, so it is asked as something done
+        // now, like the goal step, not as a past event.
+        return 'Pay any bills from it?';
       case _Step.goal:
         return 'Save some toward a goal?';
       case _Step.summary:
@@ -731,15 +754,14 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
       );
     }
 
-    final plan = _plan;
     final colors = context.appColors;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Tick the bills you paid from this ${formatPeso(_income)}. Lower '
-          'the amount if you paid part; the rest stays in Bill Planner.',
+          'Tick the bills to pay from this ${formatPeso(_income)}. Lower '
+          'the amount to pay part; the rest stays in Bill Planner.',
           style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
         ),
         if (allocations.length > 1) ...[
@@ -782,11 +804,17 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           ),
           const SizedBox(height: 10),
         ],
-        const SizedBox(height: 6),
-        _RunningTotal(plan: plan),
       ],
     );
   }
+
+  /// The label of the total pinned by Next, on the steps that change it.
+  String? get _runningTotalLabel => switch (_step) {
+    _Step.bills when _allocations != null => 'Left after these bills',
+    _Step.goal =>
+      _plan.toGoal > 0 ? 'Left after bills and goal' : 'Left to spend',
+    _ => null,
+  };
 
   /// True when at least one bill is ticked to be paid now.
   bool get _anyTicked => (_allocations ?? const <BillAllocation>[]).any(
@@ -854,61 +882,65 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
           style: TextStyle(fontSize: 13, color: colors.textBody, height: 1.4),
         ),
         const SizedBox(height: 14),
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(value: false, label: Text('Not this time')),
-            ButtonSegment(value: true, label: Text('Yes')),
-          ],
-          selected: {_toGoal},
-          showSelectedIcon: false,
-          onSelectionChanged: (value) => setState(() => _toGoal = value.first),
+        // Tiles, as on other choices, so the answer picked is plain to see.
+        ChoiceGrid<bool>(
+          options: const [false, true],
+          selected: _toGoal,
+          label: (yes) => yes ? 'Yes' : 'Not this time',
+          onPick: (yes) => setState(() => _toGoal = yes),
         ),
         if (_toGoal && goal != null) ...[
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            initialValue: goal.id,
-            isExpanded: true,
-            decoration: dialogFieldDecoration(context, 'Which goal?'),
-            items: [
-              for (final option in goals)
-                DropdownMenuItem(
-                  value: option.id,
-                  child: Text(
-                    '${option.name} · ${formatPeso(option.remaining)} to go',
-                    overflow: TextOverflow.ellipsis,
+          if (goals.length == 1)
+            // One goal: nothing to choose, so no dropdown to open.
+            InputDecorator(
+              key: const ValueKey('only-goal'),
+              decoration: dialogFieldDecoration(context, 'Goal'),
+              child: Text(
+                '${goal.name} · ${formatPeso(goal.remaining)} to go',
+                overflow: TextOverflow.ellipsis,
+              ),
+            )
+          else
+            DropdownButtonFormField<String>(
+              initialValue: goal.id,
+              isExpanded: true,
+              decoration: dialogFieldDecoration(context, 'Which goal?'),
+              items: [
+                for (final option in goals)
+                  DropdownMenuItem(
+                    value: option.id,
+                    child: Text(
+                      '${option.name} · ${formatPeso(option.remaining)} to go',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-            ],
-            onChanged: (value) => setState(() => _goalId = value),
-          ),
-          const SizedBox(height: 16),
-          RadioGroup<bool>(
-            groupValue: _useWhatsLeft,
-            onChanged: (value) =>
-                setState(() => _useWhatsLeft = value ?? _useWhatsLeft),
-            child: Column(
-              children: [
-                RadioListTile<bool>(
-                  value: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Use what is left'),
-                  subtitle: Text(
-                    left <= 0
-                        ? 'Nothing is left after bills.'
-                        : left > goal.remaining
-                        ? '${formatPeso(goal.remaining)}, all this goal needs'
-                        : formatPeso(left),
-                  ),
-                ),
-                RadioListTile<bool>(
-                  value: false,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Enter an amount'),
-                ),
               ],
+              onChanged: (value) => setState(() => _goalId = value),
+            ),
+          const SizedBox(height: 16),
+          Text(
+            'How much?',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: colors.textPrimary,
             ),
           ),
-          if (!_useWhatsLeft)
+          const SizedBox(height: 8),
+          // The same tiles as Yes / Not this time, so the step reads as one.
+          ChoiceGrid<bool>(
+            options: const [true, false],
+            selected: _useWhatsLeft,
+            label: (all) => !all
+                ? 'Other amount'
+                : left > goal.remaining
+                ? 'All it needs\n${formatPeso(goal.remaining)}'
+                : 'All that\'s left\n${formatPeso(left)}',
+            onPick: (all) => setState(() => _useWhatsLeft = all),
+          ),
+          if (!_useWhatsLeft) ...[
+            const SizedBox(height: 12),
             TextField(
               controller: _goalAmountController,
               keyboardType: const TextInputType.numberWithOptions(
@@ -918,28 +950,21 @@ class _IncomeWaterfallScreenState extends State<IncomeWaterfallScreen> {
               decoration: dialogFieldDecoration(
                 context,
                 'Amount to set aside',
-                helper: '${goal.name} needs ${formatPeso(goal.remaining)} more',
               ).copyWith(prefixText: '₱ ', hintText: '0.00'),
             ),
-          if (plan.toGoal > 0) ...[
+          ],
+          // Shown before anything is typed, so what the goal still needs is
+          // in sight, then moves with every digit.
+          if (_goalProblem == null) ...[
             const SizedBox(height: 16),
-            WalletSplitPicker(
-              key: const ValueKey('goal-kept-in'),
-              wallets: _walletList,
-              goals: _allGoals,
-              purpose: SplitPurpose.giving,
-              question: 'Which wallets keep it?',
-              target: plan.toGoal,
-              matchTarget: true,
-              adding: _afterBills,
-              initialAmounts: _goalFrom,
-              totalLabel: 'Toward ${goal.name}',
-              onChanged: (amounts) => setState(() => _goalFrom = amounts),
+            _GoalAfter(
+              goal: goal,
+              adding: plan.toGoal,
+              // Nothing typed yet: where the income went, where it would stay.
+              keptIn: _walletNames(plan.toGoal > 0 ? _goalFrom : _afterBills),
             ),
           ],
         ],
-        const SizedBox(height: 16),
-        _RunningTotal(plan: plan, label: 'Left after bills and goal'),
       ],
     );
   }
@@ -1415,11 +1440,15 @@ class _BillChoice extends StatelessWidget {
                     dialogFieldDecoration(
                       context,
                       'Pay now',
-                      // A part payment shows what the bill still needs after it.
-                      helper: typed > 0 && leftAfter > 0.005
+                      // What the bill owes, then what this payment leaves.
+                      // Too much gets its own error, so only what is owed.
+                      helper: typed <= 0 || leftAfter < -0.005
+                          ? 'Owes ${formatPeso(bill.remaining)}'
+                          : leftAfter > 0.005
                           ? 'Owes ${formatPeso(bill.remaining)} · '
                                 '${formatPeso(leftAfter)} left after this'
-                          : 'Still owes ${formatPeso(bill.remaining)}',
+                          : 'Owes ${formatPeso(bill.remaining)} · '
+                                'paid in full after this',
                     ).copyWith(
                       prefixText: '₱ ',
                       hintText: '0.00',
@@ -1469,6 +1498,131 @@ class _RunningTotal extends StatelessWidget {
               fontWeight: FontWeight.bold,
               color: short ? dangerColorOn(context) : colors.textPrimary,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The goal once this income is set aside for it: how much goes in, the
+/// wallets it stays in, and its bar moved on, so the user sees it grow.
+class _GoalAfter extends StatelessWidget {
+  const _GoalAfter({
+    required this.goal,
+    required this.adding,
+    required this.keptIn,
+  });
+
+  final Goal goal;
+  final double adding;
+
+  /// The wallets the money stays in, by name.
+  final String keptIn;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final toGo = goal.remaining - adding;
+    final reached = toGo <= 0.005;
+    final target = goal.targetAmount;
+    final savedAfter = goal.shownSaved + adding;
+    final after = target > 0 ? (savedAfter / target).clamp(0.0, 1.0) : 0.0;
+    final percent = goalPercent(after, reached: reached);
+    final shade = getProgressColor(percent, dark: context.isDarkMode);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Toward ${goal.name}',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                formatPeso(adding, sign: '+'),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: colors.primaryText,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Stays in $keptIn',
+            style: TextStyle(fontSize: 12, color: colors.textMuted),
+          ),
+          const SizedBox(height: 12),
+          // Two tones: what was saved before in full color, this money in a
+          // lighter shade after it, so the step forward shows.
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Stack(
+                    children: [
+                      LinearProgressIndicator(
+                        value: after,
+                        minHeight: 8,
+                        backgroundColor: colors.track,
+                        color: shade.withValues(alpha: 0.45),
+                      ),
+                      LinearProgressIndicator(
+                        value: goal.progress,
+                        minHeight: 8,
+                        backgroundColor: Colors.transparent,
+                        color: shade,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '$percent%',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: shade,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Nothing typed yet: where the goal stands now, no step forward.
+          Text(
+            adding > 0
+                ? '${formatPeso(goal.shownSaved)} → ${formatPeso(savedAfter)} '
+                      'of ${formatPeso(target)}'
+                : '${formatPeso(goal.shownSaved)} of ${formatPeso(target)}',
+            style: TextStyle(fontSize: 12, color: colors.textBody),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            adding <= 0
+                ? '${formatPeso(goal.remaining)} to go'
+                : reached
+                ? 'This reaches your goal'
+                : '${formatPeso(toGo)} to go after this',
+            style: TextStyle(fontSize: 12, color: colors.textMuted),
           ),
         ],
       ),

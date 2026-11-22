@@ -212,13 +212,15 @@ class AllocationService {
     WalletService.applyDeltasToBatch(batch, deltas);
 
     // Goal money stays in its wallets, marked for the goal; nothing moves.
+    // Set aside from what the bills leave, so a moment after them: newest-
+    // first lists show it above the payments and the income it came from.
     final goal = plan.goal;
     if (goal != null && plan.toGoal > 0) {
       GoalService.addContributionsToBatch(
         batch,
         goal: goal,
         amounts: goalKeptIn,
-        date: receivedAt,
+        date: receivedAt.add(const Duration(milliseconds: 2)),
         cycleId: cycle.id,
       );
     }

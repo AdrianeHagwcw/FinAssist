@@ -193,16 +193,18 @@ void main() {
     expect(find.text('₱12,000 set aside for goals'), findsNothing);
   });
 
-  testWidgets('Wallets says the same, as a sum', (tester) async {
+  testWidgets('Wallets shows what each wallet can spend, with no total card', (
+    tester,
+  ) async {
     await pump(
       tester,
       WalletsScreen(wallets: Stream.value(wallets), goals: Stream.value(goals)),
     );
 
-    expect(find.text('₱19,000'), findsOneWidget);
-    expect(find.text('-₱12,000'), findsOneWidget);
-    expect(find.text('₱7,000'), findsNWidgets(2));
-    expect(find.text('Across 6 wallets'), findsOneWidget);
+    expect(find.text('Available Balance'), findsNothing);
+    expect(find.text('Across 6 wallets'), findsNothing);
+    // Petty Cash: ₱5,000 less Travel's ₱2,000.
+    expect(find.text('₱3,000'), findsOneWidget);
   });
 
   test('the assistant says the same', () {
