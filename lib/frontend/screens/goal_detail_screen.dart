@@ -543,8 +543,10 @@ class _ProgressHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          // Wraps under itself on a narrow phone instead of running off.
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               MoneyText(
                 goal.shownSaved,

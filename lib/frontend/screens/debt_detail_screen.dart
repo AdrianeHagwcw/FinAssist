@@ -783,14 +783,16 @@ class _CostOfBorrowing extends StatelessWidget {
                 height: 22,
               ),
               const SizedBox(width: 10),
-              Text(
-                debt.balanceBasedSchedule
-                    ? 'Debt details'
-                    : 'What borrowing costs',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: colors.textPrimary,
+              Expanded(
+                child: Text(
+                  debt.balanceBasedSchedule
+                      ? 'Debt details'
+                      : 'What borrowing costs',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
                 ),
               ),
             ],

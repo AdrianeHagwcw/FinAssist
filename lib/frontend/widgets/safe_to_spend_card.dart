@@ -437,12 +437,16 @@ class _HeroCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Text(
-                      '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'} left '
-                      'this month',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.appColors.textMuted,
+                    // Wraps rather than pushes past the card with large text.
+                    Flexible(
+                      child: Text(
+                        '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'} '
+                        'left this month',
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.appColors.textMuted,
+                        ),
                       ),
                     ),
                   ],

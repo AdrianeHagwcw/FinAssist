@@ -254,7 +254,9 @@ class _WalletCard extends StatelessWidget {
                       ),
                     ),
                     if (forGoals > 0.005)
-                      Row(
+                      // Wraps on a narrow phone or with large text instead
+                      // of running off the card.
+                      Wrap(
                         children: [
                           MoneyText(
                             forGoals,

@@ -812,7 +812,9 @@ class _TotalBalanceCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                Row(
+                // Wraps on a narrow phone instead of running off the sheet.
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     MoneyText(
                       total,

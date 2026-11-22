@@ -310,12 +310,18 @@ class _MonthHeader extends StatelessWidget {
             icon: const Icon(Icons.chevron_left),
             onPressed: onPrevious,
           ),
-          Text(
-            '${_monthNames[month.month - 1]} ${month.year}',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: context.appColors.textPrimary,
+          // Shrinks to fit between the arrows with large text.
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                '${_monthNames[month.month - 1]} ${month.year}',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: context.appColors.textPrimary,
+                ),
+              ),
             ),
           ),
           IconButton(
@@ -874,19 +880,19 @@ class _BillRow extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Row(
+                        // The date moves under the badge on a narrow phone
+                        // instead of running past the card.
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             BillStatusBadge(instance: instance, now: today),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                formatShortDate(instance.dueDate),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: context.appColors.textMuted,
-                                ),
+                            Text(
+                              formatShortDate(instance.dueDate),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: context.appColors.textMuted,
                               ),
                             ),
                           ],

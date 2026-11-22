@@ -1076,37 +1076,42 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
             const SizedBox(width: 12),
 
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'FinAssist AI',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                ),
+            // Shrinks with the bar's buttons on a narrow phone.
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'FinAssist AI',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                  ),
 
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: _isOnline
-                            ? Colors.greenAccent
-                            : Colors.orangeAccent,
-                        shape: BoxShape.circle,
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _isOnline
+                              ? Colors.greenAccent
+                              : Colors.orangeAccent,
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      _isOnline ? 'Online' : 'Offline',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.white70,
+                      const SizedBox(width: 6),
+                      Text(
+                        _isOnline ? 'Online' : 'Offline',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white70,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
