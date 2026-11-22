@@ -639,10 +639,11 @@ class _ContributionSheetState extends State<ContributionSheet>
           style: TextStyle(fontSize: 14, color: colors.textMuted),
         ),
         const SizedBox(height: 10),
-        const DialogNote(
+        // Said the way Add Income says it, so the two never disagree.
+        DialogNote(
           text:
-              'The money stays in its account and is marked for this goal. '
-              'Nothing moves.',
+              'This money stays in your wallet. It is only marked for '
+              '${goal.name}, so it stops counting as money you can spend.',
         ),
         const SizedBox(height: 16),
         WalletSplitPicker(

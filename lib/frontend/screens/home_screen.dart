@@ -192,9 +192,16 @@ class _HomeScreenState extends State<HomeScreen> {
       a.spentToday == b.spentToday &&
       a.daysLeft == b.daysLeft;
 
-  String get _name {
+  /// The signed-in account as it changes, so a name edited in Settings
+  /// shows here at once instead of after the app restarts. Null in tests,
+  /// which give [HomeScreen.userName] instead.
+  late final Stream<User?>? _user = widget.userName != null
+      ? null
+      : FirebaseAuth.instance.userChanges();
+
+  String _nameOf(User? user) {
     if (widget.userName != null) return widget.userName!;
-    final name = FirebaseAuth.instance.currentUser?.displayName?.trim();
+    final name = user?.displayName?.trim();
     return name == null || name.isEmpty ? 'there' : name;
   }
 
@@ -330,12 +337,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
       children: [
-        Text(
-          'Hello, $_name!',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: colors.textPrimary,
+        StreamBuilder<User?>(
+          stream: _user,
+          initialData: _user == null ? null : FirebaseAuth.instance.currentUser,
+          builder: (context, snapshot) => Text(
+            'Hello, ${_nameOf(snapshot.data)}!',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            ),
           ),
         ),
         const SizedBox(height: 5),

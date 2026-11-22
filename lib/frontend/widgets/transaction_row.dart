@@ -29,8 +29,8 @@ String loanIconAsset(AppTransaction transaction) =>
 /// is a transfer. The word belongs to the transaction, so both wallets in a
 /// transfer read it the same way.
 ///
-/// A goal movement carries its word in the title instead, "Deposit to
-/// Laptop" and the like, and no sign: no money left the wallet.
+/// A goal movement gets no word or sign here: the row names its Deposit,
+/// Withdrawal or Transfer itself, and no money left the wallet.
 ({String label, String sign}) transactionDirection(
   AppTransaction transaction,
   List<Wallet> wallets,
@@ -100,25 +100,31 @@ class TransactionRow extends StatelessWidget {
       (settings) => settings.amountsMasked,
     );
 
+    final wallet = walletNameFor(wallets, t.walletId);
+    final goalName = t.note ?? 'Goal';
+    // A goal reads like a transfer, with the goal as the other account:
+    // "Cash → Laptop" into it, "Laptop → Cash" out of it.
     final title = switch (t.type) {
       TransactionType.transfer =>
-        '${walletNameFor(wallets, t.walletId)} → '
-            '${walletNameFor(wallets, t.toWalletId)}',
-      // The goal reads as an account: Deposit, Withdrawal or Transfer, by
-      // whether the money is in cash on hand or in a bank or e-wallet.
+        '$wallet → ${walletNameFor(wallets, t.toWalletId)}',
       TransactionType.goal =>
-        '${movementDirection(t, wallets)!.label} '
-            '${t.isGoalWithdrawal ? 'from' : 'to'} ${t.note ?? 'a goal'}',
+        t.isGoalWithdrawal ? '$goalName → $wallet' : '$wallet → $goalName',
       _ => t.title,
     };
 
     final details = [
-      if (direction.label.isNotEmpty) direction.label,
+      // A goal's word, as for a transfer: Deposit, Withdrawal or Transfer,
+      // by whether the money is in cash on hand or a bank or e-wallet.
+      if (t.isGoalMovement)
+        movementDirection(t, wallets)!.label
+      else if (direction.label.isNotEmpty)
+        direction.label,
       // Then the time, so a run of rows can be scanned down when someone is
       // looking for "the one around seven".
       ?formatTransactionTime(t.date),
-      if (t.type != TransactionType.transfer)
-        t.isLegacy ? 'Before wallets' : walletNameFor(wallets, t.walletId),
+      // A transfer or goal row already names its wallet in the title.
+      if (t.type != TransactionType.transfer && !t.isGoalMovement)
+        t.isLegacy ? 'Before wallets' : wallet,
       if (t.isBillPayment) 'Bill payment',
       // What this installment payment cost in interest, as Reports counts it.
       if (t.interest > 0) '${formatPeso(t.interest, masked: masked)} interest',

@@ -106,25 +106,50 @@ class _RemindersScreenState extends State<RemindersScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
             children: [
+              // The phone's side of it together: on or off, and a test that
+              // shows notifications really arrive.
               _Card(
-                child: SwitchListTile(
-                  value: on,
-                  onChanged: _setEnabled,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Reminders on this phone',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: const Text(
-                    'They work offline. Nothing is sent anywhere.',
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SwitchListTile(
+                      value: on,
+                      onChanged: _setEnabled,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Allow reminders',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text(
+                        'Works offline. Nothing leaves your phone.',
+                      ),
+                    ),
+                    // A solid blue button, so it reads as something to tap.
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _sendTest,
+                          style: openButtonStyle(height: 46),
+                          icon: const Icon(
+                            Icons.notifications_active_outlined,
+                            size: 20,
+                          ),
+                          label: const Text(
+                            'Send a test reminder',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 24),
-              _Heading(
-                'What should we remind you about most?',
-                'The higher it is, the more reminders it gets: #1 gets 4, '
-                    '#2 gets 3 and #3 gets 2.',
+              const _Heading(
+                'What matters most to you?',
+                'Higher on the list gets more reminders.',
               ),
               _Card(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -145,25 +170,30 @@ class _RemindersScreenState extends State<RemindersScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              const _Heading('Reminders', null),
-              for (final kind in ReminderKind.values) ...[
-                _KindCard(
-                  kind: kind,
-                  settings: settings,
-                  enabled: on,
-                  // Every reminder starts on, so turning one back on just
-                  // clears the choice and it follows the ranking again.
-                  onChanged: (value) =>
-                      widget.onSetKind(kind, value ? null : false),
+              const _Heading('When they come', null),
+              // One card, as in Settings, so four reminders read as one list.
+              Opacity(
+                opacity: on ? 1 : 0.5,
+                child: _Card(
+                  child: Column(
+                    children: [
+                      for (final (index, kind)
+                          in ReminderKind.values.indexed) ...[
+                        if (index > 0) Divider(height: 1, color: colors.border),
+                        _KindRow(
+                          kind: kind,
+                          settings: settings,
+                          enabled: on,
+                          // Every reminder starts on, so turning one back on
+                          // just clears the choice and it follows the
+                          // ranking again.
+                          onChanged: (value) =>
+                              widget.onSetKind(kind, value ? null : false),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 10),
-              ],
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: _sendTest,
-                style: confirmButtonStyle(),
-                icon: const Icon(Icons.notifications_active_outlined),
-                label: const Text('Send a Test Reminder'),
               ),
             ],
           );
@@ -257,23 +287,35 @@ class _PriorityRow extends StatelessWidget {
       padding: const EdgeInsets.only(left: 16, right: 4),
       child: Row(
         children: [
-          SizedBox(
-            width: 22,
+          // The rank in a round badge, so the order reads at a glance.
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.primaryTint,
+              shape: BoxShape.circle,
+            ),
             child: Text(
               '$rank',
               style: TextStyle(
+                fontSize: 13,
                 fontWeight: FontWeight.bold,
                 color: colors.primaryText,
               ),
             ),
           ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   priority.label,
-                  style: TextStyle(color: colors.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
                 ),
                 Text(
                   reminderCountText(rank),
@@ -298,8 +340,8 @@ class _PriorityRow extends StatelessWidget {
   }
 }
 
-class _KindCard extends StatelessWidget {
-  const _KindCard({
+class _KindRow extends StatelessWidget {
+  const _KindRow({
     required this.kind,
     required this.settings,
     required this.enabled,
@@ -320,18 +362,14 @@ class _KindCard extends StatelessWidget {
     ReminderKind.interest => 'Interest paid',
   };
 
-  /// Why it gets what it gets: its place in the ranking, or for interest,
-  /// why it always comes.
-  String get _why {
-    if (!settings.isOn(kind)) return "Turned off. You won't get these.";
+  /// Why it gets what it gets, in a few words: its place in the ranking
+  /// above, or that interest follows no ranking.
+  String get _badge {
+    if (!settings.isOn(kind)) return 'Off';
     final priority = ReminderSettings.priorityFor(kind);
-    if (priority == null) {
-      return 'Not ranked: when an account pays interest, and each January '
-          'for your installments.';
-    }
+    if (priority == null) return 'Not ranked';
     final rank = settings.rankOf(priority) + 1;
-    return '"${priority.label}" is #$rank for you: '
-        '${reminderCountText(rank).toLowerCase()}.';
+    return '#$rank · ${reminderCountText(rank)}';
   }
 
   @override
@@ -339,30 +377,41 @@ class _KindCard extends StatelessWidget {
     final colors = context.appColors;
     final isOn = settings.isOn(kind);
 
-    return Opacity(
-      opacity: enabled ? 1 : 0.5,
-      child: _Card(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SwitchListTile(
-              value: isOn,
-              onChanged: enabled ? onChanged : null,
-              contentPadding: EdgeInsets.zero,
-              title: Text(
-                titleOf(kind),
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(reminderTimingText(kind, settings.timesFor(kind))),
+    return SwitchListTile(
+      value: isOn,
+      onChanged: enabled ? onChanged : null,
+      contentPadding: EdgeInsets.zero,
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              titleOf(kind),
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            Padding(
-              padding: const EdgeInsets.only(top: 2, bottom: 12),
-              child: Text(
-                _why,
-                style: TextStyle(fontSize: 12, color: colors.textBody),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: isOn ? colors.primaryTint : colors.track,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              _badge,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isOn ? colors.primaryText : colors.textMuted,
               ),
             ),
-          ],
+          ),
+        ],
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          reminderTimingText(kind, settings.timesFor(kind)),
+          style: TextStyle(fontSize: 13, height: 1.35, color: colors.textBody),
         ),
       ),
     );

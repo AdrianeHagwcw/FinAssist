@@ -10619,7 +10619,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const Key('goal-funding-bpi')), '3800');
       await tester.pump();
-      expect(find.text('Still to save'), findsOneWidget);
+      expect(find.text('To go after this'), findsOneWidget);
       await tester.tap(find.text('Set Aside'));
       await tester.pumpAndSettle();
 
@@ -12646,9 +12646,9 @@ void main() {
       await enterFunding(tester, 'bpi', '5000');
       await enterFunding(tester, 'gcash', '3000');
 
-      expect(find.text('Total set aside'), findsOneWidget);
+      expect(find.text('Adding now'), findsOneWidget);
       expect(find.text('₱10,000'), findsWidgets);
-      expect(find.text('Still to save'), findsOneWidget);
+      expect(find.text('To go after this'), findsOneWidget);
       expect(find.text('₱0'), findsOneWidget);
       // Only BPI has a rate: ₱5,000 × 3% = ₱150. Cash earns nothing and
       // GCash has no rate, so neither adds to the guess.
@@ -12728,7 +12728,7 @@ void main() {
 
       await choose(tester, 'Both');
       expect(
-        find.text('Bank · ₱8,000 balance · ₱2,000 available'),
+        find.text('Bank · ₱2,000 available · ₱6,000 set aside for goals'),
         findsOneWidget,
       );
       await enterFunding(tester, 'cash', '1000');
@@ -12886,7 +12886,7 @@ void main() {
       );
       // Nothing is totalled from an amount that is not there: the total
       // waits, and the plan does not call the goal reached.
-      expect(find.text('Total set aside'), findsNothing);
+      expect(find.text('Adding now'), findsNothing);
       expect(find.textContaining('Fix the amount in red'), findsOneWidget);
       expect(
         find.text('Already reached with what you have saved.'),
@@ -12896,7 +12896,7 @@ void main() {
       await enterFunding(tester, 'bpi', '2000');
       expect(find.textContaining('free to set aside'), findsNothing);
       expect(find.textContaining('Fix the amount in red'), findsNothing);
-      expect(find.text('Total set aside'), findsOneWidget);
+      expect(find.text('Adding now'), findsOneWidget);
 
       await enterFunding(tester, 'gcash', '5000');
       expect(
@@ -16064,22 +16064,16 @@ void main() {
       ) async {
         await pumpScreen(tester, data: profile(order));
 
+        // Each reminder's badge names its place in the ranking.
+        expect(find.text('#2 · 3 reminders'), findsOneWidget);
+        expect(find.text('#3 · 2 reminders'), findsOneWidget);
+        expect(find.text('Not ranked'), findsOneWidget);
+        // Each row says when, for the count it gets.
         expect(
-          find.text('"Save toward a goal" is #2 for you: 3 reminders.'),
+          find.text('On the due day, and 1, 3 and 7 days before · 9 AM'),
           findsOneWidget,
         );
-        expect(
-          find.text('"Just track my spending" is #3 for you: 2 reminders.'),
-          findsOneWidget,
-        );
-        // Each card says when, for the count it gets.
-        expect(
-          find.text(
-            '7 days, 3 days and 1 day before, and on the due day, at 9 AM.',
-          ),
-          findsOneWidget,
-        );
-        expect(find.text('Wednesday and Sunday at 8 PM.'), findsOneWidget);
+        expect(find.text('Wednesday and Sunday · 8 PM'), findsOneWidget);
         // Each rank shows what it is worth; no separate days-before choice.
         expect(find.text('4 reminders'), findsOneWidget);
         expect(find.text('2 reminders'), findsOneWidget);
@@ -16115,7 +16109,7 @@ void main() {
           onKind: (kind, on) => calls.add('${kind.name}=$on'),
         );
 
-        expect(find.text("Turned off. You won't get these."), findsOneWidget);
+        expect(find.text('Off'), findsOneWidget);
 
         final switches = find.byType(Switch);
         // Master, bills, goals, logging, interest.
@@ -16209,6 +16203,23 @@ void main() {
       expect(
         tester.getTopLeft(find.text('Take money out')).dy,
         tester.getTopLeft(find.text('Goal Deposit')).dy,
+      );
+
+      // Deleting names each row it adds as Transactions will: a Withdrawal
+      // for the cash on hand, a Transfer for the e-wallet.
+      await tester.tap(find.byTooltip('Goal options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete goal'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Its history is removed and the ₱2,500 set aside becomes spendable '
+          'again. In Transactions it shows as a Withdrawal from Laptop for '
+          'the ₱1,000 in Cash on Hand, and a Transfer from Laptop for the '
+          '₱1,500 in Cash in Bank. No wallet balance changes, because that '
+          'money never left your wallets.',
+        ),
+        findsOneWidget,
       );
     });
 

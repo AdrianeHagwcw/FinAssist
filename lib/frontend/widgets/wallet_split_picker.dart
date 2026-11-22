@@ -1046,6 +1046,7 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     }
 
     final room = _room(wallet);
+    final held = goalMoneyInWallet(widget.goals, wallet.id);
     final arriving = widget.adding[wallet.id] ?? 0;
     final ready = wallet.readyOn(DateTime.now());
     return [
@@ -1057,6 +1058,10 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
                   '${formatPeso(arriving)} coming in'
             : (room - wallet.balance).abs() < 0.005
             ? '$kind · ${formatPeso(room)} available'
+            // Less than the balance only because goals hold the rest: say so.
+            : (wallet.balance - room - held).abs() < 0.005
+            ? '$kind · ${formatPeso(room)} available · ${formatPeso(held)} '
+                  'set aside for goals'
             : '$kind · ${formatPeso(wallet.balance)} balance · '
                   '${formatPeso(room)} available',
         style: note,
@@ -1499,9 +1504,11 @@ class _WalletSplitPickerState extends State<WalletSplitPicker> {
     }
 
     return _summaryBox([
-      _summaryRow('Total set aside', formatPeso(total), bold: true),
+      // "Now" and "after this", so neither reads as the goal's own total
+      // or clashes with what it needed before.
+      _summaryRow('Adding now', formatPeso(total), bold: true),
       if (widget.target > 0)
-        _summaryRow('Still to save', formatPeso(left > 0 ? left : 0)),
+        _summaryRow('To go after this', formatPeso(left > 0 ? left : 0)),
       if (widget.target > 0 && left < -0.005)
         Padding(
           padding: const EdgeInsets.only(bottom: 4),

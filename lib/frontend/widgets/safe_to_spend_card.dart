@@ -245,29 +245,18 @@ class _SafeToSpendCardState extends State<SafeToSpendCard> {
     required List<AppTransaction> transactions,
   }) {
     final now = _now;
-    final period = payPeriodFor(null, now: now);
-    // The moment today began in the Philippines.
-    final startOfToday = philippineDayStart(now);
-    final kinds = _planIsLoan;
-    final split = kinds == null
-        ? null
-        : splitBillsDue(_bills, period.end, kinds);
 
     return SafeToSpendInputs(
-      safeToSpend: SafeToSpend(
-        walletBalance: totalWalletBalance(wallets),
-        billsDue: billsDueBefore(_bills, period.end),
-        installmentsDue: split?.installments,
-        debtsDue: split?.debts,
+      // The same working Add Expense uses for its heads-up.
+      safeToSpend: safeToSpendFrom(
+        wallets: wallets,
+        transactions: transactions,
+        bills: _bills,
+        goals: _goalsData,
+        now: now,
+        planIsLoan: _planIsLoan,
         billsUnknown: _billsReadFailed && !_billsLoadedOnce,
         billsOutOfDate: _billsReadFailed && _billsLoadedOnce,
-        goalSavings: totalSetAsideInSpendingWallets(_goalsData, wallets),
-        spentToday: discretionarySpending(
-          transactions,
-          from: startOfToday,
-          until: startOfToday.add(const Duration(days: 1)),
-        ),
-        daysLeft: period.daysLeft(now),
       ),
       wallets: wallets,
       bills: _bills,

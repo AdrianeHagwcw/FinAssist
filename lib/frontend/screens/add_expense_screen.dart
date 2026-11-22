@@ -5,9 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../backend/models/app_transaction.dart';
+import '../../backend/models/bill.dart';
 import '../../backend/models/expense_guess.dart';
 import '../../backend/models/goal.dart';
+import '../../backend/models/safe_to_spend.dart';
 import '../../backend/models/wallet.dart';
+import '../../backend/services/allocation_service.dart';
 import '../../backend/services/goal_service.dart';
 import '../../backend/services/wallet_service.dart';
 import '../utils/category_options.dart';
@@ -20,6 +23,7 @@ import '../widgets/dialog_kit.dart';
 import '../widgets/wallet_split_picker.dart';
 import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
+import '../../backend/utils/ph_time.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   // =========================================================
@@ -43,11 +47,18 @@ class AddExpenseScreen extends StatefulWidget {
   /// by tests.
   final Stream<List<Goal>>? goals;
 
+  /// Replace the live transactions and bills, read for today's Safe to
+  /// Spend. Used by tests.
+  final Stream<List<AppTransaction>>? transactions;
+  final Future<List<BillInstance>> Function()? loadBills;
+
   const AddExpenseScreen({
     super.key,
 
     this.wallets,
     this.goals,
+    this.transactions,
+    this.loadBills,
 
     this.documentId,
     this.initialAmount,
@@ -95,6 +106,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
   /// free to spend.
   List<Goal> _goals = const [];
   StreamSubscription<List<Goal>>? _goalsSubscription;
+
+  /// What today's Safe to Spend is worked out from, as on Home. Bills are
+  /// null until read, and no heads-up shows before then.
+  List<AppTransaction> _transactions = const [];
+  StreamSubscription<List<AppTransaction>>? _transactionsSubscription;
+  List<BillInstance>? _bills;
 
   DateTime _selectedDate = DateTime.now();
 
@@ -165,6 +182,33 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
             .listen((goals) {
               if (mounted) setState(() => _goals = goals);
             }, onError: (Object _) {});
+
+    // Recorded expenses are read-only, so only a new one needs these.
+    if (!_isEditMode) {
+      // Tests that hand in wallets have no records behind them.
+      final testing = widget.wallets != null;
+      _transactionsSubscription =
+          (widget.transactions ??
+                  (testing
+                      ? Stream.value(const <AppTransaction>[])
+                      : WalletService.watchTransactions()))
+              .listen((transactions) {
+                if (mounted) setState(() => _transactions = transactions);
+              }, onError: (Object _) {});
+      final loadBills =
+          widget.loadBills ??
+          (testing
+              ? () async => const <BillInstance>[]
+              : () => AllocationService.loadOutstandingBills(
+                  now: philippineNow(),
+                ));
+      // Unreadable bills count as none, as on Home's card.
+      loadBills().catchError((Object _) => const <BillInstance>[]).then((
+        bills,
+      ) {
+        if (mounted) setState(() => _bills = bills);
+      });
+    }
   }
 
   // =========================================================
@@ -175,6 +219,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
   void dispose() {
     _walletsSubscription?.cancel();
     _goalsSubscription?.cancel();
+    _transactionsSubscription?.cancel();
     _amountController.dispose();
     _descriptionController.dispose();
 
@@ -220,6 +265,51 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
       goals: _goals,
       target: _amount,
       matchTarget: true,
+    );
+  }
+
+  /// What this expense does to today's Safe to Spend, worked out the way
+  /// Home does, as it is typed. Only a heads-up: saving still works.
+  ({String text, bool usesBillMoney})? get _headsUp {
+    final bills = _bills;
+    if (_isEditMode || bills == null || _paidFrom.isEmpty) return null;
+    if (_amountProblem != null || _walletProblem != null) return null;
+
+    final now = philippineNow();
+    final startOfToday = philippineDayStart(now);
+    // Savings wallets are not in Safe to Spend, so paying from one changes
+    // only what was spent.
+    final counted = {
+      for (final wallet in _wallets)
+        if (!wallet.archived && !wallet.isSetAside) wallet.id,
+    };
+    final fromSpendingWallets = _paidFrom.entries
+        .where((entry) => counted.contains(entry.key))
+        .fold<double>(0, (total, entry) => total + entry.value);
+
+    return expenseHeadsUp(
+      safeToSpendFrom(
+        wallets: _wallets,
+        transactions: _transactions,
+        bills: bills,
+        goals: _goals,
+        now: now,
+      ),
+      fromSpendingWallets: fromSpendingWallets,
+      // Counted as today's spending by the same rule Home uses.
+      addedToToday: discretionarySpending(
+        [
+          AppTransaction(
+            id: '',
+            type: TransactionType.expense,
+            amount: _amount,
+            label: _selectedCategory ?? '',
+            date: _selectedDate,
+          ),
+        ],
+        from: startOfToday,
+        until: startOfToday.add(const Duration(days: 1)),
+      ),
     );
   }
 
@@ -603,6 +693,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
                         ),
                       ),
                     ],
+                    if (_headsUp case final headsUp?)
+                      _HeadsUp(
+                        text: headsUp.text,
+                        serious: headsUp.usesBillMoney,
+                      ),
                   ],
 
                   const SizedBox(height: 16),
@@ -673,6 +768,48 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
             const SizedBox(height: 20),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A heads-up under Paid from: red when it uses money needed for bills,
+/// amber when it only goes past today's safe amount. Saving still works.
+class _HeadsUp extends StatelessWidget {
+  const _HeadsUp({required this.text, required this.serious});
+
+  final String text;
+  final bool serious;
+
+  @override
+  Widget build(BuildContext context) {
+    // The amber Goals uses for "getting started", readable in both modes.
+    final color = serious
+        ? dangerColorOn(context)
+        : context.isDarkMode
+        ? const Color(0xFFF59E0B)
+        : const Color(0xFFB45309);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 18, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              key: const Key('expense-heads-up'),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: color,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

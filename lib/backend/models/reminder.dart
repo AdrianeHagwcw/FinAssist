@@ -141,30 +141,32 @@ const Map<int, List<int>> logReminderWeekdays = {
 /// When a reminder comes, in plain words, for [times] reminders.
 String reminderTimingText(ReminderKind kind, int times) {
   return switch (kind) {
+    // Short, with the hour last: the days are what differ between ranks.
     ReminderKind.bills => switch (times) {
-      4 => '7 days, 3 days and 1 day before, and on the due day, at 9 AM.',
-      3 => '3 days and 1 day before, and on the due day, at 9 AM.',
-      2 => '1 day before and on the due day, at 9 AM.',
-      _ => 'On the due day, at 9 AM.',
+      4 => 'On the due day, and 1, 3 and 7 days before · 9 AM',
+      3 => 'On the due day, and 1 and 3 days before · 9 AM',
+      2 => 'On the due day and the day before · 9 AM',
+      _ => 'On the due day · 9 AM',
     },
+    // The ones after a saving day only come while it is not saved yet.
     ReminderKind.goals => switch (times) {
       4 =>
-        'The day before each saving day, on it, then 1 and 3 days after '
-            "if you haven't saved.",
-      3 => "On each saving day, then 1 and 3 days after if you haven't saved.",
-      2 => "On each saving day, then 3 days after if you haven't saved.",
-      _ => 'On each saving day, at 9 AM.',
+        'The day before and on each saving day, then 1 and 3 days after '
+            'if not saved yet · 9 AM',
+      3 =>
+        'On each saving day, then 1 and 3 days after if not saved yet · 9 AM',
+      2 => 'On each saving day, then 3 days after if not saved yet · 9 AM',
+      _ => 'On each saving day · 9 AM',
     },
     ReminderKind.dailyLog => switch (times) {
-      4 => 'Monday, Wednesday, Friday and Sunday at 8 PM.',
-      3 => 'Tuesday, Thursday and Sunday at 8 PM.',
-      2 => 'Wednesday and Sunday at 8 PM.',
-      _ => 'Sundays at 8 PM.',
+      4 => 'Monday, Wednesday, Friday and Sunday · 8 PM',
+      3 => 'Tuesday, Thursday and Sunday · 8 PM',
+      2 => 'Wednesday and Sunday · 8 PM',
+      _ => 'Sundays · 8 PM',
     },
     ReminderKind.interest =>
-      'On the 1st after each account pays interest, at 9 AM. Skipped if you '
-          'already added it. Each January 1, the interest your debts cost the '
-          'year before.',
+      'The 1st after an account pays interest, unless you added it · 9 AM\n'
+          'Every January 1: the interest your debts cost last year',
   };
 }
 

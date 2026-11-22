@@ -58,7 +58,7 @@ void main() {
       expect(
         header,
         'Date,Time,Type,Category / Source,Amount,Interest Included,Wallet,'
-        'To Wallet,Note,Tag',
+        'To Wallet,Tag',
       );
       expect(header.split(',').length, csvColumns.length);
     });
@@ -76,7 +76,7 @@ void main() {
 
       expect(
         rowsOf(csv).last,
-        '2026-01-07,09:05,Outflow,Food,1234.50,,Cash,,,Regular',
+        '2026-01-07,09:05,Outflow,Food,1234.50,,Cash,,Regular',
       );
     });
 
@@ -275,14 +275,33 @@ void main() {
       expect(rowsOf(csv)[2], contains(',Outflow,Food,'));
     });
 
-    test('names a goal movement in its own words', () {
-      final csv = buildTransactionCsv([
-        entry(type: TransactionType.goal, label: goalDepositLabel),
-        entry(id: 't2', type: TransactionType.goal, label: goalWithdrawalLabel),
-      ]);
+    test('names a goal movement as the app lists it, wallet to goal', () {
+      AppTransaction goalRow(String id, String label, String walletId) => entry(
+        id: id,
+        type: TransactionType.goal,
+        label: label,
+        walletId: walletId,
+        note: 'Laptop',
+      );
+      final rows = rowsOf(
+        buildTransactionCsv(
+          [
+            goalRow('t1', goalDepositLabel, 'w1'),
+            goalRow('t2', goalWithdrawalLabel, 'w1'),
+            goalRow('t3', goalDepositLabel, 'w3'),
+            goalRow('t4', goalWithdrawalLabel, 'w3'),
+          ],
+          walletNames: walletNames,
+          walletTypes: walletTypes,
+        ),
+      );
 
-      expect(rowsOf(csv)[1], contains(',Goal,Goal Deposit,'));
-      expect(rowsOf(csv)[2], contains(',Goal,Goal Withdrawal,'));
+      // Cash on hand in or out is a Deposit or Withdrawal, a bank either way
+      // a Transfer; the goal sits on the other side.
+      expect(rows[1], endsWith(',Deposit,Goal,120.00,,Cash,Laptop,Regular'));
+      expect(rows[2], endsWith(',Withdrawal,Goal,120.00,,Laptop,Cash,Regular'));
+      expect(rows[3], endsWith(',Transfer,Goal,120.00,,BPI,Laptop,Regular'));
+      expect(rows[4], endsWith(',Transfer,Goal,120.00,,Laptop,BPI,Regular'));
     });
 
     test('shows how much of a payment was interest', () {
@@ -306,7 +325,7 @@ void main() {
 
     test('keeps Filipino characters as they were typed', () {
       final csv = buildTransactionCsv([
-        entry(label: 'Pagkain', note: 'Baon ni Iñigo, ₱50 sukli'),
+        entry(label: 'Baon ni Iñigo, ₱50 sukli'),
       ]);
 
       expect(csv, contains('Baon ni Iñigo'));
@@ -315,33 +334,33 @@ void main() {
   });
 
   group('cells that could break the file', () {
-    test('a note with a comma stays one cell', () {
-      final csv = buildTransactionCsv([entry(note: 'Rice, eggs and milk')]);
+    test('a typed name with a comma stays one cell', () {
+      final csv = buildTransactionCsv([entry(label: 'Rice, eggs and milk')]);
 
       expect(csv, contains('"Rice, eggs and milk"'));
       expect(rowsOf(csv).length, 2);
     });
 
-    test('quotes in a note are doubled inside the quoted cell', () {
-      final csv = buildTransactionCsv([entry(note: 'Said "sale" today')]);
+    test('quotes in a typed name are doubled inside the quoted cell', () {
+      final csv = buildTransactionCsv([entry(label: 'Said "sale" today')]);
 
       expect(csv, contains('"Said ""sale"" today"'));
     });
 
-    test('a note written on two lines stays in its own row', () {
-      final csv = buildTransactionCsv([entry(note: 'Lunch\nwith Ana')]);
+    test('a typed name on two lines stays in its own row', () {
+      final csv = buildTransactionCsv([entry(label: 'Lunch\nwith Ana')]);
 
       expect(csv, contains('"Lunch\nwith Ana"'));
       // The line break inside the quotes is not a new record.
       expect(rowsOf(csv).length, 2);
     });
 
-    test('a note that looks like a formula is not run as one', () {
+    test('a typed name that looks like a formula is not run as one', () {
       final csv = buildTransactionCsv([
-        entry(note: '=SUM(A1:A9)'),
-        entry(note: '+63 917 123 4567'),
-        entry(note: '-50 refund'),
-        entry(note: '@everyone'),
+        entry(label: '=SUM(A1:A9)'),
+        entry(label: '+63 917 123 4567'),
+        entry(label: '-50 refund'),
+        entry(label: '@everyone'),
       ]);
 
       expect(csv, contains("'=SUM(A1:A9)"));

@@ -144,10 +144,11 @@ void main() {
       );
       await tester.pump();
 
-      // Cash on hand into a goal reads as a deposit.
-      expect(find.text('Deposit to Vacation'), findsOneWidget);
-      // Not "Cash on Hand → Cash on Hand", and no + or -: nothing moved.
-      expect(find.textContaining('→'), findsNothing);
+      // Read like a transfer, with the goal as the other account; cash on
+      // hand into a goal is a deposit.
+      expect(find.text('Cash on Hand → Vacation'), findsOneWidget);
+      expect(find.textContaining('Deposit ·'), findsOneWidget);
+      // No + or -: nothing moved.
       expect(find.text('₱1,500'), findsOneWidget);
       // The wallet and the goal it belongs to are still nameable.
       expect(find.textContaining('Cash on Hand'), findsOneWidget);
@@ -212,11 +213,11 @@ void main() {
     );
 
     testWidgets('the row says which, to or from the goal', (tester) async {
-      for (final (transaction, words) in [
-        (deposit(), 'Deposit to Vacation'),
-        (withdrawal(), 'Withdrawal from Vacation'),
-        (from(deposit(), 'maya'), 'Transfer to Vacation'),
-        (from(withdrawal(), 'maya'), 'Transfer from Vacation'),
+      for (final (transaction, title, word) in [
+        (deposit(), 'Cash on Hand → Vacation', 'Deposit'),
+        (withdrawal(), 'Vacation → Cash on Hand', 'Withdrawal'),
+        (from(deposit(), 'maya'), 'Maya → Vacation', 'Transfer'),
+        (from(withdrawal(), 'maya'), 'Vacation → Maya', 'Transfer'),
       ]) {
         await tester.pumpWidget(
           ChangeNotifierProvider(
@@ -232,7 +233,8 @@ void main() {
             ),
           ),
         );
-        expect(find.text(words), findsOneWidget);
+        expect(find.text(title), findsOneWidget);
+        expect(find.textContaining('$word ·'), findsOneWidget);
       }
     });
 

@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:testapp/backend/models/allocation.dart';
 import 'package:testapp/backend/models/app_transaction.dart';
+import 'package:testapp/backend/models/bill.dart';
 import 'package:testapp/backend/models/expense_category_preferences.dart';
 import 'package:testapp/backend/models/goal.dart';
 import 'package:testapp/backend/models/wallet.dart';
@@ -472,6 +473,57 @@ void main() {
     expect(find.byType(AddExpenseScreen), findsOneWidget);
     // The amount, grouped as typed, and the wallet's own box.
     expect(find.text('7,000'), findsWidgets);
+  });
+
+  testWidgets('an expense that uses bill money says so, and still saves', (
+    tester,
+  ) async {
+    const cash = Wallet(
+      id: 'cash',
+      name: 'Cash',
+      type: WalletType.cash,
+      balance: 10000,
+      startingBalance: 10000,
+      receivesIncome: true,
+      archived: false,
+      sortOrder: 0,
+    );
+    // ₱8,000 of rent due today: only ₱2,000 is free of bills.
+    final rent = BillInstance(
+      id: 'rent_1',
+      billId: 'rent',
+      name: 'Rent',
+      amount: 8000,
+      category: 'Housing',
+      dueDate: DateTime.now(),
+      status: BillStatus.unpaid,
+    );
+    await pumpScreen(
+      tester,
+      AddExpenseScreen(
+        wallets: Stream.value([cash]),
+        transactions: Stream.value(const []),
+        loadBills: () async => [rent],
+      ),
+    );
+    await tester.pump();
+
+    Finder field(String hint) =>
+        find.ancestor(of: find.text(hint), matching: find.byType(TextField));
+    await tester.enterText(field('0.00'), '3000');
+    await tester.enterText(field('What did you spend money on?'), 'Groceries');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Cash on Hand'));
+    await tester.tap(find.text('Cash on Hand'));
+    await tester.pumpAndSettle();
+
+    // ₱3,000 against ₱2,000 free: ₱1,000 of it is rent money. A heads-up,
+    // not an error, so Save Expense is still the way on.
+    expect(
+      find.text('This uses ₱1,000 you need for bills this month.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('expense-paid-from-error')), findsNothing);
   });
 
   testWidgets('goal money is not spent, and amounts are what is free', (

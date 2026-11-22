@@ -58,7 +58,6 @@ const List<CsvColumn> csvColumns = [
   CsvColumn('Interest Included', _interest, isText: false),
   CsvColumn('Wallet', _wallet),
   CsvColumn('To Wallet', _toWallet),
-  CsvColumn('Note', _note),
   CsvColumn('Tag', _tag),
 ];
 
@@ -79,21 +78,21 @@ String _time(AppTransaction entry, CsvLookups lookups) {
 String _type(AppTransaction entry, CsvLookups lookups) => switch (entry.type) {
   TransactionType.income => 'Inflow',
   TransactionType.expense => 'Outflow',
-  // A goal row's own words say what it was: "Goal Deposit" or
-  // "Goal Withdrawal". The label column carries them.
-  TransactionType.goal => entry.type.flowLabel,
+  // A goal reads as the other account, as in the app's list: Deposit or
+  // Withdrawal for cash on hand, Transfer for a bank or e-wallet.
+  TransactionType.goal => TransferDirection.forGoal(
+    wallet: _walletOf(entry.walletId, lookups),
+    intoGoal: !entry.isGoalWithdrawal,
+  ).label,
   TransactionType.transfer => TransferDirection.betweenWallets(
-    from:
-        lookups.walletRecords[entry.walletId] ??
-        _walletFromType(lookups.walletTypes[entry.walletId], entry.walletId),
-    to:
-        lookups.walletRecords[entry.toWalletId] ??
-        _walletFromType(
-          lookups.walletTypes[entry.toWalletId],
-          entry.toWalletId,
-        ),
+    from: _walletOf(entry.walletId, lookups),
+    to: _walletOf(entry.toWalletId, lookups),
   ).label,
 };
+
+/// The wallet behind [id]: its full record, or one made from its kind.
+Wallet? _walletOf(String? id, CsvLookups lookups) =>
+    lookups.walletRecords[id] ?? _walletFromType(lookups.walletTypes[id], id);
 
 Wallet? _walletFromType(WalletType? type, String? id) =>
     type == null || id == null
@@ -109,7 +108,9 @@ Wallet? _walletFromType(WalletType? type, String? id) =>
         sortOrder: 0,
       );
 
-String _label(AppTransaction entry, CsvLookups lookups) => entry.label;
+/// A goal row says "Goal": its direction is in Type, as a transfer's is.
+String _label(AppTransaction entry, CsvLookups lookups) =>
+    entry.isGoalMovement ? 'Goal' : entry.label;
 
 /// A plain number, so a spreadsheet can add the column up. The peso sign and
 /// the thousands separators the app shows would both get in the way.
@@ -124,13 +125,22 @@ String _interest(AppTransaction entry, CsvLookups lookups) =>
     ? entry.interest.clamp(0.0, entry.amount).toStringAsFixed(2)
     : '';
 
+/// The goal's name, kept in a goal row's note.
+String _goalName(AppTransaction entry) => entry.note ?? 'Goal';
+
+/// Where the money came from. A goal row reads like the app's "Cash →
+/// Laptop" or "Laptop → Cash", with the goal as the other account.
 String _wallet(AppTransaction entry, CsvLookups lookups) =>
-    lookups.walletNames[entry.walletId] ?? '';
+    entry.isGoalWithdrawal
+    ? _goalName(entry)
+    : lookups.walletNames[entry.walletId] ?? '';
 
 String _toWallet(AppTransaction entry, CsvLookups lookups) =>
-    lookups.walletNames[entry.toWalletId] ?? '';
-
-String _note(AppTransaction entry, CsvLookups lookups) => entry.note ?? '';
+    !entry.isGoalMovement
+    ? lookups.walletNames[entry.toWalletId] ?? ''
+    : entry.isGoalWithdrawal
+    ? lookups.walletNames[entry.walletId] ?? ''
+    : _goalName(entry);
 
 /// What kind of record this is. The first match wins, so a bill payment
 /// brought over from the old collections still reads as an old record.
@@ -201,7 +211,7 @@ String transactionCsvFileName(DateTime exportedOn) {
 /// A cell holding a comma, a quote or a line break is wrapped in quotes, with
 /// its own quotes doubled, which is how a spreadsheet keeps the columns lined
 /// up. A text cell that starts with `=`, `+`, `-` or `@` is prefixed with an
-/// apostrophe, so a note someone typed is never run as a formula.
+/// apostrophe, so a name someone typed is never run as a formula.
 String _cell(String value, {required bool isText}) {
   var cell = value;
 

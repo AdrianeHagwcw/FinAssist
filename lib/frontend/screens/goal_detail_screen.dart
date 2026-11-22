@@ -47,19 +47,35 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   late final Stream<List<Wallet>> _wallets =
       widget.wallets ?? WalletService.watchWallets(includeArchived: true);
 
+  /// The latest wallets, for naming the delete's rows by where the money is.
+  List<Wallet> _walletList = const [];
+
+  /// What deleting [goal] does, with the rows it adds named as Transactions
+  /// shows them: out of a goal into cash on hand is a Withdrawal, into a
+  /// bank or e-wallet a Transfer.
+  String _deleteMessage(Goal goal) {
+    if (goal.setAside <= 0) return 'Its history is removed.';
+    final name = goal.name;
+    final cash = goalMoneyOnHandAndInBank([goal], _walletList).cash;
+    // Anything not in a cash wallet reads as a Transfer, as its row does.
+    final bank = goal.setAside - cash;
+    final shows = cash > 0.005 && bank > 0.005
+        ? 'In Transactions it shows as a Withdrawal from $name for the '
+              '${formatPeso(cash)} in Cash on Hand, and a Transfer from '
+              '$name for the ${formatPeso(bank)} in Cash in Bank.'
+        : 'In Transactions it shows as a '
+              '${cash > 0.005 ? 'Withdrawal' : 'Transfer'} from $name.';
+    return 'Its history is removed and the ${formatPeso(goal.setAside)} set '
+        'aside becomes spendable again. $shows No wallet balance changes, '
+        'because that money never left your wallets.';
+  }
+
   Future<void> _delete(Goal goal) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete ${goal.name}?'),
-        content: Text(
-          goal.setAside > 0
-              ? 'Its history is removed and the ${formatPeso(goal.setAside)} '
-                    'set aside becomes spendable again. It is recorded in '
-                    'Transactions as a Goal Withdrawal. No wallet balance '
-                    'changes, because that money never left your wallets.'
-              : 'Its history is removed.',
-        ),
+        content: Text(_deleteMessage(goal)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -223,6 +239,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   StreamBuilder<List<Wallet>>(
                     stream: _wallets,
                     builder: (context, walletSnapshot) {
+                      _walletList = walletSnapshot.data ?? _walletList;
                       // Whenever the goal holds money, however it got there.
                       if (goalHeldByWallet(goal).isEmpty) {
                         return const SizedBox.shrink();

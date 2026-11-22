@@ -51,30 +51,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final passwordAccount =
         currentUser?.providerData.any((p) => p.providerId == 'password') ??
         false;
+    const buttonText = TextStyle(fontSize: 16, fontWeight: FontWeight.bold);
+    // Laid out like Edit account information: icon title, a note, then
+    // full-width buttons.
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Account security'),
-        content: Text(
-          passwordAccount
-              ? 'Use a password-reset email to change your password. You will need access to ${_getUserEmail()}.'
-              : 'You sign in through Google. Manage your password and sign-in protection in your Google account.',
+        shape: dialogShape,
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        contentPadding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+        title: const DialogTitle(
+          text: 'Account security',
+          iconAsset: AppIcons.lock,
+        ),
+        content: DialogNote(
+          text: passwordAccount
+              ? 'To change your password, we send a reset link to '
+                    '${_getUserEmail()}.'
+              : 'You sign in with Google, so your password and sign-in '
+                    'security are managed in your Google account.',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            style: cancelTextStyle(context),
-            child: const Text('Close'),
-          ),
-          if (passwordAccount)
-            TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _open(ForgotPasswordScreen(initialEmail: _getUserEmail()));
-              },
-              style: openTextStyle(context),
-              child: const Text('Reset password'),
+          SizedBox(
+            width: double.infinity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (passwordAccount) ...[
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                      _open(
+                        ForgotPasswordScreen(initialEmail: _getUserEmail()),
+                      );
+                    },
+                    style: openButtonStyle(),
+                    child: const Text('Reset password', style: buttonText),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                // Grey: closing loses nothing, so it is not red.
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  style: neutralButtonStyle(context, height: 52),
+                  child: const Text('Close', style: buttonText),
+                ),
+              ],
             ),
+          ),
         ],
       ),
     );
@@ -1115,7 +1140,7 @@ class _EditAccountInformationDialogState
                     ? 'Changing your email sends a link to the new address. '
                           'It changes once you open that link.'
                     : 'You sign in with Google, so your email comes from your '
-                          'Google account. Change it there.',
+                          'Google account.',
               ),
             ],
           ),

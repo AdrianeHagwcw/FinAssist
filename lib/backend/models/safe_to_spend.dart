@@ -1,5 +1,9 @@
+import '../utils/money_format.dart';
+import '../utils/ph_time.dart';
 import 'app_transaction.dart';
 import 'bill.dart';
+import 'goal.dart';
+import 'wallet.dart';
 
 /// How long pay twice a month is meant to last, whichever day it arrives.
 const int semiMonthlyDays = 15;
@@ -356,6 +360,102 @@ class SafeToSpend {
     final fraction = spentToday / dailyLimit;
     return fraction.clamp(0.0, 1.0).toDouble();
   }
+}
+
+/// Today's Safe to Spend from the records, worked out the one way Home's
+/// card and Add Expense both use: this calendar month on the Philippine
+/// clock [now], every spending wallet, the bills still owed this month and
+/// the goal money kept in spending wallets.
+SafeToSpend safeToSpendFrom({
+  required Iterable<Wallet> wallets,
+  required Iterable<AppTransaction> transactions,
+  required Iterable<BillInstance> bills,
+  required Iterable<Goal> goals,
+  required DateTime now,
+  Map<String, bool>? planIsLoan,
+  bool billsUnknown = false,
+  bool billsOutOfDate = false,
+}) {
+  final period = payPeriodFor(null, now: now);
+  // The moment today began in the Philippines.
+  final startOfToday = philippineDayStart(now);
+  final split = planIsLoan == null
+      ? null
+      : splitBillsDue(bills, period.end, planIsLoan);
+
+  return SafeToSpend(
+    walletBalance: totalWalletBalance(wallets),
+    billsDue: billsDueBefore(bills, period.end),
+    installmentsDue: split?.installments,
+    debtsDue: split?.debts,
+    billsUnknown: billsUnknown,
+    billsOutOfDate: billsOutOfDate,
+    goalSavings: totalSetAsideInSpendingWallets(goals, wallets),
+    spentToday: discretionarySpending(
+      transactions,
+      from: startOfToday,
+      until: startOfToday.add(const Duration(days: 1)),
+    ),
+    daysLeft: period.daysLeft(now),
+  );
+}
+
+/// A heads-up before an expense is saved, or null when it fits. Never a
+/// reason to refuse it: the record has to show what was really spent.
+///
+/// [now] is Safe to Spend as it stands. [fromSpendingWallets] is the part
+/// paid from wallets it counts (not savings), and [addedToToday] the part
+/// that counts as today's spending: all of it when dated today, else none.
+/// Goal money needs no warning here, since a wallet only pays what it has
+/// free of goals.
+({String text, bool usesBillMoney})? expenseHeadsUp(
+  SafeToSpend now, {
+  required double fromSpendingWallets,
+  required double addedToToday,
+}) {
+  // Free after bills and goals, before and after this expense.
+  final freeBefore = now.walletBalance - now.billsDue - now.goalSavings;
+  final freeAfter = freeBefore - fromSpendingWallets;
+
+  // The serious case first: money already needed for this month's bills.
+  if (now.billsDue > 0.005 && freeAfter < -0.005) {
+    var fromBills = freeBefore > 0 ? -freeAfter : fromSpendingWallets;
+    if (fromBills > now.billsDue) fromBills = now.billsDue;
+    if (fromBills > 0.005) {
+      return (
+        text:
+            'This uses ${formatPeso(fromBills)} you need for bills this '
+            'month.',
+        usesBillMoney: true,
+      );
+    }
+  }
+
+  final after = SafeToSpend(
+    walletBalance: now.walletBalance - fromSpendingWallets,
+    billsDue: now.billsDue,
+    goalSavings: now.goalSavings,
+    spentToday: now.spentToday + addedToToday,
+    daysLeft: now.daysLeft,
+    periodBudget: now.periodBudget,
+    periodSpent: now.periodSpent + addedToToday,
+    periodLengthDays: now.periodLengthDays,
+  );
+  if (!after.isOverLimit || after.leftToday >= now.leftToday - 0.005) {
+    return null;
+  }
+
+  // Over today while money is still left after bills and goals, the rest of
+  // the month shares less, so tomorrow's figure is below today's. Not on
+  // the month's last day: tomorrow starts a new month.
+  final tomorrowLower = now.daysLeft > 1 && freeAfter > 0.005;
+  final over = formatPeso(-after.leftToday);
+  return (
+    text:
+        "This puts you $over over today's safe amount."
+        "${tomorrowLower ? " Tomorrow's will be lower." : ''}",
+    usesBillMoney: false,
+  );
 }
 
 DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);

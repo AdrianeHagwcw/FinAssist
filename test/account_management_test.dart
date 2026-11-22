@@ -86,7 +86,14 @@ void main() {
         ),
       );
       expect(email.enabled, isFalse);
-      expect(find.textContaining('Change it there'), findsOneWidget);
+      expect(
+        find.text(
+          'You sign in with Google, so your email comes from your Google '
+          'account.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Change it there'), findsNothing);
     });
 
     testWidgets('changing the email asks for the password, and keeps the '
