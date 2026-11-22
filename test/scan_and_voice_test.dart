@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Point;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -244,6 +245,22 @@ void main() {
       expect(find.text('Check the text'), findsOneWidget);
       expect(find.text('JOLLIBEE\nTOTAL 150.00'), findsOneWidget);
       expect(find.text('Retake'), findsOneWidget);
+      expect(find.text('Use This'), findsOneWidget);
+      // The total was read, so no retake is asked for.
+      expect(find.byKey(const Key('retake-notice')), findsNothing);
+    });
+
+    testWidgets('an unreadable total asks for a clearer photo', (tester) async {
+      // A blurred photo: the store reads, the total does not.
+      final reader = FakeReader(text: 'JOLLIBEE\nT~T#L  ~~.~~');
+      await pumpScreen(tester, OcrScreen(reader: reader));
+      await tester.tap(find.text('Take Photo'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('retake-notice')), findsOneWidget);
+      expect(find.text("Couldn't read the total"), findsOneWidget);
+      expect(find.textContaining('Retake the photo'), findsOneWidget);
+      // Still usable: the amount can be typed in the form.
       expect(find.text('Use This'), findsOneWidget);
     });
 
@@ -619,6 +636,45 @@ void main() {
         ],
       );
       expect(readingOrder(const []), isEmpty);
+    });
+
+    test('a tilted photo of a wide table still pairs labels with amounts', () {
+      // Tilted so a row drops 1 pixel for every 10 to the right: an amount
+      // 500 pixels away sits 50 pixels lower than its label, more than a
+      // line apart, and would join the next row without the tilt taken out.
+      Rect at(double left, double top) => Rect.fromLTWH(left, top, 80, 20);
+      final pieces = [
+        ('SUBTOTAL', at(10, 100)),
+        ('120.00', at(510, 150)),
+        ('VAT', at(10, 130)),
+        ('12.86', at(510, 180)),
+        ('TOTAL', at(10, 160)),
+        ('120.00', at(510, 210)),
+      ];
+
+      expect(readingOrder(pieces, slope: 0.1), [
+        'SUBTOTAL  120.00',
+        'VAT  12.86',
+        'TOTAL  120.00',
+      ]);
+      expect(readingOrder(pieces), isNot(contains('TOTAL  120.00')));
+    });
+
+    test('the tilt is the middle slope of the lines, ignoring tiny ones', () {
+      List<Point<int>> line(int x, int y, int width, int drop) => [
+        Point(x, y),
+        Point(x + width, y + drop),
+      ];
+      expect(
+        photoTilt([
+          line(0, 0, 200, 20),
+          line(0, 50, 300, 30),
+          line(0, 90, 100, 60), // one odd line does not sway it
+          line(0, 120, 10, 9), // too short to measure
+        ]),
+        0.1,
+      );
+      expect(photoTilt(const []), 0);
     });
 
     testWidgets('a blocked camera and a failed read get plain messages', (

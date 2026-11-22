@@ -225,6 +225,69 @@ AMOUNT DUE 450.00''');
       expect(guess.amount, 450);
     });
 
+    test('the amount split from its label, on the row before or after', () {
+      expect(read('STORE\nTOTAL\n150.00\nCASH 200.00').amount, 150);
+      expect(read('STORE\n150.00\nTOTAL\nCASH 200.00').amount, 150);
+      expect(read('STORE\nP 150.00\nTOTAL').amount, 150);
+    });
+
+    test('an amount run into a letter or a table border', () {
+      expect(read('TOTAL245.00').amount, 245);
+      expect(read('TOTAL  245.00V').amount, 245);
+      expect(read('TOTAL | 1,250.00 |').amount, 1250);
+      // The table's lines read as "1" on either side of the amount.
+      expect(read('TOTAL  1  1,250.00  1').amount, 1250);
+      expect(read('TOTAL  l1,250.00l').amount, 1250);
+    });
+
+    test('a label the reader misspells', () {
+      expect(read('T0TAL  99.00').amount, 99);
+      expect(read('TOTAI  99.00').amount, 99);
+      expect(read('T O T A L  99.00').amount, 99);
+      expect(read('Am0unt Due  99.00').amount, 99);
+    });
+
+    test('numbers the reader spaces out or misreads', () {
+      expect(read('TOTAL  1, 250 .00').amount, 1250);
+      expect(read('TOTAL  2O5.00').amount, 205);
+      expect(read('TOTAL  245,50').amount, 245.5);
+      // Whole pesos with no decimals still read, as on a handwritten list.
+      expect(read('Rice  50\nEggs  90\nTOTAL  140').amount, 140);
+    });
+
+    test('a smudged total falls back to the amount printed again', () {
+      final guess = read('''
+CORNER STORE
+Bread  45.00
+Milk  98.50
+SUBTOTAL  143.50
+VAT  15.38
+TOTAL  1 4 3
+GCASH  143.50''');
+      expect(guess.amount, 143.5);
+    });
+
+    test('a misread total label still finds the sum of the items', () {
+      final guess = read('''
+MINI MART
+Rice  250.00
+Eggs  120.00
+T0T4L  370.00
+CASH  500.00
+CHANGE  130.00''');
+      expect(guess.amount, 370, reason: 'the items add up to it');
+    });
+
+    test('with no total at all, the dearest item is never taken for it', () {
+      final guess = read('''
+MINI MART
+Rice  250.00
+Eggs  120.00
+CASH  500.00
+CHANGE  130.00''');
+      expect(guess.amount, isNull);
+    });
+
     test('never takes the cash or change, and no total means no amount', () {
       final guess = read('''
 STORE

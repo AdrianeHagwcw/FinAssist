@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' show Point;
 import 'dart:ui' show Rect;
 
 import 'package:flutter/foundation.dart';
@@ -34,11 +35,14 @@ class ReceiptReader {
     final result = await recognizer.processImage(
       InputImage.fromFile(File(path)),
     );
-    final pieces = [
+    final lines = [
       for (final block in result.blocks)
-        for (final line in block.lines) (line.text, line.boundingBox),
+        for (final line in block.lines) line,
     ];
-    return readingOrder(pieces).join('\n').trim();
+    return readingOrder(
+      [for (final line in lines) (line.text, line.boundingBox)],
+      slope: photoTilt([for (final line in lines) line.cornerPoints]),
+    ).join('\n').trim();
   }
 
   void close() {
@@ -52,18 +56,26 @@ class ReceiptReader {
 ///
 /// The reader groups text into blocks, so on its own it lists every item name
 /// and then every price.
+///
+/// [slope] is how far the photo is tilted: how much a printed row drops for
+/// each pixel to the right. Taken out first, so on a tilted photo a label
+/// on the left and its amount far to the right, as across a table's
+/// columns, still share a row.
 @visibleForTesting
-List<String> readingOrder(List<(String, Rect)> pieces) {
-  final byHeight = [...pieces]
-    ..sort((a, b) => a.$2.center.dy.compareTo(b.$2.center.dy));
+List<String> readingOrder(List<(String, Rect)> pieces, {double slope = 0}) {
+  // Each piece's height on the page, with the tilt taken out.
+  double level((String, Rect) piece) =>
+      piece.$2.center.dy - slope * piece.$2.center.dx;
+
+  final byHeight = [...pieces]..sort((a, b) => level(a).compareTo(level(b)));
 
   final rows = <List<(String, Rect)>>[];
   for (final piece in byHeight) {
     final row = rows.isEmpty ? null : rows.last;
-    // The same row when the middles are within half a line of each other,
-    // which also allows for a slightly tilted photo.
+    // The same row when the middles are within half a line of each other.
     if (row != null &&
-        (piece.$2.center.dy - _middle(row)).abs() <
+        (level(piece) - row.map(level).reduce((a, b) => a + b) / row.length)
+                .abs() <
             piece.$2.height.clamp(1, double.infinity) / 2) {
       row.add(piece);
     } else {
@@ -80,8 +92,23 @@ List<String> readingOrder(List<(String, Rect)> pieces) {
   ].where((line) => line.isNotEmpty).toList();
 }
 
-double _middle(List<(String, Rect)> row) =>
-    row.map((piece) => piece.$2.center.dy).reduce((a, b) => a + b) / row.length;
+/// How far a photo is tilted, from the corners the reader gives each line:
+/// the middle of the lines' slopes, so a few odd lines don't sway it. Lines
+/// too short to measure are left out; 0 when none can be.
+@visibleForTesting
+double photoTilt(List<List<Point<int>>> corners) {
+  final slopes = <double>[];
+  for (final points in corners) {
+    // Top-left, then top-right, as the reader lists them.
+    if (points.length < 2) continue;
+    final run = points[1].x - points[0].x;
+    if (run < 20) continue;
+    slopes.add((points[1].y - points[0].y) / run);
+  }
+  if (slopes.isEmpty) return 0;
+  slopes.sort();
+  return slopes[slopes.length ~/ 2];
+}
 
 /// A long receipt photographed in parts, as one text: the parts top to
 /// bottom, leaving out lines repeated where one photo overlaps the next.
@@ -142,20 +169,24 @@ String? anotherReceiptReason(List<String> parts, String part, {DateTime? now}) {
     categories: const [],
     now: now,
   );
+  // Only printed total lines are compared: a part without one has no total
+  // of its own, whatever amount a whole receipt would be filled in with.
+  final myTotal = receiptTotal(part);
+  final theirTotal = receiptTotal(joinReceiptParts(parts));
 
   final store = storeAtTop(part);
   final theirStore = storeAtTop(parts.first);
   if (store != null &&
       theirStore != null &&
-      mine.amount != null &&
+      myTotal != null &&
       store.toLowerCase() != theirStore.toLowerCase()) {
     return 'It is from $store, not $theirStore.';
   }
-  if (mine.amount != null &&
-      theirs.amount != null &&
-      (mine.amount! - theirs.amount!).abs() >= 0.01) {
-    return 'Its total is ${formatPeso(mine.amount!)}, not '
-        '${formatPeso(theirs.amount!)}.';
+  if (myTotal != null &&
+      theirTotal != null &&
+      (myTotal - theirTotal).abs() >= 0.01) {
+    return 'Its total is ${formatPeso(myTotal)}, not '
+        '${formatPeso(theirTotal)}.';
   }
   if (mine.date != null && theirs.date != null && mine.date != theirs.date) {
     return 'It is dated ${formatShortDate(mine.date!)}, not '

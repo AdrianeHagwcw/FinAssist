@@ -376,7 +376,7 @@ ExpenseGuess guessFromReceipt(
   }
 
   return ExpenseGuess(
-    amount: _receiptTotal(lines),
+    amount: _receiptAmount(lines),
     // A receipt nothing on it points anywhere is Others, as for typed text;
     // a tie still leaves the choice to the user.
     category: scores.isEmpty && allowed.contains('Others')
@@ -396,7 +396,12 @@ List<String> _receiptLines(String text) => text
 
 /// Whether [text] has the line with the amount paid, as the end of a
 /// receipt does.
-bool hasReceiptTotal(String text) => _receiptTotal(_receiptLines(text)) != null;
+bool hasReceiptTotal(String text) => receiptTotal(text) != null;
+
+/// The amount on [text]'s total line, or null when it has none. Only the
+/// labeled total: a part of a long receipt without one has no total, even
+/// though [guessFromReceipt] may still find the amount another way.
+double? receiptTotal(String text) => _labeledTotal(_receiptLines(text))?.value;
 
 /// Headings printed at the top of a receipt and not at the bottom.
 const _topHeadings = [
@@ -434,38 +439,196 @@ const _totalLabels = [
 
 /// Lines that say "total" but aren't the amount paid.
 final _notTheTotal = RegExp(
-  r'\b(sub ?total|qty|quantity|items?|vatable|vat amount|vat exempt|'
-  r'zero rated|discount|change|cash|tendered|savings|points)\b',
+  // "Sub-Total" and "VAT-Exempt" as some printers hyphenate them, and the
+  // payment line, which is what was handed over.
+  r'\b(sub[ -]?total|qty|quantity|items?|vatable|vat amount|vat[ -]exempt|'
+  r'zero[ -]rated|discount|change|cash|tendered|savings|points|payments?)\b',
   caseSensitive: false,
 );
 
-/// The amount paid, from the total line. Never the cash handed over or the
-/// change, and nothing at all when there is no total line, rather than a
-/// guess.
-double? _receiptTotal(List<String> lines) {
-  for (final labels in _totalLabels) {
-    double? found;
-    for (var i = 0; i < lines.length; i++) {
-      final words = ' ${_words(lines[i]).join(' ')} ';
-      if (!labels.any((label) => words.contains(' $label '))) continue;
-      if (_notTheTotal.hasMatch(lines[i])) continue;
+/// Lines whose amounts are never what was paid for the goods: what was
+/// handed over, the change, and the tax and discount parts of the total.
+final _notThePrice = RegExp(
+  r'\b(cash|change|tend\w*|savings|points|discount\w*|vat\w*|tax\w*|'
+  r'qty|quantity|items?|payments?|balance)\b',
+  caseSensitive: false,
+);
 
-      var numbers = _numbersIn(lines[i]);
-      // Read as two lines: the label, then the amount on its own.
-      if (numbers.isEmpty &&
-          i + 1 < lines.length &&
-          !RegExp(
-            '[a-z]',
-            caseSensitive: false,
-          ).hasMatch(lines[i + 1].replaceAll(_number, ''))) {
-        numbers = _numbersIn(lines[i + 1]);
+/// An amount printed the way receipts print money, with two decimals:
+/// found even when the reader runs it into a letter or a table's border,
+/// as in "TOTAL245.00", "245.00V" or "|1,250.00|".
+final _printedMoney = RegExp(
+  r'(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2})(?!\d)',
+);
+
+/// A receipt line with the reader's usual slips in numbers put right:
+/// "1, 250 .00" spaced out, the letter O for a zero inside a number, and
+/// "245,00" with a comma for the decimal point.
+String _cleanNumbers(String line) => line
+    .replaceAllMapped(
+      RegExp(r'(?<=\d)\s*([.,])\s*(?=\d)'),
+      (match) => match[1]!,
+    )
+    .replaceAll(RegExp(r'(?<=[\d.,])[Oo]|[Oo](?=\d|[.,]\d)'), '0')
+    .replaceAllMapped(
+      RegExp(r'(\d),(\d{2})(?!\d)'),
+      (match) => '${match[1]}.${match[2]}',
+    );
+
+/// The amount on one receipt line, and whether it was printed as money.
+/// Printed money wins over a bare number, so a table border read as "1"
+/// is never taken for the amount; of bare numbers the largest wins.
+({double value, bool isMoney})? _lineAmount(String line) {
+  final clean = _cleanNumbers(line);
+  final money = _printedMoney.allMatches(clean).toList();
+  if (money.isNotEmpty) {
+    final last = money.last;
+    return (
+      value: double.parse('${last[1]!.replaceAll(',', '')}.${last[2]}'),
+      isMoney: true,
+    );
+  }
+  final numbers = _numbersIn(clean);
+  if (numbers.isEmpty) return null;
+  final largest = numbers.reduce((a, b) => b.value > a.value ? b : a);
+  // Still written as money without decimals, as a handwritten "₱2,050":
+  // with a peso sign, or with a thousands comma.
+  return (
+    value: largest.value,
+    isMoney:
+        largest.isMoney ||
+        clean.substring(largest.start, largest.end).contains(','),
+  );
+}
+
+/// Whether [line] holds nothing but an amount: a total's amount read as a
+/// row of its own, away from its label.
+bool _onlyAnAmount(String line) {
+  final rest = _cleanNumbers(line)
+      .replaceAll(_printedMoney, ' ')
+      .replaceAll(_number, ' ')
+      .replaceAll(RegExp(r'\b(php|p)\b', caseSensitive: false), ' ')
+      // A VAT code printed after the amount (V, T, X, Z, E), or a table's
+      // border read as a letter.
+      .replaceAll(RegExp(r'\b[vtxzeli]\b', caseSensitive: false), ' ');
+  return !RegExp('[a-z]', caseSensitive: false).hasMatch(rest) &&
+      _lineAmount(line) != null;
+}
+
+/// A line's words as a label reads, with the reader's slips in letters put
+/// right: "T0TAL" and "TOTAI" are "total", and "T O T A L", printed wide,
+/// is one word.
+List<String> _labelWords(String line) {
+  final words = <String>[];
+  var letters = <String>[];
+  void flush() {
+    if (letters.length >= 3) {
+      words.add(letters.join());
+    } else {
+      words.addAll(letters);
+    }
+    letters = [];
+  }
+
+  // "TOTAL245.00" run together: the label first, its digits after.
+  final split = [
+    for (final raw in _words(line))
+      if (RegExp(r'^(.*[a-z])(\d+)$').firstMatch(raw) case final m?) ...[
+        m[1]!,
+        m[2]!,
+      ] else
+        raw,
+  ];
+  for (final raw in split) {
+    final word = RegExp('[a-z]').hasMatch(raw)
+        ? raw.replaceAll('0', 'o').replaceAll('1', 'l')
+        : raw;
+    if (word.length == 1 && RegExp('[a-z]').hasMatch(word)) {
+      letters.add(word);
+      continue;
+    }
+    flush();
+    words.add(RegExp(r'^tota[il]$').hasMatch(word) ? 'total' : word);
+  }
+  flush();
+  return words;
+}
+
+/// The amount paid, from the total line: on the label's own row, or on the
+/// row just after or before it when the reader split them. Never the cash
+/// handed over or the change.
+({double value, bool isMoney})? _labeledTotal(List<String> lines) {
+  for (final labels in _totalLabels) {
+    ({double value, bool isMoney})? found;
+    for (var i = 0; i < lines.length; i++) {
+      // A table's columns can share one row, as "VAT Amount  219.64  TOTAL
+      // AMOUNT DUE  2,050", the cells two spaces apart. Each cell is read
+      // on its own, so the VAT beside the total neither hides it nor is
+      // taken for it.
+      final cells = lines[i].split(RegExp(r'\s{2,}'));
+      for (var c = 0; c < cells.length; c++) {
+        final words = ' ${_labelWords(cells[c]).join(' ')} ';
+        if (!labels.any((label) => words.contains(' $label '))) continue;
+        if (_notTheTotal.hasMatch(cells[c])) continue;
+
+        final last = c == cells.length - 1;
+        // The amount cells straight after the label, together, so a table
+        // border read as "1" beside the amount loses to the amount.
+        final after = [
+          for (final cell in cells.skip(c + 1))
+            if (_onlyAnAmount(cell)) cell else '\n',
+        ].join('  ').split('\n').first;
+        final amount =
+            _lineAmount(cells[c]) ??
+            (after.trim().isEmpty ? null : _lineAmount(after)) ??
+            // Read as rows of their own: the amount just after the label,
+            // or just before it on a tilted photo.
+            (last && i + 1 < lines.length && _onlyAnAmount(lines[i + 1])
+                ? _lineAmount(lines[i + 1])
+                : null) ??
+            (last && i > 0 && _onlyAnAmount(lines[i - 1])
+                ? _lineAmount(lines[i - 1])
+                : null);
+        // The last total printed wins, as receipts put the final one last.
+        if (amount != null) found = amount;
       }
-      // The last total printed wins, as receipts put the final one last.
-      if (numbers.isNotEmpty) found = numbers.last.value;
     }
     if (found != null) return found;
   }
   return null;
+}
+
+/// The amount to fill in from a receipt: its total line when that reads
+/// cleanly. When there is none, or its amount came out garbled on a
+/// receipt that prints money with decimals, the largest price on it,
+/// leaving out the cash handed over, the change, tax and discounts. The
+/// user checks it before saving.
+double? _receiptAmount(List<String> lines) {
+  final labeled = _labeledTotal(lines);
+  final prices = [
+    for (final line in lines)
+      if (!_notThePrice.hasMatch(line))
+        if (_lineAmount(line) case final amount? when amount.isMoney)
+          amount.value,
+  ];
+  if (labeled != null && (labeled.isMoney || prices.isEmpty)) {
+    return labeled.value;
+  }
+  if (prices.isEmpty) return null;
+
+  // The largest price is only the total when something backs it: printed
+  // twice, as a subtotal or the card or GCash line repeats it, or the
+  // prices above it adding up to it. Otherwise it is just the dearest item,
+  // and the amount is left for the user to type.
+  int cents(double value) => (value * 100).round();
+  final largest = prices.reduce((a, b) => b > a ? b : a);
+  final first = prices.indexWhere((price) => cents(price) == cents(largest));
+  final repeated =
+      prices.where((price) => cents(price) == cents(largest)).length > 1;
+  final above = prices.take(first).fold<double>(0, (sum, p) => sum + p);
+  return repeated || (first > 0 && cents(above) == cents(largest))
+      ? largest
+      : null;
 }
 
 /// The start of a heading or greeting printed on receipts. Such a line is

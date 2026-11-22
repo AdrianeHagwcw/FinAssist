@@ -328,6 +328,7 @@ class _OcrScreenState extends State<OcrScreen> {
   Widget _found() {
     final colors = context.appColors;
     final fromCamera = _source == ImageSource.camera;
+    final guess = _guess(categoryOptions(context));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -347,7 +348,12 @@ class _OcrScreenState extends State<OcrScreen> {
           style: TextStyle(color: colors.textBody, height: 1.4),
         ),
         const SizedBox(height: 14),
-        FoundDetails(guess: _guess(categoryOptions(context)), showStore: true),
+        // No total read: asked for a clearer photo rather than guessed.
+        if (guess.amount == null) ...[
+          _RetakeNotice(longReceipt: _parts.length > 1, fromCamera: fromCamera),
+          const SizedBox(height: 14),
+        ],
+        FoundDetails(guess: guess, showStore: true),
         const SizedBox(height: 14),
         Expanded(
           child: Container(
@@ -416,6 +422,64 @@ class _OcrScreenState extends State<OcrScreen> {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Shown when no total could be read: what to do for a photo that reads,
+/// in the warning colour the scan screen already uses.
+class _RetakeNotice extends StatelessWidget {
+  const _RetakeNotice({required this.longReceipt, required this.fromCamera});
+
+  /// Several parts read: the total may be on one not taken yet.
+  final bool longReceipt;
+  final bool fromCamera;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final warning = context.isDarkMode
+        ? Colors.orange.shade300
+        : Colors.orange.shade800;
+
+    return Container(
+      key: const Key('retake-notice'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: warning.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, color: warning),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Couldn't read the total",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${fromCamera ? 'Retake the photo' : 'Choose a clearer photo'}: '
+                  'receipt flat, in good light, with the TOTAL line sharp and '
+                  'not cut off.${longReceipt ? ' If the total is on a part not '
+                            'taken yet, add that part.' : ''} Or tap Use This '
+                  'and type the amount.',
+                  style: TextStyle(color: colors.textBody, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
