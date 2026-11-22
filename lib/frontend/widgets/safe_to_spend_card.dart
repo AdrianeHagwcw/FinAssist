@@ -97,6 +97,7 @@ class _Working extends StatelessWidget {
     this.amount, {
     this.take = false,
     this.strong = false,
+    this.color,
   });
 
   final String label;
@@ -105,6 +106,9 @@ class _Working extends StatelessWidget {
   /// Shown with a minus, because it is money the user cannot spend.
   final bool take;
   final bool strong;
+
+  /// The amount's own color, such as red for spending past today's amount.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -129,7 +133,7 @@ class _Working extends StatelessWidget {
             '${take ? '− ' : ''}${formatPeso(amount)}',
             style: TextStyle(
               fontWeight: strong ? FontWeight.bold : FontWeight.w600,
-              color: colors.textPrimary,
+              color: color ?? colors.textPrimary,
             ),
           ),
         ],
@@ -482,57 +486,70 @@ void showSafeToSpendWorking(BuildContext context, SafeToSpend s) {
       shape: dialogShape,
       title: const Text('How this is worked out'),
       content: SingleChildScrollView(child: SafeToSpendWorking(s)),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          style: confirmTextStyle(context),
-          child: const Text('Got it'),
-        ),
-      ],
+      actions: [gotItButton(context)],
     ),
   );
 }
+
+/// The blue, full-width button that closes an explanation.
+Widget gotItButton(BuildContext context) => SizedBox(
+  width: double.infinity,
+  child: ElevatedButton(
+    onPressed: () => Navigator.pop(context),
+    style: openButtonStyle(height: 48),
+    child: const Text('Got it', style: TextStyle(fontWeight: FontWeight.bold)),
+  ),
+);
 
 /// The working behind Safe to Spend, laid out like a receipt rather than
 /// written as a paragraph: the reader follows one line at a time and
 /// arrives at today's figure, instead of parsing a sentence full of amounts.
 class SafeToSpendWorking extends StatelessWidget {
-  const SafeToSpendWorking(this.s, {super.key});
+  const SafeToSpendWorking(this.s, {this.balanceShown = false, super.key});
 
   final SafeToSpend s;
 
-  /// What today's spending leaves, said after the day's share.
-  String get _today {
-    if (s.spentToday <= 0) return '';
-    final spent = formatPeso(s.spentToday);
-    return s.isOverLimit
-        ? " You've spent $spent today, ${formatPeso(-s.leftToday)} more than "
-              'that.'
-        : " You've spent $spent today, so ${formatPeso(s.leftToday)} is left."
-              '';
-  }
+  /// The Available Balance is shown just above, as in Home's popup, so the
+  /// sum doesn't start by repeating it.
+  final bool balanceShown;
 
   @override
   Widget build(BuildContext context) {
+    // A brand new account has nothing to share out yet, so it is told
+    // what to do rather than shown ₱0 a day.
+    if (s.walletBalance <= 0) {
+      return const Text(
+        'Add income or a wallet balance to see how much you can spend each '
+        'day.',
+        style: TextStyle(height: 1.45),
+      );
+    }
+
+    final muted = TextStyle(
+      fontSize: 12,
+      height: 1.4,
+      color: context.appColors.textMuted,
+    );
     final days = '${s.daysLeft} ${s.daysLeft == 1 ? 'day' : 'days'}';
-    // With nothing taken off, a total line would repeat the line above it
-    // and read like a mistake.
-    final takesSomeOff = s.billsDue > 0 || s.spentToday > 0;
+    // Measured from the start of today, so today's spending is taken off
+    // the day's share once rather than from the balance as well.
+    final start = s.walletBalance + s.spentToday - s.goalSavings;
+    final over = s.isOverLimit;
+    // Today's spending makes the start differ from the balance shown above.
+    final showStart = !balanceShown || s.spentToday > 0;
+    final billsTaken = s.billsDue > 0;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Available Balance is already after Goals. Restore today's spending
-        // only when showing the amount the day started with.
-        if (s.spentToday > 0) ...[
+        if (showStart)
           _Working(
-            'Available Balance before today\'s spending',
-            s.walletBalance + s.spentToday - s.goalSavings,
+            s.spentToday > 0
+                ? 'Available Balance at the start of today'
+                : 'Available Balance',
+            start,
           ),
-        ] else ...[
-          _Working('Available Balance', s.walletBalance - s.goalSavings),
-        ],
         if (s.hasBillBreakdown) ...[
           if (s.billsOnlyDue > 0)
             _Working('Bills due this month', s.billsOnlyDue, take: true),
@@ -546,65 +563,47 @@ class SafeToSpendWorking extends StatelessWidget {
             _Working('Debts due this month', s.debtsDue!, take: true),
         ] else if (s.billsDue > 0)
           _Working('Bills due this month', s.billsDue, take: true),
-        if (s.spentToday > 0) _Working('Spent today', s.spentToday, take: true),
-        if (takesSomeOff) ...[
+        if (showStart || billsTaken) const Divider(height: 22),
+        // With nothing taken off, what is left is the balance itself.
+        if (billsTaken) _Working('Left after bills', s.spendableThisPeriod),
+        _Working(
+          'Safe to spend each day ($days left)',
+          s.recommendedDailyLimit,
+          strong: s.spentToday <= 0,
+        ),
+        if (s.spentToday > 0) ...[
+          _Working('Spent today', s.spentToday, take: true),
           const Divider(height: 22),
           _Working(
-            'Left through the end of this month',
-            s.moneyLeftNow,
+            over ? "Over today's safe amount" : 'Left to spend today',
+            over ? -s.leftToday : s.leftToday,
             strong: true,
-          ),
-        ] else if (s.walletBalance > 0) ...[
-          const SizedBox(height: 10),
-          const Text(
-            'There are no Bills due this month, so your Available Balance '
-            'is yours to spend.',
-            style: TextStyle(height: 1.45),
+            color: over ? dangerColorOn(context) : null,
           ),
         ],
-        const SizedBox(height: 10),
-        // A brand new account has nothing to share out yet, so it is told
-        // what to do rather than shown ₱0 a day.
-        Text(
-          s.walletBalance <= 0
-              ? 'Once you add income or a wallet balance, this shows how '
-                    'much of it you can spend each day through the end of '
-                    'this month.'
-              : s.spentToday > 0
-              ? 'Before today\'s spending, your Available Balance after this '
-                    'month\'s Bills was ${formatPeso(s.spendableThisPeriod)}. '
-                    'That is ${formatPeso(s.recommendedDailyLimit)} a day '
-                    'for the $days left this month.$_today'
-              : 'After this month\'s Bills, '
-                    '${formatPeso(s.recommendedDailyLimit * s.daysLeft)} is '
-                    'left for the $days left this month: '
-                    '${formatPeso(s.recommendedDailyLimit)} a day.$_today',
-          style: const TextStyle(height: 1.45),
-        ),
-        // The figure is a month's, so what comes after it is not counted yet.
-        if (s.walletBalance > 0) ...[
+        if (start < s.billsDue - 0.005) ...[
           const SizedBox(height: 8),
           Text(
-            'Only bills due this month are counted, including any already '
-            "overdue. Next month's bills start counting when it does.",
+            "This month's bills are more than your Available Balance.",
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               height: 1.4,
-              color: context.appColors.textMuted,
+              color: dangerColorOn(context),
             ),
           ),
         ],
+        const SizedBox(height: 10),
+        Text(
+          'Counts bills due this month, overdue ones included.',
+          style: muted,
+        ),
         if (s.billsUnknown || s.billsOutOfDate) ...[
           const SizedBox(height: 6),
           Text(
             s.billsUnknown
                 ? "Bills aren't counted yet."
                 : 'Bills may be out of date.',
-            style: TextStyle(
-              fontSize: 12,
-              height: 1.4,
-              color: context.appColors.textMuted,
-            ),
+            style: muted,
           ),
         ],
       ],

@@ -228,6 +228,157 @@ const said = <(String, VoiceCommandType, String?, double?)>[
   ('nagpaayos ng cellphone 800', VoiceCommandType.expense, 'Shopping', 800),
 ];
 
+/// Every screen and form reachable by voice: the bottom tabs, each
+/// Quick Action, the + menu, the assistant and settings. A destination
+/// is checked only when the words should open a screen.
+const opens = <(String, VoiceCommandType, VoiceDestination?)>[
+  // Bottom tabs.
+  ('go home', VoiceCommandType.navigation, VoiceDestination.home),
+  ('buksan ang home', VoiceCommandType.navigation, VoiceDestination.home),
+  (
+    'open transactions',
+    VoiceCommandType.navigation,
+    VoiceDestination.transactions,
+  ),
+  (
+    'ipakita ang mga transaksyon',
+    VoiceCommandType.navigation,
+    VoiceDestination.transactions,
+  ),
+  (
+    'show my transaction history',
+    VoiceCommandType.navigation,
+    VoiceDestination.transactions,
+  ),
+  ('open reports', VoiceCommandType.navigation, VoiceDestination.reports),
+  ('buksan ang reports', VoiceCommandType.navigation, VoiceDestination.reports),
+  ('ipakita ang ulat', VoiceCommandType.navigation, VoiceDestination.reports),
+  ('open wallets', VoiceCommandType.navigation, VoiceDestination.wallet),
+  ('buksan ang wallet', VoiceCommandType.navigation, VoiceDestination.wallet),
+  (
+    'pakita ang mga account ko',
+    VoiceCommandType.navigation,
+    VoiceDestination.wallet,
+  ),
+  // Quick actions that open screens.
+  ('open bill planner', VoiceCommandType.navigation, VoiceDestination.bills),
+  ('buksan ang bills', VoiceCommandType.navigation, VoiceDestination.bills),
+  ('open savings', VoiceCommandType.navigation, VoiceDestination.savings),
+  ('buksan ang ipon', VoiceCommandType.navigation, VoiceDestination.savings),
+  ('open goals', VoiceCommandType.navigation, VoiceDestination.goals),
+  ('ipakita ang goals ko', VoiceCommandType.navigation, VoiceDestination.goals),
+  (
+    'open installments',
+    VoiceCommandType.navigation,
+    VoiceDestination.installments,
+  ),
+  (
+    'buksan ang hulugan',
+    VoiceCommandType.navigation,
+    VoiceDestination.installments,
+  ),
+  ('open debts', VoiceCommandType.navigation, VoiceDestination.debts),
+  ('buksan ang utang', VoiceCommandType.navigation, VoiceDestination.debts),
+  ('scan receipt', VoiceCommandType.navigation, VoiceDestination.scanReceipt),
+  (
+    'mag scan ng resibo',
+    VoiceCommandType.navigation,
+    VoiceDestination.scanReceipt,
+  ),
+  (
+    'open scan receipt',
+    VoiceCommandType.navigation,
+    VoiceDestination.scanReceipt,
+  ),
+  // Chatbot and settings.
+  ('open chatbot', VoiceCommandType.navigation, VoiceDestination.assistant),
+  (
+    'open the AI assistant',
+    VoiceCommandType.navigation,
+    VoiceDestination.assistant,
+  ),
+  ('kausapin si Fin', VoiceCommandType.navigation, VoiceDestination.assistant),
+  ('open Fin', VoiceCommandType.navigation, VoiceDestination.assistant),
+  ('open settings', VoiceCommandType.navigation, VoiceDestination.settings),
+  (
+    'buksan ang settings',
+    VoiceCommandType.navigation,
+    VoiceDestination.settings,
+  ),
+  ('open my profile', VoiceCommandType.navigation, VoiceDestination.settings),
+  (
+    'open categories',
+    VoiceCommandType.navigation,
+    VoiceDestination.expenseCategories,
+  ),
+  (
+    'open cash inflows',
+    VoiceCommandType.navigation,
+    VoiceDestination.payCycleHistory,
+  ),
+  ('open reminders', VoiceCommandType.navigation, VoiceDestination.reminders),
+  (
+    'buksan ang paalala',
+    VoiceCommandType.navigation,
+    VoiceDestination.reminders,
+  ),
+  ('open help', VoiceCommandType.navigation, VoiceDestination.help),
+  (
+    'kailangan ko ng tulong',
+    VoiceCommandType.navigation,
+    VoiceDestination.help,
+  ),
+  // Forms from Quick Actions and the + button.
+  ('add expense', VoiceCommandType.expense, null),
+  ('magdagdag ng gastos', VoiceCommandType.expense, null),
+  ('add income', VoiceCommandType.income, null),
+  ('magdagdag ng kita', VoiceCommandType.income, null),
+  ('transfer money', VoiceCommandType.transfer, null),
+  ('maglipat ng pera', VoiceCommandType.transfer, null),
+  ('add bill', VoiceCommandType.bill, null),
+  ('magdagdag ng bill', VoiceCommandType.bill, null),
+  ('add goal', VoiceCommandType.goal, null),
+  ('gumawa ng goal', VoiceCommandType.goal, null),
+  ('add installment', VoiceCommandType.installment, null),
+  ('add debt', VoiceCommandType.debt, null),
+  ('magdagdag ng utang', VoiceCommandType.debt, null),
+  ('add wallet', VoiceCommandType.wallet, null),
+  ('magdagdag ng wallet', VoiceCommandType.wallet, null),
+  ('add savings', VoiceCommandType.navigation, VoiceDestination.savings),
+  ('open chat', VoiceCommandType.navigation, VoiceDestination.assistant),
+  ('go to my wallets', VoiceCommandType.navigation, VoiceDestination.wallet),
+  (
+    'tingnan ang reports',
+    VoiceCommandType.navigation,
+    VoiceDestination.reports,
+  ),
+  ('go to settings', VoiceCommandType.navigation, VoiceDestination.settings),
+  (
+    'open the bill planner',
+    VoiceCommandType.navigation,
+    VoiceDestination.bills,
+  ),
+  (
+    'open transaksyon',
+    VoiceCommandType.navigation,
+    VoiceDestination.transactions,
+  ),
+  ('mahal kita', VoiceCommandType.expense, null),
+  (
+    'buksan ang kita',
+    VoiceCommandType.navigation,
+    VoiceDestination.payCycleHistory,
+  ),
+  (
+    'ipakita ang mga kita ko',
+    VoiceCommandType.navigation,
+    VoiceDestination.payCycleHistory,
+  ),
+  ('kita tayo mamaya', VoiceCommandType.expense, null),
+  ('pay now', VoiceCommandType.payNow, null),
+  ('pay in advance', VoiceCommandType.payInAdvance, null),
+];
+
 void main() {
   test('a real tattoo is not the Tattoos chips', () {
     for (final words in [
@@ -242,6 +393,17 @@ void main() {
       expect(command.expense.category, isNot('Food'), reason: words);
     }
   });
+
+  for (final (words, type, destination) in opens) {
+    test(words, () {
+      final command = interpretVoiceCommand(
+        words,
+        categories: expenseCategories,
+      );
+      expect(command.type, type);
+      if (destination != null) expect(command.destination, destination);
+    });
+  }
 
   for (final (words, type, category, amount) in said) {
     test(words, () {

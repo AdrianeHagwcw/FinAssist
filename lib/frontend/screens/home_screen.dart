@@ -999,23 +999,17 @@ class _TotalBalanceCard extends StatelessWidget {
 
   /// What the figure is, shown as the sum it comes from with the user's
   /// own amounts, laid out like setup's Cash Summary: cash on hand, cash in
-  /// bank, and the two together. Then what bank accounts earn in a year,
-  /// when they have a rate, and what the figure leaves out.
+  /// bank, and the two together. Then today's Safe to Spend, worked out.
+  /// Interest is left to the Cash Summary and each account: it isn't money
+  /// to spend until it is paid.
   void _explain(
     BuildContext context, {
     required double cashOnHand,
     required double inBank,
     required double forGoals,
-    required List<Wallet> bankWallets,
     SafeToSpend? safeToSpend,
   }) {
     final available = cashOnHand + inBank;
-    // What the accounts with a rate earn in a year: the exact
-    // simple-interest amount, with no tax taken off.
-    final interest = bankWallets
-        .map((wallet) => wallet.estimatedAnnualInterestIncome)
-        .whereType<double>()
-        .fold<double>(0, (total, gross) => total + gross);
     showDialog<void>(
       context: context,
       builder: (context) {
@@ -1115,37 +1109,11 @@ class _TotalBalanceCard extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(left: 44, bottom: 4),
                     child: Text(
-                      'Both are after the ${formatPeso(forGoals)} set aside '
-                      'for your goals.',
+                      'After the ${formatPeso(forGoals)} kept for your goals.',
                       key: const Key('available-balance-goals'),
                       style: TextStyle(fontSize: 12, color: colors.textMuted),
                     ),
                   ),
-                if (interest > 0.005) ...[
-                  const SizedBox(height: 4),
-                  line(
-                    Image.asset(
-                      'assets/icons/icons8-combo-chart-100.png',
-                      width: 22,
-                      height: 22,
-                    ),
-                    'Interest in a Year',
-                    interest,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 44),
-                    child: Text(
-                      'The simple-interest amount from each rate. It is not '
-                      'in Cash in Bank until it is paid; FinAssist reminds you '
-                      'to add it as income.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.4,
-                        color: colors.textMuted,
-                      ),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 12),
                 // What is left out, in one short note.
                 Container(
@@ -1156,7 +1124,6 @@ class _TotalBalanceCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Image.asset(
                         'assets/icons/icons8-money-box-96.png',
@@ -1166,8 +1133,7 @@ class _TotalBalanceCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Money in Savings is not included.\n'
-                          'Bills are taken out when you pay them.',
+                          'Money in Savings is not included.',
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.4,
@@ -1181,41 +1147,16 @@ class _TotalBalanceCard extends StatelessWidget {
                 // The bar along the bottom of the card, worked out.
                 if (safeToSpend != null && safeToSpend.walletBalance > 0) ...[
                   const Divider(height: 28),
-                  Text(
-                    'Safe to spend today',
+                  SafeToSpendWorking(
+                    safeToSpend,
                     key: const Key('safe-to-spend-explained'),
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
-                    ),
+                    balanceShown: true,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'What you can spend today and still have enough for '
-                    'bills due this month and your goals.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.4,
-                      color: colors.textMuted,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SafeToSpendWorking(safeToSpend),
                 ],
               ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              style: confirmTextStyle(context),
-              child: const Text(
-                'Got it',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
+          actions: [gotItButton(context)],
         );
       },
     );
@@ -1252,7 +1193,6 @@ class _TotalBalanceCard extends StatelessWidget {
       cashOnHand: cashOnHand,
       inBank: inBank,
       forGoals: totalWalletBalance(list) - available,
-      bankWallets: bankWallets,
       safeToSpend: safeToSpend,
     );
 

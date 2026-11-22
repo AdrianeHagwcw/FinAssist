@@ -244,6 +244,8 @@ VoiceCommand interpretVoiceCommand(
   final isIncome =
       !spending &&
       (_has(text, _incomeWords) ||
+          // "Kita" alone also means "you" or "see": income only when added.
+          (adding && _has(text, r'kita')) ||
           (source != null && _has(text, _incomeVerbs)));
   if (isIncome && (!opening || amount != null)) {
     return command(
@@ -506,7 +508,7 @@ VoiceDestination? _destinationFor(String words) {
     VoiceDestination.home: r'home|dashboard|bahay|simula',
     VoiceDestination.transactions:
         r'transactions|transaction|transaction history|history|expenses|'
-        r'mga gastos|gastos ko|talaan|kasaysayan',
+        r'mga gastos|gastos ko|talaan|kasaysayan|transaksyon|transaksiyon',
     VoiceDestination.bills: _billWords,
     VoiceDestination.wallet: r'wallets|wallet|pitaka|accounts|account',
     VoiceDestination.savings: _savingsWords,
@@ -519,13 +521,13 @@ VoiceDestination? _destinationFor(String words) {
         r'scan receipt|scan a receipt|receipt scanner|receipt scan|'
         r'scan resibo|iscan ang resibo',
     VoiceDestination.assistant:
-        r'assistant|ai assistant|ai|chatbot|chat bot|fin|katulong',
+        r'assistant|ai assistant|ai|chatbot|chat bot|chat|fin|katulong',
     VoiceDestination.expenseCategories:
         r'expense categories|manage categories|categories|category|'
         r'mga kategorya|kategorya',
     VoiceDestination.payCycleHistory:
         r'pay cycle history|paycheck history|pay period history|cash inflows|'
-        r'inflows|income|kita|sweldo|sahod',
+        r'inflows|income|ang kita|mga kita|kita ko|sweldo|sahod',
     VoiceDestination.reminders: r'reminders|reminder|notifications|paalala',
     VoiceDestination.help: r'help|support|tulong',
   };

@@ -718,7 +718,7 @@ void main() {
 
     test('advice gives the same tips as Reports', () {
       final reply = ask('How can I save more?');
-      expect(reply.text, contains('Food takes the biggest share'));
+      expect(reply.text, contains('Food is your biggest spend'));
       expect(reply.text, contains('baon'));
       // Shown under Gemini's answer online, not replaced by it.
       expect(reply.keepUnderAi, isTrue);

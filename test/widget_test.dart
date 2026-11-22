@@ -10280,7 +10280,7 @@ void main() {
       // "All of it is yours to spend" would be an odd thing to say about
       // nothing, and "₱0 a day" helps no one.
       expect(
-        find.textContaining('Once you add income or a wallet balance'),
+        find.textContaining('Add income or a wallet balance'),
         findsOneWidget,
       );
       expect(find.textContaining('yours to spend'), findsNothing);
@@ -10327,14 +10327,10 @@ void main() {
       await tester.tap(find.byKey(const Key('safe-to-spend-info')));
       await tester.pumpAndSettle();
       expect(find.text('Available Balance'), findsOneWidget);
-      // Nothing is taken off this account, so no total line repeats the
-      // figure above it; it says so in words instead.
       expect(find.text('Left until your next pay'), findsNothing);
-      expect(
-        find.textContaining('Available Balance is yours to spend'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('a day.'), findsOneWidget);
+      // Nothing is taken off, so no line repeats the balance above it.
+      expect(find.text('Left after bills'), findsNothing);
+      expect(find.textContaining('Safe to spend each day'), findsOneWidget);
     });
   });
 
@@ -13920,7 +13916,7 @@ void main() {
     testWidgets('switches to this week and steps back a week', (tester) async {
       await pumpReports(tester);
 
-      await tester.tap(find.text('This week'));
+      await tester.tap(find.text('Week'));
       await tester.pump();
       expect(find.text('Sep 14 – Sep 20, 2026'), findsOneWidget);
       expect(find.text('Food'), findsOneWidget);

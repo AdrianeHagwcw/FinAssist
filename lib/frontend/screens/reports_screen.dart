@@ -355,18 +355,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final range in ReportRange.values)
-              ChoiceChip(
-                label: Text(range.label),
-                selected: _range == range,
-                onSelected: (_) => _selectRange(range),
-              ),
-          ],
-        ),
+        _RangeBar(selected: _range, onSelect: _selectRange),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -514,7 +503,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const SizedBox(height: 16),
         _Section(
           title: 'Financial tips',
-          subtitle: 'From your recent spending.',
+          subtitle: 'From your own bills, income and spending.',
           child: _records == null
               ? const _EmptyNote(
                   'Tips show up once your records load.',
@@ -522,7 +511,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 )
               : Column(
                   children: [
-                    for (final tip in moneyTipsFor(_records!.at(_now)))
+                    for (final tip in moneyTipsFor(
+                      _records!.at(_now),
+                      limit: 3,
+                    ))
                       _Line(text: tip),
                   ],
                 ),
@@ -855,6 +847,87 @@ class _Section extends StatelessWidget {
           ],
           const SizedBox(height: 12),
           child,
+        ],
+      ),
+    );
+  }
+}
+
+/// The report's range as one row of equal parts, the chosen one solid blue
+/// like the filters on Goals and Debts. Short words fit one line on a narrow
+/// phone; the dates under it say which week or month is shown.
+class _RangeBar extends StatelessWidget {
+  const _RangeBar({required this.selected, required this.onSelect});
+
+  final ReportRange selected;
+  final void Function(ReportRange range) onSelect;
+
+  static String _word(ReportRange range) => switch (range) {
+    ReportRange.week => 'Week',
+    ReportRange.month => 'Month',
+    ReportRange.quarter => 'Quarter',
+    ReportRange.year => 'Year',
+    ReportRange.custom => 'Custom',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colors.card,
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          for (final range in ReportRange.values)
+            Expanded(
+              child: Semantics(
+                button: true,
+                selected: range == selected,
+                label: range == ReportRange.custom
+                    ? 'Custom dates'
+                    : _word(range),
+                excludeSemantics: true,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => onSelect(range),
+                    borderRadius: BorderRadius.circular(10),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      height: 40,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: range == selected
+                            ? appPrimaryBlue
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _word(range),
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: range == selected
+                                ? FontWeight.bold
+                                : FontWeight.w500,
+                            color: range == selected
+                                ? Colors.white
+                                : colors.textBody,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

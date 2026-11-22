@@ -76,32 +76,70 @@ void main() {
 
     // Available Balance is shown before today's spending, then today's spend
     // and Bills are taken off to reach what remains in the wallets.
+    // From the start of today, so the ₱150 spent today is taken off once.
     expect(
-      find.text('Available Balance before today\'s spending'),
+      find.text('Available Balance at the start of today'),
       findsOneWidget,
     );
     expect(find.text('₱10,150'), findsOneWidget);
-    expect(find.text('Spent today'), findsOneWidget);
-    expect(find.text('− ₱150'), findsOneWidget);
     expect(find.text('Bills due this month'), findsOneWidget);
     expect(find.text('− ₱4,000'), findsOneWidget);
-    // Left is the money actually still there: ₱10,000 less the bills, with
-    // the ₱150 spent today counted only once.
-    expect(find.text('Left through the end of this month'), findsOneWidget);
-    expect(find.text('₱6,000'), findsOneWidget);
+    expect(find.text('Left after bills'), findsOneWidget);
+    expect(find.text('₱6,150'), findsOneWidget);
+    expect(find.text('Safe to spend each day (10 days left)'), findsOneWidget);
+    expect(find.text('₱615'), findsOneWidget);
+    expect(find.text('Spent today'), findsOneWidget);
+    expect(find.text('− ₱150'), findsOneWidget);
+    expect(find.text('Left to spend today'), findsOneWidget);
+    expect(find.text('₱465'), findsOneWidget);
     expect(
-      find.text(
-        'Before today\'s spending, your Available Balance after this month\'s '
-        'Bills was ₱6,150. That is ₱615 a day for the 10 days left this month. '
-        'You\'ve spent ₱150 today, so ₱465 is left.',
+      find.text('Counts bills due this month, overdue ones included.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets("in Home's popup the balance above is not repeated", (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      const SafeToSpendWorking(
+        SafeToSpend(
+          walletBalance: 30165,
+          billsDue: 0,
+          spentToday: 0,
+          daysLeft: 8,
+        ),
+        balanceShown: true,
       ),
-      findsOneWidget,
     );
-    // The figure is for this month; next month is not counted yet.
-    expect(
-      find.textContaining('Only bills due this month are counted'),
-      findsOneWidget,
+
+    expect(find.text('Available Balance'), findsNothing);
+    expect(find.text('Left after bills'), findsNothing);
+    expect(find.text('₱30,165'), findsNothing);
+    expect(find.text('Safe to spend each day (8 days left)'), findsOneWidget);
+    expect(find.text('₱3,770.63'), findsOneWidget);
+  });
+
+  testWidgets('the working says when today is over the safe amount', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      const SafeToSpendWorking(
+        SafeToSpend(
+          walletBalance: 1000,
+          billsDue: 0,
+          spentToday: 300,
+          daysLeft: 10,
+        ),
+      ),
     );
+
+    expect(find.text('₱130'), findsOneWidget, reason: '₱1,300 over 10 days');
+    expect(find.text("Over today's safe amount"), findsOneWidget);
+    expect(find.text('₱170'), findsOneWidget);
+    expect(find.text('Left to spend today'), findsNothing);
   });
 
   testWidgets('the working starts from Available Balance, after Goals', (
@@ -125,14 +163,9 @@ void main() {
     expect(find.text('Bills due this month'), findsOneWidget);
     expect(find.text('− ₱2,500'), findsOneWidget);
     expect(find.text('Saved for your goals'), findsNothing);
+    expect(find.text('Left after bills'), findsOneWidget);
     expect(find.text('₱27,680'), findsOneWidget);
-    expect(
-      find.text(
-        'After this month\'s Bills, ₱27,680 is left for the 26 days left this '
-        'month: ₱1,064.62 a day.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('₱1,064.62'), findsOneWidget);
   });
 
   testWidgets('the working names bills, installments and debts apart', (
