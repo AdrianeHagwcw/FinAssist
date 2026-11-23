@@ -1090,7 +1090,8 @@ void main() {
         );
 
         expect(timeDeposit.estimatedTimeDepositInterest(), 500);
-        expect(timeDeposit.estimatedMaturityValue(), 10500);
+        // ₱500 of interest, less the ₱100 the bank withholds as tax.
+        expect(timeDeposit.estimatedMaturityValue(), 10400);
         expect(timeDeposit.balance, 10000);
       },
     );
@@ -1912,13 +1913,17 @@ void main() {
       );
       await tester.pump();
 
-      // ₱10,000 × 3% for 365 days = ₱300, with no tax taken off.
+      // ₱10,000 × 3% for 365 days = ₱300, less ₱60 tax (20%): ₱240.
       expect(find.text('Original money'), findsOneWidget);
       expect(find.text('₱10,000'), findsWidgets);
       expect(find.text('Interest earned'), findsOneWidget);
       expect(find.text('₱300'), findsWidgets);
+      expect(find.text('Tax withheld (20%)'), findsOneWidget);
+      expect(find.text('− ₱60'), findsOneWidget);
+      expect(find.text('You get'), findsOneWidget);
+      expect(find.text('₱240'), findsWidgets);
       expect(find.text('Total at maturity'), findsOneWidget);
-      expect(find.text('₱10,300'), findsWidgets);
+      expect(find.text('₱10,240'), findsWidgets);
 
       // Where it goes, filled with the whole amount.
       await tester.tap(find.text('Cash on Hand'));
@@ -1935,7 +1940,7 @@ void main() {
       await tester.tap(find.byKey(const Key('matured-confirm')));
       await tester.pumpAndSettle();
       expect(renewedTo, isNotNull);
-      expect(interest, 300);
+      expect(interest, 240);
     });
 
     testWidgets('a matured time deposit can claim capital and interest', (
@@ -3578,8 +3583,8 @@ void main() {
       expect(find.text('₱150'), findsOneWidget);
       expect(find.text('₱1,499'), findsOneWidget);
       expect(find.text('₱1,649'), findsOneWidget);
-      // ₱13.75 a year, with no tax taken off.
-      expect(find.text('₱13.75'), findsOneWidget);
+      // ₱13.75 a year, less ₱2.75 tax (20%).
+      expect(find.text('₱11'), findsOneWidget);
       expect(find.text('Interest in a Year'), findsOneWidget);
       // The same colored icons the wallets and goals use. The total is
       // cash plus bank, so it shows both of theirs.
@@ -3619,8 +3624,9 @@ void main() {
       expect(find.text('Interest: 2.5% a year'), findsOneWidget);
       expect(find.text('Interest: 1.25% a year'), findsOneWidget);
       // ₱200 × 2.5% = ₱5 and ₱999 × 0.5% ≈ ₱5; ₱300 × 1.25% = ₱3.75.
-      expect(find.text('Interest in a year: ₱5'), findsNWidgets(2));
-      expect(find.text('Interest in a year: ₱3.75'), findsOneWidget);
+      // ₱5 and ₱3.75 a year, less the 20% tax.
+      expect(find.text('Interest in a year, after tax: ₱4'), findsNWidgets(2));
+      expect(find.text('Interest in a year, after tax: ₱3'), findsOneWidget);
       expect(find.text('Total · ₱1,499'), findsOneWidget);
       expect(find.text('₱200'), findsOneWidget);
       expect(find.text('₱300'), findsOneWidget);
@@ -3729,7 +3735,7 @@ void main() {
       await tester.enterText(fundingField(0), '2000');
       await tester.enterText(fundingField(1), '5000');
       await tester.pump();
-      expect(find.text('about ₱150'), findsOneWidget);
+      expect(find.text('about ₱120'), findsOneWidget);
       await tapText(tester, 'Save Changes');
 
       expect(find.text('₱7,000 of ₱10,000 saved'), findsOneWidget);
@@ -3742,8 +3748,8 @@ void main() {
       expect(find.text('₱5,000'), findsOneWidget);
       expect(
         find.text(
-          'May earn about ₱150 a year from BDO Unibank. Add it as income '
-          'when it is paid.',
+          'May earn about ₱120 a year after tax from BDO Unibank. Add it as '
+          'income when it is paid.',
         ),
         findsOneWidget,
       );
@@ -5580,7 +5586,8 @@ void main() {
       );
       final calculatedInterest = savings
           .estimatedUnrecordedSavingsDepositInterest(transactions: const [])!;
-      final roundedInterest = (calculatedInterest * 100).round() / 100;
+      // What reaches the account: the interest after the 20% tax.
+      final roundedInterest = afterTax(calculatedInterest);
       final total = savings.balance + roundedInterest;
       double? savedInterest;
       Map<String, double>? savedTransfers;
@@ -6555,7 +6562,10 @@ void main() {
       await tester.tap(find.byType(Checkbox).first);
       await tester.pumpAndSettle();
       // Paid in full, the hint says so instead of what it owed.
-      expect(find.text('Owes ₱1,500 · paid in full after this'), findsOneWidget);
+      expect(
+        find.text('Owes ₱1,500 · paid in full after this'),
+        findsOneWidget,
+      );
       await next(tester);
 
       // What this income leaves after the rent, and what all the wallets
@@ -11234,9 +11244,9 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('cost more than 1% a month'), findsOneWidget);
-      // 4% a year, with no tax taken off.
+      // 4% a year is 3.2% once the bank withholds 20%.
       expect(
-        find.textContaining('Your savings earn up to 4% a year.'),
+        find.textContaining('Your savings earn up to 3.2% a year after tax.'),
         findsOneWidget,
       );
       expect(
@@ -12791,12 +12801,12 @@ void main() {
       expect(find.text('₱0'), findsOneWidget);
       // Only BPI has a rate: ₱5,000 × 3% = ₱150. Cash earns nothing and
       // GCash has no rate, so neither adds to the guess.
-      // ₱5,000 × 3% = ₱150, with no tax taken off.
-      expect(find.text('about ₱150'), findsOneWidget);
+      // ₱5,000 × 3% = ₱150, less ₱30 tax (20%).
+      expect(find.text('about ₱120'), findsOneWidget);
       expect(find.textContaining('No rate recorded for GCash'), findsOneWidget);
       expect(
         find.text(
-          '3% interest a year · ₱5,000 may earn about ₱150 a year',
+          '3% interest a year · ₱5,000 may earn about ₱120 a year after tax',
         ),
         findsOneWidget,
       );
@@ -12930,11 +12940,12 @@ void main() {
 
       expect(find.text('₱25,000'), findsNWidgets(2));
       // Each rate counts only for its own account: ₱8,000 × 3% = ₱240 and
-      // ₱15,000 × 3.5% = ₱525, ₱765 in all. GCash has no rate.
-      expect(find.text('about ₱765'), findsOneWidget);
+      // ₱15,000 × 3.5% = ₱525, ₱765 in all, ₱612 after tax. GCash has no
+      // rate.
+      expect(find.text('about ₱612'), findsOneWidget);
       expect(
         find.text(
-          '3.5% interest a year · ₱15,000 may earn about ₱525 a year',
+          '3.5% interest a year · ₱15,000 may earn about ₱420 a year after tax',
         ),
         findsOneWidget,
       );
@@ -13119,8 +13130,8 @@ void main() {
       // rate, so neither is named.
       expect(
         find.text(
-          'May earn about ₱210 a year from BPI and Old BDO. Add it as '
-          'income when it is paid.',
+          'May earn about ₱168 a year after tax from BPI and Old BDO. Add '
+          'it as income when it is paid.',
         ),
         findsOneWidget,
       );
@@ -13141,8 +13152,8 @@ void main() {
         annualInterestRatePercent: rate,
       );
 
-      // The exact simple-interest amount: ₱5,000 × 3% = ₱150.
-      expect(yearlyInterestOnGoalMoney(bpi, 5000), closeTo(150, 0.001));
+      // ₱5,000 × 3% = ₱150, less ₱30 tax (20%).
+      expect(yearlyInterestOnGoalMoney(bpi, 5000), closeTo(120, 0.001));
       expect(yearlyInterestOnGoalMoney(cash, 5000), 0);
       // A rate typed on a demand deposit still earns nothing.
       expect(
@@ -13157,7 +13168,7 @@ void main() {
           savingsRecord(SavingsKind.savingsDeposit, 2.5),
           4000,
         ),
-        closeTo(100, 0.001),
+        closeTo(80, 0.001),
       );
       // No rate, no made-up figure.
       expect(yearlyInterestOnGoalMoney(gcash, 5000), isNull);
@@ -14052,8 +14063,7 @@ void main() {
             transactions: const <AppTransaction>[],
             asOf: DateTime.now(),
           )!;
-      final expectedBalance =
-          savings.balance + (estimatedInterest * 100).round() / 100;
+      final expectedBalance = savings.balance + afterTax(estimatedInterest);
 
       await tester.pumpWidget(
         ChangeNotifierProvider(
@@ -15498,10 +15508,10 @@ void main() {
         DateTime(2027, 5, 1, 9),
       ]);
       expect(planned.first.title, 'Interest from BPI may be in');
-      // ₱100,000 × 3% ÷ 12 = ₱250, with no tax taken off.
+      // ₱100,000 × 3% ÷ 12 = ₱250, ₱200 after the 20% tax.
       expect(
         planned.first.body,
-        'About ₱250. Check your app and add what it paid.',
+        'About ₱200 after tax. Check your app and add what it paid.',
       );
       expect(planned.first.payload, 'interest:bpi');
       expect(planned.first.key, 'interest:bpi:2027-4');
@@ -15543,7 +15553,8 @@ void main() {
       ]);
       expect(
         daily.first.body,
-        "About ₱250 this month. Check your app and add the month's total.",
+        'About ₱200 this month after tax. Check your app and add the '
+        "month's total.",
       );
       expect(
         days(
@@ -15728,15 +15739,16 @@ void main() {
       );
 
       expect(find.text('Interest from BPI'), findsOneWidget);
-      // It starts on the exact simple-interest amount, and can be changed.
-      expect(find.text('250'), findsOneWidget);
+      // It starts on what should reach the account, after the 20% tax, and
+      // shows how that is worked out. It can be changed.
+      expect(find.text('200'), findsOneWidget);
       expect(
-        find.text(
-          'From the rate: about ₱250. Change it if your app shows another '
-          'amount.',
-        ),
+        find.text('Change it if your app shows another amount.'),
         findsOneWidget,
       );
+      expect(find.text('₱250'), findsOneWidget);
+      expect(find.text('− ₱50'), findsOneWidget);
+      expect(find.text('₱200'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField).first, '0');
       await tester.tap(find.byKey(const Key('add-interest-save')));
@@ -15849,8 +15861,12 @@ void main() {
       );
 
       expect(find.text('3% a year · paid every month'), findsOneWidget);
-      expect(find.text('about ₱250'), findsOneWidget);
-      expect(find.text('about ₱3,000'), findsOneWidget);
+      // ₱250 each month, ₱50 of it withheld as tax.
+      expect(find.text('Interest each time'), findsOneWidget);
+      expect(find.text('₱250'), findsOneWidget);
+      expect(find.text('− ₱50'), findsOneWidget);
+      expect(find.text('₱200'), findsOneWidget);
+      expect(find.text('about ₱2,400'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('interest-payout-quarterly')));
       await tester.pump();

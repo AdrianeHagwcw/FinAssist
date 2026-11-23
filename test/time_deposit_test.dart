@@ -106,8 +106,9 @@ void main() {
       );
       // ₱10,000 × 2% for a year = ₱200, less the 20% tax.
       // The exact simple-interest amount, with no tax taken off.
-      expect(old.timeDepositMaturityInterest, 200);
-      expect(old.timeDepositMaturityValue, 10200);
+      // ₱200 of interest, less the 20% tax the bank withholds.
+      expect(old.timeDepositMaturityInterest, 160);
+      expect(old.timeDepositMaturityValue, 10160);
     });
 
     test('a Firestore timestamp resolves to its Manila calendar date', () {
@@ -156,7 +157,8 @@ void main() {
 
       expect(pending, hasLength(1));
       expect(pending.single.wallet.id, 'matured');
-      expect(pending.single.interest, 351.78);
+      // ₱351.78 less ₱70.36 tax (20%).
+      expect(pending.single.interest, 281.42);
       expect(pending.single.date, DateTime.utc(2027, 3, 4, 16));
       expect(pending.single.entryId, 'td-interest-matured');
     });

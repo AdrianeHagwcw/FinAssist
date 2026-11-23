@@ -19,6 +19,7 @@ AppTransaction entry({
   String? billInstanceId,
   String? debtId,
   double interest = 0,
+  double taxWithheld = 0,
 }) {
   return AppTransaction(
     id: id,
@@ -33,6 +34,7 @@ AppTransaction entry({
     billInstanceId: billInstanceId,
     debtId: debtId,
     interest: interest,
+    taxWithheld: taxWithheld,
   );
 }
 
@@ -57,8 +59,8 @@ void main() {
 
       expect(
         header,
-        'Date,Time,Type,Category / Source,Amount,Interest Included,Wallet,'
-        'To Wallet,Tag',
+        'Date,Time,Type,Category / Source,Amount,Interest Included,'
+        'Tax Withheld,Wallet,To Wallet,Tag',
       );
       expect(header.split(',').length, csvColumns.length);
     });
@@ -76,7 +78,7 @@ void main() {
 
       expect(
         rowsOf(csv).last,
-        '2026-01-07,09:05,Outflow,Food,1234.50,,Cash,,Regular',
+        '2026-01-07,09:05,Outflow,Food,1234.50,,,Cash,,Regular',
       );
     });
 
@@ -104,7 +106,7 @@ void main() {
 
       expect(
         rowsOf(csv).last,
-        contains(',Deposit,Transfer,120.00,,Cash,GCash,'),
+        contains(',Deposit,Transfer,120.00,,,Cash,GCash,'),
       );
     });
 
@@ -298,10 +300,24 @@ void main() {
 
       // Cash on hand in or out is a Deposit or Withdrawal, a bank either way
       // a Transfer; the goal sits on the other side.
-      expect(rows[1], endsWith(',Deposit,Goal,120.00,,Cash,Laptop,Regular'));
-      expect(rows[2], endsWith(',Withdrawal,Goal,120.00,,Laptop,Cash,Regular'));
-      expect(rows[3], endsWith(',Transfer,Goal,120.00,,BPI,Laptop,Regular'));
-      expect(rows[4], endsWith(',Transfer,Goal,120.00,,Laptop,BPI,Regular'));
+      expect(rows[1], endsWith(',Deposit,Goal,120.00,,,Cash,Laptop,Regular'));
+      expect(rows[2], endsWith(',Withdrawal,Goal,120.00,,,Laptop,Cash,Regular'));
+      expect(rows[3], endsWith(',Transfer,Goal,120.00,,,BPI,Laptop,Regular'));
+      expect(rows[4], endsWith(',Transfer,Goal,120.00,,,Laptop,BPI,Regular'));
+    });
+
+    test('shows the tax the bank withheld from interest', () {
+      final csv = buildTransactionCsv([
+        entry(
+          type: TransactionType.income,
+          amount: 80,
+          label: 'Interest',
+          taxWithheld: 20,
+        ),
+      ]);
+
+      // ₱80 came in; the bank kept ₱20 of the ₱100 as tax.
+      expect(rowsOf(csv).last, contains(',Inflow,Interest,80.00,,20.00,'));
     });
 
     test('shows how much of a payment was interest', () {
@@ -541,13 +557,13 @@ void main() {
     ).skip(1).map((line) => line.substring(17)).toList();
 
     expect(rows, [
-      'Inflow,Salary,15000.00,,Cash,,Regular',
-      'Deposit,Transfer,500.00,,Cash,GoTyme Bank,Regular',
-      'Transfer,Transfer,200.00,,Maya,GoTyme Bank,Regular',
-      'Inflow,Interest,24.66,,Savings Deposit,,Regular',
-      'Withdrawal,Transfer,2000.00,,Savings Deposit,Cash,Regular',
-      'Deposit,Goal,500.00,,Cash,Laptop,Regular',
-      'Outflow,Bills,1716.67,50.00,GoTyme Bank,,Debt payment',
+      'Inflow,Salary,15000.00,,,Cash,,Regular',
+      'Deposit,Transfer,500.00,,,Cash,GoTyme Bank,Regular',
+      'Transfer,Transfer,200.00,,,Maya,GoTyme Bank,Regular',
+      'Inflow,Interest,24.66,,,Savings Deposit,,Regular',
+      'Withdrawal,Transfer,2000.00,,,Savings Deposit,Cash,Regular',
+      'Deposit,Goal,500.00,,,Cash,Laptop,Regular',
+      'Outflow,Bills,1716.67,50.00,,GoTyme Bank,,Debt payment',
     ]);
   });
 }

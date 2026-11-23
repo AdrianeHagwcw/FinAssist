@@ -1927,6 +1927,7 @@ class WalletService {
       toWalletId: toWalletId,
       note: trimmedNote,
     );
+    final withheld = _taxWithheld(type, label, amount);
     transaction.set(reference, {
       'type': entry.type.name,
       'amount': entry.amount,
@@ -1936,12 +1937,24 @@ class WalletService {
       'note': trimmedNote == null || trimmedNote.isEmpty ? null : trimmedNote,
       'date': Timestamp.fromDate(entry.date),
       'legacy': false,
+      if (withheld > 0) 'taxWithheld': withheld,
       'isInternalTransfer': type == TransactionType.transfer,
       'createdAt': FieldValue.serverTimestamp(),
     });
     _collectDeltas(deltas, entry, reverse: false);
     return reference.id;
   }
+
+  /// The tax the bank withheld from interest income of [amount], which is
+  /// what came in, so the record keeps the whole interest traceable. Zero
+  /// for anything else.
+  static double _taxWithheld(
+    TransactionType type,
+    String label,
+    double amount,
+  ) => type == TransactionType.income && label == interestIncomeLabel
+      ? taxWithheldOn(amount)
+      : 0;
 
   static void _applyDeltasToTransaction(
     Transaction transaction,
@@ -2288,6 +2301,7 @@ class WalletService {
       note: trimmedNote,
     );
 
+    final withheld = _taxWithheld(type, label, amount);
     batch.set(reference, {
       'type': transaction.type.name,
       'amount': transaction.amount,
@@ -2301,6 +2315,7 @@ class WalletService {
       'debtId': debtId,
       'goalId': goalId,
       if (interest > 0) 'interest': interest,
+      if (withheld > 0) 'taxWithheld': withheld,
       if (installmentPayment) 'installmentPayment': true,
       if (loanPayment) 'loanPayment': true,
       'isInternalTransfer':

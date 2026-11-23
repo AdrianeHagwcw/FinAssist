@@ -169,7 +169,18 @@ class _TransferSheetState extends State<TransferSheet>
       transactions: transactions,
     );
     if (unrecorded == null || !unrecorded.isFinite || unrecorded < 0) return 0;
-    return (unrecorded * 100).round() / 100;
+    // What reaches the account, after the 20% tax the bank withholds.
+    return afterTax(unrecorded);
+  }
+
+  /// The same interest before the tax, for showing what was withheld.
+  double _grossInterestFor(Wallet wallet, List<AppTransaction>? transactions) {
+    if (!_usesCalculatedInterest(wallet) || transactions == null) return 0;
+    final unrecorded = wallet.estimatedUnrecordedSavingsDepositInterest(
+      transactions: transactions,
+    );
+    if (unrecorded == null || !unrecorded.isFinite || unrecorded < 0) return 0;
+    return roundToCentavo(unrecorded);
   }
 
   double _balanceFor(Wallet wallet, List<AppTransaction>? transactions) =>
@@ -406,7 +417,9 @@ class _TransferSheetState extends State<TransferSheet>
                                       _interestFor(source, transactions) > 0
                                 ? '${source.name} holds ${formatPeso(balance)}, '
                                       'including ${formatPeso(_interestFor(source, transactions))} '
-                                      'simple interest'
+                                      'interest: ${formatPeso(_grossInterestFor(source, transactions))} '
+                                      'less ${formatPeso(interestTax(_grossInterestFor(source, transactions)))} '
+                                      'tax (20%)'
                                 : '${source.name} holds ${formatPeso(balance)}',
                             onChanged: (value) => setState(() {
                               _fromId = value;

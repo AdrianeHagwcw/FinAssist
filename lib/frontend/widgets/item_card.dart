@@ -233,14 +233,14 @@ List<Widget> savingsRecordDetails({
       ItemCardNote(
         Icons.trending_up,
         '${ended ? 'May have earned' : 'May earn'} about '
-        '${formatPeso(interestUntilEnd)} by '
+        '${formatPeso(afterTax(interestUntilEnd))} after tax by '
         '${formatShortDate(end)}. It is added when you say what you got back.',
       )
     else if (kind == SavingsKind.savingsDeposit && rate != null && rate > 0)
       ItemCardNote(
         Icons.trending_up,
-        'May earn about ${formatPeso(balance * rate / 100)} a year. It is '
-        'added when you move money out.',
+        'May earn about ${formatPeso(afterTax(balance * rate / 100))} a '
+        'year after tax. It is added when you move money out.',
       ),
   ];
 }

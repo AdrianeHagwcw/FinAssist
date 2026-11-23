@@ -244,8 +244,8 @@ class _SavingsInterestSummary extends StatelessWidget {
         : isSavingsDeposit
         ? wallet.estimatedSavingsDepositInterest(transactions: transactions)
         : null;
-    // The exact simple-interest amount, with no tax taken off.
-    final net = interest;
+    // What reaches the account, after the 20% tax the bank withholds.
+    final net = interest == null ? null : afterTax(interest);
     final endValue = isTimeDeposit && net != null
         ? wallet.startingBalance + net
         : null;
@@ -301,7 +301,7 @@ class _SavingsInterestSummary extends StatelessWidget {
           const SizedBox(height: 6),
           if (net != null)
             Text(
-              'May earn about ${formatPeso(net)}'
+              'May earn about ${formatPeso(net)} after tax'
               '${endValue == null ? '' : ' · about ${formatPeso(endValue)} at the end'}',
               style: TextStyle(
                 fontSize: 13,

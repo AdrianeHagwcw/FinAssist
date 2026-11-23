@@ -12,6 +12,7 @@ import '../../backend/utils/date_format.dart';
 import '../../backend/utils/money_format.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
+import 'interest_breakdown.dart';
 import 'wallet_picker.dart';
 import 'wallet_split_picker.dart';
 
@@ -125,14 +126,27 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
     with CheckAfterSave, WatchesGoals {
   bool get _isTimeDeposit => widget.wallet.isTimeDeposit;
 
-  /// The interest the deposit should have paid, the exact simple-interest
-  /// amount with no tax taken off, when its rate and dates are recorded. The amount starts on the balance plus this, so the
-  /// user only changes it if the bank paid something else.
-  late final double? _expectedInterest = (() {
+  /// The interest the deposit should have earned before tax, when its rate
+  /// and dates are recorded.
+  late final double? _expectedGross = (() {
     if (!widget.isMatured) return null;
     final gross = widget.wallet.estimatedTimeDepositInterest();
     return gross == null || gross <= 0 ? null : gross;
   })();
+
+  /// What it should have paid: the interest after the 20% tax the bank
+  /// withholds. The amount starts on the balance plus this, so the user only
+  /// changes it if the bank paid something else.
+  late final double? _expectedInterest = _expectedGross == null
+      ? null
+      : afterTax(_expectedGross);
+
+  /// Whether the claim's interest is the estimate, so its tax can be shown;
+  /// a typed or recorded amount is what the bank already paid.
+  bool get _interestIsEstimate =>
+      _interestController.text.trim().isEmpty &&
+      widget.wallet.balance - _principal <= 0.005 &&
+      _expectedGross != null;
 
   late final _amountController = TextEditingController(
     text: formatAmountInput(widget.wallet.balance + (_expectedInterest ?? 0)),
@@ -654,8 +668,8 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
                             ? 'With any interest your bank paid.'
                             : 'Starts on ${formatPeso(widget.wallet.balance)} '
                                   'plus about ${formatPeso(_expectedInterest)} '
-                                  'interest. Change it to what '
-                                  'your bank paid.',
+                                  'interest after the 20% tax. Change it to '
+                                  'what your bank paid.',
                         helperMaxLines: 3,
                       ),
                 ),
@@ -760,7 +774,10 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
           children: [
             _moneyRow('Original money', _principal),
             const SizedBox(height: 6),
-            _moneyRow('Interest earned', _interest),
+            if (_interestIsEstimate)
+              InterestBreakdown(_expectedGross!, earnedLabel: 'Interest earned')
+            else
+              _moneyRow('Interest received', _interest),
             Divider(height: 20, color: colors.border),
             _moneyRow('Total at maturity', _tdTotal, bold: true),
           ],
@@ -774,11 +791,12 @@ class _MaturedSavingsSheetState extends State<MaturedSavingsSheet>
         inputFormatters: const [ThousandsSeparatorFormatter()],
         decoration: dialogFieldDecoration(context, 'Actual interest (optional)')
             .copyWith(
-              prefixText: 'â‚± ',
+              prefixText: '₱ ',
               helperText: _expectedInterest == null
                   ? 'Leave blank if no interest was paid.'
-                  : 'Leave blank to use about ${formatPeso(_expectedInterest)} '
-                        'from the saved rate and dates.',
+                  : 'What your bank paid, after tax. Leave blank to use '
+                        'about ${formatPeso(_expectedInterest)} from the '
+                        'saved rate and dates.',
               helperMaxLines: 2,
               errorText: _interestOverrideProblem,
             ),

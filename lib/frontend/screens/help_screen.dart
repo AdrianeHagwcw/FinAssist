@@ -52,6 +52,15 @@ const List<({String title, List<_Faq> faqs})> _sections = [
             'Keep them up to date so the results match your situation.',
       ),
       (
+        question: 'Why is my interest less than the rate says?',
+        answer:
+            'Banks keep 20% of the interest as tax before paying it, for '
+            'savings, time deposits, bank accounts and e-wallets. FinAssist '
+            'shows the interest, the tax and what you get, and adds what you '
+            'get to your balance. Interest on a loan you pay is not taxed '
+            'this way.',
+      ),
+      (
         question: 'Where do I see what was left each month?',
         answer:
             'Open Cash Inflows from the light bulb at the top of Transactions, or from Settings, then Your money. Each month shows what came in, what went out, and what was left. To put some of it aside, add it to a goal or move it to a savings account.',

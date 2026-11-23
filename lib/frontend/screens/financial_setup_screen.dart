@@ -595,8 +595,8 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
                   const SizedBox(height: 4),
                   Text(
                     wallet.estimatedAnnualInterestIncome != null
-                        ? 'Interest in a year: '
-                              '${formatPeso(wallet.estimatedAnnualInterestIncome!)}'
+                        ? 'Interest in a year, after tax: '
+                              '${formatPeso(afterTax(wallet.estimatedAnnualInterestIncome!))}'
                         : 'Interest in a year: no rate yet',
                     style: TextStyle(color: colors.textBody),
                   ),
@@ -2026,20 +2026,19 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
       (total, wallet) =>
           total + (wallet.balanceRecorded ? _goalMoneyIn(wallet) : 0),
     );
-    // The exact simple-interest amount, with no tax taken off.
+    // The simple interest before tax; what is shown is after the 20% tax.
     final annualInterestEstimates = accounts
         .map((wallet) => wallet.estimatedAnnualInterestIncome)
         .whereType<double>()
         .toList(growable: false);
+    final grossInterest = annualInterestEstimates.fold<double>(
+      0,
+      (total, estimate) => total + estimate,
+    );
     final estimatedInterestText =
         annualInterestEstimates.isEmpty && accounts.isNotEmpty
         ? 'Unavailable'
-        : formatPeso(
-            annualInterestEstimates.fold<double>(
-              0,
-              (total, estimate) => total + estimate,
-            ),
-          );
+        : formatPeso(afterTax(grossInterest));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2089,9 +2088,10 @@ class _FinancialSetupScreenState extends State<FinancialSetupScreen>
         _featureRow(WalletType.bank.iconAsset, _interestCoverageText(accounts)),
         _featureRow(
           'assets/icons/icons8-combo-chart-100.png',
-          'Interest is not in Cash in Bank or Total Available Money until it '
-              'is paid. It is the simple-interest amount from the rate, and '
-              'FinAssist reminds you to add it as income when it comes.',
+          '${grossInterest > 0.005 ? '${formatPeso(roundToCentavo(grossInterest))} interest less ${formatPeso(interestTax(grossInterest))} tax (20%) is ${formatPeso(afterTax(grossInterest))} a year. ' : 'Banks withhold 20% tax from interest. '}'
+              'It is not in Cash in Bank or Total Available Money until it is '
+              'paid, and FinAssist reminds you to add it as income when it '
+              'comes.',
         ),
       ],
     );

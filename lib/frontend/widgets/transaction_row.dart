@@ -128,6 +128,9 @@ class TransactionRow extends StatelessWidget {
       if (t.isBillPayment) 'Bill payment',
       // What this installment payment cost in interest, as Reports counts it.
       if (t.interest > 0) '${formatPeso(t.interest, masked: masked)} interest',
+      // Interest income is what came in; the bank kept this as tax.
+      if (t.taxWithheld > 0)
+        '${formatPeso(t.taxWithheld, masked: masked)} tax withheld',
       // A goal's name is already in its title.
       if ((t.note ?? '').isNotEmpty && !t.isGoalMovement) t.note!,
     ].join(' · ');

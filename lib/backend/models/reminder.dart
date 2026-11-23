@@ -623,10 +623,10 @@ List<PlannedReminder> planReminders({
       // Older government savings: once on the day, once a week later.
       // Older than a fortnight is the card's job now, not a notification's.
       if (day.isBefore(today.subtract(const Duration(days: 14)))) continue;
-      // What it should have earned, so the user knows what to look for:
-      // the exact simple-interest amount.
+      // What it should have paid, so the user knows what to look for: the
+      // interest after the 20% tax the bank withholds.
       final gross = wallet.estimatedTimeDepositInterest();
-      final interest = gross == null || gross <= 0 ? null : gross;
+      final interest = gross == null || gross <= 0 ? null : afterTax(gross);
 
       add(
         PlannedReminder(
@@ -638,7 +638,7 @@ List<PlannedReminder> planReminders({
               ? '${formatPeso(wallet.balance)} is recorded. Open FinAssist to '
                     'say what you did with it.'
               : '${formatPeso(wallet.balance)} is recorded, plus about '
-                    '${formatPeso(interest)} interest. Open '
+                    '${formatPeso(interest)} interest after tax. Open '
                     'FinAssist to say what you got back.',
           payload: 'savings:${wallet.id}',
         ),
@@ -671,8 +671,11 @@ List<PlannedReminder> planReminders({
         continue;
       }
 
-      final expected = wallet.interestPerPayout;
-      if (expected == null || !isRecordableAmount(expected)) continue;
+      // What reaches the account, after the 20% tax the bank withholds.
+      final gross = wallet.interestPerPayout;
+      if (gross == null) continue;
+      final expected = afterTax(gross);
+      if (!isRecordableAmount(expected)) continue;
 
       final payout = wallet.interestPayout;
       // The next two months' reminders, or for a longer schedule at least
@@ -703,9 +706,9 @@ List<PlannedReminder> planReminders({
             title: 'Interest from ${wallet.name} may be in',
             // Paid daily, it is the month's total that is added.
             body: payout.isDaily
-                ? 'About ${formatPeso(expected)} this month. Check your '
+                ? 'About ${formatPeso(expected)} this month after tax. Check your '
                       "app and add the month's total."
-                : 'About ${formatPeso(expected)}. Check your app and add '
+                : 'About ${formatPeso(expected)} after tax. Check your app and add '
                       'what it paid.',
             payload: 'interest:${wallet.id}',
           ),

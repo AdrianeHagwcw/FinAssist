@@ -57,6 +57,7 @@ const List<CsvColumn> csvColumns = [
   CsvColumn('Category / Source', _label),
   CsvColumn('Amount', _amount, isText: false),
   CsvColumn('Interest Included', _interest, isText: false),
+  CsvColumn('Tax Withheld', _taxWithheld, isText: false),
   CsvColumn('Wallet', _wallet),
   CsvColumn('To Wallet', _toWallet),
   CsvColumn('Tag', _tag),
@@ -125,6 +126,12 @@ String _interest(AppTransaction entry, CsvLookups lookups) =>
     entry.interest > 0.005
     ? entry.interest.clamp(0.0, entry.amount).toStringAsFixed(2)
     : '';
+
+/// The 20% tax the bank kept from interest income, on top of Amount, which
+/// is what came in. Blank for everything else and for interest recorded
+/// before the tax was counted.
+String _taxWithheld(AppTransaction entry, CsvLookups lookups) =>
+    entry.taxWithheld > 0.005 ? entry.taxWithheld.toStringAsFixed(2) : '';
 
 /// The goal's name, kept in a goal row's note.
 String _goalName(AppTransaction entry) => entry.note ?? 'Goal';

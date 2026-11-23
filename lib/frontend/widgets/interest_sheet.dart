@@ -7,13 +7,14 @@ import '../theme/app_colors.dart';
 import '../../backend/utils/money_format.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
+import 'interest_breakdown.dart';
 import 'item_card.dart';
 import 'savings_form_parts.dart';
 
 /// Asks how much interest [wallet] paid and adds it as income there.
 ///
-/// It starts on the exact simple-interest amount from the rate, with no
-/// tax taken off, and can be changed if the app shows another figure.
+/// It starts on the interest from the rate less the 20% tax the bank
+/// withholds, and can be changed if the app shows another figure.
 /// Returns whether it was added.
 Future<bool> showAddInterestSheet(
   BuildContext context, {
@@ -56,16 +57,21 @@ class AddInterestSheet extends StatefulWidget {
 class _AddInterestSheetState extends State<AddInterestSheet>
     with CheckAfterSave {
   late final DateTime _today = widget.today ?? DateTime.now();
-  late final double? _expected =
+
+  /// What the rate earns each time, before the 20% tax.
+  late final double? _gross =
       widget.wallet.isSetAside &&
           widget.wallet.savingsType == SavingsKind.savingsDeposit
       ? null
       : widget.wallet.interestPerPayout;
 
+  /// What should reach the account: the interest after the tax.
+  late final double? _expected = _gross == null ? null : afterTax(_gross);
+
   late final _amountController = TextEditingController(
     text: _expected == null || !isRecordableAmount(_expected)
         ? ''
-        : formatAmountInput((_expected * 100).round() / 100),
+        : formatAmountInput(_expected),
   );
   late DateTime _date = DateTime(_today.year, _today.month, _today.day);
 
@@ -174,9 +180,20 @@ class _AddInterestSheetState extends State<AddInterestSheet>
                 autofocus: false,
                 helper: expected == null || !isRecordableAmount(expected)
                     ? null
-                    : 'From the rate: about ${formatPeso(expected)}. '
-                          'Change it if your app shows another amount.',
+                    : 'Change it if your app shows another amount.',
               ),
+              if (_gross != null && isRecordableAmount(expected)) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'From the rate',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textMuted,
+                  ),
+                ),
+                InterestBreakdown(_gross),
+              ],
               const FieldLabel('Date it came in'),
               PickDateField(
                 date: _date,
@@ -290,13 +307,16 @@ class InterestCard extends StatelessWidget {
           if (each != null && !isSavingsDeposit) ...[
             const SizedBox(height: 8),
             // Paid daily, what is added is the month's total.
-            ItemCardDetail(
-              payout.isDaily ? 'Each month' : 'Each time',
-              'about ${formatPeso(each)}',
+            InterestBreakdown(
+              each,
+              earnedLabel: payout.isDaily
+                  ? 'Interest each month'
+                  : 'Interest each time',
             ),
+            const SizedBox(height: 4),
             ItemCardDetail(
-              'In a year',
-              'about ${formatPeso(each * 12 / payout.remindEvery)}',
+              'In a year, after tax',
+              'about ${formatPeso(afterTax(each * 12 / payout.remindEvery))}',
             ),
           ],
           if (!isSavingsDeposit)

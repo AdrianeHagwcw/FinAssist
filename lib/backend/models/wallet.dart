@@ -186,6 +186,29 @@ bool isValidAnnualInterestRatePercent(double? rate) =>
     rate >= 0 &&
     rate <= maximumAnnualInterestRatePercent;
 
+/// The final tax banks withhold from interest earned on deposits: 20% on
+/// savings and time deposits and on bank and e-wallet accounts, since
+/// RA 12214 (CMEPA). Interest the user pays on a loan is not taxed so.
+const double interestTaxRate = 0.20;
+
+/// [amount] to the centavo.
+double roundToCentavo(double amount) => (amount * 100).roundToDouble() / 100;
+
+/// The tax withheld from [gross] interest, to the centavo.
+double interestTax(double gross) =>
+    roundToCentavo(roundToCentavo(gross) * interestTaxRate);
+
+/// What reaches the account of [gross] interest once the tax is withheld:
+/// the interest less the tax, so the two always add back to it.
+double afterTax(double gross) =>
+    roundToCentavo(roundToCentavo(gross) - interestTax(gross));
+
+/// The tax withheld from interest when only what came in is known, as when
+/// the user types what their bank paid: what came in is 80% of the
+/// interest, so the tax is the rest.
+double taxWithheldOn(double received) =>
+    roundToCentavo(received / (1 - interestTaxRate) - received);
+
 bool isEWalletType(WalletType type) =>
     type == WalletType.gcash ||
     type == WalletType.maya ||
@@ -460,12 +483,14 @@ class Wallet {
         : TimeDepositStatus.matured;
   }
 
-  /// The interest this deposit earns by maturity: the exact simple-interest
-  /// amount, with no tax taken off, as the team's CPA set. Zero when the
-  /// record has no usable rate or dates.
-  double get timeDepositMaturityInterest => estimatedTimeDepositInterest() ?? 0;
+  /// The interest this deposit pays at maturity: the simple interest, less
+  /// the 20% tax the bank withholds. Zero when the record has no usable rate
+  /// or dates.
+  double get timeDepositMaturityInterest =>
+      afterTax(estimatedTimeDepositInterest() ?? 0);
 
-  /// What the deposit is worth at maturity: original money plus interest.
+  /// What the deposit is worth at maturity: original money plus the interest
+  /// after tax.
   double get timeDepositMaturityValue =>
       timeDepositPrincipal + timeDepositMaturityInterest;
 
@@ -483,9 +508,9 @@ class Wallet {
         : isBankOrEWallet;
   }
 
-  /// About what one interest payment brings in, at today's balance: the
-  /// exact simple-interest amount, with no tax taken off. Null when this
-  /// account does not pay interest regularly.
+  /// About what one interest payment earns, at today's balance: the simple
+  /// interest before the 20% tax. [afterTax] gives what reaches the account.
+  /// Null when this account does not pay interest regularly.
   double? get interestPerPayout {
     if (!paysRegularInterest || balance <= 0) return null;
     final yearly = balance * annualInterestRatePercent! / 100;
@@ -575,9 +600,10 @@ class Wallet {
     );
   }
 
+  /// The original money plus the interest after the 20% tax.
   double? estimatedMaturityValue() {
     final interest = estimatedTimeDepositInterest();
-    return interest == null ? null : timeDepositPrincipal + interest;
+    return interest == null ? null : timeDepositPrincipal + afterTax(interest);
   }
 
   double? estimatedSavingsDepositInterest({

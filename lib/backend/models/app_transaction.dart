@@ -84,6 +84,7 @@ class AppTransaction {
     this.debtId,
     this.goalId,
     this.interest = 0,
+    this.taxWithheld = 0,
     this.installmentPayment = false,
     this.loanPayment = false,
     this.internalTransfer,
@@ -117,6 +118,7 @@ class AppTransaction {
       debtId: _asString(map['debtId']),
       goalId: _asString(map['goalId']),
       interest: _asDouble(map['interest']).abs(),
+      taxWithheld: _asDouble(map['taxWithheld']).abs(),
       installmentPayment: map['installmentPayment'] == true,
       loanPayment: map['loanPayment'] == true,
       internalTransfer: map['isInternalTransfer'] is bool
@@ -181,6 +183,11 @@ class AppTransaction {
   /// own category, the way an accountant splits a loan payment into the
   /// amount paid back and the interest. Zero for everything else.
   final double interest;
+
+  /// The 20% tax the bank withheld from interest income, on top of
+  /// [amount], which is what came in. Zero for everything else, and for
+  /// interest recorded before the tax was counted.
+  final double taxWithheld;
 
   /// True when this expense paid one scheduled payment of a loan or an
   /// installment plan.
