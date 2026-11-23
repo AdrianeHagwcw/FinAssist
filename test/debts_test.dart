@@ -1091,10 +1091,13 @@ void main() {
   });
 
   group('the Add Debt form', () {
+    /// Older tests count the payments from the balance, so they answer
+    /// "No interest" unless they say otherwise.
     Future<void> pumpForm(
       WidgetTester tester,
-      void Function(LoanDraft draft) onSave,
-    ) async {
+      void Function(LoanDraft draft) onSave, {
+      LoanInterest interest = LoanInterest.none,
+    }) async {
       tester.view.physicalSize = const Size(800, 3200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -1108,6 +1111,10 @@ void main() {
         ),
       );
       await tester.pump();
+      if (interest != LoanInterest.included) {
+        await tester.tap(find.byKey(Key('loan-interest-${interest.name}')));
+        await tester.pump();
+      }
     }
 
     testWidgets('saves required details without optional loan information', (
@@ -1189,7 +1196,11 @@ void main() {
       tester,
     ) async {
       LoanDraft? saved;
-      await pumpForm(tester, (draft) => saved = draft);
+      await pumpForm(
+        tester,
+        (draft) => saved = draft,
+        interest: LoanInterest.separate,
+      );
       await tester.enterText(find.byKey(const Key('loan-name')), 'Tita Baby');
       await tester.enterText(find.byKey(const Key('loan-balance')), '10000');
       await tester.enterText(find.byKey(const Key('loan-payment')), '1000');
@@ -1304,6 +1315,121 @@ void main() {
       await tester.pump();
       expect(find.text('Enter a debt balance above zero.'), findsOneWidget);
       expect(saved, isNull);
+    });
+
+    group('interest in each payment', () {
+      Future<void> fill(
+        WidgetTester tester, {
+        required String borrowed,
+        required String each,
+        required String count,
+      }) async {
+        await tester.enterText(find.byKey(const Key('loan-name')), 'Maya loan');
+        await tester.enterText(find.byKey(const Key('loan-balance')), borrowed);
+        await tester.enterText(find.byKey(const Key('loan-payment')), each);
+        await tester.enterText(
+          find.byKey(const Key('loan-payment-count')),
+          count,
+        );
+        await pickDate(tester, const Key('loan-next-payment-date'));
+      }
+
+      testWidgets('is the first answer, and works the interest out', (
+        tester,
+      ) async {
+        LoanDraft? saved;
+        await pumpForm(
+          tester,
+          (draft) => saved = draft,
+          interest: LoanInterest.included,
+        );
+        expect(find.text('Amount borrowed'), findsOneWidget);
+        await fill(tester, borrowed: '5000', each: '503', count: '10');
+
+        // ₱503 × 10 is ₱5,030: ₱30 of interest, ₱3 of each payment.
+        expect(find.text('10 payments of ₱503'), findsOneWidget);
+        expect(
+          find.text(
+            '₱5,030 in all: ₱5,000 borrowed and ₱30 interest, ₱3 of each '
+            'payment.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('loan-included-warning')), findsNothing);
+        await tester.tap(find.text('Save Debt'));
+        await tester.pumpAndSettle();
+
+        expect(saved?.principal, 5000);
+        expect(saved?.perPayment, 503);
+        expect(saved?.paymentCount, 10);
+        expect(saved?.lastPayment, 0);
+        expect(saved?.fixedInterestAmount, isNull);
+        final debt = Debt(
+          id: 'm',
+          direction: DebtDirection.iOwe,
+          name: saved!.name,
+          category: saved!.category,
+          principal: saved!.principal,
+          status: DebtStatus.active,
+          perPayment: saved!.perPayment,
+          paymentCount: saved!.paymentCount,
+        );
+        expect(debt.extraCost, closeTo(30, 0.001));
+        expect(debt.interestOf(1), 3);
+      });
+
+      testWidgets('warns when the payments carry no interest', (tester) async {
+        await pumpForm(tester, (_) {}, interest: LoanInterest.included);
+        await fill(tester, borrowed: '5030', each: '503', count: '10');
+        expect(
+          find.textContaining('the amount borrowed may already include it'),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('warns when the interest is more than half', (tester) async {
+        await pumpForm(tester, (_) {}, interest: LoanInterest.included);
+        await fill(tester, borrowed: '5000', each: '1000', count: '10');
+        expect(
+          find.textContaining('That is ₱5,000 of interest, 100% of what you'),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('stops payments that add up to less than borrowed', (
+        tester,
+      ) async {
+        LoanDraft? saved;
+        await pumpForm(
+          tester,
+          (draft) => saved = draft,
+          interest: LoanInterest.included,
+        );
+        await fill(tester, borrowed: '5000', each: '400', count: '10');
+        await tester.tap(find.text('Save Debt'));
+        await tester.pump();
+        expect(
+          find.textContaining('The payments add up to less than the amount'),
+          findsOneWidget,
+        );
+        expect(saved, isNull);
+      });
+
+      testWidgets('asks for the number of payments', (tester) async {
+        LoanDraft? saved;
+        await pumpForm(
+          tester,
+          (draft) => saved = draft,
+          interest: LoanInterest.included,
+        );
+        await tester.enterText(find.byKey(const Key('loan-name')), 'Maya loan');
+        await tester.enterText(find.byKey(const Key('loan-balance')), '5000');
+        await tester.enterText(find.byKey(const Key('loan-payment')), '503');
+        await tester.tap(find.text('Save Debt'));
+        await tester.pump();
+        expect(find.text('Enter the number of payments.'), findsOneWidget);
+        expect(saved, isNull);
+      });
     });
   });
 }

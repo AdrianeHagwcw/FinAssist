@@ -4,6 +4,23 @@ import 'package:testapp/backend/models/expense_guess.dart';
 import 'package:testapp/backend/utils/categories.dart';
 
 void main() {
+  test('a yellow cab is a ride at a fare, Yellow Cab Pizza above it', () {
+    // Typed alone, it waits for the amount rather than guess.
+    expect(suggestCategory('Yellow Cab', from: expenseCategories), isNull);
+    expect(
+      suggestCategory('Yellow Cab', from: expenseCategories, amount: 20),
+      'Transportation',
+    );
+    expect(
+      suggestCategory('Yellow Cab', from: expenseCategories, amount: 500),
+      'Food',
+    );
+    // The words around it decide before the amount does.
+    expect(
+      suggestCategory('Yellow Cab pizza', from: expenseCategories, amount: 20),
+      'Food',
+    );
+  });
   const all = expenseCategories;
 
   group('what was said', () {

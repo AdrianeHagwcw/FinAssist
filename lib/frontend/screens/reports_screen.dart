@@ -25,6 +25,7 @@ import '../theme/app_theme.dart';
 import '../../backend/utils/money_format.dart';
 import '../widgets/back_to_home.dart';
 import '../widgets/money_text.dart';
+import '../widgets/segmented_choice.dart';
 import '../widgets/spending_chart.dart';
 import 'transactions_screen.dart';
 
@@ -355,7 +356,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
-        _RangeBar(selected: _range, onSelect: _selectRange),
+        SegmentedChoice<ReportRange>(
+          options: ReportRange.values,
+          selected: _range,
+          onSelect: _selectRange,
+          labelOf: (range) => switch (range) {
+            ReportRange.week => 'Week',
+            ReportRange.month => 'Month',
+            ReportRange.quarter => 'Quarter',
+            ReportRange.year => 'Year',
+            ReportRange.custom => 'Custom',
+          },
+          semanticsOf: (range) =>
+              range == ReportRange.custom ? 'Custom dates' : range.label,
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -847,87 +861,6 @@ class _Section extends StatelessWidget {
           ],
           const SizedBox(height: 12),
           child,
-        ],
-      ),
-    );
-  }
-}
-
-/// The report's range as one row of equal parts, the chosen one solid blue
-/// like the filters on Goals and Debts. Short words fit one line on a narrow
-/// phone; the dates under it say which week or month is shown.
-class _RangeBar extends StatelessWidget {
-  const _RangeBar({required this.selected, required this.onSelect});
-
-  final ReportRange selected;
-  final void Function(ReportRange range) onSelect;
-
-  static String _word(ReportRange range) => switch (range) {
-    ReportRange.week => 'Week',
-    ReportRange.month => 'Month',
-    ReportRange.quarter => 'Quarter',
-    ReportRange.year => 'Year',
-    ReportRange.custom => 'Custom',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: colors.card,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          for (final range in ReportRange.values)
-            Expanded(
-              child: Semantics(
-                button: true,
-                selected: range == selected,
-                label: range == ReportRange.custom
-                    ? 'Custom dates'
-                    : _word(range),
-                excludeSemantics: true,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => onSelect(range),
-                    borderRadius: BorderRadius.circular(10),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      height: 40,
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        color: range == selected
-                            ? appPrimaryBlue
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          _word(range),
-                          maxLines: 1,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: range == selected
-                                ? FontWeight.bold
-                                : FontWeight.w500,
-                            color: range == selected
-                                ? Colors.white
-                                : colors.textBody,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );

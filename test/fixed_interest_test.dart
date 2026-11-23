@@ -13,7 +13,7 @@ import 'package:testapp/frontend/theme/app_theme.dart';
 
 /// A bank loan: ₱15,000 back as 10 monthly payments of ₱1,500 from Jan 5,
 /// 2026, and the lender charges ₱180 of interest each month.
-Debt bankLoan({DateTime? paidOffAt}) => Debt(
+Debt bankLoan({DateTime? paidOffAt, double accrued = 540}) => Debt(
   id: 'bpi',
   direction: DebtDirection.iOwe,
   name: 'BPI loan',
@@ -27,7 +27,7 @@ Debt bankLoan({DateTime? paidOffAt}) => Debt(
   paidWithWalletId: 'cash',
   fixedInterestAmount: 180,
   interestChargedPer: PaymentFrequency.monthly,
-  accruedInterest: 540,
+  accruedInterest: accrued,
   paidOffAt: paidOffAt,
 );
 
@@ -247,5 +247,45 @@ void main() {
     );
     // The charge is not listed as one of the payments.
     expect(find.text('BPI loan interest'), findsNothing);
+  });
+
+  testWidgets('the statement takes a paid charge off what is left', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 6000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    // ₱15,000 back, ₱1,500 paid, and March's ₱180 charge paid too.
+    final debt = bankLoan(accrued: 180);
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppSettingsProvider(),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: LoanDetailScreen(
+            debt: debt,
+            liveDebt: Stream.value(debt),
+            payments: Stream.value([
+              payment(
+                DateTime(2026, 1, 5),
+                paid: 1500,
+                status: BillStatus.paid,
+              ),
+              charge(DateTime(2026, 3, 5), paid: 180, status: BillStatus.paid),
+            ]),
+            interestCharges: Stream.value([recorded(DateTime(2026, 3, 5))]),
+            wallets: Stream.value(const <Wallet>[]),
+            today: DateTime(2026, 3, 5),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('; Paid'), findsOneWidget);
+    // What is left after the last payment is what is really owed.
+    expect(find.text('₱13,500 left'), findsWidgets);
+    expect(find.text('₱13,680 left'), findsNothing);
   });
 }

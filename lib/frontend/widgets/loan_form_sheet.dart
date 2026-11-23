@@ -13,6 +13,7 @@ import '../../backend/utils/text_limits.dart';
 import 'check_after_save.dart';
 import 'dialog_kit.dart';
 import 'goal_funding_picker.dart' show fundingWalletKind;
+import 'segmented_choice.dart';
 import 'wallet_split_picker.dart' show isCashOnHand;
 
 /// What the Debts form would save, handed to tests instead of Firestore.
@@ -96,6 +97,19 @@ Future<bool> showLoanFormSheet(
   return saved == true;
 }
 
+/// How the lender charges interest, which decides what the payments are.
+enum LoanInterest {
+  /// Already in each payment, as most loans quote it: ₱5,000 borrowed and
+  /// paid as 10 × ₱503 is ₱30 of interest, ₱3 of every payment.
+  included,
+
+  /// A fixed amount the lender charges on its own dates, paid first.
+  separate,
+
+  /// Paid back exactly as borrowed.
+  none,
+}
+
 enum _LoanTermUnit {
   months('Months', 1),
   years('Years', 12);
@@ -139,6 +153,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     text: widget.amount == null ? '' : formatAmountInput(widget.amount!),
   );
   final _paymentController = TextEditingController();
+  late final _countController = TextEditingController(
+    text: widget.count?.toString(),
+  );
   final _fixedInterestController = TextEditingController();
   late final _durationController = TextEditingController(
     text: widget.count?.toString(),
@@ -151,6 +168,17 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     final guess = guessDebtCategory(_nameController.text);
     return guess != null && guess.isLoan ? guess : DebtCategory.personalLoan;
   }
+
+  LoanInterest? _pickedInterest;
+
+  /// Most loans have the interest in each payment; family and friends
+  /// usually charge none.
+  LoanInterest get _interest =>
+      _pickedInterest ??
+      (_kind == DebtCategory.familyFriend
+          ? LoanInterest.none
+          : LoanInterest.included);
+  bool get _included => _interest == LoanInterest.included;
 
   PaymentFrequency _frequency = PaymentFrequency.monthly;
   PaymentFrequency? _interestChargedPer;
@@ -178,6 +206,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     _nameController,
     _balanceController,
     _paymentController,
+    _countController,
     _fixedInterestController,
     _durationController,
     _otherKindController,
@@ -239,9 +268,22 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
   double get _balance => _number(_balanceController);
   double get _payment => _number(_paymentController);
   double? get _fixedInterestAmount =>
-      _fixedInterestController.text.trim().isEmpty
+      _interest != LoanInterest.separate ||
+          _fixedInterestController.text.trim().isEmpty
       ? null
       : _number(_fixedInterestController);
+
+  /// The number of payments typed, for interest already in each payment.
+  int? get _typedCount => int.tryParse(_countController.text.trim());
+
+  /// The interest in the payments when it is in each one: what they add up
+  /// to beyond the amount borrowed.
+  double get _includedInterest {
+    final count = _typedCount ?? 0;
+    final extra = _payment * count - _balance;
+    return extra > 0.005 ? extra : 0;
+  }
+
   int? get _duration => _durationController.text.trim().isEmpty
       ? null
       : int.tryParse(_durationController.text.trim());
@@ -249,6 +291,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
   /// Keep a finite schedule for the existing bill and debt tracking flows.
   /// If no duration was supplied, estimate its length from balance/payment.
   int get _paymentCount {
+    if (_included) return _typedCount ?? 0;
     final duration = _duration;
     if (!_durationIsAutomatic && duration != null && duration > 0) {
       final periodsPerYear = _frequency.perYear;
@@ -258,8 +301,12 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     return paymentsToCover(_balance, _payment);
   }
 
+  // With the interest in each payment, every payment is the same; otherwise
+  // the last one is only what is left of the balance.
   double get _finalPayment => _paymentCount < 1
       ? 0
+      : _included
+      ? _payment
       : ((_balance - _payment * (_paymentCount - 1)) * 100).round() / 100;
 
   Debt? get _preview {
@@ -270,7 +317,7 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       name: _nameController.text,
       category: _kind,
       principal: _balance,
-      perPayment: _paymentCount == 1 && _payment > _balance
+      perPayment: !_included && _paymentCount == 1 && _payment > _balance
           ? _balance
           : _payment,
       paymentCount: _paymentCount,
@@ -332,10 +379,26 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       return nameProblem;
     }
     if (!isRecordableAmount(_balance)) {
-      return 'Enter a debt balance above zero.';
+      return _included
+          ? 'Enter the amount borrowed, above zero.'
+          : 'Enter a debt balance above zero.';
     }
     if (!isRecordableAmount(_payment)) {
       return 'Enter an amount above zero.';
+    }
+    if (_included) {
+      final count = _typedCount;
+      if (count == null || count < 1) return 'Enter the number of payments.';
+      if (count > _mostPayments) {
+        return 'The payment schedule is too long. Check the number of '
+            'payments.';
+      }
+      if (_payment * count + 0.005 < _balance) {
+        return 'The payments add up to less than the amount borrowed. Check '
+            'the amount and the number of payments.';
+      }
+      if (_nextPaymentDate == null) return 'Choose the payment date.';
+      return null;
     }
     if (_fixedInterestController.text.trim().isNotEmpty &&
         !isRecordableAmount(_fixedInterestAmount ?? 0)) {
@@ -377,7 +440,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       principal: _balance,
       perPayment: preview.perPayment,
       paymentCount: _paymentCount,
-      lastPayment: preview.hasDifferentLastPayment ? preview.finalPayment : 0,
+      lastPayment: !_included && preview.hasDifferentLastPayment
+          ? preview.finalPayment
+          : 0,
       frequency: _frequency,
       firstDueDate: _nextPaymentDate,
       fixedInterestAmount: _fixedInterestAmount,
@@ -387,8 +452,10 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
       firstInterestChargeDate: _fixedInterestAmount == null
           ? null
           : _firstInterestChargeDate,
-      loanDuration: _duration,
-      loanDurationUnit: _duration == null ? null : _durationUnit.name,
+      loanDuration: _included ? null : _duration,
+      loanDurationUnit: _included || _duration == null
+          ? null
+          : _durationUnit.name,
       loanStartDate: _loanStartDate,
       balanceBasedSchedule: true,
       otherKind: _kind == DebtCategory.otherLoan
@@ -631,6 +698,110 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
     );
   }
 
+  /// The lender's fixed interest: how much, how often, and the next date.
+  List<Widget> _fixedInterestFields(BuildContext context) => [
+    AmountField(
+      key: const Key('loan-fixed-interest'),
+      controller: _fixedInterestController,
+      label: 'Fixed interest amount',
+      hint: 'e.g. 180',
+      helper:
+          'The lender charges this exact amount each period. '
+          'Interest is recorded separately from payments.',
+      alwaysShowHint: true,
+      autofocus: false,
+    ),
+    const SizedBox(height: 16),
+    DropdownButtonFormField<PaymentFrequency>(
+      key: ValueKey(
+        'loan-interest-charged-per-'
+        '${_interestChargedPer?.name ?? 'none'}',
+      ),
+      initialValue: _interestChargedPer,
+      isExpanded: true,
+      decoration: dialogFieldDecoration(context, 'Interest charged per'),
+      items: [
+        for (final period in PaymentFrequency.values)
+          DropdownMenuItem(value: period, child: Text(period.label)),
+      ],
+      onChanged: (value) => setState(() => _interestChargedPer = value),
+    ),
+    if (_fixedInterestAmount != null && _interestChargedPer != null) ...[
+      const SizedBox(height: 16),
+      _dateField(
+        context,
+        key: const Key('loan-first-interest-date'),
+        label: 'Next interest charge date',
+        date: _firstInterestChargeDate,
+        onTap: _pickInterestDueDate,
+      ),
+      Align(
+        alignment: Alignment.centerRight,
+        child: TextButton(
+          key: const Key('use-next-payment-for-interest'),
+          style: neutralTextStyle(context),
+          onPressed: _nextPaymentDate == null
+              ? null
+              : () =>
+                    setState(() => _firstInterestChargeDate = _nextPaymentDate),
+          child: const Text('Use Payment Date'),
+        ),
+      ),
+    ],
+  ];
+
+  /// What the payments come to when the interest is in each one, said
+  /// before saving when it looks wrong: no interest at all, which usually
+  /// means the amount borrowed already has it, or a lot of it.
+  Widget? _includedWarning(BuildContext context) {
+    if (!_included || _problem != null) return null;
+    final interest = _includedInterest;
+    final String text;
+    if (interest <= 0.005) {
+      if (_kind == DebtCategory.familyFriend) return null;
+      text =
+          'These payments have no interest. If the lender charges interest, '
+          'the amount borrowed may already include it: enter it without '
+          'interest, or choose No interest.';
+    } else if (interest > _balance * 0.5) {
+      text =
+          'That is ${formatPeso(interest)} of interest, '
+          '${roundedPercent(interest / _balance * 100)} of what you '
+          'borrowed. Check the amount and the number of payments.';
+    } else {
+      return null;
+    }
+    final warn = dangerColorOn(context);
+    return Container(
+      key: const Key('loan-included-warning'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: warn.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: warn.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 20, color: warn),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: context.appColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -735,49 +906,114 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
               AmountField(
                 key: const Key('loan-balance'),
                 controller: _balanceController,
-                label: 'Debt balance',
+                label: _included ? 'Amount borrowed' : 'Debt balance',
                 hint: 'e.g. 15,000',
-                helper: 'What you still owe today.',
+                helper: _included
+                    ? 'Without interest. Already paying? Enter what is left '
+                          'of it, without interest.'
+                    : _interest == LoanInterest.separate
+                    ? 'What you still owe today, without interest.'
+                    : 'What you still owe today.',
                 alwaysShowHint: true,
                 autofocus: false,
               ),
               const SizedBox(height: 24),
               _sectionTitle(context, 'Payments'),
               const SizedBox(height: 12),
-              AmountField(
-                key: const Key('loan-payment'),
-                controller: _paymentController,
-                label: 'Amount',
-                hint: 'e.g. 1,000',
-                helper: 'What you pay each time.',
-                alwaysShowHint: true,
-                autofocus: false,
+              _InterestChoice(
+                picked: _interest,
+                onPicked: (choice) => setState(() => _pickedInterest = choice),
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<PaymentFrequency>(
-                key: ValueKey('loan-frequency-${_frequency.name}'),
-                initialValue: _frequency,
-                isExpanded: true,
-                decoration: dialogFieldDecoration(context, 'Frequency'),
-                items: [
-                  for (final frequency in PaymentFrequency.values)
-                    DropdownMenuItem(
-                      value: frequency,
-                      child: Text(frequency.label),
+              // How much each time, and how many times when the interest is
+              // in the payments: side by side, as a lender quotes them.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: AmountField(
+                      key: const Key('loan-payment'),
+                      controller: _paymentController,
+                      label: 'Each payment',
+                      hint: 'e.g. 1,000',
+                      helper: _included
+                          ? 'With interest.'
+                          : _interest == LoanInterest.separate
+                          ? 'Without the interest charge.'
+                          : 'What you pay each time.',
+                      alwaysShowHint: true,
+                      autofocus: false,
                     ),
+                  ),
+                  if (_included) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        key: const Key('loan-payment-count'),
+                        controller: _countController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(5),
+                        ],
+                        decoration:
+                            dialogFieldDecoration(
+                              context,
+                              'How many',
+                              hint: 'e.g. 12',
+                            ).copyWith(
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
+                              helperText: 'All payments.',
+                            ),
+                      ),
+                    ),
+                  ],
                 ],
-                onChanged: (value) {
-                  _frequency = value ?? _frequency;
-                  _refresh();
-                },
               ),
+              if (_interest == LoanInterest.separate) ...[
+                const SizedBox(height: 16),
+                ..._fixedInterestFields(context),
+              ],
               const SizedBox(height: 16),
-              _dateField(
-                context,
-                key: const Key('loan-next-payment-date'),
-                label: 'Payment Date',
-                date: _nextPaymentDate,
-                onTap: () => _pickDate(loanStart: false),
+              // How often, and when the next one is due.
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<PaymentFrequency>(
+                      key: ValueKey('loan-frequency-${_frequency.name}'),
+                      initialValue: _frequency,
+                      isExpanded: true,
+                      decoration: dialogFieldDecoration(context, 'How often'),
+                      items: [
+                        for (final frequency in PaymentFrequency.values)
+                          DropdownMenuItem(
+                            value: frequency,
+                            child: Text(
+                              frequency.label,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        _frequency = value ?? _frequency;
+                        _refresh();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _dateField(
+                      context,
+                      key: const Key('loan-next-payment-date'),
+                      label: 'Next payment',
+                      date: _nextPaymentDate,
+                      onTap: () => _pickDate(loanStart: false),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               _walletPicker(),
@@ -786,8 +1022,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
               if (_preview case final preview?
                   when preview.lastDueDate != null) ...[
                 const SizedBox(height: 16),
-                _LoanSummary(debt: preview),
+                _LoanSummary(debt: preview, interestIncluded: _included),
               ],
+              ?_includedWarning(context),
               const SizedBox(height: 12),
               Theme(
                 data: Theme.of(context).copyWith(
@@ -804,7 +1041,9 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                   childrenPadding: EdgeInsets.zero,
                   title: _sectionTitle(context, 'More details (optional)'),
                   subtitle: Text(
-                    'When it started, how long it runs, and interest.',
+                    _included
+                        ? 'When it started.'
+                        : 'When it started and how long it runs.',
                     style: TextStyle(fontSize: 12, color: colors.textMuted),
                   ),
                   children: [
@@ -815,141 +1054,71 @@ class _LoanFormSheetState extends State<LoanFormSheet> with CheckAfterSave {
                       date: _loanStartDate,
                       onTap: () => _pickDate(loanStart: true),
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            key: const Key('loan-duration'),
-                            controller: _durationController,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(3),
-                            ],
-                            decoration:
-                                dialogFieldDecoration(
-                                  context,
-                                  'Debt duration',
-                                  hint: 'e.g. 12',
-                                ).copyWith(
-                                  floatingLabelBehavior:
-                                      FloatingLabelBehavior.always,
-                                  helperMaxLines: 3,
-                                  helperText: _durationIsAutomatic
-                                      ? 'Estimated from your balance, '
-                                            'payment, and frequency.'
-                                      : null,
-                                ),
-                            onChanged: (value) {
-                              _durationWasEdited = value.trim().isNotEmpty;
-                              if (!_durationWasEdited) {
-                                _durationIsAutomatic = false;
-                                _updateAutomaticDuration();
-                              } else {
-                                _durationIsAutomatic = false;
-                              }
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonFormField<_LoanTermUnit>(
-                            key: ValueKey(
-                              'loan-duration-unit-${_durationUnit.name}',
-                            ),
-                            initialValue: _durationUnit,
-                            isExpanded: true,
-                            decoration: dialogFieldDecoration(
-                              context,
-                              'Duration unit',
-                            ),
-                            items: [
-                              for (final unit in _LoanTermUnit.values)
-                                DropdownMenuItem(
-                                  value: unit,
-                                  child: Text(unit.label),
-                                ),
-                            ],
-                            onChanged: (unit) {
-                              _durationUnit = unit ?? _durationUnit;
-                              _refresh();
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    // Interest kept together, after what the debt is.
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Interest',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    AmountField(
-                      key: const Key('loan-fixed-interest'),
-                      controller: _fixedInterestController,
-                      label: 'Fixed interest amount',
-                      hint: 'e.g. 180',
-                      helper:
-                          'The lender charges this exact amount each period. '
-                          'Interest is recorded separately from payments.',
-                      alwaysShowHint: true,
-                      autofocus: false,
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<PaymentFrequency>(
-                      key: ValueKey(
-                        'loan-interest-charged-per-'
-                        '${_interestChargedPer?.name ?? 'none'}',
-                      ),
-                      initialValue: _interestChargedPer,
-                      isExpanded: true,
-                      decoration: dialogFieldDecoration(
-                        context,
-                        'Interest charged per',
-                      ),
-                      items: [
-                        for (final period in PaymentFrequency.values)
-                          DropdownMenuItem(
-                            value: period,
-                            child: Text(period.label),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _interestChargedPer = value),
-                    ),
-                    if (_fixedInterestAmount != null &&
-                        _interestChargedPer != null) ...[
+                    if (!_included) ...[
                       const SizedBox(height: 16),
-                      _dateField(
-                        context,
-                        key: const Key('loan-first-interest-date'),
-                        label: 'Next interest charge date',
-                        date: _firstInterestChargeDate,
-                        onTap: _pickInterestDueDate,
-                      ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          key: const Key('use-next-payment-for-interest'),
-                          style: neutralTextStyle(context),
-                          onPressed: _nextPaymentDate == null
-                              ? null
-                              : () => setState(
-                                  () => _firstInterestChargeDate =
-                                      _nextPaymentDate,
-                                ),
-                          child: const Text('Use Payment Date'),
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              key: const Key('loan-duration'),
+                              controller: _durationController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(3),
+                              ],
+                              decoration:
+                                  dialogFieldDecoration(
+                                    context,
+                                    'Debt duration',
+                                    hint: 'e.g. 12',
+                                  ).copyWith(
+                                    floatingLabelBehavior:
+                                        FloatingLabelBehavior.always,
+                                    helperMaxLines: 3,
+                                    helperText: _durationIsAutomatic
+                                        ? 'Estimated from your balance, '
+                                              'payment, and frequency.'
+                                        : null,
+                                  ),
+                              onChanged: (value) {
+                                _durationWasEdited = value.trim().isNotEmpty;
+                                if (!_durationWasEdited) {
+                                  _durationIsAutomatic = false;
+                                  _updateAutomaticDuration();
+                                } else {
+                                  _durationIsAutomatic = false;
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<_LoanTermUnit>(
+                              key: ValueKey(
+                                'loan-duration-unit-${_durationUnit.name}',
+                              ),
+                              initialValue: _durationUnit,
+                              isExpanded: true,
+                              decoration: dialogFieldDecoration(
+                                context,
+                                'Duration unit',
+                              ),
+                              items: [
+                                for (final unit in _LoanTermUnit.values)
+                                  DropdownMenuItem(
+                                    value: unit,
+                                    child: Text(unit.label),
+                                  ),
+                              ],
+                              onChanged: (unit) {
+                                _durationUnit = unit ?? _durationUnit;
+                                _refresh();
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                     const SizedBox(height: 8),
@@ -998,9 +1167,12 @@ Widget _sectionTitle(BuildContext context, String text) => Text(
 /// What the debt comes to, once the balance, amount and payment date are in:
 /// how many payments, and when the last one falls due.
 class _LoanSummary extends StatelessWidget {
-  const _LoanSummary({required this.debt});
+  const _LoanSummary({required this.debt, this.interestIncluded = false});
 
   final Debt debt;
+
+  /// Whether the payments carry the interest, so what it comes to is said.
+  final bool interestIncluded;
 
   @override
   Widget build(BuildContext context) {
@@ -1028,6 +1200,23 @@ class _LoanSummary extends StatelessWidget {
               color: colors.textPrimary,
             ),
           ),
+          if (interestIncluded) ...[
+            const SizedBox(height: 4),
+            Text(
+              debt.extraCost > 0.005
+                  ? '${formatPeso(debt.totalPayable)} in all: '
+                        '${formatPeso(debt.principal)} borrowed and '
+                        '${formatPeso(debt.extraCost)} interest, '
+                        '${formatPeso(debt.interestOf(1))} of each payment.'
+                  : '${formatPeso(debt.totalPayable)} in all, no interest.',
+              key: const Key('loan-summary-interest'),
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: colors.textBody,
+              ),
+            ),
+          ],
           const SizedBox(height: 4),
           Text(
             debt.hasDifferentLastPayment
@@ -1057,7 +1246,11 @@ Widget _dateField(
     child: Row(
       children: [
         Expanded(
-          child: Text(date == null ? 'Choose a date' : formatShortDate(date)),
+          child: Text(
+            date == null ? 'Choose a date' : formatShortDate(date),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
         Image.asset(
           'assets/icons/icons8-calendar-96.png',
@@ -1068,3 +1261,60 @@ Widget _dateField(
     ),
   ),
 );
+
+/// How the lender charges interest, with one line under it saying what the
+/// choice means.
+class _InterestChoice extends StatelessWidget {
+  const _InterestChoice({required this.picked, required this.onPicked});
+
+  final LoanInterest picked;
+  final ValueChanged<LoanInterest> onPicked;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'How is interest charged?',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: colors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SegmentedChoice<LoanInterest>(
+          options: LoanInterest.values,
+          selected: picked,
+          onSelect: onPicked,
+          keyOf: (choice) => Key('loan-interest-${choice.name}'),
+          labelOf: (choice) => switch (choice) {
+            LoanInterest.included => 'In payments',
+            LoanInterest.separate => 'Separate',
+            LoanInterest.none => 'None',
+          },
+          semanticsOf: (choice) => switch (choice) {
+            LoanInterest.included => 'Interest in each payment',
+            LoanInterest.separate => 'Interest charged separately',
+            LoanInterest.none => 'No interest',
+          },
+        ),
+        const SizedBox(height: 6),
+        Text(
+          switch (picked) {
+            LoanInterest.included =>
+              'The payment the lender gave you already has the interest in '
+                  'it. Most loans work this way.',
+            LoanInterest.separate =>
+              'The lender charges a fixed amount on its own dates. It is '
+                  'paid first, before the payments.',
+            LoanInterest.none => 'You pay back exactly what you owe.',
+          },
+          style: TextStyle(fontSize: 12, height: 1.4, color: colors.textMuted),
+        ),
+      ],
+    );
+  }
+}

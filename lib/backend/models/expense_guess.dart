@@ -32,10 +32,32 @@ class ExpenseGuess {
 ///
 /// An occasion, like a date, decides only when nothing names what was paid
 /// for.
-String? suggestCategory(String text, {required Iterable<String> from}) {
+///
+/// A name that means two things, like Bacoor's "yellow cab" multicab and
+/// Yellow Cab Pizza, is decided by the words around it, then by [amount]:
+/// a fare's price is the ride. Without either, the user picks.
+String? suggestCategory(
+  String text, {
+  required Iterable<String> from,
+  double? amount,
+}) {
   final allowed = from.toSet();
   final scores = _categoryScores(text, allowed);
   if (scores.isNotEmpty) return _best(scores);
+  final twoWay = _twoWayName(text);
+  if (twoWay != null) {
+    // Going somewhere is a ride, whatever it cost.
+    final words = _words(text);
+    final going = words.any(_towards.contains);
+    final pick = going
+        ? twoWay.fare
+        : amount == null
+        ? null
+        : amount <= twoWay.over
+        ? twoWay.fare
+        : twoWay.meal;
+    return pick != null && allowed.contains(pick) ? pick : null;
+  }
   final occasions = _categoryScores(
     text,
     allowed,
@@ -63,6 +85,15 @@ String? suggestCategory(String text, {required Iterable<String> from}) {
         !RegExp(r'^[0-9]+$').hasMatch(word),
   );
   return named && allowed.contains('Others') ? 'Others' : null;
+}
+
+/// The [twoWayNames] entry [text] says, if any.
+({String fare, String meal, double over})? _twoWayName(String text) {
+  final said = ' ${_words(text).join(' ')} ';
+  for (final entry in twoWayNames.entries) {
+    if (said.contains(' ${entry.key} ')) return entry.value;
+  }
+  return null;
 }
 
 /// Words said around an amount that name nothing bought.
@@ -113,6 +144,7 @@ Map<String, int> _categoryScores(
   for (final entry in [
     ...keywords.entries,
     for (final place in places.entries) MapEntry('', place.value),
+    MapEntry('', twoWayNames.keys.toList()),
   ]) {
     if (entry.key.isNotEmpty && !from.contains(entry.key)) continue;
     for (final keyword in entry.value) {
@@ -335,7 +367,7 @@ ExpenseGuess guessFromSpeech(
 
   return ExpenseGuess(
     amount: amount?.value,
-    category: suggestCategory(words, from: categories),
+    category: suggestCategory(words, from: categories, amount: amount?.value),
     description: _describe(rest),
   );
 }

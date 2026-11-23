@@ -478,6 +478,19 @@ class DebtService {
             debt.direction == DebtDirection.iOwe &&
             debt.fixedInterestAmount != null) {
           await _addMissingChargeEntries(debt);
+          // Every payment made, ahead of its date included: what was
+          // borrowed is paid back, so nothing more is charged on its own.
+          final billId = debt.billId;
+          if (billId != null && debt.firstDueDate != null) {
+            final payoffId = BillService.payoffInstanceId(billId);
+            final instances = [
+              for (final instance in await BillService.loadInstancesForBill(
+                billId,
+              ))
+                if (instance.id != payoffId) instance,
+            ];
+            if (nextUnpaidPayment(debt, instances) == null) continue;
+          }
         }
         while (debt.status == DebtStatus.active &&
             debt.direction == DebtDirection.iOwe &&

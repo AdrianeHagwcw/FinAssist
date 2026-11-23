@@ -13,6 +13,7 @@ import '../widgets/goal_funding_picker.dart';
 import '../widgets/goal_progress.dart';
 import '../widgets/goal_sheets.dart';
 import '../widgets/money_text.dart';
+import '../widgets/dialog_kit.dart';
 
 /// One goal: how far along it is, when it will be reached at this pace, and
 /// every amount set aside for it.
@@ -71,27 +72,13 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 
   Future<void> _delete(Goal goal) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete ${goal.name}?'),
-        content: Text(_deleteMessage(goal)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: cancelTextStyle(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: dangerTextStyle(context),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Delete ${goal.name}?',
+      message: _deleteMessage(goal),
     );
 
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     await GoalService.deleteGoal(goal);
     if (mounted) Navigator.pop(context);

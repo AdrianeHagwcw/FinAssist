@@ -5158,8 +5158,19 @@ void main() {
           .style
           ?.foregroundColor
           ?.resolve(const <WidgetState>{});
-      expect(colorOf('Cancel'), appPrimaryBlue);
-      expect(colorOf('Remove'), appDangerRed);
+      // The shared delete warning: plain Cancel, solid red Remove.
+      expect(colorOf('Cancel'), isNot(appDangerRed));
+      expect(colorOf('Cancel'), isNot(appPrimaryBlue));
+      expect(
+        tester
+            .widget<ElevatedButton>(
+              find.widgetWithText(ElevatedButton, 'Remove'),
+            )
+            .style
+            ?.backgroundColor
+            ?.resolve(const <WidgetState>{}),
+        appDangerRed,
+      );
 
       // Backing out must leave the wallet alone.
       await tester.tap(find.text('Cancel'));
@@ -8201,11 +8212,12 @@ void main() {
       return [confirm, danger];
     }
 
-    testWidgets('cancel is red too, like the other ways of backing out', (
+    testWidgets('cancel is plain text, so only the action carries a colour', (
       tester,
     ) async {
       late Color cancel;
       late Color danger;
+      late Color text;
 
       await tester.pumpWidget(
         MaterialApp(
@@ -8218,13 +8230,15 @@ void main() {
               danger = dangerTextStyle(
                 context,
               ).foregroundColor!.resolve(const <WidgetState>{})!;
+              text = context.appColors.textPrimary;
               return const SizedBox.shrink();
             },
           ),
         ),
       );
 
-      expect(cancel, danger);
+      expect(cancel, text);
+      expect(cancel, isNot(danger));
     });
 
     testWidgets('light mode uses the solid green and red', (tester) async {

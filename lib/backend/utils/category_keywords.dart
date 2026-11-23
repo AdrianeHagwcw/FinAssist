@@ -118,7 +118,8 @@ const Map<String, List<String>> categoryKeywords = {
     'dunkin',
     'tim hortons',
     'shakeys',
-    'yellow cab',
+    'yellow cab pizza',
+    'yellowcab pizza',
     'maxs',
     'bonchon',
     'army navy',
@@ -1010,6 +1011,14 @@ const Map<String, List<String>> categoryKeywords = {
     'commute',
     'pamasahe',
     'fare',
+    'sakay',
+    'sumakay',
+    'nakasakay',
+    // Bacoor's colour-coded multicabs, around SM City Bacoor and Molino.
+    'multicab',
+    'multi cab',
+    'blue cab',
+    'green cab',
     'grab',
     'angkas',
     'joyride',
@@ -1740,6 +1749,17 @@ const Map<String, List<String>> occasionKeywords = {
 /// [categoryKeywords] or [occasionKeywords] matches: "SM Megamall" alone is
 /// Shopping, while "lunch at SM Megamall" is Food. They still take their own
 /// words first, so "Robinsons Magnolia" is never the Magnolia food brand.
+/// Names that mean two things, each with the category it means at a fare's
+/// price and the one it means above [over] pesos. Words around them decide
+/// first: "pizza sa yellow cab" is Food and "yellow cab papuntang Molino" is
+/// a ride. Only when nothing else is said does the amount: in Bacoor a
+/// "yellow cab" is a multicab, ₱13 to ₱30, while Yellow Cab Pizza's least is
+/// about ₱200.
+const Map<String, ({String fare, String meal, double over})> twoWayNames = {
+  'yellow cab': (fare: 'Transportation', meal: 'Food', over: 150),
+  'yellowcab': (fare: 'Transportation', meal: 'Food', over: 150),
+};
+
 const Map<String, List<String>> placeKeywords = {
   'Shopping': [
     'mall',

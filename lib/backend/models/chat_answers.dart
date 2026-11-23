@@ -101,7 +101,11 @@ List<CategorizedChatExpense>? categorizeChatExpenses(String message) {
       CategorizedChatExpense(
         amount: amount,
         description: cleanedDescription,
-        category: suggestCategory(cleanedDescription, from: expenseCategories),
+        category: suggestCategory(
+          cleanedDescription,
+          from: expenseCategories,
+          amount: amount,
+        ),
       ),
     );
   }

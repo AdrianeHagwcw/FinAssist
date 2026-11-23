@@ -73,7 +73,7 @@ const List<({String title, List<_Faq> faqs})> _sections = [
       (
         question: 'What is the difference between Installments and Debts?',
         answer:
-            'Installments are things you bought and pay for in parts, like a phone or an appliance. You enter the cash price and the months, and FinAssist works out each payment. Debts are money you borrowed, like from a bank, SSS, Pag-IBIG or family, where the interest is worked out too. Each payment of either one shows in your Bill Planner, where you pay it.',
+            'Installments are things you bought and pay for in parts, like a phone or an appliance. You enter the cash price and the months, and FinAssist works out each payment. Debts are money you borrowed, like from a bank, SSS, Pag-IBIG or family. Say how the lender charges interest: in each payment (most loans), charged separately, or none. Enter the amount borrowed without interest, and FinAssist works out the interest in each payment. Each payment of either one shows in your Bill Planner, where you pay it.',
       ),
       (
         question: 'What if I paid one off early?',

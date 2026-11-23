@@ -18,6 +18,7 @@ import '../widgets/check_after_save.dart';
 import '../widgets/goal_progress.dart';
 import '../widgets/money_text.dart';
 import '../../backend/utils/money_format.dart';
+import '../widgets/dialog_kit.dart';
 
 /// One bill on one due date: what is owed, what has been paid, and the
 /// actions that settle it.
@@ -97,30 +98,17 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   ) async {
     if (!_canUndo(instance)) return;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Undo this payment?'),
-        content: Text(
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Undo this payment?',
+      message:
           '${_money(payment.amount)} goes back to $walletName, and the bill '
           'shows that much still owing.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: cancelTextStyle(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: dangerTextStyle(context),
-            child: const Text('Undo'),
-          ),
-        ],
-      ),
+      action: 'Undo',
+      icon: Icons.undo,
     );
 
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     BillService.undoPayment(instance, payment);
     if (mounted) setState(() => _paymentsKey++);
@@ -129,30 +117,17 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   Future<void> _undoPayments(BillInstance instance) async {
     if (!_canUndo(instance)) return;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Undo this payment?'),
-        content: Text(
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Undo this payment?',
+      message:
           'The bill goes back to unpaid and '
           '${_money(instance.amountPaid)} returns to your wallet.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: cancelTextStyle(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: dangerTextStyle(context),
-            child: const Text('Undo'),
-          ),
-        ],
-      ),
+      action: 'Undo',
+      icon: Icons.undo,
     );
 
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     await BillService.undoPayments(instance);
     if (mounted) setState(() => _paymentsKey++);
@@ -170,31 +145,16 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   }
 
   Future<void> _deleteBill(Bill bill) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete ${bill.name}?'),
-        content: const Text(
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Delete ${bill.name}?',
+      message:
           'It stops falling due, and any unpaid dates are removed. Dates you '
           'already paid are kept, because they explain money that really left '
           'your wallet.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: cancelTextStyle(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: dangerTextStyle(context),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
     );
 
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     await BillService.deleteBill(bill.id);
 
@@ -706,10 +666,7 @@ class _BillActions extends StatelessWidget {
                   style: openButtonStyle(height: 46),
                   child: const Text(
                     'Pay part of it',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),

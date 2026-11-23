@@ -90,10 +90,11 @@ ButtonStyle confirmTextStyle(BuildContext context) =>
 ButtonStyle dangerTextStyle(BuildContext context) =>
     TextButton.styleFrom(foregroundColor: dangerColorOn(context));
 
-/// Cancel backs out, so it is red like the other buttons that undo or stop
-/// something.
+/// Cancel only backs out and decides nothing, so it is the page's own text
+/// colour, white in dark mode, like Keep My Account. Only the action it sits
+/// beside carries a colour.
 ButtonStyle cancelTextStyle(BuildContext context) =>
-    TextButton.styleFrom(foregroundColor: dangerColorOn(context));
+    TextButton.styleFrom(foregroundColor: context.appColors.textPrimary);
 
 /// Blue text, for a text action that opens or continues: a link, a review
 /// step, the way on to another screen.
@@ -101,9 +102,7 @@ ButtonStyle openTextStyle(BuildContext context, {bool compact = false}) =>
     TextButton.styleFrom(
       foregroundColor: context.appColors.primaryText,
       visualDensity: compact ? VisualDensity.compact : null,
-      padding: compact
-          ? const EdgeInsets.symmetric(horizontal: 8)
-          : null,
+      padding: compact ? const EdgeInsets.symmetric(horizontal: 8) : null,
     );
 
 /// Quiet text, for a show/hide toggle or a soft "not now" inside a row. These
@@ -113,9 +112,7 @@ ButtonStyle neutralTextStyle(BuildContext context, {bool compact = false}) =>
     TextButton.styleFrom(
       foregroundColor: context.appColors.textBody,
       visualDensity: compact ? VisualDensity.compact : null,
-      padding: compact
-          ? const EdgeInsets.symmetric(horizontal: 8)
-          : null,
+      padding: compact ? const EdgeInsets.symmetric(horizontal: 8) : null,
     );
 
 /// A red outlined button, for a destructive action that isn't the main thing

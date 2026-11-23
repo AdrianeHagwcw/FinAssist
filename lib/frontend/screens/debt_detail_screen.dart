@@ -113,28 +113,12 @@ class _DebtDetailScreenState extends State<_DebtDetailScreenBase> {
     required String title,
     required String message,
     required String action,
-  }) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: cancelTextStyle(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: dangerTextStyle(context),
-            child: Text(action),
-          ),
-        ],
-      ),
-    );
-    return confirmed == true;
-  }
+  }) => confirmDestructive(
+    context,
+    title: title,
+    message: message,
+    action: action,
+  );
 
   Future<void> _delete(Debt debt) async {
     final ok = await _confirm(
@@ -393,7 +377,9 @@ class _DetailBody extends StatelessWidget {
               ),
               const Divider(height: 28),
               _Line(
-                debt.balanceBasedSchedule
+                // With the interest in each payment, the amount is what
+                // was borrowed; otherwise it is what was owed when added.
+                debt.balanceBasedSchedule && debt.interestShare <= 0
                     ? 'Debt balance at setup'
                     : debt.category.isLoan
                     ? 'Borrowed'
@@ -405,13 +391,28 @@ class _DetailBody extends StatelessWidget {
                   'Still owed on the loan',
                   formatPeso(debt.loanLeft(progress.towardLoan)),
                 ),
-                // The lender's charges less what has been paid on them.
-                _Line(
-                  'Interest still owed',
-                  formatPeso(
-                    math.max(0.0, debt.accruedInterest - progress.chargesPaid),
+                // The interest inside the payments still to make. It is
+                // not owed until each falls due.
+                if (debt.interestShare > 0)
+                  _Line(
+                    'Interest in the payments left',
+                    formatPeso(
+                      math.max(0.0, debt.totalPayable - progress.towardLoan) *
+                          debt.interestShare,
+                    ),
                   ),
-                ),
+                // The lender's charges less what has been paid on them.
+                if (debt.fixedInterestAmount != null ||
+                    debt.accruedInterest > 0)
+                  _Line(
+                    'Interest still owed',
+                    formatPeso(
+                      math.max(
+                        0.0,
+                        debt.accruedInterest - progress.chargesPaid,
+                      ),
+                    ),
+                  ),
                 _Line('Total still owed', formatPeso(progress.remaining)),
               ],
               _Line(debt.frequency.eachLabel, formatPeso(debt.perPayment)),
@@ -619,29 +620,16 @@ class _DetailBody extends StatelessWidget {
 
 /// Asks, then takes back a payoff made by mistake.
 Future<void> _undoPayoff(BuildContext context, Debt debt) async {
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Undo paying it off?'),
-      content: Text(
+  final ok = await confirmDestructive(
+    context,
+    title: 'Undo paying it off?',
+    message:
         '${formatPeso(debt.paidOffAmount)} goes back to your wallets, and the '
         'payments that were left are owed again.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          style: cancelTextStyle(context),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, true),
-          style: dangerTextStyle(context),
-          child: const Text('Undo'),
-        ),
-      ],
-    ),
+    action: 'Undo',
+    icon: Icons.undo,
   );
-  if (ok == true) await DebtService.undoPayOff(debt);
+  if (ok) await DebtService.undoPayOff(debt);
 }
 
 bool _isDue(DateTime due, DateTime today) => !DateTime(
@@ -835,8 +823,18 @@ class _CostOfBorrowing extends StatelessWidget {
                     style: body,
                   ),
                 Text(
-                  'Fixed interest charges follow their own schedule and stay '
-                  'separate from principal payments.',
+                  debt.fixedInterestAmount != null
+                      ? 'The lender charges ${formatPeso(debt.fixedInterestAmount!)} '
+                            'of interest on its own dates. It is paid first, '
+                            'before the payments.'
+                      : debt.interestShare > 0
+                      ? 'Interest is in each payment: '
+                            '${formatPeso(debt.interestOf(1))} of each '
+                            '${formatPeso(debt.perPayment)}, '
+                            '${formatPeso(debt.extraCost)} in all '
+                            '(${roundedPercent(debt.extraCostPercent)} of '
+                            '${formatPeso(debt.principal)}).'
+                      : 'No interest: you pay back exactly what you owed.',
                   style: body,
                 ),
               ],
@@ -1062,6 +1060,32 @@ List<Widget> _statementRows(
       ? null
       : BillService.payoffInstanceId(debt.billId!);
   final payoff = instances.where((i) => i.id == payoffId).firstOrNull;
+  // Each fixed charge's own entry, to say whether it is paid and to take
+  // what was paid on it off what is left.
+  final chargeEntries = {
+    for (final instance in instances)
+      if (isFixedInterestCharge(instance)) instance.id: instance,
+  };
+  BillInstance? entryFor(FixedInterestCharge charge) => debt.billId == null
+      ? null
+      : chargeEntries[billInstanceId(
+          fixedInterestBillId(debt.billId!),
+          charge.periodDueDate,
+        )];
+  double paidOn(FixedInterestCharge charge) =>
+      entryFor(charge)?.amountPaid ?? 0;
+  String chargeStatus(FixedInterestCharge charge) {
+    final entry = entryFor(charge);
+    if (entry == null) return 'Recorded';
+    if (entry.status == BillStatus.paid) return 'Paid';
+    if (entry.carriedInto != null) return 'Settled by the payoff';
+    if (entry.amountPaid > 0.005) {
+      return '${formatPeso(entry.amountPaid)} of '
+          '${formatPeso(entry.amount)} paid';
+    }
+    return 'Not paid yet';
+  }
+
   // Fixed interest charges are listed as charges, not as payments.
   instances = [
     for (final instance in instances)
@@ -1081,7 +1105,7 @@ List<Widget> _statementRows(
   var chargeIndex = 0;
 
   void addStandaloneCharge(FixedInterestCharge charge) {
-    owed += charge.amount;
+    owed += charge.amount - paidOn(charge);
     rows.add(
       Container(
         key: Key('statement-fixed-interest-${charge.periodKey}'),
@@ -1113,7 +1137,7 @@ List<Widget> _statementRows(
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    'Status: Recorded · Date recorded: '
+                    'Status: ${chargeStatus(charge)} · Date recorded: '
                     '${charge.recordedAt == null ? 'Unavailable' : formatShortDate(charge.recordedAt!)}',
                     style: TextStyle(fontSize: 12, color: colors.textBody),
                   ),
@@ -1181,7 +1205,7 @@ List<Widget> _statementRows(
         _sameDate(orderedCharges[chargeIndex].chargedAt, due)) {
       final charge = orderedCharges[chargeIndex++];
       paymentCharges.add(charge);
-      owed += charge.amount;
+      owed += charge.amount - paidOn(charge);
     }
     final interestAmount = paymentCharges.fold<double>(
       0,
@@ -1199,9 +1223,11 @@ List<Widget> _statementRows(
           .map(formatShortDate)
           .toSet()
           .join(', ');
+      final status = paymentCharges.map(chargeStatus).toSet().join(', ');
       return '${formatPeso(interestAmount)} interest recorded; charge date '
           '$chargedDates; date recorded: '
-          '${recordedDates.isEmpty ? 'Unavailable' : recordedDates}';
+          '${recordedDates.isEmpty ? 'Unavailable' : recordedDates}; '
+          '$status';
     }
 
     // Paid before it was tracked: no bill stands for it, but it was paid.

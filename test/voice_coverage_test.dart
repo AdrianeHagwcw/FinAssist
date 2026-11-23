@@ -43,6 +43,33 @@ const said = <(String, VoiceCommandType, String?, double?)>[
   ('padyak 15', VoiceCommandType.expense, 'Transportation', 15),
   ('change oil 1800', VoiceCommandType.expense, 'Transportation', 1800),
   ('vulcanizing 100', VoiceCommandType.expense, 'Transportation', 100),
+  // Bacoor's colour-coded multicabs, told apart from Yellow Cab Pizza.
+  ('yellow cab 15', VoiceCommandType.expense, 'Transportation', 15),
+  (
+    'sumakay ako ng yellow cab 20',
+    VoiceCommandType.expense,
+    'Transportation',
+    20,
+  ),
+  (
+    'yellow cab papuntang SM Bacoor 25',
+    VoiceCommandType.expense,
+    'Transportation',
+    25,
+  ),
+  ('pamasahe sa yellow cab 13', VoiceCommandType.expense, 'Transportation', 13),
+  ('blue cab 13', VoiceCommandType.expense, 'Transportation', 13),
+  (
+    'green cab papuntang Molino 18',
+    VoiceCommandType.expense,
+    'Transportation',
+    18,
+  ),
+  ('multicab 20', VoiceCommandType.expense, 'Transportation', 20),
+  ('yellow cab pizza 499', VoiceCommandType.expense, 'Food', 499),
+  ('pizza sa yellow cab 650', VoiceCommandType.expense, 'Food', 650),
+  ('kumain kami sa yellow cab 1200', VoiceCommandType.expense, 'Food', 1200),
+  ('yellow cab 899', VoiceCommandType.expense, 'Food', 899),
   // Shopping.
   ('bumili ako ng damit 500', VoiceCommandType.expense, 'Shopping', 500),
   ('toothpaste 95', VoiceCommandType.expense, 'Shopping', 95),

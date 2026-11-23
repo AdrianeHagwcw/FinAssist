@@ -163,6 +163,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
     // the user picks one.
     if (!_isEditMode) {
       _descriptionController.addListener(_suggestCategory);
+      // "Yellow cab" is a ride at a fare's price and Yellow Cab Pizza above.
+      _amountController.addListener(_suggestCategory);
     }
 
     // The wallet list is held here rather than read from a builder, because
@@ -326,6 +328,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
     final suggestion = suggestCategory(
       _descriptionController.text,
       from: availableCategoriesOf(context),
+      amount: double.tryParse(
+        _amountController.text.trim().replaceAll(',', ''),
+      ),
     );
     if (suggestion == _selectedCategory) return;
 

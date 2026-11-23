@@ -473,14 +473,17 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    /// A text button's colour, or a filled button's fill.
     Color? actionColor(WidgetTester tester, String label) {
-      final button = tester.widget<TextButton>(
+      final button = tester.widget<ButtonStyleButton>(
         find.ancestor(
           of: find.text(label),
-          matching: find.byWidgetPredicate((w) => w is TextButton),
+          matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
         ),
       );
-      return button.style?.foregroundColor?.resolve(const <WidgetState>{});
+      return button is ElevatedButton
+          ? button.style?.backgroundColor?.resolve(const <WidgetState>{})
+          : button.style?.foregroundColor?.resolve(const <WidgetState>{});
     }
 
     testWidgets('says the money does not come back', (tester) async {
@@ -497,10 +500,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      // Delete is red; Cancel is red too, like every button that stops or
-      // undoes something.
+      // Delete is red; Cancel is plain text, since it decides nothing.
       expect(actionColor(tester, 'Delete'), appDangerRed);
-      expect(actionColor(tester, 'Cancel'), appDangerRed);
+      expect(actionColor(tester, 'Cancel'), isNot(appDangerRed));
 
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
@@ -518,8 +520,10 @@ void main() {
         findsOneWidget,
       );
       // Lightened red, so it stays readable on the dark background.
-      expect(actionColor(tester, 'Delete'), const Color(0xFFEF5350));
-      expect(actionColor(tester, 'Cancel'), const Color(0xFFEF5350));
+      // The same solid red Delete button as every delete.
+      expect(actionColor(tester, 'Delete'), appDangerRed);
+      // Cancel is white text in dark mode, not red.
+      expect(actionColor(tester, 'Cancel'), isNot(const Color(0xFFEF5350)));
 
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();

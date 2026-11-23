@@ -353,7 +353,7 @@ class _UndoNotice extends StatelessWidget {
 }
 
 /// The one warning before anything is removed: a red icon, what will
-/// happen, a red Cancel and a red button that does it. Returns true only
+/// happen, a plain Cancel and a red button that does it. Returns true only
 /// when the user chose to go ahead.
 Future<bool> confirmDestructive(
   BuildContext context, {
@@ -382,8 +382,7 @@ Future<bool> confirmDestructive(
       ),
       actionsAlignment: MainAxisAlignment.end,
       actions: [
-        // Red, like every way out: only the colour of the confirmed action
-        // differs from the Cancel on other dialogs.
+        // Plain, like every Cancel: only the action is red.
         TextButton(
           onPressed: () => Navigator.pop(context, false),
           style: cancelTextStyle(
