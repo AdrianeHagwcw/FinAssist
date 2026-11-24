@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../backend/models/expense_category_preferences.dart';
 import '../../backend/services/user_profile_service.dart';

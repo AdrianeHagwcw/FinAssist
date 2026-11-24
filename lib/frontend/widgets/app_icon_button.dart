@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The eye that hides and shows every amount, as one of the app's colored
 /// icons: open while amounts show, crossed out while they are hidden.

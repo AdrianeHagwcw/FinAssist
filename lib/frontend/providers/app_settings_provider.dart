@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../backend/models/expense_category_preferences.dart';
 import '../../backend/services/launch_screen.dart';

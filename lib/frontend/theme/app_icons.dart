@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The app's colored icons, for things: what something is, a field's kind,
 /// a tip, an empty screen. What a tap does (back, close, add, edit, delete,

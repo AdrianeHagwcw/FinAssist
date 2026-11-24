@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../backend/models/dashboard_tip.dart';
 import '../theme/app_colors.dart';
